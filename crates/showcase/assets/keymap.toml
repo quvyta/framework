@@ -1,0 +1,10 @@
+# Showcase key bindings, layered over the framework's built-in keymap.
+
+[app]
+search    = "/"
+back      = "esc"
+menu      = "ctrl+b"
+demo      = "1"
+code      = "2"
+guide     = "3"
+reference = "4"

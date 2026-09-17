@@ -1,0 +1,22 @@
+# Iris: calm indigo accent on a soft violet-black ground.
+
+[meta]
+name = "Iris"
+extends = "monochrome"
+
+[colors]
+canvas   = "#0E0F18"
+surface  = "#161826"
+raised   = "#202336"
+active   = "#2C304A"
+overlay  = "#1A1C2D"
+accent   = "#818CF8"
+accent-2 = "#C7D2FE"
+text     = "#EEF2FF"
+dim      = "#A5B4FC"
+muted    = "#676BA6"
+ink      = "#0E1218"
+success  = "#6EDBA0"
+warning  = "#F3C26B"
+danger   = "#F47C8A"
+info     = "#7DD3FC"

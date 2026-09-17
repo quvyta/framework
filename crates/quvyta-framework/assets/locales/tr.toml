@@ -1,0 +1,123 @@
+# Türkçe
+
+[meta]
+name = "Türkçe"
+code = "tr"
+fallback = "en"
+
+[quvyta.keys]
+quit       = "çık"
+focus-next = "sonraki"
+focus-prev = "önceki"
+debug      = "hata ayıklama"
+toggle-panel = "panel"
+copy       = "kopyala"
+paste      = "yapıştır"
+help       = "tuşlar"
+palette    = "komutlar"
+
+[quvyta.switch]
+on  = "AÇIK"
+off = "KAPALI"
+
+[quvyta.log]
+below = { one = "aşağıda {n} satır", other = "aşağıda {n} satır" }
+no-match = "Eşleşen satır yok"
+
+[quvyta.file-picker]
+filter = "Ada göre süz"
+loading = "Klasör okunuyor…"
+parent = "Üst klasör"
+empty = "Bu klasör boş"
+no-match = "Süzgece uyan bir şey yok"
+hidden = "Gizli dosyalar"
+choose-file = "Dosyayı seç"
+choose-folder = "Klasörü seç"
+permission-denied = "Bu klasörü açma iznin yok"
+not-found = "Bu klasör yok"
+not-a-folder = "Bu bir klasör değil"
+unreadable = "Bu klasör okunamadı"
+
+[quvyta.terminal]
+scrolled = { one = "{n} satır geride", other = "{n} satır geride" }
+exited = "{code} koduyla çıktı"
+
+[quvyta.form]
+required = "zorunlu"
+summary  = { one = "{n} alan düzeltilmeli", other = "{n} alan düzeltilmeli" }
+
+[quvyta.wizard]
+cancel = "Vazgeç"
+back   = "Geri"
+next   = "İleri"
+finish = "Bitir"
+
+[quvyta.copy-value]
+copy   = "kopyala"
+copied = "kopyalandı"
+
+[quvyta.tasks]
+done      = "bitti"
+cancelled = "iptal edildi"
+cancel    = "İptal"
+empty     = "Çalışan iş yok"
+
+[quvyta.date]
+# 1 is Monday, 7 is Sunday.
+first-weekday = "1"
+format = "{day} {month} {year}"
+title = "{month} {year}"
+month-1 = "Ocak"
+month-2 = "Şubat"
+month-3 = "Mart"
+month-4 = "Nisan"
+month-5 = "Mayıs"
+month-6 = "Haziran"
+month-7 = "Temmuz"
+month-8 = "Ağustos"
+month-9 = "Eylül"
+month-10 = "Ekim"
+month-11 = "Kasım"
+month-12 = "Aralık"
+weekday-1 = "Pt"
+weekday-2 = "Sa"
+weekday-3 = "Ça"
+weekday-4 = "Pe"
+weekday-5 = "Cu"
+weekday-6 = "Ct"
+weekday-7 = "Pz"
+
+[quvyta.layer]
+close  = "kapat"
+switch = "geç"
+scroll = "kaydır"
+move   = "gez"
+run    = "çalıştır"
+filter = "Süzmek için yaz"
+
+[quvyta.help]
+title  = "Klavye kısayolları"
+screen = "Bu ekran"
+app    = "Uygulama"
+global = "Genel"
+empty  = "Eşleşen tuş yok"
+
+[quvyta.palette]
+placeholder = "Bir komut yaz"
+recent      = "Son kullanılanlar"
+all         = "Tüm komutlar"
+empty       = "Eşleşen komut yok"
+
+[quvyta.confirm]
+confirm = "Onayla"
+cancel  = "Vazgeç"
+
+[quvyta.tab-rail]
+add = "Yeni sekme"
+
+[quvyta.edit]
+cut        = "Kes"
+copy       = "Kopyala"
+raw-copy   = "Ham kopyala"
+paste      = "Yapıştır"
+select-all = "Tümünü seç"

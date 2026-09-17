@@ -1,0 +1,122 @@
+# English: the final fallback language. Every other locale is checked against this file.
+
+[meta]
+name = "English"
+code = "en"
+
+[quvyta.keys]
+quit       = "quit"
+focus-next = "next"
+focus-prev = "previous"
+debug      = "debug"
+toggle-panel = "panel"
+copy       = "copy"
+paste      = "paste"
+help       = "keys"
+palette    = "commands"
+
+[quvyta.switch]
+on  = "ON"
+off = "OFF"
+
+[quvyta.log]
+below = { one = "{n} line below", other = "{n} lines below" }
+no-match = "No lines match"
+
+[quvyta.file-picker]
+filter = "Filter by name"
+loading = "Reading folder…"
+parent = "Parent folder"
+empty = "This folder is empty"
+no-match = "Nothing matches the filter"
+hidden = "Hidden files"
+choose-file = "Choose file"
+choose-folder = "Choose folder"
+permission-denied = "You may not open this folder"
+not-found = "This folder does not exist"
+not-a-folder = "This is not a folder"
+unreadable = "This folder could not be read"
+
+[quvyta.terminal]
+scrolled = { one = "{n} line back", other = "{n} lines back" }
+exited = "exited with {code}"
+
+[quvyta.form]
+required = "required"
+summary  = { one = "{n} field needs attention", other = "{n} fields need attention" }
+
+[quvyta.wizard]
+cancel = "Cancel"
+back   = "Back"
+next   = "Next"
+finish = "Finish"
+
+[quvyta.copy-value]
+copy   = "copy"
+copied = "copied"
+
+[quvyta.tasks]
+done      = "done"
+cancelled = "cancelled"
+cancel    = "Cancel"
+empty     = "No tasks running"
+
+[quvyta.date]
+# 1 is Monday, 7 is Sunday. English calendars in the US start on Sunday.
+first-weekday = "7"
+format = "{month} {day}, {year}"
+title = "{month} {year}"
+month-1 = "January"
+month-2 = "February"
+month-3 = "March"
+month-4 = "April"
+month-5 = "May"
+month-6 = "June"
+month-7 = "July"
+month-8 = "August"
+month-9 = "September"
+month-10 = "October"
+month-11 = "November"
+month-12 = "December"
+weekday-1 = "Mo"
+weekday-2 = "Tu"
+weekday-3 = "We"
+weekday-4 = "Th"
+weekday-5 = "Fr"
+weekday-6 = "Sa"
+weekday-7 = "Su"
+
+[quvyta.layer]
+close  = "close"
+switch = "switch"
+scroll = "scroll"
+move   = "move"
+run    = "run"
+filter = "Type to filter"
+
+[quvyta.help]
+title  = "Keyboard shortcuts"
+screen = "This screen"
+app    = "Application"
+global = "General"
+empty  = "No matching keys"
+
+[quvyta.palette]
+placeholder = "Type a command"
+recent      = "Recent"
+all         = "All commands"
+empty       = "No matching commands"
+
+[quvyta.confirm]
+confirm = "Confirm"
+cancel  = "Cancel"
+
+[quvyta.tab-rail]
+add = "New tab"
+
+[quvyta.edit]
+cut        = "Cut"
+copy       = "Copy"
+raw-copy   = "Raw copy"
+paste      = "Paste"
+select-all = "Select all"

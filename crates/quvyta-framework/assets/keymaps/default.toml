@@ -1,0 +1,12 @@
+# Built-in key bindings. Applications override actions by name in their own keymap file.
+
+[global]
+quit       = "ctrl+q"
+focus-next = "tab"
+focus-prev = "shift+tab"
+debug      = "f12"
+toggle-panel = "alt+b"
+copy       = "ctrl+c"   # copies the mouse selection, without decoration and trailing padding
+paste      = "ctrl+v"   # pastes from the system clipboard, the terminal or the last copy inside the application
+help       = "?"
+palette    = "ctrl+p"

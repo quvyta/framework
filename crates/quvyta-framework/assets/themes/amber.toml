@@ -1,0 +1,36 @@
+# Amber: warm amber accent on charcoal. Warning moves to salmon so it never reads as the
+# accent; success is a warm sage and danger a deep crimson.
+
+[meta]
+name = "Amber"
+extends = "monochrome"
+
+[colors]
+canvas   = "#12100E"
+surface  = "#1C1814"
+raised   = "#2A241D"
+active   = "#3A3127"
+overlay  = "#221D18"
+accent   = "#F59E0B"
+accent-2 = "#FED7AA"
+text     = "#FEFCE8"
+dim      = "#D6B98A"
+muted    = "#8A6E48"
+ink      = "#12100E"
+success  = "#A6CF7E"
+warning  = "#F28B82"
+danger   = "#E5484D"
+info     = "#8FB8DE"
+
+# On warm charcoal the raised tone all but vanishes, so an off switch read as a lone knob.
+# Its track rests one step up the surface ladder, and hovering still lifts it a step more.
+[style.switch]
+track = "$active"
+knob  = "mix($muted, $active, 40%)"
+
+# A disabled switch keeps its knob a step apart from the track, which here is already `$active`.
+[style."switch:disabled"]
+knob = "mix($muted, $active, 30%)"
+
+[style."switch:hover"]
+track = "mix($muted, $active, 35%)"

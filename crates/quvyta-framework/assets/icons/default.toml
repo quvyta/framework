@@ -1,0 +1,211 @@
+# Default icon set. Every icon has a Nerd Font, a Unicode and an ASCII glyph.
+# ASCII glyphs never use brackets to fake shapes.
+
+[meta]
+name = "Default"
+
+[icons]
+
+# ---- Marks and selection
+check            = { nerd = "\uf00c", unicode = "✓", ascii = "v" }
+check-partial    = { nerd = "\uf068", unicode = "–", ascii = "-" }
+close            = { nerd = "\uf00d", unicode = "×", ascii = "x" }
+dot              = { nerd = "●", unicode = "●", ascii = "*" }
+dot-outline      = { nerd = "○", unicode = "○", ascii = "o" }
+# The radio mark's small and medium sizes, two cells each (the full size is two cells of colour).
+# Small is a centred square of sextants (Symbols for Legacy Computing), which kitty, WezTerm,
+# Ghostty and foot draw themselves; elsewhere the font must have them. A theme's [icons] table
+# can replace them, and blank glyphs, as in ASCII, draw faint and mid-tone boxes instead.
+radio-mark-small  = { nerd = "🬇🬃", unicode = "🬇🬃", ascii = "  " }
+select-on        = { nerd = "\uf14a", unicode = "☑", ascii = "x" }   # multi-select marks of lists and tables
+select-off       = { nerd = "\uf096", unicode = "☐", ascii = "o" }
+pillar           = { nerd = "▌", unicode = "▌", ascii = " " }   # ASCII shows selection by surface colour alone
+bullet           = { nerd = "•", unicode = "•", ascii = "-" }
+mask             = { nerd = "•", unicode = "•", ascii = "*" }
+prompt           = { nerd = "❯", unicode = "❯", ascii = ">" }
+enter            = { nerd = "⏎", unicode = "⏎", ascii = ">" }
+
+# ---- Arrows and chevrons
+arrow-left       = { nerd = "\uf060", unicode = "←", ascii = "<" }
+arrow-right      = { nerd = "\uf061", unicode = "→", ascii = ">" }
+arrow-up         = { nerd = "\uf062", unicode = "↑", ascii = "^" }
+arrow-down       = { nerd = "\uf063", unicode = "↓", ascii = "v" }
+chevron-left     = { nerd = "\uf053", unicode = "◀", ascii = "<" }
+chevron-right    = { nerd = "\uf054", unicode = "▶", ascii = ">" }
+chevron-down     = { nerd = "\uf078", unicode = "▾", ascii = "v" }
+
+# ---- Controls
+switch-rail      = { nerd = "━", unicode = "━", ascii = " " }   # ASCII switches are drawn as capsules
+switch-knob      = { nerd = "█", unicode = "█", ascii = " " }
+cap-left         = { nerd = "▐", unicode = "▐", ascii = " " }   # rounded ends; ASCII fills the cell instead
+cap-right        = { nerd = "▌", unicode = "▌", ascii = " " }
+slider-rail      = { nerd = "━", unicode = "━", ascii = " " }   # ASCII draws the rail as coloured cells
+slider-knob      = { nerd = "◆", unicode = "◆", ascii = " " }
+stepper-minus    = { nerd = "−", unicode = "−", ascii = "-" }
+stepper-plus     = { nerd = "+", unicode = "+", ascii = "+" }
+add              = { nerd = "\uf067", unicode = "+", ascii = "+" }
+search           = { nerd = "\uf002", unicode = "⌕", ascii = "/" }
+
+# ---- Scrollbars
+# Blank ASCII glyphs draw coloured cells.
+scroll-thumb     = { nerd = "▐", unicode = "▐", ascii = " " }
+scroll-track     = { nerd = "▕", unicode = "▕", ascii = " " }
+scroll-thin      = { nerd = "▕", unicode = "▕", ascii = " " }
+scroll-dot       = { nerd = "·", unicode = "·", ascii = "." }
+scroll-dot-thumb = { nerd = "•", unicode = "•", ascii = " " }
+
+# ---- Sections, trees, panels and navigation
+section-open     = { nerd = "\uf107", unicode = "▾", ascii = "v" }
+section-closed   = { nerd = "\uf105", unicode = "▸", ascii = ">" }
+tree-collapsed   = { nerd = "\uf105", unicode = "▸", ascii = "+" }
+tree-expanded    = { nerd = "\uf107", unicode = "▾", ascii = "-" }
+# The toggle arrow on a side panel edge.
+edge-left        = { nerd = "‹", unicode = "‹", ascii = "<" }
+edge-right       = { nerd = "›", unicode = "›", ascii = ">" }
+# The breadcrumb separator is a small chevron; ASCII avoids `/` and `>`.
+crumb-separator  = { nerd = "\uf105", unicode = "›", ascii = ":" }
+path-separator   = { nerd = "\uf105", unicode = "›", ascii = "/" }
+
+# ---- Files, empty states and status
+folder           = { nerd = "\uf07b", unicode = "■", ascii = "#" }   # never a chevron: trees and sections put one beside it
+file             = { nerd = "\uf15b", unicode = "▪", ascii = "." }
+inbox            = { nerd = "\uf01c", unicode = "◌", ascii = "o" }
+success          = { nerd = "\uf058", unicode = "✓", ascii = "v" }
+warning          = { nerd = "\uf071", unicode = "▲", ascii = "!" }
+error            = { nerd = "\uf057", unicode = "✕", ascii = "x" }
+info             = { nerd = "\uf05a", unicode = "ℹ", ascii = "i" }
+
+# ---- Animations
+# One-cell animations: every frame has a glyph per mode (a missing nerd glyph uses the unicode
+# one, a missing unicode glyph the ascii one) and may have a colour; $fg is the widget's colour.
+# The spinner styles repeat their shorter mode so every mode keeps its own rhythm.
+
+# SpinnerStyle::Arc, the default: an arc sweeping round. Nerd Font v3 nf-extra-progress_spinner_1..6.
+# 12 frames: six Nerd and Unicode arcs twice, four ASCII bars three times.
+[animations.spinner-arc]
+frame = "spinner"
+playback = "loop"
+colors = "step"
+frames = [
+  { nerd = "\uEE06", unicode = "◜", ascii = "-" },
+  { nerd = "\uEE07", unicode = "◠", ascii = "\\" },
+  { nerd = "\uEE08", unicode = "◝", ascii = "|" },
+  { nerd = "\uEE09", unicode = "◞", ascii = "/" },
+  { nerd = "\uEE0A", unicode = "◡", ascii = "-" },
+  { nerd = "\uEE0B", unicode = "◟", ascii = "\\" },
+  { nerd = "\uEE06", unicode = "◜", ascii = "|" },
+  { nerd = "\uEE07", unicode = "◠", ascii = "/" },
+  { nerd = "\uEE08", unicode = "◝", ascii = "-" },
+  { nerd = "\uEE09", unicode = "◞", ascii = "\\" },
+  { nerd = "\uEE0A", unicode = "◡", ascii = "|" },
+  { nerd = "\uEE0B", unicode = "◟", ascii = "/" },
+]
+
+# Played once when a spinner is done: the tick grows each step while its colour blends from the
+# spinner's into success. Nerd Font v3: nf-md-progress_check, nf-fa-check_circle_o,
+# nf-oct-check_circle, nf-md-check_circle_outline, nf-md-checkbox_marked_circle.
+[animations.spinner-done]
+frame = "step"
+playback = "once"
+colors = "step"
+frames = [
+  { nerd = "\U000F0995", unicode = "·", ascii = "." },
+  { nerd = "\uF05D", unicode = "∙", ascii = ".", color = "mix($success, $fg, 25%)" },
+  { nerd = "\uF49E", unicode = "✓", ascii = "v", color = "mix($success, $fg, 50%)" },
+  { nerd = "\U000F05E1", unicode = "✔", ascii = "v", color = "mix($success, $fg, 75%)" },
+  { nerd = "\U000F0133", unicode = "✔", ascii = "v", color = "$success" },
+]
+
+# SpinnerStyle::Dots: braille dots turning in place. 20 frames: ten dots twice, four ASCII bars five times.
+[animations.spinner-dots]
+frame = "spinner"
+playback = "loop"
+colors = "step"
+frames = [
+  { unicode = "⠋", ascii = "-" },
+  { unicode = "⠙", ascii = "\\" },
+  { unicode = "⠹", ascii = "|" },
+  { unicode = "⠸", ascii = "/" },
+  { unicode = "⠼", ascii = "-" },
+  { unicode = "⠴", ascii = "\\" },
+  { unicode = "⠦", ascii = "|" },
+  { unicode = "⠧", ascii = "/" },
+  { unicode = "⠇", ascii = "-" },
+  { unicode = "⠏", ascii = "\\" },
+  { unicode = "⠋", ascii = "|" },
+  { unicode = "⠙", ascii = "/" },
+  { unicode = "⠹", ascii = "-" },
+  { unicode = "⠸", ascii = "\\" },
+  { unicode = "⠼", ascii = "|" },
+  { unicode = "⠴", ascii = "/" },
+  { unicode = "⠦", ascii = "-" },
+  { unicode = "⠧", ascii = "\\" },
+  { unicode = "⠇", ascii = "|" },
+  { unicode = "⠏", ascii = "/" },
+]
+
+# SpinnerStyle::Orbit: a dot orbiting the cell. 8 frames: the ASCII dot grows and shrinks twice.
+[animations.spinner-orbit]
+frame = "spinner"
+playback = "loop"
+colors = "step"
+frames = [
+  { unicode = "⠁", ascii = "." },
+  { unicode = "⠂", ascii = "o" },
+  { unicode = "⠄", ascii = "O" },
+  { unicode = "⡀", ascii = "o" },
+  { unicode = "⢀", ascii = "." },
+  { unicode = "⠠", ascii = "o" },
+  { unicode = "⠐", ascii = "O" },
+  { unicode = "⠈", ascii = "o" },
+]
+
+# SpinnerStyle::Pop: a dot growing and shrinking.
+[animations.spinner-pop]
+frame = "spinner"
+playback = "loop"
+colors = "step"
+frames = [
+  { unicode = "·", ascii = "." },
+  { unicode = "•", ascii = "o" },
+  { unicode = "●", ascii = "O" },
+  { unicode = "•", ascii = "o" },
+]
+
+# SpinnerStyle::Pulse: one dot breathing from the faint tone to the spinner's colour.
+[animations.spinner-pulse]
+frame = "spinner"
+playback = "loop"
+colors = "step"
+frames = [
+  { unicode = "●", ascii = "*", color = "pulse($muted, $fg)" },
+]
+
+# SpinnerStyle::Quarters: quadrant blocks, drawn by terminals themselves, fill one cell in any font.
+[animations.spinner-quarters]
+frame = "spinner"
+playback = "loop"
+colors = "step"
+frames = [
+  { unicode = "▖", ascii = "-" },
+  { unicode = "▘", ascii = "\\" },
+  { unicode = "▝", ascii = "|" },
+  { unicode = "▗", ascii = "/" },
+]
+
+# SpinnerStyle::Slices: a pie filling slice by slice. Nerd Font v3 nf-md-circle_slice_1..8.
+# 8 frames: eight Nerd slices; the four Unicode half circles and four ASCII dots twice.
+[animations.spinner-slices]
+frame = "spinner"
+playback = "loop"
+colors = "step"
+frames = [
+  { nerd = "\U000F0A9E", unicode = "◐", ascii = "." },
+  { nerd = "\U000F0A9F", unicode = "◓", ascii = "o" },
+  { nerd = "\U000F0AA0", unicode = "◑", ascii = "O" },
+  { nerd = "\U000F0AA1", unicode = "◒", ascii = "@" },
+  { nerd = "\U000F0AA2", unicode = "◐", ascii = "." },
+  { nerd = "\U000F0AA3", unicode = "◓", ascii = "o" },
+  { nerd = "\U000F0AA4", unicode = "◑", ascii = "O" },
+  { nerd = "\U000F0AA5", unicode = "◒", ascii = "@" },
+]

@@ -1,0 +1,22 @@
+# Nordic: ice-blue accent on deep navy. Info moves to lavender because blue is the accent.
+
+[meta]
+name = "Nordic"
+extends = "monochrome"
+
+[colors]
+canvas   = "#0B1118"
+surface  = "#111A26"
+raised   = "#192637"
+active   = "#23344B"
+overlay  = "#142030"
+accent   = "#38BDF8"
+accent-2 = "#A5E4FD"
+text     = "#F0F9FF"
+dim      = "#93C5E0"
+muted    = "#4F7A96"
+ink      = "#0B1118"
+success  = "#7DDC9B"
+warning  = "#F4C06A"
+danger   = "#F2777A"
+info     = "#B4A7F5"

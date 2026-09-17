@@ -1,0 +1,24 @@
+[workspace]
+resolver = "3"
+members = ["crates/quvyta-framework", "crates/showcase"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+cast_lossless = "deny"
+needless_pass_by_value = "deny"
+redundant_closure_for_method_calls = "deny"
+semicolon_if_nothing_returned = "deny"
+uninlined_format_args = "deny"

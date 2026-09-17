@@ -1,0 +1,27 @@
+## Metotlar
+
+- `Table::new(sütunlar, satırlar)` — `satırlar` bir `Vec<TableRow>` ya da `Arc<[TableRow]>`.
+- `.selected(Option<usize>)`, `.on_select(|index| mesaj)`, `.on_activate(|index| mesaj)`.
+- `.checked(Vec<bool>)` ve `.on_toggle(|index| mesaj)` — çoklu seçim.
+- `.sort(sütun, SortDirection)` — sıralama okunu gösterir; satırlar zaten bu sırada olmalı.
+- `.on_sort(|sütun, yön| mesaj)` — başlık tıklaması ve tuşlarla sıralamayı açar.
+- `.empty_text(metin)` — satır yokken başlığın altında görünür.
+- `Column::new(başlık)`, `.width(ColumnWidth::Fixed(n) | Fit | Fill(ağırlık))`, `.min(hücre)`, `.align(Align)`, `.sortable(bool)`.
+- `TableRow::new(hücreler)`, `.faint(bool)`; `TableCell::new(metin)`, `.icon(anahtar, Some(token))`, `.color(token)`; metinler hücreye dönüşür.
+- `SortDirection::Ascending | Descending`, `.reversed()`.
+
+## Davranış
+
+- Odaktayken tuşlar: `up` `down` ya da `k` `j`, `pgup` `pgdn`, `home` `end` gezinir; `enter` etkinleştirir; `space` çoklu seçimde işaretler, değilse etkinleştirir; `left` `right` taşan sütunları kaydırır; `s` sonraki sıralanabilir sütuna göre sıralar, `shift s` yönü çevirir.
+- Fare: tıklama satırı seçer ve etkinleştirir; işarete ya da hemen sonraki hücreye tıklama yalnızca işaretler; sıralanabilir başlığa tıklama sıralar, tekrar tıklama çevirir; başlıktaki bir oka tıklama sütunları bir adım kaydırır; tekerlek ve kaydırma çubuğu kaydırır.
+- Önce sabit ve içeriğe uyan genişlikler yerleşir, dolduran sütunlar kalanı ağırlıklarına göre paylaşır. En küçük genişlikler sığmazsa sütunlar küçülmez, yana kayar.
+- Görünen ilk hücre seçim kayması için bir boş hücre ayırır ve uzun metni `…` ile keser. Çoklu seçim işareti hiç kaymaz.
+
+## Tema anahtarları
+
+- `list-item` (`hover`, `selected`, `focus`, `pressed`) ve `list-item.faint` — satırlar, List ile ortak.
+- `table-header` — `bg`, `fg`; sıralanabilir başlık üstünde `hover`, sıralı başlıkta `selected`.
+- `table-sort` — sıralama okunun `fg` rengi.
+- `table-scroll` — başlık oklarının `fg`, `bg` rengi; `hover`.
+- `list-header` — boş metin; `scrollbar` — `track`, `thumb`.
+- `[icons]` — `select-on`, `select-off`: çoklu seçim işaretleri (işaretli ve boş kutu).

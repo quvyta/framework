@@ -1,0 +1,1855 @@
+# Monochrome: the default Quvyta theme and the root every built-in theme extends.
+# Carbon grounds, silver and white type, one quiet white accent.
+
+[meta]
+name = "Monochrome"
+icon-set = "default"
+
+[colors]
+canvas   = "#0C0C0E"   # screen ground
+surface  = "#131317"   # panels and cards
+raised   = "#1D1D23"   # hovered surfaces, idle controls
+active   = "#28282F"   # selected or focused surfaces
+overlay  = "#18181D"   # modals, menus, toasts
+accent   = "#F5F5F7"
+accent-2 = "#C8D2E1"   # the other end of the accent breath
+text     = "#F5F5F7"
+dim      = "#9B9BA5"   # secondary text
+muted    = "#5F5F69"   # faint text, idle indicators
+ink      = "#0E1218"   # text drawn on the accent
+success  = "#6EE7A8"
+warning  = "#F5C66B"
+danger   = "#F47174"
+info     = "#8AB4F8"
+
+[motion]
+pulse-period = "1400ms"
+flash        = "90ms"
+cursor-blink = "530ms"
+step         = "60ms"
+slide        = true
+enter        = "140ms"
+spinner      = "80ms"
+shimmer      = "1600ms"
+page         = "260ms"   # page transitions
+hover-delay  = "450ms"   # tooltip delay
+
+[typography]
+title     = { fg = "$text", bold = true }
+body      = { fg = "$text" }
+secondary = { fg = "$dim" }
+faint     = { fg = "$muted" }
+
+# ---- Panels and the application shell --------------------------------------------------------
+# A panel is a surface one step above the canvas; selection raises it further and adds the pillar.
+# A pressable panel answers the pointer like a button. The surface ladder is too fine for a hover
+# step on a large area (surface to raised is about 1.1:1), so hover lifts the panel's own tone 8%
+# towards the text colour (at least 1.2:1 in every built-in theme) and a press 16% (a flash one
+# tone brighter again). Keyboard focus looks like hover with a breathing pillar.
+
+[style.panel]
+bg      = "$surface"
+padding = [1, 3]
+
+[style."panel:hover"]
+bg     = "mix($text, $surface, 8%)"
+pillar = "mix($accent, $active, 45%)"
+
+[style."panel:focus"]
+bg     = "mix($text, $surface, 8%)"
+pillar = "pulse($accent, $accent-2)"
+
+[style."panel:pressed"]
+bg     = "mix($text, $surface, 16%)"
+pillar = "$accent"
+
+[style."panel:selected"]
+bg     = "$active"
+pillar = "pulse($accent, $accent-2)"
+
+[style."panel:hover:selected"]
+bg = "mix($text, $active, 8%)"
+
+[style."panel:focus:selected"]
+bg = "mix($text, $active, 8%)"
+
+[style."panel:pressed:selected"]
+bg = "mix($text, $active, 16%)"
+
+[style."panel.inset"]
+bg      = "$raised"
+padding = [1, 2]
+
+[style."panel.inset:hover"]
+bg = "mix($text, $raised, 8%)"
+
+[style."panel.inset:focus"]
+bg = "mix($text, $raised, 8%)"
+
+[style."panel.inset:pressed"]
+bg = "mix($text, $raised, 16%)"
+
+[style.panel-title]
+fg = "$muted"
+
+# The title of a pressable panel wakes with its surface.
+[style."panel-title:hover"]
+fg = "$dim"
+
+[style."panel-title:focus"]
+fg = "$dim"
+
+[style."panel-title:pressed"]
+fg = "$text"
+
+[style.shell-header]
+bg = "$surface"
+
+[style.shell-sidebar]
+bg = "$surface"
+
+[style.shell-body]
+bg = "$canvas"
+
+[style.shell-footer]
+bg = "$surface"
+
+[style.key-hints]
+bg      = "$surface"
+padding = [0, 2]
+
+[style.key-hint-key]
+bg   = "$raised"
+fg   = "$text"
+bold = true
+
+[style.key-hint-label]
+fg = "$muted"
+
+# ---- Buttons ---------------------------------------------------------------------------------
+# The shape is the surface colour. Focus breathes, a press flashes.
+
+[style.button]
+bg      = "$raised"
+fg      = "$dim"
+bold    = true
+padding = [0, 2]
+
+# Buttons climb one tone ladder and never invert: rest < hover < focus < pressed. Rest is the
+# calmest step, so there is always room above it; primary and danger rest on a tint of their
+# colour, not a full fill.
+[style."button:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "mix($accent, $active, 45%)"
+
+[style."button:focus"]
+bg     = "$active"
+fg     = "$text"
+pillar = "pulse($accent, $accent-2)"
+
+[style."button:selected"]
+bg     = "mix($accent, $active, 22%)"
+fg     = "$text"
+pillar = "mix($accent, $active, 80%)"
+
+[style."button:selected:focus"]
+pillar = "pulse($accent, $accent-2)"
+
+[style."button:pressed"]
+bg     = "mix($accent, $active, 16%)"
+fg     = "$text"
+pillar = "$accent"
+
+[style."button.primary"]
+bg = "mix($accent, $surface, 22%)"
+fg = "$accent"
+
+[style."button.primary:hover"]
+bg     = "mix($accent, $surface, 32%)"
+pillar = "mix($accent, $surface, 70%)"
+
+[style."button.primary:focus"]
+bg     = "mix($accent, $surface, 32%)"
+pillar = "pulse($accent, $accent-2)"
+
+[style."button.primary:pressed"]
+bg     = "mix($accent, $surface, 42%)"
+pillar = "$accent"
+
+[style."button.danger"]
+bg = "mix($danger, $surface, 18%)"
+fg = "mix($danger, $text, 60%)"
+
+[style."button.danger:hover"]
+bg     = "mix($danger, $surface, 28%)"
+pillar = "mix($danger, $surface, 70%)"
+
+[style."button.danger:focus"]
+bg     = "mix($danger, $surface, 28%)"
+pillar = "pulse($danger, $warning)"
+
+[style."button.danger:pressed"]
+bg     = "mix($danger, $surface, 38%)"
+pillar = "$danger"
+
+[style."button:disabled"]
+bg = "$raised"
+fg = "$muted"
+
+[style."button.primary:disabled"]
+bg = "$raised"
+fg = "$muted"
+
+[style."button.danger:disabled"]
+bg = "$raised"
+fg = "$muted"
+
+[style.button-key]
+bg = "$active"
+fg = "$dim"
+
+[style."button-key.primary"]
+bg = "mix($accent, $surface, 34%)"
+fg = "$text"
+
+[style."button-key:disabled"]
+bg = "$raised"
+fg = "$muted"
+
+# Hold to confirm: three bars blend one after another, each as a whole, from the track colour
+# to the warning colour. Hover and focus raise the pillar like a button.
+[style.hold]
+bg      = "$raised"
+fg      = "$dim"
+bold    = true
+padding = [0, 2]
+track   = "$active"
+to      = "$warning"
+
+[style."hold:hover"]
+bg     = "mix($raised, $active, 50%)"
+fg     = "$text"
+pillar = "mix($accent, $active, 45%)"
+
+# Focus keeps the bars readable: the surface stays below the track colour.
+[style."hold:focus"]
+bg     = "mix($raised, $active, 50%)"
+fg     = "$text"
+pillar = "pulse($accent, $accent-2)"
+
+[style."hold:active"]
+fg = "$text"
+
+[style."hold:disabled"]
+fg = "$muted"
+
+[style.hold-card]
+bg      = "$overlay"
+padding = [1, 3]
+
+# ---- Toggles and choices ---------------------------------------------------------------------
+# Filled means on. The knob of a switch is always its brightest part.
+
+[style.checkbox]
+bg = "$raised"
+fg = "$muted"
+
+[style."checkbox:hover"]
+bg = "$active"
+
+[style."checkbox:focus"]
+bg = "mix($accent, $raised, 30%)"
+
+[style."checkbox:checked"]
+bg   = "$accent"
+fg   = "$ink"
+bold = true
+
+[style."checkbox:checked:hover"]
+bg = "mix($accent, $accent-2, 50%)"
+
+[style."checkbox:checked:focus"]
+bg = "pulse($accent, $accent-2)"
+
+[style."checkbox.partial:checked"]
+bg = "mix($accent, $surface, 45%)"
+
+[style."checkbox:disabled"]
+bg = "$raised"
+fg = "$muted"
+
+[style."checkbox:checked:disabled"]
+bg = "$active"
+fg = "$dim"
+
+[style.checkbox-label]
+fg = "$dim"
+
+[style."checkbox-label:hover"]
+fg = "$text"
+
+[style."checkbox-label:focus"]
+fg = "$text"
+
+[style."checkbox-label:checked"]
+fg = "$text"
+
+[style."checkbox-label:disabled"]
+fg = "$muted"
+
+# Switch tones climb one ladder: off rests quiet, hover lifts both halves a step, on is lit.
+# An off knob stays well below an on track, so a column of switches never reads as filled and
+# empty boxes; hovering changes the colours of an on switch as well as an off one.
+[style.switch]
+track    = "$raised"
+track-on = "mix($accent, $raised, 55%)"
+knob     = "mix($muted, $raised, 40%)"
+knob-on  = "mix($accent, $raised, 85%)"
+
+[style."switch:hover"]
+track    = "$active"
+track-on = "mix($accent, $raised, 72%)"
+knob     = "$muted"
+knob-on  = "$accent"
+
+[style."switch:focus"]
+knob    = "$dim"
+knob-on = "pulse($accent, $accent-2)"
+
+[style."switch:disabled"]
+track-on = "$active"
+knob     = "mix($muted, $raised, 30%)"
+knob-on  = "$muted"
+
+[style.switch-labeled]
+bg   = "$raised"
+fg   = "$dim"
+bold = true
+dot  = "$muted"
+
+[style."switch-labeled:hover"]
+bg = "$active"
+
+[style."switch-labeled:checked"]
+bg  = "$accent"
+fg  = "$ink"
+dot = "$ink"
+
+[style."switch-labeled:checked:focus"]
+bg = "pulse($accent, $accent-2)"
+
+[style."switch-labeled:focus"]
+bg = "mix($accent, $raised, 30%)"
+fg = "$text"
+
+[style."switch-labeled:disabled"]
+bg  = "$raised"
+fg  = "$muted"
+dot = "$active"
+
+[style.switch-label]
+fg = "$dim"
+
+[style."switch-label:hover"]
+fg = "$text"
+
+[style."switch-label:focus"]
+fg = "$text"
+
+[style."switch-label:checked"]
+fg = "$text"
+
+[style."switch-label:disabled"]
+fg = "$muted"
+
+[style.radio]
+fg = "$muted"
+
+[style."radio:hover"]
+fg = "$dim"
+
+[style."radio:focus"]
+fg = "$dim"
+
+[style."radio:checked"]
+fg = "$accent"
+
+[style."radio:checked:focus"]
+fg = "pulse($accent, $accent-2)"
+
+[style."radio:disabled"]
+fg = "$active"
+
+# The radio box is the checkbox box: the same tones in every state, so both read as one family.
+# Only the meaning differs (one choice in a group, or each option on its own).
+[style."radio.box"]
+bg = "$raised"
+
+[style."radio.box:hover"]
+bg = "$active"
+
+[style."radio.box:focus"]
+bg = "mix($accent, $raised, 30%)"
+
+[style."radio.box:checked"]
+bg = "$accent"
+
+[style."radio.box:checked:hover"]
+bg = "mix($accent, $accent-2, 50%)"
+
+[style."radio.box:checked:focus"]
+bg = "pulse($accent, $accent-2)"
+
+[style."radio.box:disabled"]
+bg = "$raised"
+
+[style."radio.box:checked:disabled"]
+bg = "$active"
+
+# The radio square and mark styles: a small square, quiet for the options not chosen and the
+# chosen tone for the chosen one (the mark style grows it into a full box of that tone). The quiet
+# square sits well below the accent and hover lifts it only to `$muted`, so a hovered option never
+# looks chosen in any theme. Blank mark icons (ASCII) draw boxes in the `radio.box` tones instead.
+[style."radio.mark"]
+fg = "mix($muted, $raised, 70%)"
+
+[style."radio.mark:hover"]
+fg = "$muted"
+
+[style."radio.mark:focus"]
+fg = "mix($accent, $muted, 45%)"
+
+[style."radio.mark:checked"]
+fg = "$accent"
+
+[style."radio.mark:checked:hover"]
+fg = "mix($accent, $accent-2, 50%)"
+
+[style."radio.mark:checked:focus"]
+fg = "pulse($accent, $accent-2)"
+
+[style."radio.mark:disabled"]
+fg = "mix($muted, $active, 50%)"
+
+[style."radio.mark:checked:disabled"]
+fg = "$active"
+
+[style.radio-label]
+fg = "$dim"
+
+[style."radio-label:hover"]
+fg = "$text"
+
+[style."radio-label:focus"]
+fg = "$text"
+
+[style."radio-label:checked"]
+fg   = "$text"
+bold = true
+
+[style."radio-label:disabled"]
+fg = "$muted"
+
+[style.segment]
+bg      = "$raised"
+fg      = "$dim"
+padding = [0, 2]
+
+[style."segment:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "mix($accent, $active, 50%)"
+
+[style."segment:checked"]
+bg   = "mix($accent, $active, 26%)"
+fg   = "$text"
+bold = true
+
+[style."segment:checked:hover"]
+bg = "mix($accent, $active, 34%)"
+
+[style."segment:checked:focus"]
+bg     = "mix($accent, $active, 34%)"
+pillar = "pulse($accent, $accent-2)"
+
+[style."segment:disabled"]
+fg = "$muted"
+
+[style."segment:checked:disabled"]
+bg = "$active"
+fg = "$dim"
+
+# A slider is its value in the accent, the done part of the rail in the accent, and a knob that
+# breathes while focused. ASCII mode draws the rail as cell colours: `fill-cell` then.
+[style.slider]
+fill      = "$accent"
+fill-cell = "mix($accent, $surface, 34%)"
+track     = "$raised"
+knob      = "$accent"
+
+[style."slider:hover"]
+track = "$active"
+
+[style."slider:focus"]
+knob = "pulse($accent, $accent-2)"
+
+[style."slider:disabled"]
+fill      = "$muted"
+fill-cell = "$active"
+track     = "$raised"
+knob      = "$muted"
+
+[style.slider-value]
+fg   = "$accent"
+bold = true
+
+[style."slider-value:disabled"]
+fg = "$muted"
+
+# ---- Text fields -----------------------------------------------------------------------------
+# A field is a capsule of raised surface; focus lifts it and the prompt breathes. Invalid values
+# tint the surface with the danger colour instead of drawing a red frame.
+
+[style.text-input]
+bg      = "$raised"
+fg      = "$text"
+padding = [0, 2]
+
+[style."text-input:hover"]
+bg = "mix($raised, $active, 50%)"
+pillar = "mix($accent, $surface, 45%)"
+
+[style."text-input:focus"]
+bg = "$active"
+pillar = "pulse($accent, $accent-2)"
+
+[style."text-input:invalid"]
+bg = "mix($danger, $surface, 14%)"
+
+# A field that failed validation breathes its pillar in the danger colour while focused.
+[style."text-input:invalid:focus"]
+pillar = "pulse($danger, $warning)"
+
+[style."text-input:disabled"]
+fg = "$muted"
+
+[style.text-input-prompt]
+fg = "$muted"
+
+[style."text-input-prompt:focus"]
+fg = "pulse($accent, $accent-2)"
+
+[style."text-input-prompt:invalid"]
+fg = "$danger"
+
+[style.text-input-placeholder]
+fg = "$muted"
+
+[style.text-input-selection]
+bg = "mix($accent, $active, 30%)"
+fg = "$text"
+
+[style.text-input-cursor]
+bg = "$accent"
+fg = "$ink"
+
+# A text area is the text input's surface grown to several rows. Line numbers are faint and the
+# cursor's line number lights up; the counter stays quiet below the text.
+[style.text-area]
+bg      = "$raised"
+fg      = "$text"
+padding = [0, 2]
+
+[style."text-area:hover"]
+bg = "mix($raised, $active, 50%)"
+pillar = "mix($accent, $surface, 45%)"
+
+[style."text-area:focus"]
+bg = "$active"
+pillar = "pulse($accent, $accent-2)"
+
+[style."text-area:invalid"]
+bg = "mix($danger, $surface, 14%)"
+
+[style."text-area:invalid:focus"]
+pillar = "pulse($danger, $warning)"
+
+[style."text-area:disabled"]
+fg = "$muted"
+
+[style.text-area-line-number]
+fg = "$muted"
+
+[style."text-area-line-number:selected"]
+fg = "$dim"
+
+[style.text-area-counter]
+fg = "$muted"
+
+# Number inputs are text inputs; their stepper segments sit on the right like a button's key
+# segment, a step apart from the field surface.
+[style.number-input-stepper]
+bg = "$active"
+fg = "$dim"
+
+[style."number-input-stepper:focus"]
+bg = "mix($active, $raised, 50%)"
+
+[style."number-input-stepper:hover"]
+bg = "mix($accent, $active, 22%)"
+fg = "$text"
+
+[style."number-input-stepper:pressed"]
+bg = "mix($accent, $active, 16%)"
+fg = "$text"
+
+[style."number-input-stepper:disabled"]
+fg = "$muted"
+
+# A time input is a row of digit segments on one surface; the active segment is lifted with a
+# touch of the accent, the colons stay faint.
+[style.time-input]
+bg = "$raised"
+fg = "$dim"
+
+[style."time-input:hover"]
+bg = "mix($raised, $active, 50%)"
+fg = "$text"
+pillar = "mix($accent, $surface, 45%)"
+
+[style."time-input:focus"]
+bg = "$active"
+fg = "$text"
+pillar = "pulse($accent, $accent-2)"
+
+[style."time-input:invalid"]
+bg = "mix($danger, $surface, 14%)"
+
+[style."time-input:disabled"]
+fg = "$muted"
+
+[style."time-segment:selected"]
+bg   = "mix($accent, $active, 30%)"
+fg   = "$text"
+bold = true
+
+[style."time-segment:selected:active"]
+fg = "$accent"
+
+[style.time-separator]
+fg = "$muted"
+
+# A copyable value is a chip: the surface is the shape, the trailing word is the affordance.
+[style.copy-value]
+bg      = "$raised"
+fg      = "$text"
+padding = [0, 2]
+
+[style."copy-value:hover"]
+bg = "$active"
+pillar = "mix($accent, $surface, 45%)"
+
+[style."copy-value:focus"]
+bg = "$active"
+pillar = "pulse($accent, $accent-2)"
+
+[style."copy-value:pressed"]
+bg = "mix($accent, $active, 30%)"
+
+[style."copy-value:disabled"]
+fg = "$muted"
+
+[style.copy-value-marker]
+fg = "$muted"
+
+[style."copy-value-marker:focus"]
+fg = "$dim"
+
+[style."copy-value-marker.copied"]
+fg = "$success"
+
+# Selected screen text: a tone of the accent under the text, brighter for a moment after copying.
+[style.text-selection]
+bg = "mix($accent, $surface, 26%)"
+
+[style."text-selection:pressed"]
+bg = "mix($accent, $surface, 48%)"
+
+# ---- Select and popup menus ------------------------------------------------------------------
+
+[style.select]
+bg      = "$raised"
+fg      = "$text"
+padding = [0, 2]
+
+[style."select:hover"]
+bg     = "mix($raised, $active, 50%)"
+pillar = "mix($accent, $surface, 45%)"
+
+[style."select:focus"]
+bg     = "$active"
+pillar = "pulse($accent, $accent-2)"
+
+[style."select:active"]
+bg     = "$active"
+pillar = "mix($accent, $active, 80%)"
+
+[style."select:disabled"]
+fg = "$muted"
+
+[style.select-placeholder]
+fg = "$muted"
+
+[style.select-chevron]
+fg = "$muted"
+
+[style."select-chevron:focus"]
+fg = "pulse($accent, $accent-2)"
+
+[style."select-chevron:active"]
+fg = "$accent"
+
+[style.select-menu]
+bg = "$overlay"
+
+[style.select-option]
+fg = "$dim"
+
+[style."select-option:checked"]
+fg   = "$text"
+bold = true
+
+[style."select-option:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "pulse($accent, $accent-2)"
+
+[style.select-check]
+fg = "$accent"
+
+[style.popup-menu]
+bg = "$overlay"
+
+[style.popup-item]
+fg = "$dim"
+
+[style."popup-item:checked"]
+fg   = "$text"
+bold = true
+
+[style."popup-item:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "pulse($accent, $accent-2)"
+
+[style.popup-check]
+fg = "$accent"
+
+# ---- Forms -----------------------------------------------------------------------------------
+# Labels brighten while their control has focus; errors carry a marker and the danger colour.
+
+[style.field-label]
+fg = "$dim"
+
+[style."field-label:focus"]
+fg   = "$text"
+bold = true
+
+[style."field-label:disabled"]
+fg = "$muted"
+
+[style.field-required]
+fg = "$muted"
+
+[style.field-hint]
+fg = "$muted"
+
+[style.field-error]
+fg = "$danger"
+
+[style.form-summary]
+bg      = "mix($danger, $surface, 10%)"
+padding = [1, 2]
+
+[style.form-summary-marker]
+fg = "$danger"
+
+[style.form-summary-title]
+fg   = "$text"
+bold = true
+
+[style.form-summary-item]
+fg = "$dim"
+
+# ---- Lists, menus and settings ---------------------------------------------------------------
+# Rows are bare until touched: hover raises the surface with a soft pillar, selection raises it
+# further; the pillar breathes only while the list has focus.
+
+[style.list-item]
+fg = "$dim"
+
+[style."list-item.faint"]
+fg = "$muted"
+
+[style."list-item:hover"]
+bg     = "$raised"
+fg     = "$text"
+pillar = "mix($accent, $surface, 45%)"
+
+[style."list-item:selected"]
+bg     = "$active"
+fg     = "$text"
+bold   = true
+pillar = "mix($accent, $surface, 70%)"
+
+[style."list-item:selected:focus"]
+pillar = "pulse($accent, $accent-2)"
+
+[style."list-item:pressed"]
+bg = "mix($accent, $active, 35%)"
+
+[style.list-header]
+fg = "$muted"
+
+[style.list-detail]
+fg = "$muted"
+
+[style."list-detail:selected"]
+fg = "$dim"
+
+[style.scrollbar]
+style = "block"  # block, half, thin or dots
+track = "$raised"
+thumb = "$muted"
+
+[style."scrollbar:hover"]
+thumb = "$dim"
+
+# Dots are small; a faint track needs a step more light than the other styles.
+[style."scrollbar.dots"]
+track = "$muted"
+thumb = "$dim"
+
+[style."scrollbar.dots:hover"]
+thumb = "$text"
+
+[style.menu-item]
+fg = "$dim"
+
+[style."menu-item:hover"]
+bg     = "$raised"
+fg     = "$text"
+pillar = "mix($accent, $surface, 45%)"
+
+[style."menu-item:selected"]
+bg     = "$active"
+fg     = "$text"
+bold   = true
+pillar = "mix($accent, $surface, 70%)"
+
+[style."menu-item:selected:focus"]
+pillar = "pulse($accent, $accent-2)"
+
+[style."menu-item:pressed"]
+bg = "mix($accent, $active, 35%)"
+
+[style.menu-badge]
+fg = "$muted"
+
+[style."menu-badge:selected"]
+fg = "$dim"
+
+[style.menu-heading]
+fg = "$muted"
+
+[style."menu-heading:hover"]
+bg = "$raised"
+fg = "$dim"
+pillar = "mix($accent, $surface, 45%)"   # a foldable heading is a row; it rises like one
+
+# Settings lists: rows are bare until touched; the label slides, the control stays.
+[style."setting-row:hover"]
+bg     = "$raised"
+pillar = "mix($accent, $surface, 45%)"
+
+[style."setting-row:selected"]
+bg     = "$active"
+pillar = "mix($accent, $surface, 70%)"
+
+[style."setting-row:selected:focus"]
+pillar = "pulse($accent, $accent-2)"
+
+[style.setting-label]
+fg = "$text"
+
+[style."setting-label:selected"]
+bold = true
+
+[style."setting-label:disabled"]
+fg = "$muted"
+
+[style.setting-description]
+fg = "$muted"
+
+[style."setting-description:selected"]
+fg = "$dim"
+
+[style.settings-heading]
+fg = "$muted"
+
+# ---- Tables, trees, logs, paths and terminals ------------------------------------------------
+# Tables, trees, logs and file pickers draw their rows with the list-item styles above, so every
+# row in an application rises and slides the same way.
+
+[style.table-header]
+bg = "$raised"
+fg = "$muted"
+
+[style."table-header:hover"]
+fg = "$dim"
+
+[style."table-header:selected"]
+fg   = "$text"
+bold = true
+
+[style.table-sort]
+fg = "$accent"
+
+# The arrows at the ends of a table header scroll hidden columns; like every pressable thing they
+# rise under the pointer.
+[style.table-scroll]
+fg = "$dim"
+
+[style."table-scroll:hover"]
+bg = "$active"
+fg = "$text"
+
+[style.tree-chevron]
+fg = "$muted"
+
+[style."tree-chevron:hover"]
+fg = "$dim"
+
+[style."tree-chevron:selected"]
+fg = "$text"
+
+[style.log-time]
+fg = "$muted"
+
+[style."log-level.trace"]
+fg = "$muted"
+
+[style."log-level.debug"]
+fg = "$dim"
+
+[style."log-level.info"]
+fg = "$info"
+
+[style."log-level.warn"]
+fg = "$warning"
+bold = true
+
+[style."log-level.error"]
+fg = "$danger"
+bold = true
+
+[style.log-match]
+bg = "mix($warning, $surface, 35%)"
+fg = "$text"
+
+[style.log-more]
+bg = "$active"
+fg = "$dim"
+
+[style.path-segment]
+fg = "$dim"
+
+[style."path-segment:hover"]
+bg = "$raised"
+fg = "$text"
+
+[style."path-segment:selected"]
+fg = "$text"
+bold = true
+
+[style.path-separator]
+fg = "$muted"
+
+[style.terminal]
+bg = "$surface"
+fg = "$text"
+
+[style.terminal-cursor]
+bg = "$muted"
+fg = "$ink"
+
+[style."terminal-cursor:focus"]
+bg = "$accent"
+
+[style.terminal-note]
+bg = "$active"
+fg = "$dim"
+
+# ---- Tabs and tab rails ----------------------------------------------------------------------
+# Close marks whisper until a tab is touched; a dragged tab floats as a ghost over a tinted slot
+# where it will land.
+
+# The close mark shared by tabs, rails, toasts and layers: it whispers until its surface is raised,
+# and its three cells light up together under the pointer.
+[style.close-mark]
+fg = "mix($muted, $surface, 60%)"
+
+[style."close-mark:active"]
+fg = "$dim"
+
+[style."close-mark:hover"]
+bg   = "mix($accent, $active, 14%)"
+fg   = "$text"
+bold = true
+
+[style.tab]
+fg = "$muted"
+
+[style."tab:hover"]
+bg     = "$surface"
+fg     = "$dim"
+pillar = "mix($accent, $surface, 45%)"
+
+[style."tab:selected"]
+bg     = "$active"
+fg     = "$text"
+bold   = true
+pillar = "mix($accent, $active, 70%)"
+
+[style."tab:selected:focus"]
+pillar = "pulse($accent, $accent-2)"
+
+[style.tab-index]
+fg = "$muted"
+
+[style."tab-index:selected"]
+fg   = "$accent"
+bold = true
+
+[style."tab-index:selected:focus"]
+fg = "pulse($accent, $accent-2)"
+
+# The arrows and the menu control of an overflowing strip are small buttons on one tone
+# ladder, rest < hover < pressed, with the pillar in their first cell. An arrow with nothing more
+# to show sinks to the surface.
+[style.tab-arrow]
+bg = "$raised"
+fg = "$dim"
+
+[style."tab-arrow:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "mix($accent, $active, 45%)"
+
+[style."tab-arrow:pressed"]
+bg     = "mix($accent, $active, 16%)"
+fg     = "$text"
+pillar = "$accent"
+
+[style."tab-arrow:disabled"]
+bg = "$surface"
+fg = "$muted"
+
+[style.tab-menu]
+bg = "$raised"
+fg = "$dim"
+
+[style."tab-menu:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "mix($accent, $active, 45%)"
+
+[style."tab-menu:active"]
+bg     = "$active"
+fg     = "$accent"
+pillar = "$accent"
+
+[style.tab-ghost]
+bg   = "mix($accent, $active, 30%)"
+fg   = "$text"
+bold = true
+
+[style.tab-drop]
+bg = "mix($accent, $surface, 14%)"
+
+[style.rail-tab]
+fg = "$dim"
+
+[style."rail-tab:hover"]
+bg     = "$raised"
+fg     = "$text"
+pillar = "mix($accent, $surface, 45%)"
+
+[style."rail-tab:selected"]
+bg     = "$active"
+fg     = "$text"
+bold   = true
+pillar = "mix($accent, $surface, 70%)"
+
+[style."rail-tab:selected:focus"]
+pillar = "pulse($accent, $accent-2)"
+
+[style."rail-tab.ghost"]
+fg   = "$text"
+bold = true
+
+[style.rail-badge]
+fg = "$muted"
+
+[style."rail-badge:selected"]
+fg = "$dim"
+
+[style.rail-add]
+fg = "$muted"
+
+[style."rail-add:hover"]
+bg     = "$surface"
+fg     = "$text"
+pillar = "mix($accent, $surface, 45%)"
+
+[style.rail-hint]
+bg = "$raised"
+fg = "$text"
+
+# The name card beside a collapsed rail continues its raised row and is pressable: under the
+# pointer it rises one more step.
+[style."rail-hint:hover"]
+bg = "$active"
+
+# Rows taller than one line are raised blocks at rest too; hover climbs half a step towards the
+# open tab's tone, which stays on top when the open tab is hovered (so `selected` comes last).
+[style."rail-tab.tall"]
+bg = "$raised"
+
+[style."rail-tab.tall:hover"]
+bg = "mix($active, $raised, 50%)"
+
+[style."rail-tab.tall:selected"]
+bg = "$active"
+
+[style."rail-add.tall"]
+bg = "$raised"
+
+[style."rail-add.tall:hover"]
+bg = "mix($active, $raised, 50%)"
+
+# ---- Breadcrumbs and steps -------------------------------------------------------------------
+
+[style.crumb]
+fg = "$dim"
+
+[style."crumb:hover"]
+bg = "$raised"
+fg = "$text"
+
+[style."crumb:focus"]
+bg = "$active"
+fg = "$text"
+
+[style."crumb:active"]
+bg = "$active"
+fg = "$accent"
+
+[style."crumb.current"]
+fg   = "$text"
+bold = true
+
+[style.crumb-separator]
+fg = "$muted"
+
+# Steps: a check for finished steps, the accent for the current one, faint for what is ahead.
+[style."step:hover"]
+bg = "$raised"
+pillar = "mix($accent, $surface, 45%)"   # a choosable step rises like every pressable thing
+
+[style."step:focus"]
+bg = "$active"
+pillar = "pulse($accent, $accent-2)"
+
+[style.step-marker]
+fg = "$muted"
+
+[style."step-marker:checked"]
+fg = "$success"
+
+[style."step-marker:active"]
+fg = "$accent"
+
+[style."step-marker.running:active"]
+fg = "pulse($accent, $accent-2)"
+
+[style."step-marker.failed:active"]
+fg = "$danger"
+
+[style.step-label]
+fg = "$muted"
+
+[style."step-label:checked"]
+fg = "$dim"
+
+[style."step-label:active"]
+fg   = "$text"
+bold = true
+
+[style."step-label:hover"]
+fg = "$text"
+
+[style."step-label:focus"]
+fg = "$text"
+
+# ---- Sections --------------------------------------------------------------------------------
+
+# Sections of accordions and widget docks: the title row sits one tone above its body, and a
+# row of the ground between sections keeps closed titles apart. No frames.
+[style.section]
+gap = 1
+
+[style.section-title]
+bg = "$raised"
+fg = "$dim"
+
+[style."section-title:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "mix($accent, $surface, 45%)"
+
+[style."section-title:checked"]
+fg   = "$text"
+bold = true
+
+[style."section-title:focus"]
+bg     = "$active"
+fg     = "$text"
+pillar = "pulse($accent, $accent-2)"
+
+[style."section-title.ghost"]
+bg     = "$overlay"
+fg     = "$text"
+bold   = true
+pillar = "$accent"
+
+[style.section-chevron]
+fg = "$muted"
+
+[style."section-chevron:checked"]
+fg = "$dim"
+
+[style."section-chevron:focus"]
+fg = "pulse($accent, $accent-2)"
+
+[style.section-detail]
+fg = "$muted"
+
+[style."section-detail:hover"]
+fg = "$dim"
+
+[style.section-body]
+bg      = "mix($surface, $raised, 50%)"   # between the ground and the title row
+padding = [1, 2]
+
+[style.section-drop]
+bg = "mix($accent, $surface, 30%)"
+
+[style.section-empty]
+fg = "$muted"
+
+# ---- Splitters and side panels ---------------------------------------------------------------
+
+# Boundaries of splitters and side panels are never lines: invisible at rest, one step brighter
+# under the pointer, the accent while dragged, a faint accent tint while focused.
+[style.split-handle]
+fg = "$dim"
+
+[style."split-handle:focus"]
+bg = "mix($accent, $surface, 22%)"
+fg = "$text"
+
+[style."split-handle:hover"]
+bg = "$active"
+fg = "$text"
+
+[style."split-handle:active"]
+bg = "mix($accent, $surface, 60%)"
+fg = "$ink"
+
+[style.side-panel]
+bg = "mix($surface, $raised, 55%)"   # reads as its own surface on the canvas and on panels
+
+[style.side-strip]
+bg = "mix($surface, $raised, 55%)"
+
+[style.side-strip-item]
+fg = "$dim"
+
+[style."side-strip-item:hover"]
+bg = "$active"
+fg = "$text"
+# A pointed-at strip icon carries the pillar like every other pressable row.
+pillar = "mix($accent, $active, 45%)"
+
+# The strip is an activity bar. The shown view's icon is raised above hover with a steady
+# pillar; the keyboard's icon breathes it, like every pressable reached with the keyboard.
+[style."side-strip-item:selected"]
+bg     = "mix($accent, $active, 12%)"
+fg     = "$text"
+pillar = "mix($accent, $active, 80%)"
+
+[style."side-strip-item:focus"]
+bg     = "$active"
+fg     = "$text"
+pillar = "pulse($accent, $accent-2)"
+
+[style."side-strip-item:selected:focus"]
+bg = "mix($accent, $active, 12%)"
+
+[style."side-strip-item:pressed"]
+bg = "mix($accent, $active, 28%)"
+
+# The side panel's edge toggle, the pillar and an arrow. It appears with the lit edge and
+# climbs the pressable ladder from there: shown < pointed at < pressed; Tab shows it breathing.
+[style.side-toggle]
+bg = "$active"
+fg = "$text"
+
+[style."side-toggle:hover"]
+bg     = "mix($accent, $active, 14%)"
+fg     = "$text"
+pillar = "mix($accent, $active, 75%)"
+
+[style."side-toggle:focus"]
+bg     = "mix($accent, $active, 14%)"
+fg     = "$text"
+pillar = "pulse($accent, $accent-2)"
+
+[style."side-toggle:pressed"]
+bg     = "mix($accent, $active, 28%)"
+fg     = "$text"
+pillar = "$accent"
+
+# ---- Code ------------------------------------------------------------------------------------
+# One accent family for structure, status colours only where they read naturally.
+
+[style.code]
+bg      = "$surface"
+padding = [1, 2]
+
+[style."code:focus"]
+bg = "mix($surface, $raised, 50%)"
+
+[style."code:pressed"]
+bg = "mix($accent, $surface, 18%)"
+
+[style.code-line-number]
+fg = "$muted"
+
+[style.code-token]
+fg = "$text"
+
+[style."code-token.keyword"]
+fg = "$accent"
+
+[style."code-token.type"]
+fg = "$accent-2"
+
+[style."code-token.function"]
+fg   = "$text"
+bold = true
+
+[style."code-token.macro"]
+fg = "$warning"
+
+[style."code-token.string"]
+fg = "$success"
+
+[style."code-token.number"]
+fg = "$warning"
+
+[style."code-token.comment"]
+fg     = "$muted"
+italic = true
+
+[style."code-token.attribute"]
+fg = "$dim"
+
+[style."code-token.lifetime"]
+fg = "$info"
+
+[style."code-token.punctuation"]
+fg = "$dim"
+
+[style."code-token.table"]
+fg   = "$accent"
+bold = true
+
+[style."code-token.key"]
+fg = "$accent-2"
+
+# ---- Markdown --------------------------------------------------------------------------------
+
+[style.markdown-heading]
+fg   = "$text"
+bold = true
+
+[style."markdown-heading.h1"]
+pillar = "$accent"
+
+[style."markdown-heading.h2"]
+pillar = "$accent"
+
+[style."markdown-heading.h3"]
+fg = "$dim"
+
+[style.markdown-text]
+fg = "$dim"
+
+[style.markdown-strong]
+fg   = "$text"
+bold = true
+
+[style.markdown-emphasis]
+italic = true
+
+[style.markdown-code]
+bg = "$raised"
+fg = "$accent-2"
+
+[style.markdown-link]
+fg        = "$accent"
+underline = true
+
+[style.markdown-bullet]
+fg = "$accent"
+
+[style.markdown-quote]
+fg     = "$dim"
+italic = true
+pillar = "$muted"
+
+# ---- Activity --------------------------------------------------------------------------------
+
+[style.spinner]
+fg = "$accent"
+
+[style."spinner.success"]
+fg = "$success"
+
+[style."spinner.warning"]
+fg = "$warning"
+
+[style."spinner.danger"]
+fg = "$danger"
+
+# The fourth status tone, so an animated toast icon keeps the info colour.
+[style."spinner.info"]
+fg = "$info"
+
+[style.spinner-label]
+fg = "$dim"
+
+[style.shimmer]
+fg        = "$muted"
+highlight = "$text"
+
+[style.progress]
+track = "$raised"
+fill  = "$accent"
+
+[style."progress.success"]
+fill = "$success"
+
+[style."progress.warning"]
+fill = "$warning"
+
+[style."progress.danger"]
+fill = "$danger"
+
+[style.progress-label]
+fg   = "$dim"
+bold = true
+
+# ---- Display: badges, dividers, empty states, skeletons and charts ---------------------------
+
+# Badges are tinted pills: about 16% of the status colour over the surface, text and marker in
+# the status colour. Neutral badges sit on the raised surface.
+[style.badge]
+bg  = "$raised"
+fg  = "$dim"
+dot = "$muted"
+
+[style."badge.success"]
+bg  = "mix($success, $surface, 16%)"
+fg  = "$success"
+dot = "$success"
+
+[style."badge.warning"]
+bg  = "mix($warning, $surface, 16%)"
+fg  = "$warning"
+dot = "$warning"
+
+[style."badge.danger"]
+bg  = "mix($danger, $surface, 16%)"
+fg  = "$danger"
+dot = "$danger"
+
+[style."badge.info"]
+bg  = "mix($info, $surface, 16%)"
+fg  = "$info"
+dot = "$info"
+
+[style."badge.accent"]
+bg  = "mix($accent, $surface, 16%)"
+fg  = "$accent"
+dot = "$accent"
+
+[style.badge-count]
+bg   = "$active"
+fg   = "$text"
+bold = true
+
+[style."badge-count.success"]
+bg = "mix($success, $surface, 30%)"
+fg = "$success"
+
+[style."badge-count.warning"]
+bg = "mix($warning, $surface, 30%)"
+fg = "$warning"
+
+[style."badge-count.danger"]
+bg = "mix($danger, $surface, 30%)"
+fg = "$danger"
+
+[style."badge-count.info"]
+bg = "mix($info, $surface, 30%)"
+fg = "$info"
+
+[style."badge-count.accent"]
+bg = "mix($accent, $surface, 30%)"
+fg = "$accent"
+
+# Dividers separate by space; the band is a tone between surface and raised.
+[style.divider]
+band = "mix($raised, $surface, 60%)"
+
+[style.divider-label]
+fg = "$muted"
+
+[style.empty-state-icon]
+fg = "$muted"
+
+[style.empty-state-title]
+fg   = "$text"
+bold = true
+
+[style.empty-state-message]
+fg = "$dim"
+
+# Skeletons are shapes in the raised tone; the sweep light is a gentle lift towards dim text.
+[style.skeleton]
+bg        = "$raised"
+highlight = "mix($dim, $raised, 24%)"
+
+# Sparklines: columns a step below the accent so the peak can stand out in the accent itself.
+[style.sparkline]
+fg       = "mix($accent, $surface, 72%)"
+peak     = "$accent"
+low      = "$muted"
+baseline = "mix($accent, $surface, 12%)"
+track    = "$raised"
+
+# Gauges: a meter on the raised track. With thresholds the fill takes the tone of its level and
+# the track past each limit carries a faint tint of the tone waiting there.
+[style.gauge]
+track = "$raised"
+fill  = "$accent"
+
+[style."gauge.success"]
+fill = "$success"
+
+[style."gauge.warning"]
+fill = "$warning"
+zone = "mix($warning, $raised, 14%)"
+
+[style."gauge.danger"]
+fill = "$danger"
+zone = "mix($danger, $raised, 20%)"
+
+[style.gauge-label]
+fg = "$dim"
+
+[style.gauge-value]
+fg   = "$text"
+bold = true
+
+[style."gauge-value.success"]
+fg = "$success"
+
+[style."gauge-value.warning"]
+fg = "$warning"
+
+[style."gauge-value.danger"]
+fg = "$danger"
+
+# Bar charts: bars in the accent, status variants only where a bar means something.
+[style.bar-chart]
+fill = "$accent"
+
+[style."bar-chart.muted"]
+fill = "$muted"
+
+[style."bar-chart.success"]
+fill = "$success"
+
+[style."bar-chart.warning"]
+fill = "$warning"
+
+[style."bar-chart.danger"]
+fill = "$danger"
+
+[style."bar-chart.info"]
+fill = "$info"
+
+[style.bar-chart-label]
+fg = "$dim"
+
+[style.bar-chart-value]
+fg   = "$text"
+bold = true
+
+[style."bar-chart-value.success"]
+fg = "$success"
+
+[style."bar-chart-value.warning"]
+fg = "$warning"
+
+[style."bar-chart-value.danger"]
+fg = "$danger"
+
+[style."bar-chart-value.info"]
+fg = "$info"
+
+# Big text: plain text colour by default, the accent when it is the one figure that matters.
+[style.big-text]
+fg = "$text"
+
+[style."big-text.accent"]
+fg = "$accent"
+
+[style."big-text.dim"]
+fg = "$dim"
+
+# ---- Anchored layers -------------------------------------------------------------------------
+# Layers float on the overlay tone with no frame; their edge is the tone difference.
+
+[style.popover]
+bg      = "$overlay"
+padding = [1, 2]
+
+[style.tooltip]
+bg      = "$overlay"
+fg      = "$text"
+padding = [0, 1]
+
+# Menu rows are bare until highlighted; shortcuts stay faint at the right edge; destructive
+# actions carry the danger colour.
+[style.context-menu]
+bg = "$overlay"
+
+[style.context-item]
+fg = "$dim"
+
+[style."context-item:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "pulse($accent, $accent-2)"
+
+[style."context-item:disabled"]
+fg = "$muted"
+
+[style."context-item.danger"]
+fg = "$danger"
+
+[style."context-item.danger:hover"]
+bg     = "mix($danger, $overlay, 18%)"
+fg     = "$danger"
+pillar = "$danger"
+
+[style.context-item-shortcut]
+fg = "$muted"
+
+[style.context-item-chevron]
+fg = "$muted"
+
+[style."context-item-chevron:hover"]
+fg = "$text"
+
+# Toasts: a status-coloured marker column and icon; the text stays neutral.
+[style.toast]
+bg      = "$overlay"
+padding = [1, 2]
+
+[style.toast-title]
+fg   = "$text"
+bold = true
+
+[style.toast-body]
+fg = "$dim"
+
+[style.toast-action]
+bg   = "$raised"
+fg   = "$text"
+bold = true
+
+[style."toast-action:hover"]
+bg = "$active"
+
+# A toast with `on_press` rises one step under the pointer, as a pressable panel does; its
+# action climbs with it so it stays a step above the toast.
+[style."toast:hover"]
+bg = "$active"
+
+[style."toast-action:active"]
+bg = "mix($accent, $active, 12%)"
+
+[style."toast-action:active:hover"]
+bg = "mix($accent, $active, 22%)"
+
+# ---- Modal layers ----------------------------------------------------------------------------
+# A layer is an overlay surface on a screen blended towards the canvas, never a frame. The
+# title is bold. Hints are faint.
+
+[style.layer-backdrop]
+scrim    = "$canvas"
+strength = 55
+
+# A pillar runs down the whole left edge of every dialog surface, the accent muted into the
+# surface; destructive dialogs take the danger colour.
+[style.modal]
+bg      = "$overlay"
+padding = [1, 3]
+pillar  = "mix($accent, $overlay, 45%)"
+
+[style."modal.danger"]
+pillar = "$danger"
+
+[style.modal-title]
+fg   = "$text"
+bold = true
+
+[style.layer-hint-key]
+fg   = "$dim"
+bold = true
+
+[style.layer-hint-label]
+fg = "$muted"
+
+# Pickers inside layers: a raised filter row and matched characters in the accent.
+[style.layer-filter]
+bg = "$raised"
+fg = "$text"
+
+[style.layer-filter-mark]
+fg = "$accent"
+
+[style.layer-filter-placeholder]
+fg = "$muted"
+
+[style.layer-filter-cursor]
+bg = "$accent"
+fg = "$ink"
+
+[style.layer-match]
+fg   = "$accent"
+bold = true
+
+[style.help-group]
+fg   = "$muted"
+bold = true
+
+[style.help-key]
+bg   = "$raised"
+fg   = "$text"
+bold = true
+
+[style.help-label]
+fg = "$dim"
+
+[style.palette-item]
+fg = "$dim"
+
+[style."palette-item:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "$accent"
+
+[style.palette-chord]
+fg = "$muted"
+
+[style."palette-chord:hover"]
+fg = "$dim"
+
+[style.palette-header]
+fg   = "$muted"
+bold = true
+
+# Calendar: the chosen day is filled with the accent, today carries the accent in its text,
+# days of the neighbouring months are faint.
+[style.calendar]
+bg      = "$overlay"
+padding = [1, 2]
+
+[style.calendar-title]
+fg   = "$text"
+bold = true
+
+[style.calendar-arrow]
+fg = "$muted"
+
+# The month arrows are three-cell buttons that light up like the close mark. Hover also shows the
+# pillar in the arrow's blank leftmost cell; nothing in the calendar slides.
+[style."calendar-arrow:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "mix($accent, $active, 45%)"
+
+[style.calendar-weekday]
+fg = "$muted"
+
+[style.calendar-day]
+fg = "$dim"
+
+[style."calendar-day.outside"]
+fg = "$muted"
+
+[style."calendar-day.today"]
+fg        = "$accent"
+bold      = true
+underline = true
+
+# The highlighted day shows the pillar in its blank first column: soft under the pointer,
+# breathing while the keyboard moved it. The chosen day's pillar is ink on its accent fill.
+[style."calendar-day:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "mix($accent, $active, 45%)"
+
+[style."calendar-day:hover:focus"]
+pillar = "pulse($accent, $accent-2)"
+
+[style."calendar-day:selected"]
+bg   = "$accent"
+fg   = "$ink"
+bold = true
+
+[style."calendar-day:selected:hover"]
+bg     = "pulse($accent, $accent-2)"
+fg     = "$ink"
+pillar = "mix($ink, $accent, 60%)"
+
+[style."calendar-day:selected:hover:focus"]
+pillar = "pulse($ink, mix($ink, $accent, 40%))"

@@ -1,0 +1,412 @@
+//! Driving an application in tests: no terminal, a fake clock and inline background work.
+
+use std::time::Duration;
+
+use ratatui_core::buffer::Buffer;
+use ratatui_core::layout::Rect as BufferRect;
+use ratatui_core::style::{Color, Modifier};
+
+use super::app::App;
+use super::engine::{Engine, TaskMode};
+use crate::color::Rgb;
+use crate::env::Env;
+use crate::event::{Event, KeyEvent, MouseButton, MouseEvent, MouseKind};
+use crate::icons::GlyphMode;
+use crate::keymap::Modifiers;
+
+/// Time the fake clock moves before every simulated key press, so presses are never mistaken
+/// for a held key.
+const KEY_INTERVAL: Duration = Duration::from_millis(150);
+
+/// Runs an [`App`] against an in-memory screen.
+///
+/// Every input method renders afterwards, like the real runtime does. Work of
+/// [`Command::perform`](super::Command::perform) runs inline, one round per step like one pass of
+/// the terminal loop: work that performs again runs at the next step, so a chain of performs
+/// takes one [`Harness::render`] per link and an endless one never blocks a test.
+pub struct Harness<A: App> {
+    engine: Engine<A>,
+    buffer: Buffer,
+    now: Duration,
+}
+
+impl<A: App> Harness<A> {
+    /// A harness with the built-in environment and a `width` × `height` screen, already rendered.
+    pub fn new(app: A, width: u16, height: u16) -> Self {
+        Self::with_env(app, Env::builtin(), width, height)
+    }
+
+    /// A harness with a custom environment.
+    pub fn with_env(app: A, env: Env, width: u16, height: u16) -> Self {
+        let mut harness = Self {
+            engine: Engine::new(app, env, TaskMode::Inline),
+            buffer: Buffer::empty(BufferRect::new(0, 0, width, height)),
+            now: Duration::ZERO,
+        };
+        harness.render();
+        harness
+    }
+
+    /// Paints the current view.
+    pub fn render(&mut self) -> &mut Self {
+        self.settle_tasks();
+        self.engine.render(&mut self.buffer, self.now);
+        // Settling hover or scrolling to a focused widget can ask for one more frame at once.
+        for _ in 0..3 {
+            let due = self.engine.deadline().is_some_and(|deadline| deadline <= self.now);
+            if !self.engine.dirty && !due {
+                break;
+            }
+            self.engine.render(&mut self.buffer, self.now);
+        }
+        self
+    }
+
+    /// Runs the perform work queued so far, then lets background tasks run up to the fake clock:
+    /// every task works until it sleeps past `now` or ends, and everything they sent is applied.
+    /// Tasks started by those messages settle too. Perform work queued meanwhile runs at the next
+    /// step, so work that performs again never keeps a step from ending.
+    fn settle_tasks(&mut self) {
+        self.engine.run_queued_work();
+        loop {
+            self.engine.task_clock.settle(self.now);
+            if self.engine.poll_tasks() == 0 {
+                break;
+            }
+        }
+    }
+
+    /// Delivers `message` to the application as if a widget had sent it, then renders.
+    pub fn send(&mut self, message: A::Msg) -> &mut Self {
+        self.engine.update(message);
+        self.render()
+    }
+
+    /// Presses a key chord such as `"ctrl+s"`, `"tab"` or `"?"`.
+    pub fn press(&mut self, chord: &str) -> &mut Self {
+        self.now += KEY_INTERVAL;
+        self.engine.handle(Event::Key(KeyEvent::press(chord)), self.now);
+        self.render()
+    }
+
+    /// Types `text` one character at a time.
+    pub fn type_text(&mut self, text: &str) -> &mut Self {
+        for c in text.chars() {
+            let chord = match c {
+                ' ' => "space".to_owned(),
+                '+' => "+".to_owned(),
+                c if c.is_uppercase() => format!("shift+{}", c.to_lowercase()),
+                c => c.to_string(),
+            };
+            self.press(&chord);
+        }
+        self
+    }
+
+    /// Delivers `events` in order at the current clock time and renders once afterwards, the
+    /// way the terminal loop handles every event waiting between two frames. Widgets see the
+    /// later events with what the earlier ones changed but the rects of the frame before, e.g. a
+    /// click where a submenu was drawn that a key delivered in the same call already closed.
+    pub fn events(&mut self, events: &[Event]) -> &mut Self {
+        for event in events {
+            self.engine.handle(event.clone(), self.now);
+        }
+        self.render()
+    }
+
+    /// Delivers `event` at an exact clock time, without moving the clock.
+    #[cfg(test)]
+    pub(crate) fn inject(&mut self, event: Event, at: Duration) -> &mut Self {
+        self.engine.handle(event, at);
+        self.render()
+    }
+
+    /// Pastes `text`.
+    pub fn paste(&mut self, text: &str) -> &mut Self {
+        self.engine.handle(Event::Paste(text.to_owned()), self.now);
+        self.render()
+    }
+
+    /// Clicks the left button on a cell.
+    pub fn click(&mut self, x: i32, y: i32) -> &mut Self {
+        self.mouse(MouseKind::Down(MouseButton::Left), x, y);
+        self.mouse(MouseKind::Up(MouseButton::Left), x, y)
+    }
+
+    /// Clicks the first cell of the first occurrence of `text` on screen.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `text` is not on screen.
+    pub fn click_text(&mut self, text: &str) -> &mut Self {
+        let (x, y) = self.find(text).unwrap_or_else(|| panic!("`{text}` is not on screen:\n{}", self.screen()));
+        self.click(x, y)
+    }
+
+    /// Presses the left button on `from`, drags to `to` and releases there.
+    pub fn drag(&mut self, from: (i32, i32), to: (i32, i32)) -> &mut Self {
+        self.mouse(MouseKind::Down(MouseButton::Left), from.0, from.1);
+        self.mouse(MouseKind::Drag(MouseButton::Left), to.0, to.1);
+        self.mouse(MouseKind::Up(MouseButton::Left), to.0, to.1)
+    }
+
+    /// Moves the pointer to a cell.
+    pub fn hover(&mut self, x: i32, y: i32) -> &mut Self {
+        self.mouse(MouseKind::Moved, x, y)
+    }
+
+    /// Sends a mouse event.
+    pub fn mouse(&mut self, kind: MouseKind, x: i32, y: i32) -> &mut Self {
+        self.engine.handle(Event::Mouse(MouseEvent { kind, x, y, mods: Modifiers::default() }), self.now);
+        self.render()
+    }
+
+    /// Moves the fake clock forward and renders.
+    pub fn advance(&mut self, duration: Duration) -> &mut Self {
+        self.now += duration;
+        self.engine.tick(self.now);
+        self.render()
+    }
+
+    /// Delivers a key event exactly as given, without moving the clock: a
+    /// [`KeyKind::Repeat`](crate::event::KeyKind::Repeat) or
+    /// [`KeyKind::Release`](crate::event::KeyKind::Release) from a terminal with the kitty
+    /// keyboard protocol, or a press repeated by a held key.
+    pub fn key(&mut self, event: KeyEvent) -> &mut Self {
+        self.engine.handle(Event::Key(event), self.now);
+        self.render()
+    }
+
+    /// Switches theme, as `Command::set_theme` would.
+    pub fn set_theme(&mut self, id: &str) -> &mut Self {
+        self.engine.env.set_theme(id);
+        self.render()
+    }
+
+    /// Switches language, as `Command::set_locale` would.
+    pub fn set_locale(&mut self, code: &str) -> &mut Self {
+        self.engine.env.set_locale(code);
+        self.render()
+    }
+
+    /// Turns reduced motion on or off.
+    pub fn set_reduced_motion(&mut self, reduced: bool) -> &mut Self {
+        self.engine.env.set_reduced_motion(reduced);
+        self.render()
+    }
+
+    /// Switches the glyph column drawn.
+    pub fn set_glyph_mode(&mut self, mode: GlyphMode) -> &mut Self {
+        self.engine.env.set_glyph_mode(mode);
+        self.render()
+    }
+
+    /// Resizes the screen to `width` × `height` and renders, as a terminal resize does in the
+    /// runtime: the backend hands the engine a fresh, empty buffer of the new size and the next
+    /// frame is drawn in full.
+    pub fn resize(&mut self, width: u16, height: u16) -> &mut Self {
+        self.buffer = Buffer::empty(BufferRect::new(0, 0, width, height));
+        self.engine.dirty = true;
+        self.render()
+    }
+
+    /// The screen as text, one line per row, trailing spaces removed.
+    #[must_use]
+    pub fn screen(&self) -> String {
+        let mut out = String::new();
+        for y in 0..self.buffer.area.height {
+            out.push_str(self.row(y).0.trim_end());
+            out.push('\n');
+        }
+        out
+    }
+
+    /// The screen as a self-contained HTML fragment with colours and weights, for looking at
+    /// renders in a browser. Wrap fragments with [`html_page`] to get a document.
+    #[must_use]
+    pub fn html(&self, caption: &str) -> String {
+        let area = self.buffer.area;
+        let escape = |text: &str| text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+        let css = |color: Color| rgb(color).map_or_else(|| "inherit".to_owned(), |c| c.to_string());
+        let mut out = format!("<figure><figcaption>{}</figcaption><div class=\"screen\">", escape(caption));
+        for y in 0..area.height {
+            out.push_str("<div class=\"row\">");
+            for x in 0..area.width {
+                let cell = &self.buffer[(x, y)];
+                if cell.symbol().is_empty() {
+                    continue;
+                }
+                let modifier = cell.modifier;
+                let weight = if modifier.contains(Modifier::BOLD) { "font-weight:700;" } else { "" };
+                let style = if modifier.contains(Modifier::ITALIC) { "font-style:italic;" } else { "" };
+                let line = if modifier.contains(Modifier::UNDERLINED) { "text-decoration:underline;" } else { "" };
+                out.push_str(&format!(
+                    "<span style=\"color:{};background:{};width:{}ch;{weight}{style}{line}\">{}</span>",
+                    css(cell.fg),
+                    css(cell.bg),
+                    crate::text::width(cell.symbol()).max(1),
+                    escape(cell.symbol())
+                ));
+            }
+            out.push_str("</div>");
+        }
+        out.push_str("</div></figure>");
+        out
+    }
+
+    /// Screen position of the first occurrence of `text`, in cells.
+    #[must_use]
+    pub fn find(&self, text: &str) -> Option<(i32, i32)> {
+        (0..self.buffer.area.height).find_map(|y| {
+            let (line, columns) = self.row(y);
+            line.find(text).map(|byte| (i32::from(columns[byte]), i32::from(y)))
+        })
+    }
+
+    /// Row `y` of the screen as text, with the column each byte of that text was drawn in.
+    fn row(&self, y: u16) -> (String, Vec<u16>) {
+        let mut line = String::new();
+        let mut columns = Vec::new();
+        for x in 0..self.buffer.area.width {
+            let symbol = self.buffer[(x, y)].symbol();
+            columns.extend(std::iter::repeat_n(x, symbol.len()));
+            line.push_str(symbol);
+        }
+        (line, columns)
+    }
+
+    /// Text colour of a cell.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the cell is outside the screen.
+    #[must_use]
+    pub fn fg(&self, x: u16, y: u16) -> Option<Rgb> {
+        rgb(self.buffer[(x, y)].fg)
+    }
+
+    /// Background colour of a cell.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the cell is outside the screen.
+    #[must_use]
+    pub fn bg(&self, x: u16, y: u16) -> Option<Rgb> {
+        rgb(self.buffer[(x, y)].bg)
+    }
+
+    /// Whether a cell is bold.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the cell is outside the screen.
+    #[must_use]
+    pub fn is_bold(&self, x: u16, y: u16) -> bool {
+        self.buffer[(x, y)].modifier.contains(Modifier::BOLD)
+    }
+
+    /// The rendered buffer.
+    #[must_use]
+    pub fn buffer(&self) -> &Buffer {
+        &self.buffer
+    }
+
+    /// The application.
+    #[must_use]
+    pub fn app(&self) -> &A {
+        &self.engine.app
+    }
+
+    /// The environment.
+    #[must_use]
+    pub fn env(&self) -> &Env {
+        &self.engine.env
+    }
+
+    /// Texts copied to the clipboard so far.
+    #[must_use]
+    pub fn copied(&self) -> &[String] {
+        &self.engine.clipboard
+    }
+
+    /// The in-process clipboard: the text copied last, if any.
+    #[must_use]
+    pub fn clipboard(&self) -> Option<&str> {
+        self.engine.clipboard_text.as_deref()
+    }
+
+    /// Stands in for the system clipboard that pasting reads first: `Some` text as if the user
+    /// had copied it in another program, `None` for an empty clipboard (the start). A harness
+    /// never reads the real clipboard or asks a terminal, so without this pasting uses the text
+    /// the application copied last.
+    pub fn set_system_clipboard(&mut self, text: Option<&str>) -> &mut Self {
+        let system = super::clipboard::SystemClipboard::Fixed(text.map(str::to_owned));
+        self.engine.clipboard_reader.set_system(system);
+        self
+    }
+
+    /// Whether the application asked to quit.
+    #[must_use]
+    pub fn quit_requested(&self) -> bool {
+        self.engine.quit
+    }
+
+    /// Whether the widget named `name` has keyboard focus.
+    #[must_use]
+    pub fn is_focused(&self, name: &str) -> bool {
+        self.engine.interaction.focused.is_some_and(|id| self.engine.frame.names.get(&id).is_some_and(|n| n == name))
+    }
+}
+
+/// Wraps [`Harness::html`] fragments in an HTML document that lays screens out on a dark page.
+#[must_use]
+pub fn html_page(fragments: &[String]) -> String {
+    format!(
+        "<!doctype html><meta charset=\"utf-8\"><title>Quvyta review</title><style>\
+         body{{background:#050507;margin:24px;font-family:'JetBrainsMono Nerd Font Mono','JetBrains Mono',monospace}}\
+         figure{{margin:0 0 28px}}figcaption{{color:#8a8f99;font:12px sans-serif;margin-bottom:6px}}\
+         .screen{{display:inline-block;font-size:14px;line-height:19px;white-space:pre}}\
+         .row{{display:flex;height:19px}}.row span{{display:inline-block;overflow:hidden}}</style>{}",
+        fragments.concat()
+    )
+}
+
+fn rgb(color: Color) -> Option<Rgb> {
+    match color {
+        Color::Rgb(r, g, b) => Some(Rgb::new(r, g, b)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod resize_tests {
+    use super::Harness;
+    use crate::runtime::{App, Command};
+    use crate::widget::View;
+    use crate::widgets::Text;
+
+    struct Greeting;
+
+    impl App for Greeting {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(Text::new("container engines"));
+        }
+    }
+
+    #[test]
+    fn resize_redraws_the_whole_screen_at_the_new_size() {
+        let mut harness = Harness::new(Greeting, 30, 2);
+        assert_eq!(harness.screen(), "container engines\n\n");
+        harness.resize(9, 1);
+        assert_eq!(harness.screen(), "container\n");
+        harness.resize(0, 0);
+        assert_eq!(harness.screen(), "");
+        harness.resize(40, 3);
+        assert_eq!((harness.buffer().area.width, harness.buffer().area.height), (40, 3));
+        assert_eq!(harness.screen(), "container engines\n\n\n");
+    }
+}
