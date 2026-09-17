@@ -24,6 +24,7 @@
 
 - `Runtime::new(app)` — gömülü dosyalarla bir çalışma motoru.
 - `.theme_dir(yol)`, `.icon_dir(yol)`, `.locale_dir(yol)`, `.keymap_file(yol)` — kendi dosyalarını gömülülerin üstüne yükler.
+- `.locale_source(dosya, metin)` — metin olarak verilen dil dosyasını yükler, ör. `include_str!("../locales/tr.toml")`; kurulan programın yanında dosya taşıması gerekmez.
 - `.theme(id)` — Monochrome yerine başka bir temayla başlar.
 - `.settings(&ayarlar)` — kullanıcının kaydettiği görünümle başlar; kayıtlı değerler `.theme` seçiminden güçlüdür.
 - `.run()` — uygulama kapanana kadar terminali yönetir; çıkışta ve panikte terminali eski haline getirir.

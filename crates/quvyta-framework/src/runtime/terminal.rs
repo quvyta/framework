@@ -65,6 +65,29 @@ impl<A: App> Runtime<A> {
         self
     }
 
+    /// Loads a locale file given as text, such as one compiled in with `include_str!`, so an
+    /// installed program needs no files beside it. `file` names it in diagnostics. Text given
+    /// this way wins over [`Runtime::locale_dir`].
+    ///
+    /// ```no_run
+    /// # use qframe::prelude::*;
+    /// # struct Hello;
+    /// # impl App for Hello {
+    /// #     type Msg = ();
+    /// #     fn update(&mut self, _: ()) -> Command<()> { Command::none() }
+    /// #     fn view(&self, ui: &mut View<'_, ()>) { ui.add(Text::new(t!("app.greeting"))); }
+    /// # }
+    /// # fn main() -> std::io::Result<()> {
+    /// let english = "[meta]\nname = \"English\"\ncode = \"en\"\n[app]\ngreeting = \"Hello\"\n";
+    /// Runtime::new(Hello).locale_source("en.toml", english).run()
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn locale_source(mut self, file: impl Into<String>, text: impl Into<String>) -> Self {
+        self.dirs.locale_sources.push((file.into(), text.into()));
+        self
+    }
+
     /// Layers keymap `file` over the built-in keymap.
     #[must_use]
     pub fn keymap_file(mut self, file: impl Into<PathBuf>) -> Self {

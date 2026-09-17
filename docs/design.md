@@ -134,7 +134,9 @@ seçiminin kopyalarını, hiçbir bileşenin almadığı yapıştırmaları duya
 aboneliği yoktur: süren işler `Command::perform` ve `Command::task` ile yürür.
 
 `Runtime` başlangıçta `.theme_dir`, `.icon_dir`, `.locale_dir`, `.keymap_file`, `.theme(id)` ve
-kaydedilmiş görünümü ilk karede uygulayan `.settings(&settings)` alır.
+kaydedilmiş görünümü ilk karede uygulayan `.settings(&settings)` alır. `.locale_source(dosya, metin)`
+programa `include_str!` ile gömülen dil dosyalarını yükler: `cargo install` yalnızca çalıştırılabilir
+dosyayı kurduğu için yayınlanan uygulamalar metinlerini böyle taşır.
 
 ### 4.2 Durum ayrımı
 

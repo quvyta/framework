@@ -29,4 +29,5 @@
 - `Command::set_theme(id)`, `Command::set_locale(code)`, `Command::set_icon_mode(IconMode::Ascii)`.
 - `env.theme()`, `env.themes()`, `env.icons()`, `env.icon_mode()`, `env.glyph_mode()`, `env.i18n()`, `env.keymap()`, `env.diagnostics()`.
 - `Runtime::theme_dir`, `icon_dir`, `locale_dir` — load files.
+- `Runtime::locale_source` — loads a locale file given as text, such as one compiled in with `include_str!`.
 - `Command::set_pillar(PillarStyle::Thin)`, `Command::set_slide(false)`, `Command::set_reduced_motion(true)` — change how every screen feels at runtime; `Env::pillar_style`, `Env::slide`, `Env::reduced_motion` read the current choice; `Settings::PILLAR`, `Settings::SLIDE` and `Settings::REDUCED_MOTION` remember it.

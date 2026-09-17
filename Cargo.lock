@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "quvyta-framework"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "crossterm",
  "portable-pty",
@@ -710,7 +710,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "showcase"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "quvyta-framework",
  "toml",

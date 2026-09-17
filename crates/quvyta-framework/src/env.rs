@@ -24,6 +24,10 @@ pub struct AssetDirs {
     pub icons: Option<PathBuf>,
     /// Directory of `*.toml` locale files.
     pub locales: Option<PathBuf>,
+    /// Locale files given as text, as `(file name, TOML text)`, loaded after `locales` so they
+    /// win. For files compiled into the binary with `include_str!`, which an installed program
+    /// carries with it; the file name only labels diagnostics.
+    pub locale_sources: Vec<(String, String)>,
     /// A keymap file layered over the built-in keymap.
     pub keymap: Option<PathBuf>,
 }
@@ -94,6 +98,9 @@ impl Env {
         let mut i18n = I18n::builtin();
         if let Some(dir) = &dirs.locales {
             i18n.load_dir(dir)?;
+        }
+        for (file, text) in &dirs.locale_sources {
+            i18n.add_source(file, text);
         }
         if let Some(code) = i18n.detect(lookup) {
             i18n.set_active(&code);
@@ -342,6 +349,32 @@ mod tests {
         env.apply_settings(&settings);
         assert_eq!(env.icons().glyph(PILLAR), "▌");
         assert!(env.slide());
+    }
+
+    #[test]
+    fn locales_given_as_text_load_over_the_built_ins_and_report_problems_by_file() {
+        let english = "[meta]\nname = \"English\"\ncode = \"en\"\n[app]\ngreeting = \"Hello\"\n";
+        let turkish = "[meta]\nname = \"Türkçe\"\ncode = \"tr\"\nfallback = \"en\"\n[app]\ngreeting = \"Merhaba\"\n";
+        let dirs = AssetDirs {
+            locale_sources: vec![
+                ("app-en.toml".to_owned(), english.to_owned()),
+                ("app-tr.toml".to_owned(), turkish.to_owned()),
+                ("broken.toml".to_owned(), "[meta\n".to_owned()),
+            ],
+            ..AssetDirs::default()
+        };
+        let env = Env::load(&dirs).expect("nothing to read from disk");
+        let mut i18n = env.i18n().clone();
+        assert!(i18n.set_active("tr"));
+        assert_eq!(i18n.translate("app.greeting", &[]), "Merhaba");
+        assert!(i18n.set_active("en"));
+        assert_eq!(i18n.translate("app.greeting", &[]), "Hello");
+        assert_eq!(i18n.translate("quvyta.keys.quit", &[]), "quit", "built-in text stays");
+        assert!(
+            env.diagnostics().iter().any(|problem| problem.to_string().contains("broken.toml")),
+            "{:?}",
+            env.diagnostics()
+        );
     }
 
     /// Looks names up in `vars` instead of the process environment.

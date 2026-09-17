@@ -24,6 +24,7 @@
 
 - `Runtime::new(app)` — a runtime with built-in files.
 - `.theme_dir(path)`, `.icon_dir(path)`, `.locale_dir(path)`, `.keymap_file(path)` — load your own files over the built-ins.
+- `.locale_source(file, text)` — loads a locale given as text, e.g. `include_str!("../locales/en.toml")`, so an installed program needs no files beside it.
 - `.theme(id)` — start with a theme other than Monochrome.
 - `.settings(&settings)` — start with the look the user saved; saved values win over `.theme`.
 - `.run()` — takes over the terminal until the application quits; restores it on exit and on panic.

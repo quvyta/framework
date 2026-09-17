@@ -29,4 +29,5 @@
 - `Command::set_theme(id)`, `Command::set_locale(kod)`, `Command::set_icon_mode(IconMode::Ascii)`.
 - `env.theme()`, `env.themes()`, `env.icons()`, `env.icon_mode()`, `env.glyph_mode()`, `env.i18n()`, `env.keymap()`, `env.diagnostics()`.
 - `Runtime::theme_dir`, `icon_dir`, `locale_dir` — dosyaları yükler.
+- `Runtime::locale_source` — metin olarak verilen dil dosyasını yükler; `include_str!` ile programa gömülen dosyalar için.
 - `Command::set_pillar(PillarStyle::Thin)`, `Command::set_slide(false)`, `Command::set_reduced_motion(true)` — her ekranın hissini çalışırken değiştirir; `Env::pillar_style`, `Env::slide`, `Env::reduced_motion` geçerli seçimi okur; `Settings::PILLAR`, `Settings::SLIDE` ve `Settings::REDUCED_MOTION` onu hatırlar.
