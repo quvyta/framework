@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "quvyta-framework"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "crossterm",
  "dirs",
@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "quvyta-framework-showcase"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "quvyta-framework",
  "toml",

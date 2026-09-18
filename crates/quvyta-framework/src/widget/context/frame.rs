@@ -28,6 +28,9 @@ pub(crate) struct Frame {
     /// Cells that decorate rather than hold content (pillars, scrollbars); clean copies of a
     /// text selection leave them out. See [`PaintCx::decoration`](crate::widget::PaintCx::decoration).
     pub(crate) decorations: Vec<Rect>,
+    /// Widgets that asked for plain pointer moves; see
+    /// [`PaintCx::track_pointer_moves`](crate::widget::PaintCx::track_pointer_moves).
+    pub(crate) pointer_moves: Vec<WidgetId>,
     /// Every layer painted this frame, in paint order (the last one is on top): dismissable
     /// layers such as popovers and modal layers such as dialogs share one stack.
     pub(crate) layers: Vec<LayerEntry>,
@@ -84,6 +87,7 @@ impl Frame {
             unselectable,
             selectable,
             decorations,
+            pointer_moves,
             layers,
             focus_request,
             measures,
@@ -100,6 +104,7 @@ impl Frame {
         unselectable.clear();
         selectable.clear();
         decorations.clear();
+        pointer_moves.clear();
         layers.clear();
         *focus_request = None;
         measures.clear();

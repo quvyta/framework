@@ -85,6 +85,8 @@ mod task_list;
 #[cfg(feature = "pty")]
 mod terminal;
 #[cfg(feature = "pty")]
+mod terminal_mouse;
+#[cfg(feature = "pty")]
 mod terminal_session;
 mod text;
 mod text_area;

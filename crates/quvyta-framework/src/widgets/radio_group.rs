@@ -97,7 +97,7 @@ impl<Msg> RadioGroup<Msg> {
             options: options.into_iter().map(Into::into).collect(),
             selected: None,
             horizontal: false,
-            style: RadioStyle::Mark,
+            style: RadioStyle::default(),
             disabled: false,
             on_select: None,
         }
@@ -524,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn the_default_mark_is_a_small_square_and_the_chosen_option_a_full_box() {
+    fn the_mark_style_is_a_small_square_and_the_chosen_option_a_full_box() {
         let mut h = Harness::new(demo(Some(1), false, RadioStyle::Mark), 20, 3);
         assert_eq!(h.screen(), "🬇🬃  Podman\n    Docker\n🬇🬃  Nerdctl\n");
         let theme = h.env().theme().clone();
@@ -564,6 +564,25 @@ mod tests {
         h.set_reduced_motion(true);
         h.send(1);
         assert_eq!((h.fg(0, 1), h.fg(0, 0)), (Some(full), Some(quiet)), "reduced motion changes at once");
+    }
+
+    #[test]
+    fn a_group_without_a_style_draws_squares_and_no_full_box() {
+        struct Plain;
+        impl App for Plain {
+            type Msg = usize;
+            fn update(&mut self, _: usize) -> Command<usize> {
+                Command::none()
+            }
+            fn view(&self, ui: &mut View<'_, usize>) {
+                ui.add(RadioGroup::new(["Podman", "Docker", "Nerdctl"]).selected(Some(1)).on_select(|i| i));
+            }
+        }
+        let h = Harness::new(Plain, 20, 3);
+        assert_eq!(h.screen(), "🬇🬃  Podman\n🬇🬃  Docker\n🬇🬃  Nerdctl\n", "the chosen option keeps its square");
+        let accent = h.env().theme().color("accent");
+        assert_eq!(h.fg(0, 1), accent, "the chosen square has the chosen colour");
+        assert_eq!((h.bg(0, 1), h.bg(1, 1)), (h.bg(4, 1), h.bg(4, 1)), "no full box behind it");
     }
 
     /// Screen rows and colours of the first and third options while the mark moves from one to the
@@ -706,7 +725,13 @@ mod tests {
                 Command::none()
             }
             fn view(&self, ui: &mut View<'_, usize>) {
-                ui.add(RadioGroup::new(["Podman", "Docker"]).selected(Some(0)).disabled(true).on_select(|i| i));
+                ui.add(
+                    RadioGroup::new(["Podman", "Docker"])
+                        .style(RadioStyle::Mark)
+                        .selected(Some(0))
+                        .disabled(true)
+                        .on_select(|i| i),
+                );
             }
         }
         let mut h = Harness::new(Off, 20, 2);

@@ -57,7 +57,19 @@ impl<A: App> Engine<A> {
         }
         let event = Event::Mouse(mouse);
         match mouse.kind {
-            MouseKind::Moved => {}
+            // Only widgets that asked hear plain moves: most widgets read any mouse event under
+            // them as theirs, and a move is no reason to act.
+            MouseKind::Moved => {
+                if let Some(target) = hit {
+                    let wanting: Vec<WidgetId> = self
+                        .frame
+                        .routed_ancestry(target)
+                        .into_iter()
+                        .filter(|id| self.frame.pointer_moves.contains(id))
+                        .collect();
+                    self.dispatch(&wanting, &event, now);
+                }
+            }
             MouseKind::Down(_) if let Some(press) = self.toasts.press(mouse.x, mouse.y) => self.press_toast(press, now),
             MouseKind::Down(button) => self.press(mouse, button, hit, now),
             MouseKind::Drag(MouseButton::Left) | MouseKind::Up(MouseButton::Left)
@@ -270,5 +282,58 @@ mod tests {
         assert_eq!(h.app().0, 3, "the stopped repeat delivers nothing more");
         h.mouse(MouseKind::Drag(MouseButton::Left), 2, 0);
         assert_eq!(h.app().0, 4, "real drags still arrive");
+    }
+
+    /// Counts every mouse event it hears, as `(its index, kind)`; asks for plain moves when `track`.
+    struct Counter {
+        index: usize,
+        track: bool,
+    }
+
+    impl Widget<(usize, MouseKind)> for Counter {
+        fn measure(&self, _cx: &mut MeasureCx<'_>, available: Size) -> Size {
+            Size::new(4, 1).min(available)
+        }
+        fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
+            cx.register_hit(area);
+            if self.track {
+                cx.track_pointer_moves();
+            }
+        }
+        fn event(&self, cx: &mut EventCx<'_, (usize, MouseKind)>, event: &Event) -> bool {
+            let Event::Mouse(mouse) = event else {
+                return false;
+            };
+            cx.emit((self.index, mouse.kind));
+            true
+        }
+    }
+
+    /// What the counters heard.
+    struct Heard(Vec<(usize, MouseKind)>);
+
+    impl App for Heard {
+        type Msg = (usize, MouseKind);
+        fn update(&mut self, heard: (usize, MouseKind)) -> Command<(usize, MouseKind)> {
+            self.0.push(heard);
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, (usize, MouseKind)>) {
+            ui.row(|ui| {
+                ui.add(Counter { index: 0, track: false });
+                ui.add(Counter { index: 1, track: true });
+            });
+        }
+    }
+
+    #[test]
+    fn plain_moves_reach_only_widgets_that_track_them() {
+        let mut h = Harness::new(Heard(Vec::new()), 8, 1);
+        h.hover(1, 0).hover(2, 0);
+        assert!(h.app().0.is_empty(), "a widget that did not ask hears no moves");
+        h.hover(5, 0);
+        assert_eq!(h.app().0, [(1, MouseKind::Moved)]);
+        h.click(1, 0);
+        assert_eq!(h.app().0.len(), 3, "presses still reach every widget");
     }
 }

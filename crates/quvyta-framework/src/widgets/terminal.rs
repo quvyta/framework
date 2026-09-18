@@ -3,12 +3,13 @@
 use crate::color::Rgb;
 use crate::event::{Event, KeyEvent, MouseKind};
 use crate::geometry::{Rect, Size};
-use crate::keymap::{Key, Modifiers};
+use crate::keymap::{Key, KeyChord, Keymap, Modifiers, Scope};
 use crate::style::CellStyle;
 use crate::text;
 use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
 
 use super::rows::WHEEL_ROWS;
+use super::terminal_mouse;
 use super::terminal_session::TerminalSession;
 
 /// Lines one wheel step scrolls back.
@@ -18,7 +19,14 @@ const WHEEL_LINES: usize = WHEEL_ROWS as usize;
 /// sixteen classic colours taken from the theme so shells and tools match the application.
 ///
 /// While focused every key goes to the program, including Tab and Esc, except `shift+tab`,
-/// which moves focus on, and `ctrl+q`, which still quits. Pasted text is sent as a bracketed
+/// which moves focus on, and `ctrl+q`, which still quits; by default nothing else passes.
+/// [`Terminal::pass_through`] lets the keys of chosen keymap actions through as well: they skip
+/// the program and take the usual route, to ancestors such as a
+/// [`SidePanel`](super::SidePanel), to key listeners and finally to
+/// [`App::action`](crate::runtime::App::action). A key that types a character (a character or
+/// the space key with at most `shift`) always goes to the program, even when it is bound to a
+/// passed action, because the terminal is where the user types: with `help` on `?` and `f1`,
+/// `?` types into the shell and `f1` opens the help. Pasted text is sent as a bracketed
 /// paste when the program asks for it. The wheel scrolls back through earlier output (on the
 /// alternate screen of full-screen programs it sends arrow keys instead); typing returns to the
 /// live screen. The widget asks the session for its size; a running
@@ -28,11 +36,19 @@ const WHEEL_LINES: usize = WHEEL_ROWS as usize;
 /// [`NodeMut::selectable`](crate::widget::NodeMut::selectable)); clean copies leave out the
 /// scrolled-back and exited notes.
 ///
+/// A program that turns on mouse reporting (xterm modes 9, 1000, 1002 and 1003, in the default,
+/// UTF-8 or SGR encoding) gets the mouse instead: presses, releases, drags, moves and the wheel
+/// are sent to it as its mode asks, with cells counted from the terminal's corner. A press it
+/// takes keeps the pointer until the release, so a drag past the edge still reports the nearest
+/// cell. `shift` with a press or the wheel goes past the program: it selects text and scrolls
+/// back as when the mouse is off.
+///
 /// Style keys: `terminal` (`bg`, `fg`, the default colours), `terminal-cursor` (`bg`, `fg`)
 /// with `focus`, `terminal-note` (`bg`, `fg`) for the scrolled-back and exited notes. Framework
 /// strings: `quvyta.terminal.scrolled`, `quvyta.terminal.exited`.
 pub struct Terminal {
     session: TerminalSession,
+    pass_through: Vec<(Scope, String)>,
 }
 
 #[derive(Debug, Default)]
@@ -44,8 +60,29 @@ impl Terminal {
     /// A terminal drawing `session`; cloning a session is cheap.
     #[must_use]
     pub fn new(session: &TerminalSession) -> Self {
-        Self { session: session.clone() }
+        Self { session: session.clone(), pass_through: Vec::new() }
     }
+
+    /// Lets the keys of a keymap action through to the application instead of the program,
+    /// e.g. `.pass_through(Scope::Global, "toggle-panel")`; call again for each action. The
+    /// keymap in force when the key arrives decides which keys those are, so rebinding follows.
+    /// Keys that type a character still go to the program, see [`Terminal`].
+    #[must_use]
+    pub fn pass_through(mut self, scope: Scope, action: impl Into<String>) -> Self {
+        self.pass_through.push((scope, action.into()));
+        self
+    }
+
+    /// Whether `chord` belongs to the application rather than the program.
+    fn passes(&self, keymap: &Keymap, chord: KeyChord) -> bool {
+        !types_text(chord)
+            && self.pass_through.iter().any(|(scope, action)| keymap.chords_for(*scope, action).contains(&chord))
+    }
+}
+
+/// Whether `chord` types a character, which always belongs to the program.
+fn types_text(chord: KeyChord) -> bool {
+    matches!(chord.key, Key::Char(_) | Key::Space) && !chord.mods.ctrl && !chord.mods.alt
 }
 
 /// The theme colour of one of the sixteen classic terminal colours.
@@ -133,7 +170,7 @@ fn key_bytes(key: &KeyEvent, application_cursor: bool) -> Vec<u8> {
             let typed = key.text.unwrap_or(if mods.shift { c.to_ascii_uppercase() } else { c });
             alt(typed.to_string().into_bytes())
         }
-        Key::Space if mods.ctrl => vec![0],
+        Key::Space if mods.ctrl => alt(vec![0]),
         Key::Space => alt(vec![b' ']),
         Key::Enter => alt(vec![b'\r']),
         Key::Tab if mods.shift => b"\x1b[Z".to_vec(),
@@ -193,6 +230,9 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
         let mut parser = session.parser();
         parser.screen_mut().set_scrollback(wanted);
         let screen = parser.screen();
+        if terminal_mouse::wants_moves(screen) {
+            cx.track_pointer_moves();
+        }
         let scrolled = screen.scrollback();
         let (rows, cols) = screen.size();
         for row in 0..rows.min(area.height) {
@@ -266,6 +306,9 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
                 {
                     return false;
                 }
+                if self.passes(cx.env().keymap(), key.chord) {
+                    return false;
+                }
                 if self.session.exit().is_some() {
                     return false;
                 }
@@ -291,6 +334,12 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
                 cx.memory::<TerminalMemory>().scrollback = 0;
                 let _ = self.session.write(&bytes);
                 true
+            }
+            Event::Mouse(mouse) if let Some(used) = terminal_mouse::event(&self.session, cx, mouse) => {
+                if used {
+                    cx.memory::<TerminalMemory>().scrollback = 0;
+                }
+                used
             }
             Event::Mouse(mouse) if matches!(mouse.kind, MouseKind::ScrollUp | MouseKind::ScrollDown) => {
                 let up = mouse.kind == MouseKind::ScrollUp;
@@ -338,6 +387,8 @@ mod tests {
         assert_eq!(key_bytes(&press("shift+a"), false), b"A");
         assert_eq!(key_bytes(&press("ctrl+c"), false), [3]);
         assert_eq!(key_bytes(&press("alt+b"), false), b"\x1bb");
+        assert_eq!(key_bytes(&press("ctrl+space"), false), [0]);
+        assert_eq!(key_bytes(&press("ctrl+alt+space"), false), b"\x1b\0");
         assert_eq!(key_bytes(&press("enter"), false), b"\r");
         assert_eq!(key_bytes(&press("backspace"), false), [0x7f]);
         assert_eq!(key_bytes(&press("up"), false), b"\x1b[A");
@@ -346,6 +397,111 @@ mod tests {
         assert_eq!(key_bytes(&press("pgdn"), false), b"\x1b[6~");
         assert_eq!(key_bytes(&press("f1"), false), b"\x1bOP");
         assert_eq!(key_bytes(&press("f12"), false), b"\x1b[24~");
+    }
+
+    fn chord(text: &str) -> KeyChord {
+        text.parse().expect("valid chord")
+    }
+
+    #[test]
+    fn only_passed_actions_pass_and_never_text_keys() {
+        let mut keymap = Keymap::builtin();
+        keymap.bind(Scope::Global, "help", &[chord("?"), chord("f1"), chord("shift+h"), chord("space")]);
+        let session = TerminalSession::spawn("/bin/true".as_ref(), &[] as &[&str], Path::new("/")).expect("pty");
+        let plain = Terminal::new(&session);
+        assert!(!plain.passes(&keymap, chord("f1")), "by default nothing passes");
+        assert!(!plain.passes(&keymap, chord("alt+b")));
+        let terminal = plain.pass_through(Scope::Global, "help").pass_through(Scope::Global, "toggle-panel");
+        assert!(terminal.passes(&keymap, chord("f1")));
+        assert!(terminal.passes(&keymap, chord("alt+b")));
+        for typed in ["?", "shift+h", "space"] {
+            assert!(!terminal.passes(&keymap, chord(typed)), "{typed} types into the program");
+        }
+        assert!(!terminal.passes(&keymap, chord("ctrl+p")), "palette was not passed");
+        keymap.bind(Scope::Global, "help", &[chord("alt+h")]);
+        assert!(terminal.passes(&keymap, chord("alt+h")), "the keymap in force decides, not the one at build time");
+        assert!(!terminal.passes(&keymap, chord("f1")));
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum PassMsg {
+        Help,
+        Panel(bool),
+    }
+
+    struct Passing {
+        session: TerminalSession,
+        open: bool,
+        heard: Vec<PassMsg>,
+    }
+
+    impl App for Passing {
+        type Msg = PassMsg;
+        fn update(&mut self, msg: PassMsg) -> Command<PassMsg> {
+            if let PassMsg::Panel(open) = msg {
+                self.open = open;
+            }
+            self.heard.push(msg);
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, PassMsg>) {
+            let session = self.session.clone();
+            crate::widgets::SidePanel::new(8)
+                .open(self.open)
+                .on_toggle(PassMsg::Panel)
+                .panel(|ui| {
+                    ui.add(crate::widgets::Text::new("files"));
+                })
+                .body(move |ui| {
+                    ui.add(
+                        Terminal::new(&session)
+                            .pass_through(Scope::Global, "help")
+                            .pass_through(Scope::Global, "toggle-panel"),
+                    )
+                    .fill()
+                    .id("terminal");
+                })
+                .show(ui);
+        }
+        fn action(&self, name: &str) -> Option<PassMsg> {
+            (name == "help").then_some(PassMsg::Help)
+        }
+    }
+
+    /// Waits until the program's screen contains `text`.
+    fn wait_for(session: &TerminalSession, text: &str) {
+        let watch = session.watch();
+        let started = Instant::now();
+        while !session.parser().screen().contents().contains(text) {
+            let _ = watch.next();
+            assert!(started.elapsed() < Duration::from_secs(10), "{}", session.parser().screen().contents());
+        }
+    }
+
+    #[test]
+    fn passed_actions_reach_the_application_and_the_rest_reaches_the_program() {
+        // The program shows, in hex, the first four bytes it receives.
+        let script = "stty raw -echo; printf 'ready '; head -c 4 | od -An -tx1";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&session, "ready");
+        let mut env = crate::env::Env::builtin();
+        env.keymap_mut().bind(Scope::Global, "help", &[chord("?"), chord("f1")]);
+        let app = Passing { session: session.clone(), open: true, heard: Vec::new() };
+        let mut h = Harness::with_env(app, env, 40, 4);
+        for _ in 0..4 {
+            if h.is_focused("terminal") {
+                break;
+            }
+            h.press("tab");
+        }
+        assert!(h.is_focused("terminal"));
+        h.press("f1").press("alt+b");
+        assert_eq!(h.app().heard, [PassMsg::Help, PassMsg::Panel(false)], "f1 and alt+b reached the application");
+        assert!(h.is_focused("terminal"));
+        h.press("?").type_text("abc");
+        wait_for(&session, "3f 61 62 63");
+        assert_eq!(h.app().heard.len(), 2, "? typed into the program instead of opening the help");
+        session.kill();
     }
 
     #[test]

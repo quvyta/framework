@@ -78,7 +78,11 @@ pub enum MouseKind {
     Up(MouseButton),
     /// The mouse moved with a button held.
     Drag(MouseButton),
-    /// The mouse moved with no button held.
+    /// The mouse moved with no button held. Widgets hear it only when they ask with
+    /// [`PaintCx::track_pointer_moves`](crate::widget::PaintCx::track_pointer_moves) and the
+    /// pointer is over them or over a child of theirs: most widgets take any mouse event under
+    /// them as theirs, and a move alone is no reason to act. Hover looks need no event: they
+    /// are painted from [`PaintCx::is_hovered`](crate::widget::PaintCx::is_hovered).
     Moved,
     /// Wheel towards the top of the content.
     ScrollUp,

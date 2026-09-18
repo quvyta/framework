@@ -1,5 +1,9 @@
 # Showcase key bindings, layered over the framework's built-in keymap.
 
+[global]
+# `?` types into text fields and the terminal, so help also has a key that never types.
+help      = ["?", "f1"]
+
 [app]
 search    = "/"
 back      = "esc"

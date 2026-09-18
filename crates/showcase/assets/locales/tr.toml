@@ -1359,7 +1359,7 @@ start = "Kabuğu başlat"
 restart = "Yeniden başlat"
 stop = "Durdur"
 idle = "Showcase içinde gerçek bir terminal kullanmak için bir kabuk başlat."
-focus-hint = "Yazmak için terminale tıkla; çıktısını seçmek için sürükle, ctrl c ya da sağ tık kopyalar; shift tab ile çıkılır."
+focus-hint = "Yazmak için terminale tıkla; çıktısını seçmek için sürükle, fareyi alan bir programda shift ile sürükle; ctrl c ya da sağ tık kopyalar; shift tab ile çıkılır, f1 yardımı yine açar."
 
 [form]
 intro = "Yeni bir container. Oluştur her alanı denetler; ilk denemeden sonra hatalar yazdıkça güncellenir."

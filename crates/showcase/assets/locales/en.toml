@@ -1358,7 +1358,7 @@ start = "Start shell"
 restart = "Restart"
 stop = "Stop"
 idle = "Start a shell to use a real terminal inside the showcase."
-focus-hint = "Click the terminal to type; drag over its output to select, ctrl c or a right click copies; shift tab leaves it."
+focus-hint = "Click the terminal to type; drag over its output to select, shift drag when a program takes the mouse; ctrl c or a right click copies; shift tab leaves it and f1 still opens the help."
 
 [form]
 intro = "A new container. Create checks every field; after the first try errors follow your edits."

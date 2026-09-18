@@ -89,7 +89,11 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         // region: terminal-view
         match &state.session {
             Some(session) => {
-                ui.add(Terminal::new(session)).width(Length::Fill(1)).height(Length::Cells(18)).id("shell");
+                // `f1` still opens the help while the shell has focus; `?` stays a character for
+                // the shell. The palette's `ctrl p` and the menu's `ctrl b` are left to the shell,
+                // where readline and tmux use them.
+                let terminal = Terminal::new(session).pass_through(Scope::Global, "help");
+                ui.add(terminal).width(Length::Fill(1)).height(Length::Cells(18)).id("shell");
             }
             None => {
                 ui.add(Text::new(state.error.clone().unwrap_or_else(|| t!("terminal.idle"))).role("faint"))

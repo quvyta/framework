@@ -311,6 +311,15 @@ impl PaintCx<'_> {
         }
     }
 
+    /// Asks for [`MouseKind::Moved`](crate::event::MouseKind::Moved) events in this frame: the
+    /// pointer moving with no button held over this widget's hit area, or over a child of it.
+    /// Other widgets never see plain moves. Widgets that follow the pointer without a button,
+    /// such as an embedded terminal whose program asked for every motion,
+    /// call this while painting, and only while they need it.
+    pub fn track_pointer_moves(&mut self) {
+        self.frame.pointer_moves.push(self.id);
+    }
+
     /// Adds this widget to the keyboard focus order.
     pub fn register_focusable(&mut self) {
         self.frame.focusable.push(self.id);
