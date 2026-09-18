@@ -197,7 +197,8 @@ impl<Msg: 'static> Widget<Msg> for Shell<Msg> {
         let width = self.sidebar_width.min(middle.width);
         let rect = Rect::new(middle.x, middle.y, width, middle.height);
         cx.register_hit(rect);
-        paint_part(cx, &self.parts[SIDEBAR], rect, "shell-sidebar");
+        // Drawn over the body, the sidebar floats: it keeps apart from the body and the bars.
+        cx.floating(rect, |cx| paint_part(cx, &self.parts[SIDEBAR], rect, "shell-sidebar"));
     }
 
     fn children(&self) -> &[Node<Msg>] {

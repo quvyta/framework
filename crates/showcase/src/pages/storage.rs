@@ -1,15 +1,16 @@
 //! Settings storage: typed values saved as TOML in the config directory, the showcase's own
 //! appearance choices, located diagnostics for a broken file, self-healing by a schema, and the
 //! rest of what an application needs around its own files: the two platform folders and the
-//! machine's name for files of its own in them, an atomic write step by step, and the lock that
-//! keeps a second instance out.
+//! machine's name for files of its own in them, the family's shared settings folder and the
+//! Documents folder, moving old settings into the family, an atomic write step by step, and the
+//! lock that keeps a second instance out.
 
 use std::path::{Path, PathBuf};
 
 use qframe::diagnostics::Severity;
 use qframe::env::Env;
 use qframe::prelude::*;
-use qframe::storage::{AppLock, Schema, SettingKind, Settings, WriteStep, atomic_write_reporting};
+use qframe::storage::{AppLock, Family, Migration, Schema, SettingKind, Settings, WriteStep, atomic_write_reporting};
 use qframe::widgets::{CodeView, Language, Segmented, Switch, TextInput};
 
 use super::{PageMsg, setting, toggle};
@@ -82,6 +83,9 @@ pub struct State {
     /// The demo lock, held for as long as this value lives.
     lock: Option<AppLock>,
     attempt: Attempt,
+    /// What the last move of the demo's old folder into its family reported, or why the demo
+    /// could not set the old folder up.
+    adopt: Option<Result<Migration, String>>,
     /// The folder this page's demo files live in, one per instance of the page.
     demo: PathBuf,
 }
@@ -99,6 +103,7 @@ impl State {
             write: None,
             lock: None,
             attempt: Attempt::None,
+            adopt: None,
             demo: demo_dir(),
         }
     }
@@ -135,6 +140,49 @@ fn write_safely(path: &Path) -> Result<Vec<WriteStep>, String> {
     Ok(steps)
 }
 
+/// An application's old settings folder, the way it looked before the application joined its
+/// family: its settings, a profile, and a theme the family's folder already has a file for. Set
+/// up once, so pressing the button again shows what a second start finds.
+fn old_folder(root: &Path) -> std::io::Result<()> {
+    if root.exists() {
+        return Ok(());
+    }
+    let files = [
+        ("quvyta-packages/settings.toml", "theme = \"nordic\"\n"),
+        ("quvyta-packages/profiles/work.toml", "mirror = \"eu-west\"\n"),
+        ("quvyta-packages/themes/dusk.toml", "# the old copy\n"),
+        ("quvyta/packages/themes/dusk.toml", "# already here\n"),
+    ];
+    for (name, text) in files {
+        let path = root.join(name);
+        std::fs::create_dir_all(path.parent().unwrap_or(root))?;
+        std::fs::write(path, text)?;
+    }
+    Ok(())
+}
+
+/// Moves the demo's old folder into the demo family folder under `root`.
+fn adopt_old_folder(root: &Path) -> Result<Migration, String> {
+    old_folder(root).map_err(|error| error.to_string())?;
+    let (family, old) = (root.join("quvyta"), root.join("quvyta-packages"));
+    // region: storage-adopt
+    // An application calls Family::QUVYTA.adopt("packages", &old) once at start, before
+    // Settings::load_member. The demo moves into a folder of this run, not into your own.
+    let migration = Family::QUVYTA.adopt_in(&family, "packages", &old);
+    // endregion
+    Ok(migration)
+}
+
+/// `path` as the demo shows it: from the demo's own folder on, which is all that differs.
+fn shown(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root).unwrap_or(path).display().to_string()
+}
+
+/// `message` with the demo's own folder taken out of the paths in it.
+fn shown_message(root: &Path, message: &str) -> String {
+    message.replace(&root.join("").display().to_string(), "")
+}
+
 impl Default for State {
     fn default() -> Self {
         Self::new(Settings::in_memory())
@@ -154,6 +202,7 @@ pub enum Msg {
     Write,
     Take,
     Release,
+    Adopt,
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -289,6 +338,30 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.attempt = Attempt::None;
             Command::none()
         }
+        Msg::Adopt => {
+            let root = state.demo.join("adopt");
+            let result = adopt_old_folder(&root);
+            match &result {
+                Ok(migration) => {
+                    for (from, to) in migration.moved() {
+                        log.push(
+                            PAGE,
+                            "Family::adopt",
+                            format!("moved {} to {}", shown(&root, from), shown(&root, to)),
+                        );
+                    }
+                    for diagnostic in migration.diagnostics() {
+                        log.push(PAGE, "Family::adopt", shown_message(&root, &diagnostic.message));
+                    }
+                    if migration.moved().is_empty() && migration.is_clean() {
+                        log.push(PAGE, "Family::adopt", "nothing to move");
+                    }
+                }
+                Err(error) => log.push(PAGE, "Family::adopt", error.clone()),
+            }
+            state.adopt = Some(result);
+            Command::none()
+        }
     }
 }
 
@@ -340,6 +413,84 @@ fn folders(ui: &mut View<'_, AppMsg>) {
             setting(ui, t!("storage.machine-file"), |ui| {
                 ui.add(Text::new(running).role("body")).fill_width();
             });
+        }
+    })
+    .fill_width();
+}
+
+/// The family's shared settings folder and the Documents folder, as they are on this machine.
+fn family(ui: &mut View<'_, AppMsg>) {
+    ui.add_with(Panel::new().title(t!("storage.family")).gap(0), |ui| {
+        ui.add(Text::new(t!("storage.family-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        // region: storage-family
+        let family = Family::QUVYTA;
+        let rows = [
+            (t!("storage.documents-dir"), qframe::storage::documents_dir()),
+            (t!("storage.workspace-dir"), family.workspace_dir("Code")),
+            (t!("storage.family-dir"), family.config_dir()),
+            (t!("storage.shared-file"), family.shared_file()),
+            (t!("storage.app-file"), family.app_file("code")),
+            (t!("storage.app-dir"), family.app_dir("code")),
+        ];
+        // endregion
+        for (label, path) in rows {
+            setting(ui, label, |ui| {
+                let (text, role) = match path {
+                    Some(path) => (path.display().to_string(), "body"),
+                    None => (t!("storage.no-folder"), "faint"),
+                };
+                ui.add(Text::new(text).role(role)).fill_width();
+            });
+        }
+    })
+    .fill_width();
+}
+
+/// An old settings folder moved into the family, and what the move reported.
+fn adoption(state: &State, ui: &mut View<'_, AppMsg>) {
+    ui.add_with(Panel::new().title(t!("storage.adopt")).gap(0), |ui| {
+        ui.add(Text::new(t!("storage.adopt-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        ui.add(Button::new(t!("storage.adopt-button")).on_press(send(Msg::Adopt))).id("adopt");
+        ui.spacer().height(Length::Cells(1));
+        let root = state.demo.join("adopt");
+        let icons = ui.env().icons();
+        let (success, warning, error) = (
+            icons.glyph("success").into_owned(),
+            icons.glyph("warning").into_owned(),
+            icons.glyph("error").into_owned(),
+        );
+        let line = |ui: &mut View<'_, AppMsg>, marker: &str, color: &'static str, text: String| {
+            ui.row(|ui| {
+                ui.add(Text::new(marker.to_owned()).color(color).no_wrap());
+                ui.add(Text::new(text).role("body")).fill_width();
+            })
+            .gap(1);
+        };
+        match &state.adopt {
+            None => {
+                ui.add(Text::new(t!("storage.not-adopted")).role("faint"));
+            }
+            Some(Err(problem)) => line(ui, &error, "danger", problem.clone()),
+            Some(Ok(migration)) => {
+                if migration.moved().is_empty() {
+                    ui.add(Text::new(t!("storage.nothing-moved")).role("faint"));
+                }
+                // region: storage-adopt-report
+                for (from, to) in migration.moved() {
+                    let text = t!("storage.moved", from = shown(&root, from), to = shown(&root, to));
+                    line(ui, &success, "success", text);
+                }
+                for left in migration.diagnostics() {
+                    let (marker, color) = match left.severity {
+                        Severity::Error => (&error, "danger"),
+                        Severity::Warning => (&warning, "warning"),
+                    };
+                    line(ui, marker, color, shown_message(&root, &left.message));
+                }
+                // endregion
+            }
         }
     })
     .fill_width();
@@ -482,6 +633,8 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     .fill_width();
 
     folders(ui);
+    family(ui);
+    adoption(state, ui);
     safe_write(state, ui);
     one_instance(state, ui);
 
@@ -592,7 +745,7 @@ mod tests {
 
     /// The storage page in a terminal tall enough for the broken file and the playground.
     fn tall(showcase: Showcase) -> Harness<Showcase> {
-        crate::tests::showcase_tall(showcase, PAGE, 100)
+        crate::tests::showcase_tall(showcase, PAGE, 140)
     }
 
     #[test]
@@ -651,6 +804,68 @@ mod tests {
                 assert!(row("Its file").is_none(), "no file name is made up:\n{screen}");
             }
         }
+    }
+
+    #[test]
+    fn the_family_folders_are_shown_as_they_are_on_this_machine() {
+        let h = tall(Showcase::new());
+        let screen = h.screen();
+        assert!(screen.contains("THE FAMILY'S FOLDERS"), "{screen}");
+        let family = Family::QUVYTA;
+        let places = [
+            qframe::storage::documents_dir(),
+            family.workspace_dir("Code"),
+            family.config_dir(),
+            family.shared_file(),
+            family.app_file("code"),
+            family.app_dir("code"),
+        ];
+        for place in places {
+            // The panel is narrower than a long path, so the last segment is what is checked.
+            let shown = match place {
+                Some(place) => place.file_name().expect("a named place").display().to_string(),
+                None => "this platform gives no folder here".to_owned(),
+            };
+            assert!(screen.contains(&shown), "{shown} is missing from {screen}");
+        }
+    }
+
+    #[test]
+    fn moving_the_old_folder_in_twice_moves_once_and_keeps_the_taken_file() {
+        let mut h = tall(Showcase::new());
+        assert!(h.screen().contains("Nothing moved yet"), "{}", h.screen());
+        h.click_text("Move the old folder in");
+        let root = h.app().pages.storage.demo.join("adopt");
+        let first = match h.app().pages.storage.adopt.as_ref().expect("the move ran") {
+            Ok(migration) => migration.clone(),
+            Err(error) => panic!("the demo could not set up its old folder: {error}"),
+        };
+        assert_eq!(first.moved().len(), 2, "{first:?}");
+        assert_eq!(first.diagnostics().len(), 1, "{first:?}");
+        let read = |name: &str| std::fs::read_to_string(root.join(name)).expect("a demo file");
+        assert_eq!(read("quvyta/packages.conf"), "theme = \"nordic\"\n");
+        assert_eq!(read("quvyta/packages/profiles/work.toml"), "mirror = \"eu-west\"\n");
+        assert_eq!(read("quvyta/packages/themes/dusk.toml"), "# already here\n", "never overwritten");
+        assert_eq!(read("quvyta-packages/themes/dusk.toml"), "# the old copy\n", "never lost");
+        let screen = h.screen();
+        assert!(screen.contains("quvyta-packages/settings.toml moved to quvyta/packages.conf"), "{screen}");
+        assert!(screen.contains("already exists"), "{screen}");
+        assert!(!screen.contains(&root.display().to_string()), "the demo folder is taken out of the paths");
+
+        h.click_text("Move the old folder in");
+        let second = match h.app().pages.storage.adopt.as_ref().expect("the move ran") {
+            Ok(migration) => migration.clone(),
+            Err(error) => panic!("{error}"),
+        };
+        assert!(second.moved().is_empty(), "{second:?}");
+        assert_eq!(second.diagnostics(), first.diagnostics(), "the file left behind is reported again");
+        assert!(h.screen().contains("Nothing left to move"), "{}", h.screen());
+        let log: Vec<String> = h.app().log.recent(PAGE, 10).iter().map(|entry| entry.message.clone()).collect();
+        assert!(
+            log.iter().any(|line| line == "moved quvyta-packages/settings.toml to quvyta/packages.conf"),
+            "{log:?}"
+        );
+        std::fs::remove_dir_all(&h.app().pages.storage.demo).expect("clean up the demo folder");
     }
 
     #[test]

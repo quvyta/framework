@@ -12,13 +12,18 @@
 //! Keys are dotted paths (`"editor.tab-width"`); the dots become TOML tables. Loading never
 //! fails: a broken file yields located [`Diagnostic`]s, broken entries are skipped and the rest
 //! is used. Saving goes through [`atomic_write`], so a crash never leaves half a file; a file
-//! that could not be read completely is kept as `settings.toml.bak` before it is first
-//! overwritten.
+//! that could not be read completely is kept under its own name with `.bak` added
+//! (`settings.toml.bak`, `code.conf.bak`) before it is first overwritten.
 //!
 //! The module also holds what every application needs around its own files, settings or not:
 //! [`config_dir`] and [`data_dir`] for the two folders a platform gives an application,
 //! [`atomic_write`] for writing any file safely, [`AppLock`] for "one instance at a time", and
 //! [`machine_name`] for keeping one file per machine in a folder several machines share.
+//!
+//! Applications made to be used together keep their settings in one folder: a [`Family`] names
+//! it, gives each application its `<app>.conf` file and a folder beside it, and
+//! [`Family::adopt`] moves an application's settings there from the folder it used on its own.
+//! [`documents_dir`] and [`Family::workspace_dir`] say where the user's own work goes.
 //!
 //! An application can describe its keys with a [`Schema`]. Loading then checks every key against
 //! it, and with [`Settings::self_heal`] on it repairs the file: unknown keys are removed, invalid
@@ -29,10 +34,13 @@
 
 mod atomic;
 mod dirs;
+mod documents;
+mod family;
 #[cfg(test)]
 mod healing_tests;
 mod lock;
 mod machine;
+mod migrate;
 mod schema;
 mod value;
 
@@ -44,8 +52,11 @@ use toml::de::{DeTable, DeValue};
 
 pub use atomic::{WriteStep, atomic_write, atomic_write_reporting};
 pub use dirs::{config_dir, data_dir};
+pub use documents::documents_dir;
+pub use family::Family;
 pub use lock::{AppLock, holder_pid};
 pub use machine::machine_name;
+pub use migrate::Migration;
 pub use schema::{Schema, SettingKind};
 pub use value::{Setting, SettingValue};
 
@@ -105,14 +116,40 @@ impl Settings {
     /// memory and a diagnostic says why.
     #[must_use]
     pub fn load(app: &str) -> Self {
-        match config_dir(app) {
-            Some(dir) => Self::open(dir.join(FILE_NAME)),
+        Self::open_or_keep_in_memory(config_dir(app).map(|dir| dir.join(FILE_NAME)))
+    }
+
+    /// Loads the settings of application `app` of `family` from its file in the family's folder,
+    /// [`Family::app_file`]: `~/.config/quvyta/code.conf` for `code` of [`Family::QUVYTA`] on
+    /// Linux. Without a home directory the settings stay in memory and a diagnostic says why, as
+    /// with [`load`](Self::load). Call [`Family::adopt`] first to bring the settings over from
+    /// the folder the application used before.
+    #[must_use]
+    pub fn load_member(family: &Family, app: &str) -> Self {
+        Self::open_or_keep_in_memory(family.app_file(app))
+    }
+
+    /// The settings at `path`, or settings in memory with the reason when there is no path.
+    fn open_or_keep_in_memory(path: Option<PathBuf>) -> Self {
+        match path {
+            Some(path) => Self::open(path),
             None => {
                 let mut settings = Self::in_memory();
                 settings.read_problem(Diagnostic::warning(None, "no config directory found; settings are not saved"));
                 settings
             }
         }
+    }
+
+    /// Puts `diagnostics` found around loading, such as what [`Family::adopt`] left behind, in
+    /// front of what reading the file found, so [`diagnostics`](Self::diagnostics) shows them
+    /// together. They stay when a [schema](Self::schema) check runs again.
+    #[must_use]
+    pub fn with_diagnostics(mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) -> Self {
+        let before: Vec<Diagnostic> = diagnostics.into_iter().collect();
+        self.read_problems += before.len();
+        self.diagnostics.splice(0..0, before);
+        self
     }
 
     /// Loads settings from `path`. A missing file is an empty start, not a problem.
@@ -179,8 +216,8 @@ impl Settings {
     /// default. An invalid [optional](Schema::optional) key is removed, since it has no default;
     /// keys under an [open](Schema::open) prefix are kept as they are unless a rule declares them.
     /// Missing keys are not added. Key order is never a problem and is left as it is. When
-    /// anything changed, the file as it was is kept as `settings.toml.bak` and the repaired
-    /// settings are saved once; every repair is a located warning in
+    /// anything changed, the file as it was is kept under its name with `.bak` added
+    /// (`settings.toml.bak`) and the repaired settings are saved once; every repair is a located warning in
     /// [`diagnostics`](Self::diagnostics).
     ///
     /// Off by default. Only the application knows all of its keys, so nothing is repaired until
@@ -475,7 +512,8 @@ impl Settings {
     }
 
     /// Writes the settings to their file atomically, creating the directory when needed.
-    /// In-memory settings do nothing.
+    /// In-memory settings do nothing. A file that was loaded with problems, or that healing
+    /// changed, is first copied next to itself under its name with `.bak` added.
     ///
     /// # Errors
     ///
@@ -488,7 +526,7 @@ impl Settings {
             fs::create_dir_all(dir)?;
         }
         if self.keep_backup && path.exists() {
-            fs::copy(&path, path.with_extension("toml.bak"))?;
+            fs::copy(&path, backup_path(&path))?;
         }
         atomic_write(&path, self.to_toml().as_bytes())?;
         self.keep_backup = false;
@@ -563,6 +601,14 @@ impl Reader<'_> {
             DeValue::Datetime(_) | DeValue::Table(_) => return None,
         })
     }
+}
+
+/// Where the file at `path` is kept before it is first overwritten: its whole name with `.bak`
+/// added, so `settings.toml` is kept as `settings.toml.bak` and `code.conf` as `code.conf.bak`.
+fn backup_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
+    name.push(".bak");
+    path.with_file_name(name)
 }
 
 fn display_name(path: &Path) -> String {
@@ -642,6 +688,42 @@ mod tests {
         assert!(fs::read_to_string(path.with_extension("toml.bak")).expect("backup").contains("icons = ["));
         assert_eq!(Settings::open(&path).icon_mode(), Some(IconMode::Ascii));
         fs::remove_dir_all(&dir).expect("clean");
+    }
+
+    #[test]
+    fn the_backup_is_the_file_name_with_bak_added() {
+        let dir = temp_dir("backup-name");
+        fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("code.conf");
+        fs::write(&path, "language = \"tr\"\nicons = [\n").expect("a broken file");
+        let mut broken = Settings::open(&path);
+        broken.set(Settings::ICONS, "ascii".to_owned());
+        broken.save().expect("saved");
+        assert!(fs::read_to_string(dir.join("code.conf.bak")).expect("backup").contains("icons = ["));
+        assert!(!dir.join("code.toml.bak").exists(), "not named after another extension");
+        fs::remove_dir_all(&dir).expect("clean");
+    }
+
+    #[test]
+    fn a_family_member_loads_its_own_conf_file() {
+        let settings = Settings::load_member(&Family::QUVYTA, "code");
+        match Family::QUVYTA.app_file("code") {
+            Some(file) => assert_eq!(settings.path(), Some(file.as_path())),
+            None => assert_eq!(settings.diagnostics()[0].message, "no config directory found; settings are not saved"),
+        }
+    }
+
+    #[test]
+    fn diagnostics_from_around_loading_come_first_and_stay() {
+        let adopted = Diagnostic::warning(None, "old/settings.toml: new.conf already exists");
+        let settings = Settings::parse_str("code.conf", "color = \"red\"\n")
+            .with_diagnostics([adopted.clone()])
+            .schema(Schema::builtin())
+            .self_heal(false);
+        assert_eq!(settings.diagnostics().len(), 2, "{:?}", settings.diagnostics());
+        assert_eq!(settings.diagnostics()[0], adopted);
+        let checked = settings.schema(Schema::default());
+        assert_eq!(checked.diagnostics()[0], adopted, "a second check keeps it");
     }
 
     #[test]

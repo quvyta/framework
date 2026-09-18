@@ -575,7 +575,7 @@ impl PaintCx<'_> {
     }
 
     /// Runs `change` on every cell of `rect` inside the visible area and the screen.
-    fn each_cell(&mut self, rect: Rect, mut change: impl FnMut(&mut Cell)) {
+    pub(super) fn each_cell(&mut self, rect: Rect, mut change: impl FnMut(&mut Cell)) {
         let area = rect.intersect(self.clip);
         for y in area.y..area.bottom() {
             for x in area.x..area.right() {

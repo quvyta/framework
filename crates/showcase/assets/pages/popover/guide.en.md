@@ -13,6 +13,7 @@ Use a popover for a small, optional panel that belongs to one control and should
 ## How it works
 
 - **It is a layer.** The content is drawn over everything else on the overlay surface, with no frame; the tone difference is its edge. Nothing below moves.
+- **It stands apart from what it opens over.** Over the screen ground the layer keeps the overlay tone. Opened inside a panel whose tone is nearly the same, it moves one small step towards the theme's text colour (lighter on a dark theme, darker on a light one) until the edge shows again. The step comes from the theme's own colours, so it works in every theme without a colour written by hand. Menus, lists, tooltips, toasts and dialogs do the same; a widget of your own gets it with `PaintCx::floating`.
 - **It finds room.** Below the anchor by default, or the side chosen with `.placement(…)`. When that side has no room it flips to the opposite one, and it is always slid back onto the screen.
 - **It unfolds from the anchor** over the theme's `motion.enter`, row by row (column by column for side placements). With reduced motion it appears at once.
 - **Dismissing is yours.** Esc and a click outside send the dismiss message.

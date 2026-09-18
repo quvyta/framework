@@ -479,8 +479,14 @@ fn paint_entry<Msg>(cx: &mut PaintCx<'_>, entry: &mut Entry<Msg>, rect: Rect, pr
     let style = cx.style("toast", None, &states);
     let padding = style.padding();
     let background = style.text().bg.unwrap_or_else(|| cx.color("overlay"));
+    // A toast floats over whatever the screen shows there and keeps apart from it; see
+    // `PaintCx::floating`. The lift is known before painting, so text arrives from the surface
+    // as it will show.
+    let grounds = cx.grounds_around(rect);
+    let lift = cx.lift_for(rect, &grounds, Some(background));
+    let surface = lift.map_or(background, |lift| lift.apply(background));
     // Colours arrive with the cells: text blends from the surface as the toast slides in.
-    let blend = |color: Option<Rgb>| color.map(|c| background.mix(c, presence));
+    let blend = |color: Option<Rgb>| color.map(|c| surface.mix(c, presence));
     let status = cx.color(entry.toast.kind.name());
     cx.clear(rect, background);
     cx.fill(Rect::new(rect.x, rect.y, 1, rect.height), background.mix(status, presence));
@@ -554,6 +560,9 @@ fn paint_entry<Msg>(cx: &mut PaintCx<'_>, entry: &mut Entry<Msg>, rect: Rect, pr
             let y = inner.y + 1 + i32::try_from(row).unwrap_or(0);
             cx.text(text_x, y, line, CellStyle { fg: blend(body_style.fg), bg: None, ..body_style }, body_width);
         }
+    }
+    if let Some(lift) = lift {
+        cx.lift(rect, lift);
     }
 }
 

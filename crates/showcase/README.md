@@ -7,7 +7,7 @@ framework for terminal applications, running live in your terminal.
 
 ```sh
 cargo install quvyta-framework-showcase
-qframe-showcase
+qframe
 ```
 
 The same program is also installed as `quvyta-framework-showcase`. Everything it shows is built

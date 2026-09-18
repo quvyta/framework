@@ -199,6 +199,7 @@ pub(crate) fn paint<Msg>(
     highlight: Option<usize>,
 ) {
     let background = cx.style("context-menu", None, &[]).text().bg.unwrap_or_else(|| cx.color("overlay"));
+    let grounds = cx.grounds_around(shown);
     cx.clear(shown, background);
     cx.register_hit(shown);
     let slide = cx.env().slide();
@@ -256,4 +257,5 @@ pub(crate) fn paint<Msg>(
             cx.text(x, rect.y, &label, label_style, budget);
         }
     });
+    cx.stand_apart(shown, &grounds, Some(background));
 }

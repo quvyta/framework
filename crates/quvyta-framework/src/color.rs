@@ -154,6 +154,77 @@ impl fmt::Display for Rgb {
     }
 }
 
+/// OKLab distance under which a floating surface melts into the ground around it. Every built-in
+/// theme's `overlay` sits just past it from `canvas`, so menus over the screen keep their tone,
+/// and well within it from `surface` and `raised`, so menus over panels are lifted.
+pub(crate) const APART: f64 = 0.05;
+
+/// The furthest a floating surface is moved towards a theme colour, so a lift never turns the
+/// surface into a different colour.
+pub(crate) const LIFT_CAP: f32 = 0.3;
+
+/// The steps a lift is searched in.
+const LIFT_STEP: f32 = 0.01;
+
+/// How a floating surface's backgrounds are moved so it stands apart from the ground around it:
+/// every background is blended towards `towards` by `amount`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Lift {
+    /// The theme colour the backgrounds move towards.
+    pub(crate) towards: Rgb,
+    /// How far they move, 0 to [`LIFT_CAP`].
+    pub(crate) amount: f32,
+}
+
+impl Lift {
+    /// `color` lifted.
+    pub(crate) fn apply(self, color: Rgb) -> Rgb {
+        color.mix(self.towards, self.amount)
+    }
+}
+
+/// The smallest lift that takes `surface` at least [`APART`] from every colour in `grounds`,
+/// trying each of `towards` (theme colours, in order of preference) up to [`LIFT_CAP`]. The
+/// direction that needs less wins; an earlier one wins a tie. `None` when the surface already
+/// stands apart, or when no lift within the cap moves it any further from the nearest ground;
+/// when none reaches [`APART`], the lift that gets furthest does.
+pub(crate) fn lift_apart(surface: Rgb, grounds: &[Rgb], towards: &[Rgb]) -> Option<Lift> {
+    let grounds: Vec<[f64; 3]> = grounds.iter().map(|ground| ground.oklab()).collect();
+    let clearance = |color: Rgb| {
+        let [l, a, b] = color.oklab();
+        grounds
+            .iter()
+            .map(|[gl, ga, gb]| ((l - gl).powi(2) + (a - ga).powi(2) + (b - gb).powi(2)).sqrt())
+            .fold(f64::INFINITY, f64::min)
+    };
+    let resting = clearance(surface);
+    if resting >= APART {
+        return None;
+    }
+    // (lift, clearance): the first lift that clears, else the one that gets furthest.
+    let mut cleared: Option<Lift> = None;
+    let mut furthest: Option<(Lift, f64)> = None;
+    let steps = (LIFT_CAP / LIFT_STEP).round() as u16;
+    for &target in towards {
+        for step in 1..=steps {
+            let amount = f32::from(step) * LIFT_STEP;
+            if cleared.is_some_and(|lift| lift.amount <= amount) {
+                break;
+            }
+            let lift = Lift { towards: target, amount };
+            let reach = clearance(lift.apply(surface));
+            if reach >= APART {
+                cleared = Some(lift);
+                break;
+            }
+            if furthest.is_none_or(|(_, best)| reach > best) {
+                furthest = Some((lift, reach));
+            }
+        }
+    }
+    cleared.or_else(|| furthest.filter(|(_, reach)| *reach > resting).map(|(lift, _)| lift))
+}
+
 /// How many colours the terminal can show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorDepth {
@@ -263,6 +334,77 @@ mod tests {
         assert_eq!(Rgb::new(10, 10, 12).to_ansi16(), 0);
         assert_eq!(Rgb::new(250, 250, 250).to_ansi16(), 15);
         assert_eq!(Rgb::new(240, 20, 20).to_ansi16(), 9);
+    }
+
+    const DARK_TEXT: Rgb = Rgb::new(245, 245, 247);
+    const DARK_CANVAS: Rgb = Rgb::new(12, 12, 14);
+
+    #[test]
+    fn a_surface_on_its_own_tone_is_lifted_apart() {
+        let ground = Rgb::new(29, 29, 35);
+        let lift = lift_apart(ground, &[ground], &[DARK_TEXT, DARK_CANVAS]).expect("the same tone is lifted");
+        let lifted = lift.apply(ground);
+        assert!(lifted.perceptual_distance(ground) >= APART);
+        assert!(lifted.relative_luminance() > ground.relative_luminance(), "a dark theme lifts lighter");
+        assert!(lift.amount <= LIFT_CAP);
+    }
+
+    #[test]
+    fn a_close_tone_is_lifted_by_the_smallest_step_that_clears() {
+        let (surface, ground) = (Rgb::new(24, 24, 29), Rgb::new(19, 19, 23));
+        let lift = lift_apart(surface, &[ground], &[DARK_TEXT, DARK_CANVAS]).expect("a close tone is lifted");
+        assert!(lift.apply(surface).perceptual_distance(ground) >= APART);
+        let smaller = Lift { amount: lift.amount - LIFT_STEP, ..lift };
+        assert!(smaller.apply(surface).perceptual_distance(ground) < APART, "no smaller step clears");
+    }
+
+    #[test]
+    fn a_far_tone_is_left_alone() {
+        let (surface, ground) = (Rgb::new(24, 24, 29), Rgb::new(12, 12, 14));
+        assert!(surface.perceptual_distance(ground) >= APART);
+        assert_eq!(lift_apart(surface, &[ground], &[DARK_TEXT, DARK_CANVAS]), None);
+        assert_eq!(lift_apart(surface, &[], &[DARK_TEXT, DARK_CANVAS]), None, "nothing around, nothing to do");
+    }
+
+    #[test]
+    fn a_light_theme_lifts_darker() {
+        let (text, canvas) = (Rgb::new(24, 24, 27), Rgb::new(250, 250, 250));
+        let ground = Rgb::new(238, 238, 240);
+        let lift = lift_apart(ground, &[ground], &[text, canvas]).expect("lifted");
+        let lifted = lift.apply(ground);
+        assert!(lifted.relative_luminance() < ground.relative_luminance());
+        assert!(lifted.perceptual_distance(ground) >= APART);
+    }
+
+    #[test]
+    fn grey_stays_grey() {
+        let (ground, text, canvas) = (Rgb::new(29, 29, 29), Rgb::new(245, 245, 245), Rgb::new(12, 12, 12));
+        let lifted = lift_apart(ground, &[ground], &[text, canvas]).expect("lifted").apply(ground);
+        assert!(lifted.r == lifted.g && lifted.g == lifted.b, "{lifted} is not a grey");
+    }
+
+    #[test]
+    fn every_ground_is_cleared_and_the_nearer_direction_wins() {
+        // A darker and a lighter ground on either side: lifting away from both needs a step
+        // past the lighter one.
+        let surface = Rgb::new(120, 120, 120);
+        let grounds = [Rgb::new(116, 116, 116), Rgb::new(130, 130, 130)];
+        let lift = lift_apart(surface, &grounds, &[DARK_TEXT, Rgb::new(0, 0, 0)]).expect("lifted");
+        let lifted = lift.apply(surface);
+        assert!(grounds.iter().all(|ground| lifted.perceptual_distance(*ground) >= APART));
+        // Towards black is shorter here: the lighter ground sits in the way of the text.
+        assert_eq!(lift.towards, Rgb::new(0, 0, 0));
+    }
+
+    #[test]
+    fn a_lift_never_passes_the_cap() {
+        // Towards a colour barely different from the ground, nothing clears; the furthest step
+        // within the cap is taken.
+        let ground = Rgb::new(100, 100, 100);
+        let lift = lift_apart(ground, &[ground], &[Rgb::new(112, 112, 112)]).expect("the furthest lift");
+        assert!((lift.amount - LIFT_CAP).abs() < 1e-6);
+        assert!(lift.apply(ground).perceptual_distance(ground) < APART);
+        assert_eq!(lift_apart(ground, &[ground], &[ground]), None, "a lift that gets nowhere is none");
     }
 
     #[test]

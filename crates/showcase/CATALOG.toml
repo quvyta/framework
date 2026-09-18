@@ -388,6 +388,18 @@ notes    = "The press that dismisses a popover still reaches what it landed on, 
 notes-tr = "Açılır kutuyu kapatan tıklama düştüğü yere de ulaşır; yalnızca kutuyu açan bileşene tıklamak onu sadece kapatır. Pencereler ise dışlarındaki tıklamaları yutar."
 
 [[item]]
+id       = "floating-surface"
+name     = "Floating surfaces"
+group    = "overlays"
+kind     = "infrastructure"
+priority = "p1"
+status   = "done"
+page     = "popover"
+types    = ["PaintCx::floating"]
+notes    = "Menus, popovers, lists, tooltips, toasts and dialogs all paint on the theme's overlay tone, which sits close to the panel tones, so a menu opened inside a panel melted into it. Now a floating surface looks at the cells around it before it paints. When its own tone comes out too close to a ground that covers at least a quarter of that ring (closer than 0.05 in OKLab, a barely visible step), all of its backgrounds move together by the smallest amount that clears every such ground, towards the theme's text colour (lighter on a dark theme, darker on a light one) or towards the canvas, whichever needs less, never more than 30%. No colour is written by hand, so it holds in every theme, monochrome included, and in themes nobody has written yet. Over the screen ground every built-in theme's overlay is already far enough, so nothing moves there; text colours stay, and a highlighted row moves with the menu so it stays as distinct as before. In 256 and 16 colours the screen holds only palette entries and nothing moves. Custom widgets get the same with PaintCx::floating(rect, paint) from paint_overlay."
+notes-tr = "Menüler, açılır kutular, listeler, ipuçları, bildirimler ve pencereler hep temanın katman tonuna çizilir; bu ton panel tonlarına yakın durduğu için panelin içinde açılan bir menü panele karışıyordu. Artık yüzen bir yüzey çizilmeden önce çevresindeki hücrelere bakar. Kendi tonu, o halkanın en az dörtte birini kaplayan bir zemine fazla yakın çıkarsa (OKLab'de 0.05'ten yakın, zor seçilen bir adım), bütün zeminleri birlikte, her zemini aşacak en küçük miktarda kayar: temanın yazı rengine (koyu temada açığa, açık temada koyuya) ya da tuval rengine doğru, hangisi daha az gerektiriyorsa, en fazla %30. Hiçbir renk elle yazılmaz; bu yüzden monokrom dahil her temada, henüz yazılmamış temalarda bile tutar. Ekran zemini üzerinde her hazır temanın katman tonu zaten yeterince uzak, orada hiçbir şey kaymaz; yazı renkleri kalır, vurgulu satır menüyle birlikte kayar ve eskisi kadar ayrı kalır. 256 ve 16 renkte ekran yalnızca palet girdileri tuttuğu için hiçbir şey kaymaz. Kendi bileşenlerin paint_overlay içinden PaintCx::floating(alan, çizim) ile aynısını alır."
+
+[[item]]
 id       = "context-menu"
 name     = "Context menu"
 group    = "overlays"
@@ -708,8 +720,8 @@ priority = "p2"
 status   = "done"
 page     = "storage"
 types    = ["Settings", "Schema", "SettingKind", "Setting", "SettingValue"]
-notes    = "An optional schema heals settings files: unknown keys are removed, invalid values get their default, each repair is a located warning and the old file is kept as settings.toml.bak. Schema::optional declares a key without a default that is kept only when valid and never added. Schema::open(prefix) keeps every key under a table as it is, while declared rules under it still apply. Missing keys use their default and are not written."
-notes-tr = "İsteğe bağlı bir şema ayar dosyalarını onarır: bilinmeyen anahtarlar silinir, geçersiz değerler varsayılanını alır, her onarım yeri belirtilen bir uyarıdır ve eski dosya settings.toml.bak olarak saklanır. Schema::optional varsayılanı olmayan, yalnızca geçerliyse tutulan ve hiçbir zaman eklenmeyen bir anahtar tanımlar. Schema::open(önek) bir tablonun altındaki her anahtarı olduğu gibi bırakır, altında tanımlanan kurallar yine uygulanır. Eksik anahtarlar varsayılanlarını kullanır ve dosyaya yazılmaz."
+notes    = "An optional schema heals settings files: unknown keys are removed, invalid values get their default, each repair is a located warning and the old file is kept next to it with .bak added to its whole name (settings.toml.bak, code.conf.bak), so a backup never takes the name another file could have. Schema::optional declares a key without a default that is kept only when valid and never added. Schema::open(prefix) keeps every key under a table as it is, while declared rules under it still apply. Missing keys use their default and are not written."
+notes-tr = "İsteğe bağlı bir şema ayar dosyalarını onarır: bilinmeyen anahtarlar silinir, geçersiz değerler varsayılanını alır, her onarım yeri belirtilen bir uyarıdır ve eski dosya tam adına .bak eklenerek yanında saklanır (settings.toml.bak, code.conf.bak); böylece yedek başka bir dosyanın alabileceği adı almaz. Schema::optional varsayılanı olmayan, yalnızca geçerliyse tutulan ve hiçbir zaman eklenmeyen bir anahtar tanımlar. Schema::open(önek) bir tablonun altındaki her anahtarı olduğu gibi bırakır, altında tanımlanan kurallar yine uygulanır. Eksik anahtarlar varsayılanlarını kullanır ve dosyaya yazılmaz."
 
 [[item]]
 id       = "date-time"
@@ -770,6 +782,30 @@ page     = "storage"
 types    = ["machine_name"]
 notes    = "One file per machine in a folder several machines sync, so two machines never overwrite each other's counters: running-<machine>.toml. The name is the node name uname -n prints, read through the rustix crossterm already brings in, and COMPUTERNAME on Windows. It comes back ready for a file name: whitespace around it is removed, every character other than a letter or digit of any script, -, _ and . becomes -, and dots at either end are dropped, since a leading dot hides a file and Windows drops a trailing one. None means nothing is left, so the application picks a name of its own instead of writing running-.toml. The unchanged system name is not offered: nothing needs it yet."
 notes-tr = "Birkaç makinenin eşitlediği bir klasörde makine başına bir dosya; böylece iki makine birbirinin sayacının üzerine yazmaz: running-<makine>.toml. Ad, uname -n'nin yazdığı düğüm adıdır ve crossterm'in zaten getirdiği rustix üzerinden okunur; Windows'ta COMPUTERNAME. Dosya adına hazır gelir: çevresindeki boşluk atılır, her yazıdan harf ve rakam ile -, _ ve . dışındaki her karakter - olur, iki uçtaki noktalar düşer, çünkü baştaki nokta dosyayı gizler ve Windows sondakini siler. None geriye bir şey kalmadığını söyler; uygulama running-.toml yazmak yerine kendi adını seçer. Sistemin değiştirilmemiş adı sunulmaz: henüz ona ihtiyaç duyan yok."
+
+[[item]]
+id       = "documents-folder"
+name     = "Documents and workspace folders"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p1"
+status   = "done"
+page     = "storage"
+types    = ["documents_dir"]
+notes    = "The user's own work belongs where a file manager shows it, not in a hidden settings folder. On Linux the Documents folder has the name the desktop gave it in the user's language, ~/Belgeler on a Turkish desktop, so it is read from user-dirs.dirs in the config root the way that shell file is written: $HOME followed by a path or an absolute path, quoted, with # comments and backslash escapes and no other expansion, the last valid line winning. A missing or broken file, and a line that names the home folder itself, which is how that file turns a folder off, give ~/Documents. macOS uses ~/Documents; Windows asks for the Documents Known Folder, which the user can move to another drive, through the dirs crate, because that call needs unsafe and this crate forbids it. Family::workspace_dir(app_title) is <documents>/<family title>/<app title>, ~/Belgeler/Quvyta/Code. Asking creates nothing."
+notes-tr = "Kullanıcının kendi işi gizli bir ayar klasöründe değil, dosya yöneticisinin gösterdiği yerde durur. Linux'ta Belgeler klasörünün adı masaüstünün kullanıcının dilinde verdiği addır, Türkçe bir masaüstünde ~/Belgeler; bu yüzden ayar kökündeki user-dirs.dirs dosyasından, o kabuk dosyasının yazıldığı gibi okunur: $HOME ve ardından bir yol ya da mutlak bir yol, tırnak içinde, # yorumları ve ters bölü kaçışlarıyla, başka hiçbir genişletme olmadan; son geçerli satır kazanır. Eksik ya da bozuk dosya ve ev klasörünün kendisini gösteren satır, ki o dosya bir klasörü böyle kapatır, ~/Documents verir. macOS ~/Documents kullanır; Windows kullanıcının başka bir sürücüye taşıyabildiği Belgeler Bilinen Klasörünü dirs crate'i üzerinden sorar, çünkü o çağrı unsafe ister ve bu crate onu yasaklar. Family::workspace_dir(uygulama adı) <belgeler>/<aile adı>/<uygulama adı> olur: ~/Belgeler/Quvyta/Code. Sormak hiçbir şey oluşturmaz."
+
+[[item]]
+id       = "app-family"
+name     = "One settings folder for a family"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "storage"
+types    = ["Family", "Migration"]
+notes    = "Applications made to be used together keep their settings in one folder, so the user finds them in one place: ~/.config/quvyta/quvyta.conf is shared, code.conf belongs to code, and code/ beside it holds its other files. The folder is the lowercase id on Linux and other Unix systems and the title on macOS and Windows, where users read folder names as names; file names are always lowercase. Family::adopt(app, old folder) moves an application's settings there once at start: settings.toml becomes the app file and every other file keeps its place under the app folder. Each file is copied with its permissions, read back and compared before the old one is removed, a taken place is never overwritten or merged, symbolic links are left alone, emptied old folders are removed, and a second run changes nothing. Whatever stayed is a diagnostic in the report, which Settings::with_diagnostics shows next to what loading found."
+notes-tr = "Birlikte kullanılmak için yapılmış uygulamalar ayarlarını tek klasörde tutar, kullanıcı onları tek yerde bulur: ~/.config/quvyta/quvyta.conf ortaktır, code.conf code'undur, yanındaki code/ onun diğer dosyalarını tutar. Klasör Linux ve diğer Unix sistemlerinde küçük harfli kimlik, macOS ve Windows'ta ise kullanıcıların klasör adlarını ad olarak okuduğu için başlıktır; dosya adları hep küçük harflidir. Family::adopt(uygulama, eski klasör) bir uygulamanın ayarlarını açılışta bir kez oraya taşır: settings.toml uygulama dosyası olur, diğer her dosya uygulama klasörünün altında aynı yerini alır. Her dosya izinleriyle kopyalanır, geri okunup karşılaştırılır ve eskisi ancak ondan sonra silinir; dolu bir yerin üzerine asla yazılmaz ve birleştirilmez, sembolik bağlara dokunulmaz, boşalan eski klasörler silinir ve ikinci çalıştırma hiçbir şeyi değiştirmez. Geride kalan her şey raporda bir tanıdır; Settings::with_diagnostics onu yüklemenin bulduklarının yanında gösterir."
 
 [[item]]
 id       = "input-idleness"

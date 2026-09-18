@@ -146,11 +146,18 @@ impl<Msg: 'static> Widget<Msg> for Tooltip<Msg> {
         let shown_since = cx.memory::<TooltipMemory>().shown_since.unwrap_or_default();
         let enter = cx.env().theme().motion().enter;
         let progress = cx.progress_since(shown_since, enter, Easing::EaseOut);
+        let grounds = cx.grounds_around(rect);
+        // The text fades in from the surface as it will show, lifted or not.
+        let lifted = cx.lift_for(rect, &grounds, Some(background));
+        let surface = lifted.map_or(background, |lift| lift.apply(background));
         cx.clear(rect, background);
+        if let Some(lift) = lifted {
+            cx.lift(rect, lift);
+        }
         let inner = rect.inset(padding);
         let shown = text::truncate(&self.text, inner.width).into_owned();
-        let fg = background.mix(foreground, progress);
-        cx.text(inner.x, inner.y, &shown, CellStyle { fg: Some(fg), ..text_style }, inner.width);
+        let fg = surface.mix(foreground, progress);
+        cx.text(inner.x, inner.y, &shown, CellStyle { fg: Some(fg), bg: None, ..text_style }, inner.width);
     }
 
     fn children(&self) -> &[Node<Msg>] {

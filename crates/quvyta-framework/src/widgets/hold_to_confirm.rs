@@ -376,15 +376,17 @@ impl<Msg: Clone + 'static> Widget<Msg> for HoldToConfirm<Msg> {
         let padding = card.padding();
         let width = self.content_width().saturating_add(padding.horizontal()).min(screen.width.saturating_sub(4));
         let rect = Rect::new(screen.x + 2, screen.y + 1, width, padding.vertical().saturating_add(1));
-        cx.clear(rect, background);
-        let hold = cx.style("hold", None, &[State::Active]);
-        let to = self.target(cx, hold.color("to"));
-        let pillar: Rgb = card.color("pillar").unwrap_or_else(|| cx.color("muted").mix(to, progress));
-        for row in 0..rect.height {
-            cx.pillar(rect.x, rect.y + i32::from(row), pillar);
-        }
-        let inner = rect.inset(padding);
-        self.paint_content(cx, inner.x, inner.y, inner.width, &[State::Active], progress);
+        cx.floating(rect, |cx| {
+            cx.clear(rect, background);
+            let hold = cx.style("hold", None, &[State::Active]);
+            let to = self.target(cx, hold.color("to"));
+            let pillar: Rgb = card.color("pillar").unwrap_or_else(|| cx.color("muted").mix(to, progress));
+            for row in 0..rect.height {
+                cx.pillar(rect.x, rect.y + i32::from(row), pillar);
+            }
+            let inner = rect.inset(padding);
+            self.paint_content(cx, inner.x, inner.y, inner.width, &[State::Active], progress);
+        });
     }
 
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {

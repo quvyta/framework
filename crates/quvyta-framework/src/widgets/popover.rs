@@ -206,9 +206,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for Layer<Msg> {
         let enter = cx.env().theme().motion().enter;
         let progress = cx.progress_since(opened_at, enter, Easing::EaseOut);
         let shown = placement::unfold(full, side, progress);
-        cx.clear(shown, background);
         cx.register_hit(shown);
-        cx.with_clip(shown, |cx| cx.paint_child(&self.parts[CONTENT], full.inset(padding)));
+        cx.floating(shown, |cx| {
+            cx.clear(shown, background);
+            cx.with_clip(shown, |cx| cx.paint_child(&self.parts[CONTENT], full.inset(padding)));
+        });
         let content_id = self.parts[CONTENT].id();
         if self.focus_inside && just_opened {
             cx.request_focus_within(content_id);

@@ -12,6 +12,10 @@
 
 - `Placement::ALL`, `.name()` — every side and a short name for settings screens.
 
+## Standing apart
+
+- `PaintCx::floating(rect, paint)` — for a floating surface of your own: paint it with this from `paint_overlay`. It reads the ring of cells just outside `rect`, runs `paint`, and when the surface's tone sits too close to a ground covering at least a quarter of the ring, moves every background inside `rect` together. Text colours stay.
+
 ## Keys
 
 - `esc` — sends the dismiss message.
@@ -24,5 +28,5 @@
 
 ## Theme keys
 
-- `popover` — `bg` (default `$overlay`), `padding` (default `[1, 2]`).
+- `popover` — `bg` (default `$overlay`), `padding` (default `[1, 2]`). Over a ground closer than 0.05 in OKLab the background steps towards `$text` or `$canvas` by the least that clears it, at most 30%.
 - `[motion] enter` — how long the layer takes to unfold.

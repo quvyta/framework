@@ -276,6 +276,7 @@ impl<Msg: 'static> Widget<Msg> for DatePicker<Msg> {
         let enter = cx.env().theme().motion().enter;
         let progress = cx.progress_since(opened_at, enter, Easing::EaseOut);
         let shown = placement::unfold(full, side, progress);
+        let grounds = cx.grounds_around(shown);
         cx.clear(shown, background);
         cx.register_hit(shown);
         let mut cursor = remembered.or(self.value).unwrap_or_else(|| self.today_or_clock());
@@ -379,6 +380,7 @@ impl<Msg: 'static> Widget<Msg> for DatePicker<Msg> {
                 cx.text(cell.x + 1, cell.y, &label, CellStyle { bg: None, ..day_style }, 2);
             }
         });
+        cx.stand_apart(shown, &grounds, Some(background));
     }
 
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {

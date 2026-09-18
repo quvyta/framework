@@ -3,11 +3,13 @@
 
 mod animation;
 mod event;
+mod floating;
 mod frame;
 mod paint;
 
 pub(crate) use event::Effects;
 pub use event::EventCx;
+pub(crate) use floating::Grounds;
 pub(crate) use frame::{FocusRequest, Frame, Interaction, LayerRecord, MeasureKey};
 pub use paint::PaintCx;
 

@@ -16,7 +16,7 @@ yazılabilmelidir.**
 1. **`quvyta-framework`**: kütüphane. Kodda `qframe` adıyla kullanılır.
 2. **`quvyta-framework-showcase`** (`crates/showcase`): her bileşenin canlı demosunu, kodunu,
    rehberini ve referansını gösteren uygulama. Kendi paketi olarak yayımlanır; `cargo install
-   quvyta-framework-showcase` iki komut kurar: `qframe-showcase` ve `quvyta-framework-showcase`.
+   quvyta-framework-showcase` iki komut kurar: `qframe` ve `quvyta-framework-showcase`.
    Gösterdiği her dosya ikiliye gömülüdür, depo olmadan her klasörde açılır. Kütüphaneye bağımlı
    olan biri showcase'i indirmez ve derlemez.
 
@@ -72,7 +72,7 @@ quvyta/framework/
     │   └── tests/builtin_assets.rs
     └── showcase/
         ├── CATALOG.toml          tüm bileşen ve sistemlerin tek listesi (bkz. §8)
-        ├── src/{lib.rs, main.rs, bin/qframe-showcase.rs, assets.rs, app.rs, catalog.rs,
+        ├── src/{lib.rs, main.rs, bin/qframe.rs, assets.rs, app.rs, catalog.rs,
         │        layers.rs, log.rs, regions.rs, tests.rs, pages/}
         └── assets/{pages/<sayfa>/{guide,reference}.{en,tr}.md, locales/, keymap.toml}
 ```

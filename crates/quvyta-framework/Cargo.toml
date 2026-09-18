@@ -45,6 +45,12 @@ nix = { version = "0.28.0", default-features = false, features = ["signal"] }
 # already uses this version with these features to hear resizes, so it adds no crate.
 signal-hook = { version = "0.3.18", default-features = false, features = ["iterator"] }
 
+[target.'cfg(windows)'.dependencies]
+# storage::documents_dir: the Documents folder on Windows is a Known Folder the user can move, and
+# only a system call (SHGetKnownFolderPath) knows where it is. That call needs `unsafe`, which this
+# crate forbids; `dirs` makes it safely and brings nothing in on other platforms.
+dirs = "6.0.0"
+
 [features]
 # The embedded terminal: a shell in a pseudo-terminal, parsed into theme-coloured cells.
 pty = ["dep:portable-pty", "dep:vt100"]

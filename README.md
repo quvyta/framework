@@ -16,7 +16,7 @@ This repository holds two crates:
 
 ```sh
 cargo add quvyta-framework                 # the library
-cargo install quvyta-framework-showcase    # try the components: run `qframe-showcase`
+cargo install quvyta-framework-showcase    # try the components: run `qframe`
 ```
 
 The package is named `quvyta-framework` and its library is named `qframe`, so code imports it as
@@ -76,7 +76,7 @@ steps.
 
 ## Running the showcase
 
-Installed, the showcase is the `qframe-showcase` command (also installed as
+Installed, the showcase is the `qframe` command (also installed as
 `quvyta-framework-showcase`). From a clone, with the toolchain pinned by `rust-toolchain.toml`:
 
 ```sh

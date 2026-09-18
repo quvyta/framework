@@ -22,6 +22,7 @@ pub struct State {
     runtime: usize,
     placement: usize,
     focus_inside: bool,
+    apart_open: bool,
 }
 
 /// Demo messages.
@@ -36,6 +37,8 @@ pub enum Msg {
     Runtime(usize),
     Placement(usize),
     FocusInside(bool),
+    ToggleApart,
+    CloseApart,
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -80,6 +83,14 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::FocusInside(on) => {
             state.focus_inside = on;
             log.push(PAGE, "Playground", format!("focus_inside = {on}"));
+        }
+        Msg::ToggleApart => {
+            state.apart_open = !state.apart_open;
+            log.push(PAGE, "Popover#apart", if state.apart_open { "opened" } else { "closed" });
+        }
+        Msg::CloseApart => {
+            state.apart_open = false;
+            log.push(PAGE, "Popover#apart", "dismissed");
         }
     }
     Command::none()
@@ -173,6 +184,50 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         ui.add(Text::new(t!("popover.keys")).role("faint"));
     })
     .fill_width();
+
+    apart(state, ui);
+}
+
+/// The same layer twice, opened by one button: on the screen ground and inside a panel, where
+/// it steps away from the panel's tone.
+fn apart(state: &State, ui: &mut View<'_, AppMsg>) {
+    ui.row(|ui| {
+        // region: popover-apart
+        // On the screen ground the layer keeps the theme's overlay tone. It opens and closes with
+        // the one on the panel, which is painted later and so sits on top: that one takes Esc and
+        // the dismissing click.
+        ui.column(|ui| {
+            ui.add(Text::new(t!("popover.on-screen")).role("faint").no_wrap());
+            Popover::new(state.apart_open)
+                .anchor(|ui| {
+                    ui.add(Text::new(t!("popover.same-layer")).role("secondary").no_wrap());
+                })
+                .content(|ui| {
+                    ui.add(Text::new(t!("popover.overlay-tone")).no_wrap());
+                    ui.add(Text::new(t!("popover.overlay-tone-detail")).role("faint").no_wrap());
+                })
+                .show(ui);
+        })
+        .width(Length::Cells(40));
+        // Inside a panel of nearly the same tone the layer is lifted apart from it.
+        ui.add_with(Panel::new().title(t!("popover.on-panel")), |ui| {
+            Popover::new(state.apart_open)
+                .on_dismiss(send(Msg::CloseApart))
+                .anchor(|ui| {
+                    ui.add(Button::new(t!("popover.open-both")).on_press(send(Msg::ToggleApart))).id("apart");
+                })
+                .content(|ui| {
+                    ui.add(Text::new(t!("popover.lifted-tone")).no_wrap());
+                    ui.add(Text::new(t!("popover.lifted-tone-detail")).role("faint").no_wrap());
+                })
+                .show(ui);
+            ui.spacer().height(Length::Cells(4));
+        })
+        .fill_width();
+        // endregion
+    })
+    .gap(2);
+    ui.add(Text::new(t!("popover.apart-hint")).role("faint"));
 }
 
 #[cfg(test)]
@@ -180,11 +235,12 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::tests::showcase_on;
+    use crate::tests::{showcase_on, showcase_tall};
 
     #[test]
     fn opens_filters_changes_them_and_dismisses() {
-        let mut h = showcase_on(PAGE);
+        // Tall enough for the event log below the side-by-side layers.
+        let mut h = showcase_tall(crate::app::Showcase::new(), PAGE, 80);
         h.click_text("Filters").advance(Duration::from_millis(300));
         assert!(h.screen().contains("Only running"), "{}", h.screen());
         h.click_text("Only running");
@@ -192,6 +248,27 @@ mod tests {
         h.press("esc");
         assert!(!h.app().pages.popover.filters_open);
         assert!(h.screen().contains("Popover#filters"));
+    }
+
+    #[test]
+    fn the_layer_on_the_panel_stands_apart_and_the_one_on_the_screen_keeps_its_tone() {
+        for theme in ["monochrome", "nordic", "amber", "iris"] {
+            let mut h = showcase_tall(crate::app::Showcase::new(), PAGE, 80);
+            h.set_theme(theme);
+            h.click_text("Open both").advance(Duration::from_millis(300));
+            let overlay = h.env().theme().color("overlay");
+            let at = |h: &qframe::runtime::Harness<crate::app::Showcase>, text: &str| {
+                let (x, y) = h.find(text).unwrap_or_else(|| panic!("{text} is on screen: {}", h.screen()));
+                h.bg(u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0))
+            };
+            assert_eq!(at(&h, "The overlay tone as the theme sets it"), overlay, "{theme}");
+            let lifted = at(&h, "One small step apart").expect("true colour");
+            let (px, py) = h.find("On a panel").expect("the panel title");
+            let panel = h.bg(u16::try_from(px).unwrap_or(0), u16::try_from(py + 1).unwrap_or(0)).expect("panel");
+            assert!(lifted.perceptual_distance(panel) >= 0.05, "{theme}: {lifted} on {panel}");
+            h.press("esc");
+            assert!(!h.app().pages.popover.apart_open, "Esc closes both");
+        }
     }
 
     #[test]

@@ -34,6 +34,36 @@
 - `None` when the platform's variables say nothing. `Settings::load` then keeps everything in memory with a warning diagnostic.
 - Asking does not create the folder, and it does not have to exist.
 
+## Family
+
+- `Family::QUVYTA`, `Family::new(id, title)` — a family of applications: a lowercase `id` for folder and file names, a `title` for the places a user reads it as a name. `.id()`, `.title()`.
+- `.config_dir()` — the family's folder: `$XDG_CONFIG_HOME/<id>` when absolute, else `$HOME/.config/<id>` on Linux and other Unix; `$HOME/Library/Application Support/<title>` on macOS; `%APPDATA%\<title>` on Windows. `None` without a home folder.
+- `.shared_file()` — `<config_dir>/<id>.conf`, the settings every member shares.
+- `.app_file(app)` — `<config_dir>/<app>.conf`. An application whose id is the family's own would get the shared file.
+- `.app_dir(app)` — `<config_dir>/<app>`, for the application's other configuration files.
+- `.workspace_dir(app_title)` — `<documents_dir>/<title>/<app_title>`, where the user's work with the application goes.
+- `Settings::load_member(&family, app)` — `Settings::open(family.app_file(app))`; without a home folder, settings in memory with the same warning as `Settings::load`.
+- `Settings::with_diagnostics(diagnostics)` — puts diagnostics found around loading in front of the file's own; they stay through later schema checks.
+- Nothing is created by asking.
+
+## Adopting old settings
+
+- `family.adopt(app, legacy_dir) -> Migration` — `legacy_dir/settings.toml` to `app_file(app)`; every other file under `legacy_dir`, at any depth, to the same relative path under `app_dir(app)`.
+- `family.adopt_in(config_dir, app, legacy_dir)` — the same move with `config_dir` as the family's folder, for tests and demos that must not touch the user's own settings.
+- When `legacy_dir` is `app_dir(app)`, only `settings.toml` moves and the folder is kept.
+- Each move: the new name is claimed (created empty, failing if anything is there; on Unix with the old file's permissions), filled with `atomic_write`, given the old file's permissions, read back and compared; only then is the old file removed. A failed step removes the new file and keeps the old one.
+- A taken new place, a symbolic link (never followed, never moved), anything that is not a plain file, and a file that cannot be read stay where they are, each with a diagnostic naming the path. A symbolic link or a file as `legacy_dir`, and a `legacy_dir` inside `app_dir` or around it, adopt nothing.
+- Emptied old folders are removed from the deepest up; a folder with anything left is kept; `legacy_dir` is never removed when it is `app_dir`.
+- A missing `legacy_dir` is nothing to do; a second run changes nothing. Without a home folder nothing happens and the report says so.
+- `Migration` — `.moved()` as `(from, to)` pairs, `.diagnostics()` (warnings for what was left on purpose, errors for what failed), `.is_clean()`.
+- A crash in the middle of a move can leave an empty new file next to the whole old one; the next run reports the pair and keeps both.
+
+## Documents folder
+
+- `documents_dir()` — Linux and other Unix: the `XDG_DOCUMENTS_DIR` line of `user-dirs.dirs` in the config root (`$XDG_CONFIG_HOME` when absolute, else `$HOME/.config`); the value is `"$HOME/…"` or an absolute path in double quotes, `#` starts a comment line, a backslash escapes the next character, nothing else is expanded, and the last valid line wins. A missing, unreadable or broken file, and a value that is the home folder itself (how the file turns a folder off), give `$HOME/Documents`.
+- macOS: `$HOME/Documents`. Windows: the Documents Known Folder through the `dirs` crate, else `%USERPROFILE%\Documents`.
+- `None` without an absolute home folder. Not created.
+
 ## Machine name
 
 - `machine_name() -> Option<String>` — this machine's name, ready for a file name: the node name `uname -n` prints on Unix (read with `rustix`, no shell and no file), `COMPUTERNAME` on Windows, `None` elsewhere.
@@ -72,5 +102,5 @@
 - While healing, keys one file cannot hold together (`git = 1` next to `"git.sign" = true` in the same table, both read as dotted keys) are separated: a declared key wins over an open one, otherwise the key written first stays; the other is removed with a warning.
 - Datetimes and arrays of tables under an open prefix are skipped like everywhere else, so they are not in a healed file; the backup keeps them.
 - `.schema` and `.self_heal` can be called in either order; repairs stay in the diagnostics when the check runs again.
-- Saving creates the folder and goes through `atomic_write`; a file loaded with problems is copied to `settings.toml.bak` first.
+- Saving creates the folder and goes through `atomic_write`; a file loaded with problems is copied first under its own name with `.bak` added: `settings.toml.bak`, `code.conf.bak`.
 - A float read with `get::<f64>` also accepts a whole number.

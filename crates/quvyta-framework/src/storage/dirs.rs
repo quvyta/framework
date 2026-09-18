@@ -44,12 +44,12 @@ pub fn data_dir(app: &str) -> Option<PathBuf> {
 }
 
 /// Reads one environment variable as a path.
-fn env_lookup(name: &str) -> Option<PathBuf> {
+pub(super) fn env_lookup(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).map(PathBuf::from)
 }
 
 /// The folder settings of every application live under, from variables read through `lookup`.
-fn config_root(lookup: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+pub(super) fn config_root(lookup: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
     let non_empty = |name: &str| lookup(name).filter(|path| !path.as_os_str().is_empty());
     if cfg!(windows) {
         return non_empty("APPDATA");
@@ -76,7 +76,7 @@ fn data_root(lookup: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
 /// A variable counts only when it holds an absolute path. The XDG specification says a relative
 /// one is invalid and must be ignored; a relative `HOME` is no better, since it would put the
 /// files under the working directory.
-fn absolute(path: Option<PathBuf>) -> Option<PathBuf> {
+pub(super) fn absolute(path: Option<PathBuf>) -> Option<PathBuf> {
     path.filter(|path| path.is_absolute())
 }
 

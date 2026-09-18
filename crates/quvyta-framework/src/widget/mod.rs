@@ -21,7 +21,7 @@ pub use context::{EventCx, MeasureCx, PaintCx};
 pub use id::WidgetId;
 pub use view::{NodeMut, View};
 
-pub(crate) use context::{Effects, FocusRequest, Frame, Interaction, LayerRecord};
+pub(crate) use context::{Effects, FocusRequest, Frame, Grounds, Interaction, LayerRecord};
 pub(crate) use flex::{Axis, Flex};
 pub(crate) use id::{IdMap, Key};
 pub(crate) use idle::{IdleScope, IdleWatch};

@@ -9,7 +9,7 @@ use crate::geometry::{Padding, Rect, Size};
 use crate::keymap::Key;
 use crate::motion::{Easing, steps};
 use crate::text;
-use crate::widget::{EventCx, PaintCx};
+use crate::widget::{EventCx, Grounds, PaintCx};
 
 use super::cells;
 use super::close_mark;
@@ -43,7 +43,7 @@ pub(crate) struct LayerMemory {
 }
 
 /// The surface of a layer being painted.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct Surface {
     /// Whether the layer opened in this frame; widgets reset what they typed or scrolled, which
     /// memory in a persistent page would otherwise keep from the last time.
@@ -58,6 +58,8 @@ pub(crate) struct Surface {
     close: Option<Rect>,
     /// How far the entrance has come in whole cell steps, 0 to 1.
     entered: f32,
+    /// The dimmed screen around the surface, which the surface keeps apart from.
+    grounds: Grounds,
 }
 
 /// The padding of the surface style `style`, `[1, 3]` when the theme does not say. A dismissable
@@ -114,6 +116,7 @@ pub(crate) fn open(cx: &mut PaintCx<'_>, size: Size, placement: SurfacePosition,
     };
     // Toasts keep clear of where the surface ends up, not of the part popped in so far.
     cx.set_layer_surface(full);
+    let grounds = cx.grounds_around(full);
     // The surface grows by whole cells; its colours follow the same steps.
     let columns = steps(1.0 - progress, POP.0).min(full.width / 2);
     let rows = steps(1.0 - progress, POP.1).min(full.height / 2);
@@ -144,19 +147,26 @@ pub(crate) fn open(cx: &mut PaintCx<'_>, size: Size, placement: SurfacePosition,
     memory.close = close;
     let fresh = memory.opened != Some(opened);
     memory.opened = Some(opened);
-    Surface { fresh, shown, inner, background, close, entered }
+    Surface { fresh, shown, inner, background, close, entered, grounds }
 }
 
-/// Draws the close mark of a dismissable layer over the content, then fades everything painted
-/// on `surface` in with the entrance steps.
+/// Draws the close mark of a dismissable layer over the content, keeps the surface apart from
+/// the dimmed screen around it (see [`PaintCx::floating`]), then fades everything painted on
+/// `surface` in with the entrance steps.
 pub(crate) fn finish(cx: &mut PaintCx<'_>, surface: &Surface) {
     if let Some(close) = surface.close {
         cx.with_clip(surface.shown, |cx| {
             close_mark::paint(cx, close.x, close.y, true);
         });
     }
+    // Decided on the surface's own tone, so the lift stays the same through the entrance.
+    let lift = cx.lift_for(surface.shown, &surface.grounds, Some(surface.background));
+    if let Some(lift) = lift {
+        cx.lift(surface.shown, lift);
+    }
     if surface.entered < 1.0 {
-        let dimmed = cx.color("canvas").mix(surface.background, surface.entered);
+        let background = lift.map_or(surface.background, |lift| lift.apply(surface.background));
+        let dimmed = cx.color("canvas").mix(background, surface.entered);
         cx.tint(surface.shown, dimmed, 1.0 - surface.entered);
     }
 }

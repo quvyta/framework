@@ -30,6 +30,8 @@ mod field;
 mod file_browser;
 mod file_picker;
 mod filter;
+#[cfg(test)]
+mod floating_tests;
 mod form;
 mod form_errors;
 mod gauge;

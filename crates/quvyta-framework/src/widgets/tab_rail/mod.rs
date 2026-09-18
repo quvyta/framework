@@ -431,7 +431,9 @@ impl<Msg: 'static> Widget<Msg> for TabRail<Msg> {
         let on_close = cx.pointer_anywhere().is_some_and(|(x, y)| close.is_some_and(|close| close.contains(x, y)));
         let states = if on_card && !on_close { vec![State::Hover] } else { Vec::new() };
         let style = cx.style("rail-hint", None, &states).text();
-        cx.clear(card, style.bg.unwrap_or_else(|| cx.color("overlay")));
+        let background = style.bg.unwrap_or_else(|| cx.color("overlay"));
+        let grounds = cx.grounds_around(card);
+        cx.clear(card, background);
         cx.register_hit(card);
 
         // The name, then the badge and the close mark anchored to the card's right end, as in a
@@ -450,6 +452,7 @@ impl<Msg: 'static> Widget<Msg> for TabRail<Msg> {
         if let Some(close) = close {
             close_mark::paint(cx, close.x, close.y, true);
         }
+        cx.stand_apart(card, &grounds, Some(background));
         cx.memory::<RailMemory>().card = Some((row, card));
     }
 

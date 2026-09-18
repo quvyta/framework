@@ -12,6 +12,10 @@
 
 - `Placement::ALL`, `.name()` — bütün taraflar ve ayar ekranları için kısa ad.
 
+## Ayrışma
+
+- `PaintCx::floating(alan, çizim)` — kendi yüzen yüzeyin için: `paint_overlay` içinde yüzeyi bununla çiz. Önce alanın hemen dışındaki hücre halkasına bakar, sonra `çizim`i çalıştırır; yüzeyin tonu halkanın en az dörtte birini kaplayan bir zemine fazla yakınsa, alan içindeki bütün arka planları birlikte kaydırır. Yazı renkleri değişmez.
+
 ## Tuşlar
 
 - `esc` — kapatma mesajını gönderir.
@@ -24,5 +28,5 @@
 
 ## Tema anahtarları
 
-- `popover` — `bg` (varsayılan `$overlay`), `padding` (varsayılan `[1, 2]`).
+- `popover` — `bg` (varsayılan `$overlay`), `padding` (varsayılan `[1, 2]`). OKLab'de 0.05'ten yakın bir zeminin üstünde arka plan, onu aşan en küçük miktarda `$text` ya da `$canvas` rengine doğru kayar, en fazla %30.
 - `[motion] enter` — katmanın açılma süresi.

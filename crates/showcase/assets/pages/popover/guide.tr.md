@@ -13,6 +13,7 @@ Tek bir kontrole ait, ekranı ele geçirmemesi gereken küçük ve isteğe bağl
 ## Nasıl çalışır
 
 - **Bir katmandır.** İçerik her şeyin üstüne, çerçevesiz, katman yüzeyinde çizilir; kenarı ton farkıdır. Alttaki hiçbir şey kaymaz.
+- **Açıldığı yerden ayrışır.** Ekran zemininin üstünde katman kendi tonunu korur. Tonu neredeyse aynı olan bir panelin içinde açılırsa, kenarı yeniden görünene kadar temanın yazı rengine doğru küçük bir adım kayar (koyu temada açığa, açık temada koyuya). Adım temanın kendi renklerinden gelir; bu yüzden elle yazılmış tek bir renk olmadan her temada çalışır. Menüler, listeler, ipuçları, bildirimler ve pencereler de aynısını yapar; kendi bileşenin bunu `PaintCx::floating` ile alır.
 - **Yer bulur.** Varsayılan olarak çapanın altında ya da `.placement(…)` ile seçilen tarafta açılır. O tarafta yer yoksa karşı tarafa geçer ve her zaman ekranın içine geri itilir.
 - **Çapadan açılır**, temanın `motion.enter` süresince satır satır (yan yerleşimlerde sütun sütun). Hareket azaltılmışsa anında belirir.
 - **Kapatmak senin elinde.** Esc ve dışarı tıklama kapatma mesajını gönderir.

@@ -118,7 +118,9 @@ impl OptionList {
         styles: OptionStyles,
     ) {
         let menu = cx.style(styles.menu, None, &[]).text();
-        cx.clear(popup, menu.bg.unwrap_or_else(|| cx.color("overlay")));
+        let background = menu.bg.unwrap_or_else(|| cx.color("overlay"));
+        let grounds = cx.grounds_around(popup);
+        cx.clear(popup, background);
         cx.register_hit(popup);
         let slide = cx.env().slide();
         let check = cx.env().icons().glyph("check").into_owned();
@@ -174,6 +176,7 @@ impl OptionList {
             let active = self.bar.active(anywhere);
             scrollbar::paint(cx, bar, metrics, active, None);
         }
+        cx.stand_apart(popup, &grounds, Some(background));
     }
 }
 
