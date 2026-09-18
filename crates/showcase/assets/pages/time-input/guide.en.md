@@ -22,6 +22,6 @@ Use a time input for a time of day: when a maintenance window starts, when a nig
 
 ## Common mistakes
 
-- **Time inputs for durations longer than a day.** Hours stop at 23; use a number input with a unit.
+- **Time inputs for lengths of time.** Hours stop at 23 and wrap; use the duration input, which carries between units and writes them.
 - **Validating inside the field.** A time is always valid on its own; relations between times belong to your application.
 - **Twelve-hour labels next to the field.** The field is always 24-hour; write your hints the same way.

@@ -193,6 +193,15 @@ impl ColorDepth {
             _ => Self::Ansi256,
         }
     }
+
+    /// Whether a terminal of this depth shows `a` and `b` as two different colours.
+    pub(crate) fn tells_apart(self, a: Rgb, b: Rgb) -> bool {
+        match self {
+            Self::TrueColor => a != b,
+            Self::Ansi256 => a.to_ansi256() != b.to_ansi256(),
+            Self::Ansi16 => a.to_ansi16() != b.to_ansi16(),
+        }
+    }
 }
 
 #[cfg(test)]

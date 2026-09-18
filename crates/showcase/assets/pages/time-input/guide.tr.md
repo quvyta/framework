@@ -22,6 +22,6 @@ Günün bir saati için saat girişi kullan: bakım aralığının ne zaman baş
 
 ## Sık yapılan hatalar
 
-- **Bir günden uzun süreler için saat girişi.** Saat 23'te durur; birimli bir sayı girişi kullan.
+- **Süreler için saat girişi.** Saat 23'te durur ve başa sarar; birimler arasında taşan ve birimleri yazan süre girişini kullan.
 - **Alanın içinde doğrulamak.** Tek başına bir saat her zaman geçerlidir; saatler arasındaki ilişki uygulamanın işidir.
 - **Alanın yanında 12 saatlik açıklamalar.** Alan her zaman 24 saatliktir; açıklamaları da öyle yaz.

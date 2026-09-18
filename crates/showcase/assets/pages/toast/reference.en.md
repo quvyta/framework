@@ -10,7 +10,7 @@
 
 ## Commands
 
-- `Command::toast(toast)` — shows it.
+- `Command::toast(toast)` — shows it. It never covers an open modal layer: it takes the rows between its corner and the dialog, or waits with its time stopped until there is room.
 - `Command::dismiss_toast(key)` — removes the toast with that key.
 - `Command::toast_corner(Corner)` — `TopRight`, `BottomRight` (default), `BottomLeft`, `TopLeft`. `Corner::name()` and `ToastKind::name()` give short names for settings screens.
 

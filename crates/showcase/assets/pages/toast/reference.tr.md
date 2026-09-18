@@ -10,7 +10,7 @@
 
 ## Komutlar
 
-- `Command::toast(bildirim)` — gösterir.
+- `Command::toast(bildirim)` — gösterir. Açık bir modal katmanın üstüne binmez: köşesiyle diyalog arasındaki satırlara yerleşir ya da yer açılana kadar süresi durmuş halde bekler.
 - `Command::dismiss_toast(anahtar)` — o anahtarlı bildirimi kaldırır.
 - `Command::toast_corner(Corner)` — `TopRight`, `BottomRight` (varsayılan), `BottomLeft`, `TopLeft`. `Corner::name()` ve `ToastKind::name()` ayar ekranları için kısa adlar verir.
 

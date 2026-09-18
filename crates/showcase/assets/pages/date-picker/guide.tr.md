@@ -8,7 +8,7 @@ Kullanıcı tek bir gün seçecekse ve çevresindeki haftaları görmek işe yar
 2. Göster: `DatePicker::new(self.release)`.
 3. Seçimleri al: `.on_change(Msg::Release)`.
 4. Boşken ne seçileceğini söyle: `.placeholder(t!("choose-date"))`.
-5. Uygulaman kullanıcının saat dilimini biliyorsa yerel günü `.today(tarih)` ile ver; yoksa bugün, sistem saatinden UTC olarak alınır.
+5. Bugün, makinenin kendi gününe göre işaretlenir: sistem saati ve saat dilimi. Başka bir gün bugün sayılmalıysa, örneğin başka bir dilimdeki kullanıcının günü, `.today(tarih)` ver.
 
 ## Nasıl çalışır
 
@@ -25,6 +25,6 @@ Kullanıcı tek bir gün seçecekse ve çevresindeki haftaları görmek işe yar
 ## Sık yapılan hatalar
 
 - **Biçimlenmiş metni saklamak.** `Date`'i tut; metin dille birlikte değişir.
-- **Gece yarısına yakın "bugün" için UTC'ye güvenmek.** Yerel gün önemliyse `.today(…)` ver.
+- **Bugünü `Date::today_utc()` ile işaretlemek.** Gece yarısına yakın UTC günü kullanıcının günü değildir; yerel gün için `.today(…)` hiç verme ya da `Date::today_local()` ver.
 - **Takvimin liste gibi kaymasını beklemek.** Kaydırma listeler, menüler ve sekmeler içindir. Tarih seçici sabit sütunlu bir ızgaradır; hiç kaymaz, yerine çubuğu gösterir.
 - **Aralık için tek seçici beklemek.** Demodaki gibi iki seçici kullan; sırayı `update` içinde denetle.

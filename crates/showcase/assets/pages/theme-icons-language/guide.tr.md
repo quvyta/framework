@@ -2,6 +2,12 @@
 
 Bir uygulama quvyta-framework'e **tema dosyaları**, **ikon dosyaları** ve **dil dosyaları** verir. Framework her birinin eksiksiz bir varsayılanıyla gelir; uygulama bunlar olmadan da çalışır, senin dosyaların varsayılanları ezer ya da genişletir. Düz dosya oldukları için yeni tema ya da dil eklemek kopyala, adlandır, düzenle demektir.
 
+## Metin olarak verilen dosyalar
+
+İçeri girmenin tek yolu yol vermek değil. `Runtime::theme_source(dosya, metin)`, `icon_source`, `keymap_source` ve `locale_source` doğrudan TOML metnini alır; bu metin genelde deponuzdaki bir dosyanın `include_str!`'ıdır. Kurulan ikili böylece kendi görünümünü ve tuşlarını taşır ve yanında hiç dosya olmadan açılır; `CARGO_MANIFEST_DIR`'den kurulan bir yol bunu yapamaz. Dosya adı yalnızca tanılamaları etiketler; tema ve ikon setlerinde ise adın kökü, klasördeki gibi, id olur.
+
+Metin ve yol bir arada yaşar: metin en son yüklenir, yani kazanır, ve ayrıca verilen yol artık zorunlu olmaz. O yol okunamadığında metin onun yerine geçer ve sebep, programı durdurmak yerine bir tanılamaya dönüşür. Yerine geçecek bir metin yoksa okunamayan yol yine hatadır; çünkü o zaman dosyanın yerini tutacak bir şey yoktur.
+
 ## Temalar
 
 Bir temanın iki katmanı vardır.
@@ -35,9 +41,23 @@ Tema yüklenirken framework yazı ile zeminler arasındaki kontrastı ve vurgu i
 
 Her ikonun üç biçimi vardır: Nerd Font için `nerd`, `unicode` ve `ascii`. `auto` modunda framework terminale ve kurulu yazı tiplerine bakarak seçer; kullanıcı bir mod seçebilir, `QUVYTA_ICONS=ascii` ise bir modu zorlar. ASCII biçimleri şekil taklit etmek için asla parantez kullanmaz.
 
+Set, bir uygulamanın ana menüsünün gösterdiği anlamlara da karşılık verir; böylece ailedeki her uygulama aynı şekilleri çizer: `project`, `profile`, `settings` ve `power`. Nerd Font şeyin kendisini çizer; Unicode sütunu, terminallerin ve eşit aralıklı yazı tiplerinin tek hücre olarak çizdiği Geometric Shapes içinde kalır, böylece hiçbir satır başka bir yazı tipine düşüp hücreden taşmaz.
+
 ## Diller
 
 Dil dosyaları bölümler halinde gruplanmış anahtarları tutar. `t!("files.count", n = 3)` anahtarı önce etkin dilde, sonra onun `fallback` dilinde, en son İngilizcede arar. Çoğul biçimleri `{ one = "{n} file", other = "{n} files" }` gibi tablolardır; biçimi dilin kendi kuralı seçer, böylece Türkçe, Rusça ya da Arapça kendi biçimini alır. Eksik anahtar fark edilsin diye `⟦files.count⟧` olarak görünür; `missing_keys` ile bir test her dili eksiksiz tutar.
+
+## Bir anahtarın çevrildiğini denetlemek
+
+`i18n.has("tr", "files.count")` bir dilin anahtarı kendi dosyalarında taşıyıp taşımadığını sorar. Dili her zaman adıyla alır, bu yüzden etkin dil cevabı değiştirmez; yedek dillere de düşmez: Türkçenin İngilizceden ödünç alacağı bir anahtar, ekranda İngilizce metin görünse bile `"tr"` için `false` olur. Çoğul anahtar var sayılır. Uygulamanın kullandığı anahtarları sayan bir test, böylece her birini her dilde isteyebilir:
+
+```rust
+for key in ["app.save", "app.files"] {
+    assert!(i18n.has("en", key) && i18n.has("tr", key), "{key} çevrilmemiş");
+}
+```
+
+`translate(key)` sonucunu anahtarın kendisiyle karşılaştırmak bu işi görmez: eksik anahtar `⟦key⟧` olarak çevrilir, bu da anahtarın kendisi değildir; böyle bir test çeviri eksikken de geçer.
 
 ## Çalışırken değiştirmek
 

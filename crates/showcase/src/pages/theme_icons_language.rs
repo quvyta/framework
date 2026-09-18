@@ -1,7 +1,11 @@
 //! Theme, icons and language: switching at runtime, colour tokens, the icon set and plurals.
 
-use qframe::env::Env;
+use std::sync::LazyLock;
+
+use qframe::env::{AssetDirs, Env};
+use qframe::i18n::I18n;
 use qframe::icons::{IconMode, PillarStyle};
+use qframe::keymap::Scope;
 use qframe::prelude::*;
 use qframe::theme::REQUIRED_COLORS;
 use qframe::widgets::{Segmented, Select};
@@ -12,8 +16,10 @@ use crate::log::EventLog;
 
 const PAGE: &str = "theme-icons-language";
 
-/// Icons shown in the icon grid.
-const ICONS: [&str; 16] = [
+/// Icons shown in the icon grid. The last row is what an application's main menu needs, so every
+/// application in the family shows the same shapes for a project, who you are, the settings and
+/// the way out.
+const ICONS: [&str; 20] = [
     "check",
     "close",
     "dot",
@@ -30,7 +36,99 @@ const ICONS: [&str; 16] = [
     "error",
     "info",
     "prompt",
+    "project",
+    "profile",
+    "settings",
+    "power",
 ];
+
+// region: sources
+/// An application's own theme, icon set and keymap, given as text instead of as a path. Here they
+/// are written out to be read; an application uses `include_str!` on its own files, so the
+/// installed binary carries them and needs nothing beside it on disk.
+const APP_THEME: &str = "[meta]\nname = \"Brand\"\nextends = \"monochrome\"\nicon-set = \"brand\"\n\n\
+                         [colors]\naccent = \"#7C9EF5\"\n";
+const APP_ICONS: &str =
+    "[meta]\nname = \"Brand\"\n\n[icons]\nproject = { nerd = \"\\uf1b2\", unicode = \"\u{25c8}\", ascii = \"#\" }\n";
+const APP_KEYS: &str = "[app]\nsave = \"ctrl+s\"\n";
+
+/// The environment those three texts make, loaded once and with no directory named at all. A
+/// runtime is given the same three with `.theme_source(file, text)`, `.icon_source(file, text)`
+/// and `.keymap_source(file, text)`, beside the `.locale_source(file, text)` of the language
+/// files. A path named as well is then optional: when it cannot be read the text stands in for it
+/// and the reason becomes a diagnostic instead of stopping the program.
+static FROM_TEXT: LazyLock<Env> = LazyLock::new(|| {
+    let dirs = AssetDirs {
+        theme_sources: vec![("brand.toml".to_owned(), APP_THEME.to_owned())],
+        icon_sources: vec![("brand.toml".to_owned(), APP_ICONS.to_owned())],
+        keymap_source: Some(("keymap.toml".to_owned(), APP_KEYS.to_owned())),
+        ..AssetDirs::default()
+    };
+    Env::load(&dirs).expect("text alone needs no files on disk")
+});
+// endregion
+
+/// An application's English and Turkish text in which Turkish has not translated the file count
+/// yet. Written out here to be read; an application loads its own locale files.
+const APP_EN: &str = "[meta]\nname = \"English\"\ncode = \"en\"\n\n[app]\nsave = \"Save\"\n\
+                      files = { one = \"{n} file\", other = \"{n} files\" }\n";
+const APP_TR: &str = "[meta]\nname = \"Türkçe\"\ncode = \"tr\"\nfallback = \"en\"\n\n[app]\nsave = \"Kaydet\"\n";
+
+/// The translator those two texts make, with Turkish active, on its own so the showcase's complete
+/// text is untouched. `has` names its language, so the active one does not change its answers.
+static KEY_CHECK: LazyLock<I18n> = LazyLock::new(|| {
+    let mut i18n = I18n::builtin();
+    i18n.add_source("app-en.toml", APP_EN);
+    i18n.add_source("app-tr.toml", APP_TR);
+    i18n.set_active("tr");
+    i18n
+});
+
+/// Which language carries each key of the text above itself, and what Turkish shows for it.
+fn key_check(ui: &mut View<'_, AppMsg>) {
+    for key in ["app.save", "app.files"] {
+        ui.row(|ui| {
+            ui.add(Text::new(key).role("body").no_wrap()).width(Length::Cells(12));
+            for code in ["en", "tr"] {
+                // region: has
+                let present = KEY_CHECK.has(code, key);
+                // endregion
+                let (marker, color) = if present { ("success", "success") } else { ("warning", "warning") };
+                let glyph = ui.env().icons().glyph(marker).into_owned();
+                ui.add(Text::new(format!("{glyph} {code}")).color(color).no_wrap()).width(Length::Cells(6));
+            }
+            let shown = KEY_CHECK.translate(key, &[("n", 2.into())]);
+            ui.add(Text::new(shown).role("secondary").no_wrap());
+        });
+    }
+    ui.spacer().height(Length::Cells(1));
+    ui.add(Text::new(t!("theme-icons-language.has-hint")).role("faint"));
+}
+
+/// The display name of `id` in a list of `(id, name)`, empty when the list does not have it.
+fn name_of(list: &[(String, String)], id: &str) -> String {
+    list.iter().find(|(known, _)| known == id).map(|(_, name)| name.clone()).unwrap_or_default()
+}
+
+/// What the three texts above became: a theme, an icon set and a key binding an application has
+/// without carrying a single file.
+fn sources(ui: &mut View<'_, AppMsg>) {
+    let env = &*FROM_TEXT;
+    let chords: Vec<String> = env.keymap().chords_for(Scope::App, "save").iter().map(ToString::to_string).collect();
+    let rows = [
+        (t!("theme-icons-language.sources-theme"), name_of(&env.themes(), "brand")),
+        (t!("theme-icons-language.sources-icons"), name_of(&env.icon_sets(), "brand")),
+        (t!("theme-icons-language.sources-keys"), chords.join("  ")),
+    ];
+    for (label, value) in rows {
+        ui.row(|ui| {
+            ui.add(Text::new(label).role("secondary").no_wrap()).width(Length::Cells(14));
+            ui.add(Text::new(value).role("body").no_wrap());
+        });
+    }
+    ui.spacer().height(Length::Cells(1));
+    ui.add(Text::new(t!("theme-icons-language.sources-hint")).role("faint"));
+}
 
 /// The plural demo counter.
 #[derive(Debug, Default)]
@@ -133,8 +231,12 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         })
         .gap(2);
         ui.add(Text::new(t!("theme-icons-language.plural-hint")).role("faint"));
+        ui.spacer().height(Length::Cells(1));
+        key_check(ui);
     })
     .fill_width();
+
+    ui.add_with(Panel::new().title(t!("theme-icons-language.sources")), sources).fill_width();
 }
 
 /// Choices that change how every screen feels: the pillar, the selection slide and motion. They
@@ -225,12 +327,62 @@ fn switcher(ui: &mut View<'_, AppMsg>) {
 
 #[cfg(test)]
 mod tests {
+    use qframe::icons::GlyphMode;
+
     use super::*;
-    use crate::tests::showcase_on;
+    use crate::app::Showcase;
+    use crate::tests::{showcase_on, showcase_tall};
+
+    #[test]
+    fn a_theme_an_icon_set_and_a_keymap_given_as_text_need_no_directory() {
+        let h = showcase_tall(Showcase::new(), PAGE, 70);
+        let screen = h.screen();
+        let panel = screen.split("FILES GIVEN AS TEXT").nth(1).unwrap_or_default();
+        let row = |label: &str| panel.lines().find(|line| line.contains(label)).unwrap_or_default().to_owned();
+        assert!(row("theme").contains("Brand"), "the theme came from text:\n{screen}");
+        assert!(row("icon set").contains("Brand"), "the icon set came from text:\n{screen}");
+        assert!(row("save key").contains("ctrl+s"), "the keymap came from text:\n{screen}");
+    }
+
+    #[test]
+    fn the_key_check_reports_a_key_turkish_only_borrows() {
+        let h = showcase_tall(Showcase::new(), PAGE, 90);
+        let screen = h.screen();
+        let row = |key: &str| screen.lines().find(|line| line.contains(key)).unwrap_or_default().to_owned();
+        let save = row("app.save");
+        assert!(save.contains("✓ en") && save.contains("✓ tr") && save.contains("Kaydet"), "{screen}");
+        let files = row("app.files");
+        assert!(files.contains("✓ en"), "{files:?}");
+        assert!(!files.contains("✓ tr") && files.contains(" tr"), "Turkish lacks it: {files:?}");
+        assert!(files.contains("2 files"), "the screen falls back to English: {files:?}");
+    }
+
+    #[test]
+    fn the_application_menu_icons_are_in_the_gallery_in_every_mode() {
+        let mut h = showcase_tall(Showcase::new(), PAGE, 70);
+        for mode in [GlyphMode::Nerd, GlyphMode::Unicode, GlyphMode::Ascii] {
+            h.set_glyph_mode(mode);
+            let screen = h.screen();
+            for name in ["project", "profile", "settings", "power"] {
+                let row = screen.lines().find(|line| line.contains(name)).unwrap_or_default();
+                let glyph = row
+                    .split(name)
+                    .next()
+                    .and_then(|before| before.trim_end().chars().last())
+                    .unwrap_or_else(|| panic!("{name} is missing in {mode:?}:\n{screen}"));
+                assert!(!glyph.is_whitespace(), "{name} has no glyph in {mode:?}: {row:?}");
+                if mode == GlyphMode::Ascii {
+                    assert!(glyph.is_ascii_graphic(), "{name} is not ASCII in {mode:?}: {glyph:?}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn switches_theme_and_language_and_pluralises() {
-        let mut h = showcase_on(PAGE);
+        // The colour token table lists every required colour, so the plural demo below it needs
+        // more rows than the default terminal of the showcase tests.
+        let mut h = showcase_tall(Showcase::new(), PAGE, 70);
         assert!(h.screen().contains("0 files"));
         h.click_text("+");
         assert!(h.screen().contains("1 file"));

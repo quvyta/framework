@@ -9,13 +9,14 @@ simple: shape comes from colour, never from bracket or box-drawing characters.
 This repository holds two crates:
 
 - `crates/quvyta-framework`: the library.
-- `crates/showcase`: an application with a page for every component, each with a live demo, its
-  code, a guide and a reference, in English and Turkish. It is not published.
+- `crates/showcase`: the `quvyta-framework-showcase` application, with a page for every component,
+  each with a live demo, its code, a guide and a reference, in English and Turkish.
 
 ## Installation
 
 ```sh
-cargo add quvyta-framework
+cargo add quvyta-framework                 # the library
+cargo install quvyta-framework-showcase    # try the components: run `qframe-showcase`
 ```
 
 The package is named `quvyta-framework` and its library is named `qframe`, so code imports it as
@@ -75,10 +76,11 @@ steps.
 
 ## Running the showcase
 
-The toolchain is pinned by `rust-toolchain.toml`. From the repository root:
+Installed, the showcase is the `qframe-showcase` command (also installed as
+`quvyta-framework-showcase`). From a clone, with the toolchain pinned by `rust-toolchain.toml`:
 
 ```sh
-cargo run -p showcase     # or ./showcase.sh
+cargo run -p quvyta-framework-showcase     # or ./showcase.sh
 ```
 
 ## Contributing
@@ -94,7 +96,8 @@ git config core.hooksPath .githooks
 - **API documentation:** `cargo doc -p quvyta-framework --open`.
 - **Guides and references:** in the showcase, and as Markdown under
   `crates/showcase/assets/pages/<page>/{guide,reference}.{en,tr}.md`.
-- **Component catalogue:** `CATALOG.toml`, the single list of every component and system.
+- **Component catalogue:** `crates/showcase/CATALOG.toml`, the single list of every component and
+  system.
 - **Design:** [`docs/design.md`](docs/design.md), the principles and architecture of the framework (in Turkish).
 - **Repository:** <https://github.com/quvyta/framework>.
 

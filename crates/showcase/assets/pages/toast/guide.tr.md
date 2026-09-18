@@ -14,10 +14,11 @@ Arka planda bir şey olduğunu ve yanıt gerekmediğini söylemek için bildirim
 
 ## Nasıl çalışır
 
-- **Yığın çalışma motorunundur.** Bildirimler görünümünün parçası değildir: onları açan ekrandan uzun yaşar, diyaloglar dahil her katmanın üstüne çizilir. Uygulaman bildirim durumu tutmaz.
+- **Yığın çalışma motorunundur.** Bildirimler görünümünün parçası değildir: onları açan ekrandan uzun yaşar, ekranın ve menülerinin üstüne çizilir. Uygulaman bildirim durumu tutmaz.
+- **Bildirim bir diyaloğun üstüne binmez.** Bir diyalog, komut paleti ya da başka bir modal katman açıkken yığın, köşesiyle diyalog arasındaki satırlarda kalır; aralarında bir satır boşluk bırakır. Orada yer bulamayan bildirim, süresi durmuş halde bekler ve diyalog kapanınca ya da ekran büyüyünce kayarak girer; üstüne diyalog açılan, zaten görünen bir bildirim de aynı şekilde kenara çekilir. Yukarıdaki "Pencere altında kaydet" bir diyalog açar ve aynı anda kaydı bildirir; bildirimin beklediğini görmek için terminali kısalt.
 - **Durum bir işarettir, yalnızca renk değil.** Solda durum renginde bir sütun ve bir ikon (başarı, uyarı, tehlike, bilgi) durur; başlık ve gövde nötr renkte kalır.
 - **Kayarak girer**: `motion.enter` süresince ekran kenarından hücre hücre gelir, renkleri de aynı hızla belirir; aynı yoldan kayarak çıkar. Hareket azaltılmışsa anında belirir ve kaybolur.
-- **Bir köşede üst üste dizilir**; en yenisi köşeye en yakındır, aralarında bir satır boşluk vardır. Sığmayan bildirimler diğerleri gidene kadar bekler.
+- **Bir köşede üst üste dizilir**; en yenisi köşeye en yakındır, aralarında bir satır boşluk vardır. Sığmayan bildirimler diğerleri gidene kadar bekler. Bildirimin süresi yalnızca ekrandayken işler, bu yüzden bekleyen bir bildirim kaçırılmaz.
 - **İkon hareket edebilir.** Spinner'ın tek hücrelik animasyonlarından herhangi biri (Yükleniyor animasyonu ve Animasyon stüdyosu sayfalarındaki stiller, Pulse dahil) ikon hücresinde, bildirimin türünün renginde oynar ve diğer renkler gibi bildirimle birlikte belirir. Başlık sütununu korur; animasyondan ikonuna geçen anahtarlı bir bildirim yerinden oynamaz. Hareket azaltılmışsa türün ikonu sabit durur. Oyun alanındaki "İkon animasyonu" yükleme bildiriminin stilini seçer.
 - **Kendiliğinden gider**: 5 saniye sonra, eylem taşıyorsa 8 saniye sonra ya da `.duration(…)` ile verdiğin sürede. İmleç üstündeyken geri sayım durur.
 - **Kapatma işareti sekmelerdeki ve diyaloglardakinin aynısıdır.** Başlık satırının sonunda üç hücre, boştayken fısıltı kadar silik. İmleç bildirimin üstüne gelince işaret değişmez; yalnızca imleç işaretin kendisine gelince üç hücre birlikte aydınlanır. Her bildirim kapatılabildiği için her zaman oradadır.

@@ -113,10 +113,9 @@ impl<Msg: Clone + 'static> Wizard<Msg> {
 
     /// Adds the wizard to `ui` with the current step's page built by `page`.
     pub fn show<'v>(self, ui: &'v mut View<'_, Msg>, page: impl FnOnce(&mut View<'_, Msg>)) -> NodeMut<'v, Msg> {
-        let env = ui.env();
         let mut children = Vec::new();
         {
-            let ui = &mut View::new(&mut children, env);
+            let ui = &mut ui.nested(&mut children);
             let mut steps = Steps::new(self.labels.clone()).current(self.current).running(self.busy);
             if let Some(message) = self.on_step {
                 steps = steps.on_select(message);

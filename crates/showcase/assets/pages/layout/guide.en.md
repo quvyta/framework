@@ -20,6 +20,17 @@ Each child has a width and a height, each one of three kinds:
 
 Spacing comes from empty cells and surface colour, never from lines. Use a consistent rhythm: one row between groups, two or three columns between siblings.
 
+## Choosing the layout from the space
+
+`ui.size()` is the room the application is drawing into: the whole terminal, in columns and rows. An application reads it in `view` and picks its arrangement, so "below 48 columns, fold the three columns" is one `if`:
+
+- Wide: the columns side by side in a `row`.
+- Narrow: the same content in a `column`, with what does not fit moved to a page of its own.
+
+The number is the same in every nested builder — inside a `column`, a `Panel`, a `SidePanel` part or a `Modal` it is still the terminal — because the view is built before layout divides the screen. That keeps the decision simple: it is about the terminal the user has. Reading it is not I/O; after a resize the next frame sees the new size, and `Harness::resize` does the same in tests, so the narrow layout is tested like any other screen.
+
+This is for the application's own arrangement. A widget that adapts inside its own rectangle, such as a list column shortening its labels, does that by itself.
+
 ## Surfaces instead of frames
 
 Group related content in a `Panel`: a surface one step above its background. An inset panel inside a panel is one step higher again. The eye reads the grouping from tone alone.
@@ -36,4 +47,5 @@ Group related content in a `Panel`: a surface one step above its background. An 
 
 - **Fill inside an Auto parent.** A parent that sizes itself by its content has no room to share; give the parent a size.
 - **Fixed widths everywhere.** Prefer `Fill` so screens adapt to the terminal.
+- **Keeping the size in state.** `ui.size()` is always current in `view`; a copy kept in the application's state goes stale on the next resize.
 - **Drawing separators.** Use a gap or a surface change instead of a line of characters.

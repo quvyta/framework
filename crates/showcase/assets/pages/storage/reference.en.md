@@ -26,12 +26,37 @@
 - `.open(prefix)` — keeps every key under the dotted table `prefix` (e.g. `plugins`: `[plugins]` and deeper) as it is; a trailing dot is ignored, `""` opens nothing, opening a prefix twice is the same as once.
 - Declaring a key again replaces its rule, including between a key with a default and an optional one.
 
-## Config directory
+## Folders
 
-- Linux and other Unix: `$XDG_CONFIG_HOME` when absolute, else `$HOME/.config`.
-- macOS: `$HOME/Library/Application Support`.
-- Windows: `%APPDATA%`.
-- None found: settings stay in memory with a warning diagnostic.
+- `config_dir(app)` — where the settings of `app` live: `$XDG_CONFIG_HOME/<app>` when absolute, else `$HOME/.config/<app>` when `HOME` is absolute on Linux and other Unix; `$HOME/Library/Application Support/<app>` on macOS; `%APPDATA%\<app>`, the roaming folder, on Windows.
+- `data_dir(app)` — where `app` keeps its own records: `$XDG_DATA_HOME/<app>` when absolute, else `$HOME/.local/share/<app>` on Linux and other Unix; `$HOME/Library/Application Support/<app>` on macOS, the same folder as the settings, because macOS has no separate data folder for a command line application; `%LOCALAPPDATA%\<app>`, the local folder, on Windows, so records are not copied between machines. A `HOME` that is not an absolute path counts as missing in both, as a relative XDG variable does, so nothing lands under the working directory.
+- An empty variable counts as unset; a relative `XDG_*` path is invalid and ignored.
+- `None` when the platform's variables say nothing. `Settings::load` then keeps everything in memory with a warning diagnostic.
+- Asking does not create the folder, and it does not have to exist.
+
+## Machine name
+
+- `machine_name() -> Option<String>` — this machine's name, ready for a file name: the node name `uname -n` prints on Unix (read with `rustix`, no shell and no file), `COMPUTERNAME` on Windows, `None` elsewhere.
+- Made safe in three steps: whitespace around it removed; every character that is not a letter or digit (of any script), `-`, `_` or `.` replaced by `-`, bytes that are not UTF-8 included; dots at either end removed.
+- `None` when the platform gives no name or nothing is left after those steps.
+- Read again on every call, not cached. The unchanged system name is not offered.
+
+## Atomic write
+
+- `atomic_write(path, contents)` — leaves either the file that was there or the new one, never half of either. The parent folder has to exist. A `path` that is a symbolic link is written through: the file it points at is replaced, keeps its permissions, and the link stays a link, so a settings file linked from a dotfiles repository stays that repository's file. Links in a loop are an error.
+- `atomic_write_reporting(path, contents, |step| …)` — the same write, reporting each finished step.
+- `WriteStep` — `Wrote(PathBuf)` (the temporary file, next to the real one), `SyncedFile`, `Renamed`, `SyncedDirectory`, in that order.
+- The temporary file is `<name>.tmp-<pid>-<n>` in the same folder, because a rename cannot cross a file system; the counter keeps two writers of one path apart.
+- A failed step removes the temporary file, so a failed write leaves nothing behind, and the error is the first step's error.
+- On Unix the folder is flushed after the rename, which is what makes the new name survive a power cut. On other platforms, Windows among them, the standard library cannot open a folder to flush it, so `SyncedDirectory` is not reported: no half-written file can appear, but a power cut just after the rename can leave the old file. Doing better needs calls this framework cannot make without `unsafe`.
+
+## One instance
+
+- `AppLock::acquire(path)` — `Ok(Some(lock))` took it, `Ok(None)` another process holds it, `Err` could not try. The parent folder has to exist.
+- The lock lives as long as the value: dropping it releases it, and so does the process ending, however it ends. A leftover lock file is not a lock.
+- On Unix this is `flock(LOCK_EX | LOCK_NB)`. Such a lock belongs to an open file, not to a process, so a second `acquire` on the same path inside one process answers `None` as well.
+- On every other platform, Windows among them, there is no advisory lock here: `acquire` returns `io::ErrorKind::Unsupported` and never `Ok`, so an application is told it has no lock instead of quietly running without one.
+- `holder_pid(path)` — the process id written in the lock file, for a message that names the holder. Diagnostic text only: a process id is reused, so no decision may rest on it.
 
 ## Behaviour
 
@@ -47,5 +72,5 @@
 - While healing, keys one file cannot hold together (`git = 1` next to `"git.sign" = true` in the same table, both read as dotted keys) are separated: a declared key wins over an open one, otherwise the key written first stays; the other is removed with a warning.
 - Datetimes and arrays of tables under an open prefix are skipped like everywhere else, so they are not in a healed file; the backup keeps them.
 - `.schema` and `.self_heal` can be called in either order; repairs stay in the diagnostics when the check runs again.
-- Saving creates the directory, writes `settings.toml.tmp-<pid>`, syncs and renames; a file loaded with problems is copied to `settings.toml.bak` first.
+- Saving creates the folder and goes through `atomic_write`; a file loaded with problems is copied to `settings.toml.bak` first.
 - A float read with `get::<f64>` also accepts a whole number.

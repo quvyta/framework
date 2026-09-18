@@ -16,6 +16,7 @@ Use a gauge for how full a resource is right now when there is a point where it 
 - **One row.** Label on the left, meter in the middle, value on the right. The meter fills in eighths of a cell.
 - **Limits you can see.** With thresholds, the part of the track past each limit is tinted faintly with the tone waiting there, so you see how much room is left before anything is wrong.
 - **Never colour alone.** With thresholds the value carries a marker: a dot when fine, `▲` for warning, `✕` for danger.
+- **A readout, not a control.** A gauge answers no keys and no clicks, and it takes no keyboard focus: its one value is always written beside the meter, so there is nothing a pointer or a key could move to, and mouse and keyboard users read the same row. To let someone set a value, use a slider; to explain a label the area had to cut, wrap the gauge in a tooltip; to read a value out of a history, use a sparkline.
 - **Narrow areas.** When fewer than four cells remain for the meter, it is left out and the label and value stay; the label is cut with `…` first.
 
 ## Common mistakes
@@ -23,3 +24,4 @@ Use a gauge for how full a resource is right now when there is a point where it 
 - **Thresholds for things without limits.** A request counter has no danger zone; use a number or a sparkline.
 - **Warning colours without meaning.** If 90% disk is normal for your system, move the thresholds instead of teaching people to ignore the warning colour.
 - **Different widths.** Gauges of different widths are hard to compare; give a group the same width.
+- **Waiting for a click.** Nothing happens when a gauge is pressed. If people need to act on it, put the action next to it as a button.

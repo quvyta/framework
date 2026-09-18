@@ -25,6 +25,8 @@ search = ["/", "ctrl+f"]
 
 Your `App::action` turns a name into a message. Users can rebind keys with a file, without any change to the code. When the same key is bound to two actions of one table, a warning says so.
 
+The application's own bindings do not have to be a file on disk. `Runtime::keymap_source(file, text)` takes the TOML text itself, usually an `include_str!` of the keymap in your repository, so the installed binary carries its keys; a path built from `CARGO_MANIFEST_DIR` breaks once the binary is installed somewhere else. A `keymap_file` named as well is then optional: when it cannot be read the text stands in for it and the reason becomes a diagnostic instead of stopping the program. A broken entry is skipped with its file, line and column, and the built-in bindings keep working.
+
 ## Hint labels come from the language
 
 The hint bar reads labels from locale keys: `quvyta.keys.<action>` for global actions and `keys.<action>` for yours. Switch the language and every hint follows.

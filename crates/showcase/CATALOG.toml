@@ -1,0 +1,1074 @@
+# Every component and system of the Quvyta framework.
+#
+# Nothing exists outside this list. `cargo test` fails when a public widget type is not covered by
+# an item's `types`, or when a `done` item has no complete showcase page (demo, code, guide and
+# reference in English and Turkish). `planned` items appear faint in the showcase menu.
+#
+# group:    foundations | controls | display | structure | overlays | forms | content | examples
+# kind:     infrastructure | widget | example
+# priority: p0 | p1 | p2 | p3
+# status:   planned | done
+# notes:    design notes shown on the item's planned page (`notes` English, `notes-tr` Turkish).
+
+[[item]]
+id       = "runtime"
+name     = "Runtime"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "getting-started"
+types    = ["App", "Command", "Runtime", "Env", "AssetDirs", "Diagnostic", "Location", "Severity"]
+notes    = "The core of every application: the App trait, commands for side effects, the runtime that drives them and diagnostics that point to a file, line and column. Every kind of file can be given as text instead of a path — theme_source, icon_source, locale_source and keymap_source take an include_str! — so an installed binary starts with nothing beside it on disk. Text loads after the paths, so it wins, and a path named as well is then optional: when it cannot be read the text stands in for it and the reason becomes a diagnostic instead of stopping the program. A screen with its own messages is placed with ui.map(convert, build) and its commands returned with command.map(convert): one pattern for every application. Everything inside arrives converted, also layers, overlays and focus requests, and a message background work sends later goes through the same conversion, which is why a command's conversion must be Send and Sync. The lifecycle is four optional App methods with defaults. init runs once at the start of the first frame, after the first size and before the view is built, and returns a Command; a focus it asks for lands when that frame is painted, before any input is read, so the first key reaches it. resized hears the size of the frame being drawn (the size ui.size() reports) at start and on every change, as a message through update. before_quit is asked whenever the runtime quits for the user (the quit binding, the palette's quit action); a message keeps the application running, and Command::quit, the application's own decision, is never asked about. terminating hears that the system is ending the application, as a Termination: on Unix the runtime catches SIGTERM and an outside SIGINT (Terminate: the terminal is still there, the default answers with before_quit) and SIGHUP (Hangup: the terminal went away, nothing is drawn or written after it, the default quits). None quits at once; a message keeps the application running to save and quit. Every way out is bounded: after the grace (five seconds for a terminate, three for a hangup) the runtime quits without the application, a second SIGTERM or SIGINT quits at once, a repeated hangup is the same hangup, and when the loop itself is stuck a watcher thread restores the terminal and ends the process by the signal a second later. The loop waits on the keyboard and on a socket the signal thread writes to, so it hears a signal at once. During a handoff the signal is passed on to the program's process group, which owns the terminal, and the application hears it once it has the terminal back. The harness runs all four where the terminal does; Harness::terminate simulates each signal."
+notes-tr = "Her uygulamanın çekirdeği: App trait'i, yan etkiler için komutlar, bunları yürüten çalışma zamanı ve dosya, satır ve sütun gösteren tanılamalar. Her dosya türü yol yerine metin olarak da verilebilir — theme_source, icon_source, locale_source ve keymap_source bir include_str! alır — böylece kurulan ikili yanında hiç dosya olmadan açılır. Metin yollardan sonra yüklenir, yani kazanır; ayrıca verilen yol artık zorunlu değildir: okunamadığında metin onun yerine geçer ve sebep, programı durdurmak yerine bir tanılamaya dönüşür. Kendi mesajları olan bir ekran ui.map(dönüşüm, kurucu) ile yerleştirilir, komutları komut.map(dönüşüm) ile döndürülür: her uygulama için tek kalıp. İçindeki her şey dönüştürülmüş gelir, katmanlar, açılır parçalar ve odak istekleri de; arka plan işinin sonradan gönderdiği mesaj da aynı dönüşümden geçer, bu yüzden komutun dönüşümü Send ve Sync olmalıdır. Yaşam döngüsü, varsayılanı olan dört isteğe bağlı App metodudur. init ilk karenin başında, ilk ölçüden sonra ve görünüm kurulmadan önce bir kez çalışır ve bir Command döndürür; istediği odak o kare çizilince, hiçbir girdi okunmadan yerine oturur, böylece ilk tuş ona ulaşır. resized çizilen karenin ölçüsünü (ui.size()'ın bildirdiği ölçü) açılışta ve her değişimde update'ten geçen bir mesaj olarak duyar. before_quit, çalışma motoru kullanıcı adına her çıkacağında sorulur (çıkış bağı, paletin çıkış eylemi); bir mesaj uygulamayı açık tutar, uygulamanın kendi kararı olan Command::quit ise hiç sorulmaz. terminating, uygulamayı sistemin kapattığını bir Termination olarak duyar: Unix'te çalışma motoru SIGTERM ile dışarıdan gelen SIGINT'i (Terminate: terminal hâlâ yerinde, varsayılan before_quit ile cevap verir) ve SIGHUP'ı (Hangup: terminal gitti, bundan sonra hiçbir şey çizilmez ya da yazılmaz, varsayılan çıkar) yakalar. None hemen çıkar; bir mesaj uygulamayı kaydedip çıkması için açık tutar. Her çıkış sınırlıdır: süre dolunca (terminate için beş, kopuş için üç saniye) motor uygulamayı beklemeden çıkar, ikinci bir SIGTERM ya da SIGINT hemen çıkarır, tekrarlanan kopuş aynı kopuştur, döngünün kendisi takılırsa bir gözcü iş parçacığı bir saniye sonra terminali eski haline getirip süreci sinyalin kendisiyle bitirir. Döngü klavyeyi ve sinyal iş parçacığının yazdığı bir soketi birlikte bekler, bu yüzden sinyali hemen duyar. Devir sırasında sinyal terminalin sahibi olan programın süreç grubuna iletilir; uygulama onu terminali geri alınca duyar. Test düzeneği dördünü de terminalin çalıştırdığı yerde çalıştırır; Harness::terminate her sinyali taklit eder."
+
+[[item]]
+id       = "test-harness"
+name     = "Test harness"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "getting-started"
+types    = ["Harness", "html_page"]
+
+[[item]]
+id       = "theme-system"
+name     = "Theme system"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "theme-icons-language"
+types    = ["Theme", "ThemeRegistry", "Resolved", "Selector", "State", "Paint", "Motion", "StyleProps", "PropValue", "WORD_PROPS", "REQUIRED_COLORS", "WidgetStyle", "CellStyle", "Rgb", "ColorDepth"]
+notes    = "Stacked switches may read as one block; that is intended. In Amber the track of a switch that is off sits one tone higher so it stays readable."
+notes-tr = "Üst üste duran anahtarların tek blok gibi görünmesi bilinçli bir tercihtir. Amber temasında kapalı anahtarın izi okunur kalsın diye bir ton yukarıda durur."
+
+[[item]]
+id       = "icon-system"
+name     = "Icon system"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "theme-icons-language"
+types    = ["Icons", "IconSetRegistry", "IconGlyphs", "IconMode", "GlyphMode", "PillarStyle", "PILLAR", "detect_glyph_mode", "default_font_dirs"]
+notes    = "Every icon has a Nerd Font, a Unicode and an ASCII glyph, and an icon set can be given as text instead of a file. The set also answers the meanings an application's main menu shows — project, profile, settings and power — so every application in the family draws the same shapes; the Unicode column of those four stays inside Geometric Shapes, which terminals draw as one cell, so no row falls back to another font and overflows."
+notes-tr = "Her ikonun bir Nerd Font, bir Unicode ve bir ASCII biçimi vardır; ikon seti dosya yerine metin olarak da verilebilir. Set, bir uygulamanın ana menüsünün gösterdiği anlamlara da karşılık verir — project, profile, settings, power — böylece ailedeki her uygulama aynı şekilleri çizer; bu dördünün Unicode biçimi, terminallerin tek hücre olarak çizdiği Geometric Shapes içinde kalır, böylece hiçbir satır başka bir yazı tipine düşüp taşmaz."
+
+[[item]]
+id       = "i18n-system"
+name     = "Language system"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "theme-icons-language"
+types    = ["I18n", "Arg", "PluralCategory", "t!", "scope", "translate_active"]
+notes    = "has(code, key) asks whether one named language carries a key in its own files, so a test can require every key an application uses in every language. It never looks at the active language and never follows fallbacks: a key Turkish borrows from English is missing for Turkish even though the screen shows the English text. A plural key counts as present. Comparing a translation with its key cannot do this job, because a missing key translates to ⟦key⟧."
+notes-tr = "has(code, key) adı verilen tek bir dilin bir anahtarı kendi dosyalarında taşıyıp taşımadığını sorar; böylece bir test, uygulamanın kullandığı her anahtarı her dilde isteyebilir. Etkin dile hiç bakmaz ve yedek dillere düşmez: Türkçenin İngilizceden ödünç aldığı anahtar, ekranda İngilizce metin görünse de Türkçe için eksiktir. Çoğul anahtar var sayılır. Bir çeviriyi anahtarıyla karşılaştırmak bu işi göremez, çünkü eksik anahtar ⟦key⟧ olarak çevrilir."
+
+[[item]]
+id       = "view-layout"
+name     = "View and layout"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "layout"
+types    = ["View", "NodeMut", "Node", "LayoutProps", "Length", "Align", "Padding", "Rect", "Size", "Widget", "Container", "WidgetId", "MeasureCx", "PaintCx", "EventCx", "Event", "KeyEvent", "KeyKind", "MouseEvent", "MouseKind", "MouseButton"]
+notes    = "An application chooses its own arrangement from ui.size(): the whole terminal, in columns and rows, the same in every nested builder because the view is built before layout divides the screen. Reading it is not I/O, a resize shows up in the next frame and Harness::resize does the same in tests. A widget adapting inside its own rectangle is a separate matter and stays inside the widget."
+notes-tr = "Uygulama kendi dizilişini ui.size() ile seçer: sütun ve satır olarak terminalin tamamı; görünüm, yerleşim ekranı paylaştırmadan önce kurulduğu için her iç içe kurucuda aynıdır. Okumak G/Ç değildir, boyut değişikliği sonraki karede görünür, testlerde Harness::resize da aynısını yapar. Bir bileşenin kendi dikdörtgeni içindeki uyumu ayrı bir konudur ve bileşenin içinde kalır."
+
+[[item]]
+id       = "router"
+name     = "Router"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "layout"
+types    = ["Router", "Navigation"]
+
+[[item]]
+id       = "app-shell"
+name     = "App shell"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "layout"
+types    = ["AppShell"]
+
+[[item]]
+id       = "keymap"
+name     = "Keymap"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "focus-keys"
+types    = ["Keymap", "Scope", "KeyChord", "Key", "Modifiers"]
+notes    = "Actions are bound by name, in [global] for the framework and [app] for the application, and the map comes from a file or, with keymap_source, from text compiled into the binary. A broken entry is skipped with its file, line and column and the built-in bindings keep working, so a keymap that cannot be read never stops the program from starting."
+notes-tr = "Eylemler adla bağlanır: framework için [global], uygulama için [app]. Harita bir dosyadan ya da keymap_source ile ikiliye gömülü metinden gelir. Bozuk bir satır dosya, satır ve sütunuyla bildirilip atlanır, gömülü bağlamalar çalışmaya devam eder; okunamayan bir kısayol haritası programın açılmasını hiçbir zaman engellemez."
+
+[[item]]
+id       = "debug-layer"
+name     = "Debug layer"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "focus-keys"
+
+[[item]]
+id       = "motion"
+name     = "Motion"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p1"
+status   = "done"
+page     = "motion"
+types    = ["Easing", "Tween", "steps"]
+notes    = "The base for everything that moves: timelines, easing, per-cell colour blending in proportion to the step, layer entrances and exits, theme durations and reduced motion. Frames are drawn only while something animates. When QUVYTA_REDUCED_MOTION is set it wins over the saved setting and runtime commands (1 reduces motion, 0 keeps it), and the reduced-motion switches are disabled and show the value in force."
+notes-tr = "Hareket eden her şeyin temeli: zaman çizelgeleri, yumuşatma, adımla orantılı hücre başına renk karışımı, katman giriş çıkışları, temadan gelen süreler ve hareketi azaltma. Kareler yalnızca bir şey hareket ederken çizilir. QUVYTA_REDUCED_MOTION tanımlıysa kayıtlı ayardan ve çalışırken gelen komutlardan önce gelir (1 hareketi azaltır, 0 korur); bu durumda hareketi azaltma anahtarları pasif olur ve geçerli değeri gösterir."
+
+[[item]]
+id       = "text"
+name     = "Text"
+group    = "display"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "text"
+types    = ["Text", "Span", "ELLIPSIS", "width", "grapheme_width", "truncate", "wrap", "wrap_ranges"]
+notes    = "Text is not selectable by default; .selectable(true) turns it on. When wrapping, punctuation stays with its word."
+notes-tr = "Metin varsayılan olarak seçilemez; .selectable(true) ile açılır. Satır sarılırken noktalama kelimesiyle birlikte kalır."
+
+[[item]]
+id       = "panel"
+name     = "Panel"
+group    = "structure"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "panel"
+types    = ["Panel"]
+notes    = "A pressable panel answers the pointer like a button: hover lifts the surface 8% towards the text colour with a soft pillar down the whole left edge, and a press flashes 16%. Keyboard focus looks like hover with a breathing pillar, and a selected panel keeps the full-height pillar like dialogs. .disabled(true) removes hover, focus and press."
+notes-tr = "Basılabilir panel fareye buton gibi cevap verir: hover yüzeyi metin rengine doğru %8 açar ve sol kenar boyunca yumuşak bir çubuk gösterir, basış %16 parlar. Klavye odağı hover gibi görünür ve çubuk nefes alır; seçili panel diyaloglar gibi tam boy çubuğu korur. .disabled(true) hover, odak ve basışı kaldırır."
+
+[[item]]
+id       = "button"
+name     = "Button"
+group    = "controls"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "button"
+types    = ["Button"]
+notes    = "The pillar is always the leftmost cell: ▌ ⏎ Save, never ⏎ ▌ Save. The shortcut segment starts with the pillar cell, so nothing moves on hover."
+notes-tr = "Vurgu çubuğu her zaman en soldaki hücredir: ▌ ⏎ Kaydet, asla ⏎ ▌ Kaydet. Kısayol parçası çubuk hücresiyle başlar, bu yüzden hover'da hiçbir şey kaymaz."
+
+[[item]]
+id       = "text-input"
+name     = "Text input"
+group    = "controls"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "text-input"
+types    = ["TextInput"]
+notes    = "Right click opens Cut, Copy, Paste and Select all. With a selection, the arrows move on from its ends. Paste reads the system clipboard first, and password fields never copy."
+notes-tr = "Sağ tık Kes, Kopyala, Yapıştır ve Tümünü seç menüsünü açar. Seçim varken oklar seçimin uçlarından devam eder. Yapıştırma önce sistem panosunu okur; parola alanları hiçbir zaman kopyalamaz."
+
+[[item]]
+id       = "select"
+name     = "Select"
+group    = "controls"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "select"
+types    = ["Select"]
+notes    = "A click elsewhere closes the list and still reaches its target; a click on the select's own field only closes it. There is one highlight, and the pointer moves it only when the pointer itself moves. The scrollbar can be dragged."
+notes-tr = "Başka bir yere tıklamak listeyi kapatır ve tıklama hedefine yine ulaşır; bileşenin kendi alanına tıklamak yalnızca kapatır. Tek bir vurgu vardır ve fare onu yalnızca kendisi hareket ettiğinde taşır. Kaydırma çubuğu sürüklenebilir."
+
+[[item]]
+id       = "list"
+name     = "List"
+group    = "structure"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "list"
+types    = ["List", "ListItem", "ItemKind"]
+notes    = "In multi-select, the check mark stays put and only the icon and label slide. A click on the mark only toggles the check."
+notes-tr = "Çoklu seçimde işaret yerinde kalır, yalnızca ikon ve yazı kayar. İşarete tıklamak yalnızca işareti değiştirir."
+
+[[item]]
+id       = "scroll-view"
+name     = "Scroll view"
+group    = "structure"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "scroll-view"
+types    = ["ScrollView", "ScrollMetrics"]
+
+[[item]]
+id       = "tabs"
+name     = "Tabs"
+group    = "structure"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "tabs"
+types    = ["Tabs"]
+notes    = "When the strip overflows, three-cell arrow buttons appear at both ends. Hover lights them with the pillar, a press flashes and scrolls by one tab, and an arrow that can go no further sinks into the surface."
+notes-tr = "Şerit taştığında iki uçta üç hücrelik ok düğmeleri belirir. Hover onları çubukla aydınlatır, basış parlayıp bir sekme kaydırır, daha ileri gidemeyen ok zemine iner."
+
+[[item]]
+id       = "key-hints"
+name     = "Key hints"
+group    = "display"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "key-hints"
+types    = ["KeyHints"]
+
+[[item]]
+id       = "markdown"
+name     = "Markdown"
+group    = "content"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "markdown"
+types    = ["Markdown"]
+notes    = "Markdown is selectable by default; clean copies leave out pillars, code padding and line numbers. Punctuation after inline code never wraps onto a line alone, even when a code span wider than the line breaks, and three-digit list numbers show in full."
+notes-tr = "Markdown varsayılan olarak seçilebilir; temiz kopya çubukları, kod iç boşluğunu ve satır numaralarını dışarıda bırakır. Satır içi koddan sonraki noktalama, satırdan geniş bir kod parçası bölünse bile tek başına alt satıra düşmez; üç haneli liste numaraları tam görünür."
+
+[[item]]
+id       = "code-view"
+name     = "Code view"
+group    = "content"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "code-view"
+types    = ["CodeView", "Language"]
+notes    = "The code is selectable by default, but its padding never is. Clean copies leave line numbers out."
+notes-tr = "Kod varsayılan olarak seçilebilir, iç boşluğu ise hiçbir zaman seçilmez. Temiz kopya satır numaralarını almaz."
+
+[[item]]
+id       = "checkbox"
+name     = "Checkbox"
+group    = "controls"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "checkbox"
+types    = ["Checkbox", "CheckboxStyle"]
+notes    = "The default is a two-cell box of solid colour that blends between empty and filled; a partly checked box fills its left cell. CheckboxStyle::Check draws a three-cell box with a tick instead."
+notes-tr = "Varsayılan, boş ile dolu arasında renk karışımıyla geçen iki hücrelik düz renkli kutudur; kısmen işaretli kutu sol hücresini doldurur. CheckboxStyle::Check bunun yerine tikli, üç hücrelik bir kutu çizer."
+
+[[item]]
+id       = "switch"
+name     = "Switch"
+group    = "controls"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "switch"
+types    = ["Switch", "SwitchStyle"]
+
+[[item]]
+id       = "segmented"
+name     = "Segmented"
+group    = "controls"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "segmented"
+types    = ["Segmented"]
+
+[[item]]
+id       = "radio-group"
+name     = "Radio group"
+group    = "controls"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "radio-group"
+types    = ["RadioGroup", "RadioStyle"]
+notes    = "The default RadioStyle::Square draws a small square for every option and only blends its colour to the chosen tone over two motion steps, so the shape never changes. Mark swaps the small square for a full box halfway through the blend, Box looks like the checkbox and Dot draws a dot. The quiet square is mix($muted, $raised, 70%) and hover lifts it to $muted, so a hovered square never looks chosen. A blank icon, as in ASCII mode, falls back to box tones, and a theme can replace the icons."
+notes-tr = "Varsayılan RadioStyle::Square her seçenekte küçük bir kare çizer ve yalnızca rengini iki motion adımı boyunca seçili tona karıştırır; şekil hiç değişmez. Mark karışımın yarısında küçük kareyi dolu kutuyla değiştirir, Box onay kutusuyla aynı görünür, Dot ise nokta çizer. Sakin kare mix($muted, $raised, 70%) tonundadır ve hover onu $muted tonuna açar; böylece üzerine gelinen kare seçili gibi görünmez. ASCII modundaki gibi boş bir simge kutu tonlarına döner ve tema simgeleri değiştirebilir."
+
+[[item]]
+id       = "slider"
+name     = "Slider"
+group    = "controls"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "slider"
+types    = ["Slider"]
+notes    = "The mouse wheel over a slider moves it one step and is not passed on, so the page does not scroll. A disabled slider lets the wheel through."
+notes-tr = "Sürgünün üzerinde fare tekerleği değeri bir adım değiştirir ve tekerleği sayfaya geçirmez, böylece sayfa kaymaz. Pasif sürgü tekerleği geçirir."
+
+[[item]]
+id       = "number-input"
+name     = "Number input"
+group    = "forms"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "number-input"
+types    = ["NumberInput"]
+notes    = "The mouse wheel over the field steps the value, and right click opens the edit menu."
+notes-tr = "Alanın üzerinde fare tekerleği değeri adım adım değiştirir; sağ tık düzenleme menüsünü açar."
+
+[[item]]
+id       = "text-area"
+name     = "Text area"
+group    = "forms"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "text-area"
+types    = ["TextArea"]
+notes    = "The edit menu, arrows past a selection (↑ and ↓ from its ends) and paste sources work as in the text input."
+notes-tr = "Düzenleme menüsü, seçimi aşan oklar (↑ ve ↓ uçlardan) ve yapıştırma kaynakları metin kutusundakiyle aynı çalışır."
+
+[[item]]
+id       = "form"
+name     = "Form and field"
+group    = "forms"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "form"
+types    = ["Form", "FormFields", "Field", "FormErrors"]
+
+[[item]]
+id       = "modal"
+name     = "Modal and dialog"
+group    = "overlays"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "modal"
+types    = ["Modal"]
+notes    = "dismissable(bool) turns Esc and the three-cell close mark on or off together, never one without the other. A pillar runs down the whole left edge, in the danger colour for destructive dialogs. The close mark sits in the top right corner, on the surface's first row."
+notes-tr = "dismissable(bool) Esc'i ve üç hücrelik kapatma işaretini birlikte açar ya da kapatır; biri ötekisiz olmaz. Sol kenar boyunca tam boy bir çubuk uzanır, yıkıcı pencerelerde tehlike renginde. Kapatma işareti yüzeyin ilk satırında, sağ üst köşededir."
+
+[[item]]
+id       = "confirm"
+name     = "Confirmation"
+group    = "overlays"
+kind     = "infrastructure"
+priority = "p1"
+status   = "done"
+page     = "confirm"
+types    = ["Confirm"]
+notes    = "Esc and the close mark cancel together; dismissable(false) leaves only the buttons. It has the same full-height pillar as every dialog. alternative(label, message) adds a third, plain button between Cancel and the confirm button for questions such as Discard, Continue, Save; Cancel keeps the focus and Tab visits the buttons left to right. Without it the two-button dialog is unchanged."
+notes-tr = "Esc ve kapatma işareti birlikte vazgeçer; dismissable(false) yalnızca butonları bırakır. Her pencerede olduğu gibi tam boy sol çubuğu vardır. alternative(etiket, mesaj) At, Sürdür, Kaydet gibi sorular için Vazgeç ile onay butonu arasına üçüncü, düz bir buton ekler; odak Vazgeç'te kalır, Tab butonları soldan sağa gezer. Verilmezse iki butonlu pencere değişmez."
+
+[[item]]
+id       = "popover"
+name     = "Popover"
+group    = "overlays"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "popover"
+types    = ["Popover", "Placement"]
+notes    = "The press that dismisses a popover still reaches what it landed on, except that a press on the widget that opened it only closes it. Dialogs, by contrast, swallow presses outside them."
+notes-tr = "Açılır kutuyu kapatan tıklama düştüğü yere de ulaşır; yalnızca kutuyu açan bileşene tıklamak onu sadece kapatır. Pencereler ise dışlarındaki tıklamaları yutar."
+
+[[item]]
+id       = "context-menu"
+name     = "Context menu"
+group    = "overlays"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "context-menu"
+types    = ["ContextMenu", "ContextItem"]
+notes    = "Opens with right click or the menu key. Text fields and selections build their edit menus on it."
+notes-tr = "Sağ tıkla ya da menü tuşuyla açılır. Metin alanları ve seçimler düzenleme menülerini bunun üzerine kurar."
+
+[[item]]
+id       = "toast"
+name     = "Toast"
+group    = "overlays"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "toast"
+types    = ["Toast", "ToastKind", "Corner"]
+notes    = "Any one-cell spinner animation can play in the icon cell with icon_motion. Only the three-cell close mark shared with tabs dismisses a toast, and only the pointer on it lights it. A press on the body does nothing unless on_press gives it a message; then the toast stays and rises one step under the pointer. A toast never covers an open modal layer: the stack keeps to the rows between its corner and the dialog's surface, one free row apart, and a toast without room there waits, its time stopped, until the dialog closes or the screen grows. A toast's time runs only while it is on screen."
+notes-tr = "icon_motion ile tek hücrelik herhangi bir spinner animasyonu ikon hücresinde oynar. Bildirimi yalnızca sekmelerle ortak üç hücrelik kapatma işareti kapatır ve işaret yalnızca imleç üzerindeyken aydınlanır. Gövdeye basmak, on_press bir mesaj vermedikçe hiçbir şey yapmaz; verirse bildirim yerinde kalır ve imlecin altında bir kademe yükselir. Bildirim açık bir modal katmanın üstüne binmez: yığın, köşesiyle diyaloğun yüzeyi arasındaki satırlarda, bir satır arayla kalır; orada yer bulamayan bildirim, diyalog kapanana ya da ekran büyüyene kadar süresi durmuş halde bekler. Bildirimin süresi yalnızca ekrandayken işler."
+
+[[item]]
+id       = "tooltip"
+name     = "Tooltip"
+group    = "overlays"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "tooltip"
+types    = ["Tooltip"]
+notes    = "A tooltip never catches a press; clicks pass through to what lies beneath."
+notes-tr = "İpucu hiçbir tıklamayı yakalamaz; tıklamalar altındaki bileşene geçer."
+
+[[item]]
+id       = "badge"
+name     = "Badge"
+group    = "display"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "badge"
+types    = ["Badge"]
+
+[[item]]
+id       = "progress-bar"
+name     = "Progress bar"
+group    = "display"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "progress-bar"
+types    = ["ProgressBar"]
+notes    = "Determinate progress fills with eighth-cell precision. Indeterminate progress is a sweep: a bright band flowing cell by cell with per-cell colour blending."
+notes-tr = "Belirli ilerleme sekizde bir hücre hassasiyetle dolar. Belirsiz ilerleme bir süpürmedir: hücre başına renk karışımıyla hücre hücre akan parlak bir bant."
+
+[[item]]
+id       = "spinner"
+name     = "Spinner"
+group    = "display"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "spinner"
+types    = ["Spinner", "SpinnerStyle"]
+notes    = "Single-cell styles in alphabetical order with Arc as the default; each style is a built-in cell animation, and Spinner::animation(name) plays any other. Arc uses the Nerd Font progress spinner frames, Quarters uses quadrant blocks that always fit one cell, and Slices turns half circles in Unicode mode. Spinner::done(true) plays a growing tick once, blending to $success, and rests on it; with reduced motion the tick shows at once."
+notes-tr = "Tek hücrelik stiller alfabetik sıradadır, varsayılan Arc'tır; her stil gömülü bir hücre animasyonudur ve Spinner::animation(ad) başka herhangi birini oynatır. Arc Nerd Font modunda progress spinner karelerini kullanır, Quarters her zaman tek hücreye sığan çeyrek bloklarla çizilir, Slices Unicode modunda yarım dairelerle döner. Spinner::done(true) büyüyen bir tiki $success rengine karışarak bir kez oynatır ve onda kalır; hareket azaltılmışsa tik hemen görünür."
+
+[[item]]
+id       = "cell-animation"
+name     = "Animation studio"
+group    = "display"
+kind     = "infrastructure"
+priority = "p1"
+status   = "done"
+page     = "cell-animation"
+types    = ["CellAnimation", "AnimationFrame", "CellColor", "FrameTime", "Playback", "ColorMode", "AnimationName", "AnimatedCell", "CellFrame"]
+notes    = "One data type for every one-cell animation. Each frame carries a glyph per glyph mode (ASCII is required; Nerd Font falls back to Unicode, Unicode to ASCII) and an optional colour expression; playback loops, plays once or bounces, and a rest frame stands in for reduced motion. [animations.<name>] tables live in icon sets, and themes override them like icons. The studio page compares the built-ins in all three modes, edits working copies with a live preview and copies them as TOML."
+notes-tr = "Her tek hücrelik animasyon için tek bir veri tipi. Her kare, her karakter modu için bir karakter (ASCII zorunlu; Nerd Font yoksa Unicode, o da yoksa ASCII kullanılır) ve isteğe bağlı bir renk ifadesi taşır; oynatma döngüyle, bir kez ya da gidip gelerek olur, azaltılmış hareket için bir duruş karesi vardır. [animations.<ad>] tabloları ikon setlerinde yaşar ve temalar onları ikonlar gibi değiştirir. Stüdyo sayfası gömülü animasyonları üç modda karşılaştırır, çalışma kopyalarını canlı önizlemeyle düzenler ve TOML olarak kopyalar."
+
+[[item]]
+id       = "shimmer-text"
+name     = "Shimmer text"
+group    = "display"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "shimmer-text"
+types    = ["ShimmerText", "ShimmerStyle"]
+notes    = "A working indicator for messages such as processing: light sweeps across the letters one cell at a time. ShimmerStyle::Dots counts dots up after the text instead."
+notes-tr = "processing gibi mesajlar için bir çalışma göstergesi: ışık harflerin üzerinde hücre hücre süzülür. ShimmerStyle::Dots bunun yerine metnin ardında noktaları çoğaltır."
+
+[[item]]
+id       = "divider"
+name     = "Divider"
+group    = "display"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "divider"
+types    = ["Divider"]
+
+[[item]]
+id       = "empty-state"
+name     = "Empty state"
+group    = "display"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "empty-state"
+types    = ["EmptyState"]
+
+[[item]]
+id       = "help-layer"
+name     = "Help layer"
+group    = "overlays"
+kind     = "infrastructure"
+priority = "p1"
+status   = "done"
+page     = "help-layer"
+types    = ["HelpLayer"]
+notes    = "The close mark in the top right corner comes with Esc, and dismissable(false) removes both. It has the full-height pillar, and its scrollbar can be dragged."
+notes-tr = "Sağ üst köşedeki kapatma işareti Esc ile birlikte gelir; dismissable(false) ikisini de kaldırır. Tam boy sol çubuğu vardır ve kaydırma çubuğu sürüklenebilir."
+
+[[item]]
+id       = "clipboard"
+name     = "Clipboard"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p1"
+status   = "done"
+page     = "clipboard"
+types    = ["CopyValue", "ClipboardEvent"]
+notes    = "Paste tries the system tool, then OSC 52, then the last copy made inside the app. Selections copy clean or raw, and never on release."
+notes-tr = "Yapıştırma önce sistem aracını, sonra OSC 52'yi, en son uygulama içindeki son kopyayı dener. Seçimler temiz ya da ham kopyalanır; fareyi bırakmak hiçbir zaman kopyalamaz."
+
+[[item]]
+id       = "table"
+name     = "Table"
+group    = "structure"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "table"
+types    = ["Table", "Column", "ColumnWidth", "SortDirection", "TableCell", "TableRow"]
+notes    = "The check mark stays put while the first cell slides. The arrows in the header scroll hidden columns into view when clicked."
+notes-tr = "İlk hücre kayarken seçim işareti yerinde kalır. Başlıktaki oklar tıklanınca gizli sütunları görünür hale kaydırır."
+
+[[item]]
+id       = "tree"
+name     = "Tree"
+group    = "structure"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "tree"
+types    = ["Tree", "TreeNode", "TreeMove"]
+notes    = "Indentation and chevron stay put; only the icon and label slide. A loading node keeps its chevron for the first 300 ms and then spins for at least 500 ms, so quick loads never flash a spinner. Reorderable, a node is dragged among its siblings like a tab of the tab rail: the siblings make room, a ghost follows the pointer, the dragged node's children fold away and a drag held on the top or bottom row scrolls. ctrl shift up and down do the same from the keyboard, and the move is one TreeMove the application applies to its own list. A node keeps its parent: moving it elsewhere is an application action, offered in the context menu that a right click, shift f10 or the menu key opens."
+notes-tr = "Girinti ve ok yerinde kalır; yalnızca ikon ve yazı kayar. Yüklenen düğüm ilk 300 ms okunu korur, sonra en az 500 ms döner; böylece hızlı yüklemelerde spinner bir anlığına belirip kaybolmaz. Sıralanabilir ağaçta bir düğüm, tab rail'deki sekme gibi kardeşleri arasında sürüklenir: kardeşler yer açar, bir hayalet imleci izler, sürüklenen düğümün çocukları katlanır ve üst ya da alt satırda tutulan sürükleme ağacı kaydırır. Klavyede ctrl shift yukarı ve aşağı aynısını yapar; taşıma, uygulamanın kendi listesine uyguladığı tek bir TreeMove'dur. Düğüm ebeveynini korur: başka yere taşımak uygulamanın eylemidir ve sağ tık, shift f10 ya da menü tuşunun açtığı bağlam menüsünde sunulur."
+
+[[item]]
+id       = "splitter"
+name     = "Splitter"
+group    = "structure"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "splitter"
+types    = ["Splitter"]
+notes    = "The boundary is never a drawn line: it is a tone change that brightens one step on hover and turns to the accent while dragging. It resizes with the pointer or the keyboard, and limits(min, max) takes a number, or None for no maximum."
+notes-tr = "Sınır hiçbir zaman çizgi olarak çizilmez: hover'da bir kademe aydınlanan, sürüklerken vurgu rengine dönen bir ton farkıdır. Fareyle ya da klavyeyle boyutlanır; limits(min, max) max için bir sayı ya da üst sınır olmaması için None alır."
+
+[[item]]
+id       = "menu"
+name     = "Menu and sidebar"
+group    = "structure"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "menu"
+types    = ["Menu", "MenuGroup", "MenuItem"]
+notes    = "One highlight, carried by the pointer. Foldable headings rise and slide with the chevron anchored, and the scrollbar can be dragged."
+notes-tr = "Fareyle taşınan tek bir vurgu vardır. Katlanabilen başlıklar oku sabit kalarak yükselir ve kayar; kaydırma çubuğu sürüklenebilir."
+
+[[item]]
+id       = "breadcrumb"
+name     = "Breadcrumb"
+group    = "structure"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "breadcrumb"
+types    = ["Breadcrumb"]
+
+[[item]]
+id       = "accordion"
+name     = "Accordion"
+group    = "structure"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "accordion"
+types    = ["Accordion", "Section"]
+notes    = "Shares its expand and collapse model with WidgetDock. The chevron stays put; only the icon and title slide."
+notes-tr = "Açma kapama modelini WidgetDock ile paylaşır. Ok yerinde kalır; yalnızca ikon ve başlık kayar."
+
+[[item]]
+id       = "steps"
+name     = "Steps"
+group    = "structure"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "steps"
+types    = ["Steps"]
+notes    = "Choosable steps rise with the pillar under the pointer and under keyboard focus."
+notes-tr = "Seçilebilir adımlar farenin altında ve klavye odağında vurgu çubuğuyla yükselir."
+
+[[item]]
+id       = "wizard"
+name     = "Wizard"
+group    = "forms"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "wizard"
+types    = ["Wizard"]
+
+[[item]]
+id       = "settings-list"
+name     = "Settings list"
+group    = "forms"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "settings-list"
+types    = ["SettingsList", "SettingsRows", "SettingRow"]
+notes    = "A focused list raises one row, and the pointer moves the same row the keyboard does."
+notes-tr = "Odaktaki liste tek bir satırı yükseltir; fare de klavyenin taşıdığı aynı satırı taşır."
+
+[[item]]
+id       = "command-palette"
+name     = "Command palette"
+group    = "overlays"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "command-palette"
+types    = ["CommandPalette", "PaletteCommand"]
+notes    = "Fully usable with the mouse: once the pointer moves it carries the single highlight, a click runs the command, and the wheel and scrollbar scroll. The close mark and Esc come together, with the full-height pillar of every dialog."
+notes-tr = "Fareyle de tam kullanılır: imleç hareket edince tek vurguyu taşır, tıklama komutu çalıştırır, tekerlek ve kaydırma çubuğu kaydırır. Kapatma işareti ve Esc birlikte gelir; her pencerede olduğu gibi tam boy sol çubuk vardır."
+
+[[item]]
+id       = "hold-to-confirm"
+name     = "Hold to confirm"
+group    = "overlays"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "hold-to-confirm"
+types    = ["HoldToConfirm"]
+notes    = "A hold-to-confirm indicator for destructive actions. Each bar blends as a whole from the track colour to the theme's warning tone, one after another over the chosen duration, and the action fires when the third bar is full; letting go empties them quickly. .color(expression) picks the bar colour with a theme expression such as $danger or a fixed #RRGGBB, and an invalid expression falls back to the theme's hold.to."
+notes-tr = "Yıkıcı eylemler için basılı tutarak onaylama göstergesi. Her bar bir bütün olarak iz renginden temanın uyarı rengine, seçilen süre içinde birbiri ardına geçer; üçüncü bar dolunca eylem gerçekleşir, bırakınca barlar hızla boşalır. .color(ifade) bar rengini $danger gibi bir tema ifadesiyle ya da sabit bir #RRGGBB ile seçer; geçersiz ifade temanın hold.to rengine döner."
+
+[[item]]
+id       = "tabs-advanced"
+name     = "Tabs: close, sizes, overflow, reorder"
+group    = "structure"
+kind     = "infrastructure"
+priority = "p2"
+status   = "done"
+page     = "tabs-advanced"
+types    = ["TabWidth", "Overflow", "TabEdit"]
+notes    = "Tabs grows through independent options while plain Tabs stays plain: closable, tab_width (Fit, Fixed or Fill), overflow (arrows or a menu of hidden tabs), reorderable and context_menu, all shared with TabRail through one tab model. A click on a tab closes an open overflow menu and opens the tab. A dragged tab held on a scroll arrow or past an end of the strip scrolls it, first after 400 ms and then every 150 ms, faster the further past the edge it is; on_drag_scroll reports each step."
+notes-tr = "Tabs bağımsız seçeneklerle büyür, sade Tabs sade kalır: closable, tab_width (Fit, Fixed ya da Fill), overflow (oklar ya da gizli sekmeler menüsü), reorderable ve context_menu; hepsi tek bir sekme modeli üzerinden TabRail ile ortaktır. Taşma menüsü açıkken bir sekmeye tıklamak menüyü kapatır ve sekmeyi açar. Kaydırma okunun üzerinde ya da şeridin ucunun ötesinde tutulan sürüklenen sekme şeridi kaydırır: önce 400 ms sonra, ardından her 150 ms'de bir ve kenardan uzaklaştıkça daha hızlı; on_drag_scroll her adımı bildirir."
+
+[[item]]
+id       = "log-view"
+name     = "Log view"
+group    = "content"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "log-view"
+types    = ["LogView", "LogBuffer", "LogLevel", "LogLine"]
+notes    = "A right click on the selected lines offers Copy and Raw copy."
+notes-tr = "Seçili satırlara sağ tıklamak Kopyala ve Ham kopyala seçeneklerini sunar."
+
+[[item]]
+id       = "skeleton"
+name     = "Skeleton"
+group    = "display"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "skeleton"
+types    = ["Skeleton"]
+
+[[item]]
+id       = "file-picker"
+name     = "File and folder picker"
+group    = "forms"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "file-picker"
+types    = ["FilePicker", "FileBrowser", "FileEntry", "FilePickerMsg", "Listing", "ListingError", "PickMode", "read_folder"]
+notes    = "Opening a folder keeps the shown folder, with its path, entries, filter, selection and focus, until the answer arrives, then swaps it in one frame; FileBrowser::loading() names the folder on its way. A small spinner after the path appears only after 300 ms and stays at least 500 ms, so quick reads never flash, while errors show at once. In the playground, Slow disk makes every read take a second. The wrap argument of FilePicker::new, open and update is any function or closure, so a screen can pass its own conversion; a plain function still works unchanged."
+notes-tr = "Klasör açmak, gösterilen klasörü yolu, girdileri, süzgeci, seçimi ve odağıyla birlikte cevap gelene kadar korur, sonra tek karede değiştirir; FileBrowser::loading() yoldaki klasörü bildirir. Yolun ardındaki küçük spinner yalnızca 300 ms sonra belirir ve en az 500 ms kalır, böylece hızlı okumalar ekranda yanıp sönmez; hatalar ise hemen görünür. Oyun alanındaki Yavaş disk her okumanın bir saniye sürmesini sağlar. FilePicker::new, open ve update'in sar bağımsız değişkeni herhangi bir fonksiyon ya da kapanıştır, böylece bir ekran kendi dönüşümünü verebilir; düz fonksiyon da değişmeden çalışır."
+
+[[item]]
+id       = "storage"
+name     = "Settings storage"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p2"
+status   = "done"
+page     = "storage"
+types    = ["Settings", "Schema", "SettingKind", "Setting", "SettingValue"]
+notes    = "An optional schema heals settings files: unknown keys are removed, invalid values get their default, each repair is a located warning and the old file is kept as settings.toml.bak. Schema::optional declares a key without a default that is kept only when valid and never added. Schema::open(prefix) keeps every key under a table as it is, while declared rules under it still apply. Missing keys use their default and are not written."
+notes-tr = "İsteğe bağlı bir şema ayar dosyalarını onarır: bilinmeyen anahtarlar silinir, geçersiz değerler varsayılanını alır, her onarım yeri belirtilen bir uyarıdır ve eski dosya settings.toml.bak olarak saklanır. Schema::optional varsayılanı olmayan, yalnızca geçerliyse tutulan ve hiçbir zaman eklenmeyen bir anahtar tanımlar. Schema::open(önek) bir tablonun altındaki her anahtarı olduğu gibi bırakır, altında tanımlanan kurallar yine uygulanır. Eksik anahtarlar varsayılanlarını kullanır ve dosyaya yazılmaz."
+
+[[item]]
+id       = "date-time"
+name     = "Date and time"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "date-time"
+types    = ["Date", "DateTime", "TimeOfDay", "Weekday", "Uptime", "local_offset", "local_offset_minutes", "is_leap_year", "days_in_month"]
+notes    = "Two monotonic clocks, not a wall clock, tell time worked from time the machine slept: their difference is exactly the sleep, and no clock correction can fake it. Only Linux and Android offer the pair, so Uptime::detects_suspend() says so and the numbers stay honest elsewhere. The local offset is read from the system time zone file the way the platform reads it, and local_offset() returns None rather than pretending UTC is local."
+notes-tr = "Çalışılan süreyi uykuda geçen süreden duvar saati değil iki tekdüze saat ayırır: farkları tam olarak uykudur ve saat düzeltmesi bunu yanıltamaz. Bu çifti yalnızca Linux ve Android sunar, bu yüzden Uptime::detects_suspend() durumu söyler ve diğer platformlarda sayı uydurulmaz. Yerel fark, sistemin saat dilimi dosyasından platformun okuduğu gibi okunur; local_offset() UTC'yi yerelmiş gibi göstermek yerine None döner."
+
+[[item]]
+id       = "app-folders"
+name     = "Application folders"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "storage"
+types    = ["config_dir", "data_dir"]
+notes    = "Settings and data are two folders, because a recorded session is not a setting: XDG_CONFIG_HOME and XDG_DATA_HOME on Linux and other Unix systems, the roaming and the local AppData on Windows, and on macOS the same Application Support folder for both, since macOS has no split for a command line application. An absolute XDG variable wins, a relative one is invalid and ignored, a HOME that is not absolute counts as missing so nothing lands under the working directory, and None means the platform gives no folder at all, so the application keeps everything in memory. Asking does not create the folder."
+notes-tr = "Ayar ile veri iki ayrı klasördür, çünkü kaydedilmiş bir oturum ayar değildir: Linux ve diğer Unix sistemlerinde XDG_CONFIG_HOME ile XDG_DATA_HOME, Windows'ta dolaşan ve yerel AppData, macOS'ta ise ikisi için aynı Application Support klasörü, çünkü macOS bir komut satırı uygulaması için ayrım yapmaz. Mutlak bir XDG değişkeni kazanır, göreli olan geçersizdir ve yok sayılır, mutlak olmayan bir HOME yok sayılır ve hiçbir şey çalışma klasörünün altına düşmez, None ise platformun hiç klasör vermediğini söyler; uygulama o zaman her şeyi bellekte tutar. Sormak klasörü oluşturmaz."
+
+[[item]]
+id       = "atomic-write"
+name     = "Atomic write"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "storage"
+types    = ["atomic_write", "atomic_write_reporting", "WriteStep"]
+notes    = "Write a temporary file in the same folder, flush the file, rename it over the real name, then flush the folder. The last step is the one that is usually forgotten: without it a power cut can lose the rename, and then both names are gone. The temporary file shares the folder because a rename cannot cross a file system, and it carries the process id and a counter, so two writers never pick the same name. A failed step removes it again. On platforms where the standard library cannot open a folder, Windows among them, the folder is not flushed and WriteStep::SyncedDirectory is not reported; doing better needs calls this framework cannot make without unsafe. A path that is a symbolic link is written through: the file it points at is replaced in its own folder and keeps its permissions, and the link stays a link, so settings linked from a dotfiles repository stay that repository's file."
+notes-tr = "Aynı klasöre geçici bir dosya yaz, dosyayı diske indir, gerçek adın üzerine taşı, sonra klasörü diske indir. Genelde atlanan adım sonuncusudur: o olmadan bir elektrik kesintisi yeniden adlandırmayı kaybedebilir ve iki ad da gider. Geçici dosya aynı klasördedir, çünkü yeniden adlandırma dosya sistemi sınırını geçemez; adında süreç kimliği ve bir sayaç taşır, böylece iki yazıcı aynı adı seçmez. Adımlardan biri başarısız olursa dosya silinir. Standart kütüphanenin bir klasörü açamadığı platformlarda, Windows dahil, klasör diske indirilmez ve WriteStep::SyncedDirectory bildirilmez; daha iyisi bu framework'ün unsafe olmadan yapamadığı çağrıları ister. Sembolik bağ olan bir yol üzerinden yazılır: bağın gösterdiği dosya kendi klasöründe değişir ve izinlerini korur, bağ bağ olarak kalır; dotfiles deposundan bağlanan ayarlar o deponun dosyası olarak kalır."
+
+[[item]]
+id       = "app-lock"
+name     = "One instance at a time"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p0"
+status   = "done"
+page     = "storage"
+types    = ["AppLock", "holder_pid"]
+notes    = "An advisory lock the kernel holds for the running process: flock(LOCK_EX | LOCK_NB) on Unix, through the rustix crossterm already brings in. A crash never leaves a stale lock, because the kernel releases it when the process dies, and dropping the value releases it too. Ok(None) means another holder has it; that answer is the only thing a decision may rest on. The process id in the file is diagnostic text, since a process id is reused. A flock belongs to an open file, not to a process, so a second acquire inside one process is told the lock is taken as well. On platforms without an advisory lock here, Windows among them, acquire returns an Unsupported error and never Ok, so an application is told it has no lock instead of quietly running without one."
+notes-tr = "Çekirdeğin çalışan süreç için tuttuğu bir danışma kilidi: Unix'te flock(LOCK_EX | LOCK_NB), crossterm'in zaten getirdiği rustix üzerinden. Çökme bayat kilit bırakmaz, çünkü süreç ölünce çekirdek kilidi salar; değeri düşürmek de salar. Ok(None) kilidi başkasının tuttuğunu söyler ve karar yalnızca bu cevaba dayanabilir. Dosyadaki süreç kimliği tanı metnidir, çünkü süreç kimlikleri yeniden kullanılır. Bir flock sürece değil açık dosyaya aittir, bu yüzden aynı süreçteki ikinci deneme de kilidin alınmış olduğunu duyar. Burada danışma kilidi olmayan platformlarda, Windows dahil, acquire Unsupported hatası döner ve asla Ok olmaz; uygulama sessizce kilitsiz çalışmak yerine kilidi olmadığını öğrenir."
+
+[[item]]
+id       = "machine-name"
+name     = "Machine name"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p1"
+status   = "done"
+page     = "storage"
+types    = ["machine_name"]
+notes    = "One file per machine in a folder several machines sync, so two machines never overwrite each other's counters: running-<machine>.toml. The name is the node name uname -n prints, read through the rustix crossterm already brings in, and COMPUTERNAME on Windows. It comes back ready for a file name: whitespace around it is removed, every character other than a letter or digit of any script, -, _ and . becomes -, and dots at either end are dropped, since a leading dot hides a file and Windows drops a trailing one. None means nothing is left, so the application picks a name of its own instead of writing running-.toml. The unchanged system name is not offered: nothing needs it yet."
+notes-tr = "Birkaç makinenin eşitlediği bir klasörde makine başına bir dosya; böylece iki makine birbirinin sayacının üzerine yazmaz: running-<makine>.toml. Ad, uname -n'nin yazdığı düğüm adıdır ve crossterm'in zaten getirdiği rustix üzerinden okunur; Windows'ta COMPUTERNAME. Dosya adına hazır gelir: çevresindeki boşluk atılır, her yazıdan harf ve rakam ile -, _ ve . dışındaki her karakter - olur, iki uçtaki noktalar düşer, çünkü baştaki nokta dosyayı gizler ve Windows sondakini siler. None geriye bir şey kalmadığını söyler; uygulama running-.toml yazmak yerine kendi adını seçer. Sistemin değiştirilmemiş adı sunulmaz: henüz ona ihtiyaç duyan yok."
+
+[[item]]
+id       = "input-idleness"
+name     = "Input idleness"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p1"
+status   = "done"
+page     = "date-time"
+types    = ["idle_for", "on_idle"]
+notes    = "How long no input has reached this terminal, for an application that never sees keys itself. Keys (press, repeat, release), every mouse event including the pointer moving over the window, pastes and the end of a handoff count; a resize, messages and background work do not. Before any input the silence counts from the start. ui.idle_for() reads it and keeps a view that shows it current by drawing again on each whole second, only while it is read. ui.on_idle(after, message) wakes the application exactly when the silence reaches after, with message(true), and again with message(false) at the first input, before the input reaches a widget. System-wide idleness is out of reach on purpose."
+notes-tr = "Tuşları hiç görmeyen bir uygulama için bu terminale ne kadar süredir girdi gelmediği. Tuşlar (basma, tekrar, bırakma), imlecin pencere üzerinde gezinmesi dahil her fare olayı, yapıştırma ve bir devrin sonu sayılır; yeniden boyutlandırma, mesajlar ve arka plan işleri sayılmaz. Hiç girdi gelmeden önce sessizlik başlangıçtan sayılır. ui.idle_for() onu okur ve onu gösteren görünümü, yalnızca okunduğu sürece, her tam saniyede yeniden çizerek güncel tutar. ui.on_idle(after, message) uygulamayı sessizlik after'a ulaştığı anda message(true) ile, ilk girdide de, girdi bir bileşene ulaşmadan önce, message(false) ile uyandırır. Sistem genelindeki boşta kalma bilerek kapsam dışıdır."
+
+[[item]]
+id       = "page-transitions"
+name     = "Page transitions"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p2"
+status   = "done"
+page     = "page-transitions"
+types    = ["PageTransition"]
+notes    = "Pages cross-fade cell by cell, optionally with a short slide that follows the navigation direction, built on motion; the duration is the theme's motion.page, and reduced motion shows the new page at once. Layers (modal pop, toast slide-in, dropdown unfold) animate inside their own widgets."
+notes-tr = "Sayfalar hücre hücre çapraz geçişle değişir, istenirse gezinme yönünü izleyen kısa bir kaymayla; motion üstüne kuruludur. Süre temanın motion.page değeridir, hareket azaltılınca yeni sayfa hemen görünür. Katmanlar (modal pop, bildirimin kayarak girişi, açılır listenin serilmesi) kendi bileşenlerinin içinde hareket eder."
+
+[[item]]
+id       = "text-selection"
+name     = "Mouse text selection"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p2"
+status   = "done"
+page     = "text-selection"
+notes    = "Nothing is selectable unless a widget asks for it, and the selection region is that widget. Releasing the mouse copies nothing; ctrl c copies clean text and right click offers Copy and Raw copy."
+notes-tr = "Bir bileşen istemedikçe hiçbir yer seçilemez ve seçim bölgesi o bileşendir. Fareyi bırakmak bir şey kopyalamaz; ctrl c temiz metni kopyalar, sağ tık Kopyala ve Ham kopyala seçeneklerini sunar."
+
+[[item]]
+id       = "example-setup-wizard"
+name     = "Setup wizard"
+group    = "examples"
+kind     = "example"
+priority = "p2"
+status   = "done"
+page     = "example-setup-wizard"
+
+[[item]]
+id       = "example-file-explorer"
+name     = "File explorer"
+group    = "examples"
+kind     = "example"
+priority = "p2"
+status   = "done"
+page     = "example-file-explorer"
+notes    = "Going to a folder or previewing a file keeps the table and preview until the answer arrives. The folder being read shows a spinner on its tree row only when the read is slow (after 300 ms, for at least 500 ms)."
+notes-tr = "Bir klasöre gitmek ya da dosya önizlemek, cevap gelene kadar tabloyu ve önizlemeyi korur. Okunan klasör, ağaçtaki satırında yalnızca okuma yavaşsa spinner gösterir (300 ms sonra, en az 500 ms)."
+
+[[item]]
+id       = "sparkline"
+name     = "Sparkline"
+group    = "display"
+kind     = "widget"
+priority = "p3"
+status   = "done"
+page     = "sparkline"
+types    = ["Sparkline"]
+notes    = "A point can be read off the trend: a press or a drag reads the column under the pointer, and while focused the arrow keys move one sample, Home and End jump to the oldest and the newest shown, and Esc stops reading. The read column stands on the active surface in the accent, a hovered one on a ground one hover step brighter; nothing slides, because a sparkline is not a row structure. The application owns which sample is being read and writes its value itself."
+notes-tr = "Grafikten bir nokta okunabilir: basmak ya da sürüklemek imlecin altındaki sütunu okur; odakta ok tuşları bir örnek ilerler, Home ve End gösterilen en eski ve en yeni örneğe atlar, Esc okumayı bırakır. Okunan sütun vurgu renginde ve active zemininde durur, üzerine gelinen sütunun zemini bir hover adımı aydınlanır; hiçbir şey kaymaz, çünkü grafik bir satır yapısı değildir. Hangi örneğin okunduğunu uygulama tutar ve değerini kendisi yazar."
+
+[[item]]
+id       = "gauge"
+name     = "Gauge"
+group    = "display"
+kind     = "widget"
+priority = "p3"
+status   = "done"
+page     = "gauge"
+types    = ["Gauge"]
+notes    = "A gauge is a readout, not a control: its one value is always written beside the meter, so there is nothing a pointer or a key could move to. It takes no keyboard focus and answers no input. A slider sets a value, a tooltip explains a label the area had to cut, and a sparkline is where a value is read out of a history."
+notes-tr = "Gösterge bir kontrol değil, bir okumadır: tek değeri her zaman ölçeğin yanında yazılıdır, yani imlecin ya da tuşun geçebileceği bir şey yoktur. Klavye odağı almaz, girdiye cevap vermez. Değeri kaydırıcı ayarlar, alanın kestiği etiketi ipucu balonu açar, geçmişten değer okumak da sparkline'ın işidir."
+
+[[item]]
+id       = "bar-chart"
+name     = "Bar chart"
+group    = "display"
+kind     = "widget"
+priority = "p3"
+status   = "done"
+page     = "bar-chart"
+types    = ["Bar", "BarChart", "Series"]
+notes    = "A chart of plain bars is the simple default; several series open through Series, stacked as segments of one bar or grouped as bars standing next to each other. Series tones come from the theme: its series-<n> colour tokens when it has them, otherwise a ramp from the accent towards the faint end, which repeats after four series. A horizontal segment writes its series name inside itself when the name fits, so a stack is never read by colour alone. Given on_select the chart answers the pointer and the keyboard: the touched category rises on a raised ground and a horizontal chart marks it with the pillar in cells kept free for it from the first frame, so nothing moves when something is hovered or selected. Series::tone pins a series to one tone of the palette, so a category keeps its colour from week to week however many categories each chart shows; a chart without tones draws exactly as before."
+notes-tr = "Sade çubuklardan oluşan grafik en basit halidir; birden çok seri Series ile açılır: tek çubuğun payları olarak yığılabilir ya da yan yana duran çubuklar olarak gruplanabilir. Seri tonları temadan gelir: temanın series-<n> renk anahtarları varsa onlardan, yoksa vurgudan soluk uca giden bir merdivenden; merdiven dört seriden sonra başa döner. Yatay bir pay, adı sığdığında adını kendi içine yazar; böylece yığın hiçbir zaman yalnızca renkle okunmaz. on_select verildiğinde grafik fareyi ve klavyeyi yanıtlar: dokunulan kategori yükselen bir zemine oturur, yatay grafik onu ilk kareden beri boş tutulan hücredeki vurgu çubuğuyla işaretler; böylece hover ya da seçimde hiçbir şey yerinden oynamaz. Series::tone bir seriyi paletteki tek bir tona bağlar; böylece bir kategori, her grafik kaç kategori gösterirse göstersin haftadan haftaya rengini korur. Ton verilmeyen grafik bugünkü gibi çizilir."
+
+[[item]]
+id       = "heatmap"
+name     = "Heatmap"
+group    = "display"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "heatmap"
+types    = ["Heatmap"]
+notes    = "One cell per day, a column per week, the tone carrying the day's density. A day outside the range shows nothing at all while a day inside it that holds nothing takes the empty tone, so the two never look the same. A narrow area drops the oldest whole weeks and `columns` says how many are left, for a caller that writes \"the last 12 weeks\". The tone is one of four steps, not a gradient: a 16-colour terminal drops the steps it cannot tell apart instead of drawing two levels in one tone."
+notes-tr = "Gün başına bir hücre, hafta başına bir sütun; ton o günün yoğunluğunu taşır. Aralığın dışındaki gün hiç çizilmez, içindeki boş gün ise boş tonunu alır; ikisi asla aynı görünmez. Dar alan en eski haftaları tam sütun olarak düşürür ve `columns` kaç haftanın kaldığını söyler, böylece çağıran \"son 12 hafta\" yazabilir. Ton sürekli bir geçiş değil dört kademedir: 16 renkli terminal ayırt edemediği kademeleri düşürür, iki seviyeyi tek tonda çizmez."
+
+[[item]]
+id       = "legend"
+name     = "Legend"
+group    = "display"
+kind     = "widget"
+priority = "p0"
+status   = "done"
+page     = "heatmap"
+types    = ["Legend"]
+notes    = "The names behind the series tones of a chart; the n-th name takes the theme's n-th series tone. The swatch is two cells of colour and no marker, so it reads the same in every glyph mode. tones pins every name to a fixed tone of the palette: a category given the same index through Series::tone and TimeBlock::tone keeps its colour from week to week however many categories show beside it. A legend given no tones draws exactly as before."
+notes-tr = "Bir grafiğin seri tonlarının arkasındaki adlar; n'inci ad temanın n'inci seri tonunu alır. Örnek renk iki hücrelik renktir, işaret içermez; böylece her glif kipinde aynı okunur. tones ile her ad paletteki sabit bir tona bağlanır; Series::tone ve TimeBlock::tone ile aynı sayıyı alan kategori, yanında kaç kategori görünürse görünsün haftadan haftaya aynı rengi korur. tones verilmeyen gösterge bugünkü gibi çizilir."
+
+[[item]]
+id       = "timeline"
+name     = "Timeline"
+group    = "display"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "timeline"
+types    = ["Timeline", "TimeBlock"]
+notes    = "A day as a strip: blocks of colour where their hours fall, the empty track for the gaps. A block shorter than a cell still takes one. Two blocks of one tone that touch are parted by a quieter first cell on the later one, a seam of tone, never a line. Overlapping blocks stand in lanes: each takes the first lane from the top where nothing overlaps it, so a day of consecutive blocks is one row and a block running at the same time as another adds a row; an area shorter than the lanes folds the rest into its last row, later over earlier and the selected block always on top. Midnight: the day is 24 hours from day_starts_at (midnight by default), so a night-shift day from 18:00 holds 23:00–01:30 as one block; in a midnight day that block is cut at the day's end and its rest belongs to the next day's strip. A range is placed in the same day and kept inside it. Zoom is the caller's range: + and - step through 24, 12, 6, 3 and 1 hours around the selected block, 0 returns to the whole day, the wheel zooms around the pointer only while the timeline holds the focus so a page scrolled past it never gets caught, and selecting a block outside a zoomed range moves the range to it. A picture until on_select; then hover and selection step towards the text colour (rest < hover < selected < keyboard), ←/→ walk the blocks in time order and the readout row writes the block under the pointer or else the selected one, so both read the same words. It is a narrow strip, so it never slides and nothing shifts on hover or selection. Short areas give up the axis first, then the readout, then lanes. On few colours a tone that would merge with the track or its own step is pushed until it differs. Open edges and faint blocks: open_end and open_start mark an edge where the block does not really stop (a session past midnight, one carried over, a counter still running); the last or first two cells fade towards the track, two thirds and one third of the way, a tone transition and no glyph (the ▌ pillar means focus), always kept apart from the track so a block never looks shorter, and always leaving one cell of the block's tone. Only the block's own edge fades; a zoom cut stays square, since the range is where the view stops, not the block. The readout writes the meaning after the times: continues next day, running, from the previous day, from earlier. faint puts a block halfway between its tone and the track, for the next day's part of a session; hover and selection still step it, never onto the track."
+notes-tr = "Bir gün şerit olarak: saatlerinin düştüğü yerde renk blokları, boşluklar için boş iz. Bir hücreden kısa blok yine bir hücre alır. Aynı tondaki iki bitişik blok, sonrakinin daha sakin ilk hücresiyle ayrılır: ton farkıyla, asla çizgiyle değil. Çakışan bloklar şeritlere dizilir: her blok üstten, kendisiyle çakışan bir şey olmayan ilk şeridi alır; art arda bloklardan oluşan gün tek satırdır, başka bir blokla aynı anda süren blok bir satır ekler. Şeritlerden kısa alan kalanları son satırına katlar: sonraki öncekinin üstüne, seçili blok her zaman en üste çizilir. Gece yarısı: gün day_starts_at'tan (varsayılanı gece yarısı) başlayan 24 saattir; 18.00'de başlayan bir gece vardiyası günü 23.00–01.30'u tek blok olarak tutar, gece yarısında başlayan günde ise bu blok günün sonunda kesilir ve kalanı ertesi günün şeridine aittir. Aralık da aynı güne yerleşir ve onun içinde tutulur. Yakınlaştırma çağıranın aralığıdır: + ve - seçili bloğun çevresinde 24, 12, 6, 3 ve 1 saat arasında adım atar, 0 bütün güne döner, tekerlek yalnızca şerit odaktayken imlecin çevresinde yakınlaştırır (böylece yanından kaydırılan sayfa ona takılmaz) ve yakın bir aralığın dışındaki blok seçilince aralık ona kayar. on_select verilene kadar resimdir; sonra üzerine gelinen ve seçilen blok metin rengine doğru adım atar (dinlenme < hover < seçili < klavye), ←/→ blokları zaman sırasıyla gezer ve okuma satırı imlecin altındaki bloğu, yoksa seçili olanı yazar; ikisi de aynı sözleri okur. Dar bir şerittir: asla kaymaz, üzerine gelince ya da seçince hiçbir şey yer değiştirmez. Kısa alan önce ekseni, sonra okuma satırını, en son şeritleri bırakır. Az renkli terminalde izle ya da kendi adımıyla birleşecek ton, ayrışana kadar itilir. Açık kenar ve soluk blok: open_end ve open_start bloğun gerçekte durmadığı kenarı işaretler (gece yarısını aşan, önceki günden gelen ya da hâlâ süren sayaç); son ya da ilk iki hücre ize doğru üçte iki ve üçte bir oranında solar. Bu bir ton geçişidir, glif değil (▌ çubuğu odak demektir); solan hücre izden hep ayrı kalır ki blok kısa görünmesin, bloğun tonunda hep bir hücre kalır. Yalnızca bloğun kendi kenarı solar; yakınlaştırma kesiği kare kalır, çünkü aralık görünümün bittiği yerdir, bloğun değil. Okuma satırı anlamı saatlerden sonra yazar: ertesi güne sürüyor, sürüyor, önceki günden, önceden. faint bloğu tonuyla iz arasında yarı yola koyar (oturumun ertesi gündeki parçası için); hover ve seçim onu yine adımlar, asla ize değil."
+
+[[item]]
+id       = "axis"
+name     = "Axis"
+group    = "display"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "timeline"
+types    = ["Axis"]
+notes    = "A row of labels along a chart's edge: hours placed by time with the same arithmetic as a timeline's blocks, weekdays, months or names of your own centred in equal slots shared out the way a vertical bar chart shares its width (gap matches the chart's gap). Names come from the language files. Thinning rule: weekdays and months write every name in full while all fit, then every name short, then the short name of every second, third, … one; hours take the finest round step that fits (15 and 30 minutes, 1, 2, 3, 4, 6, 12 hours, a day) in the long form 09:30, falling back to the short 09 only when the long one leaves fewer than two labels. At least one empty cell between labels; a label that would run past the edge is left out, never cut. It lives on the Timeline page because on its own it is a row of words; beside a chart it is what a reader looks at. BarChart does not use it yet: its vertical labels are cut with … and an axis would change how it draws."
+notes-tr = "Grafiğin kenarı boyunca bir etiket satırı: saatler bir zaman şeridinin bloklarıyla aynı hesapla zamana göre yerleşir; gün adları, ay adları ya da kendi adların, dikey çubuk grafiğin genişliğini böldüğü gibi bölünen eşit yuvaların ortasına oturur (gap grafiğin boşluğuyla eşleşir). Adlar dil dosyalarından gelir. Seyreltme kuralı: gün ve ay adları hepsi sığdıkça tam, sonra hepsi kısa, sonra her ikinci, üçüncü… adın kısası; saatler sığan en ince yuvarlak adımı alır (15 ve 30 dakika, 1, 2, 3, 4, 6, 12 saat, bir gün) ve uzun biçimde (09:30) yazılır, uzun biçim ikiden az etiket bıraktığında kısa biçime (09) düşer. Etiketler arasında en az bir boş hücre kalır; kenardan taşacak etiket kesilmez, bırakılır. Zaman şeridi sayfasında durur, çünkü tek başına bir satır sözcüktür; bir grafiğin yanında okurun baktığı yerdir. BarChart onu henüz kullanmıyor: dikey etiketleri … ile kesilir ve eksen çizimini değiştirirdi."
+
+[[item]]
+id       = "big-text"
+name     = "Big text"
+group    = "display"
+kind     = "widget"
+priority = "p3"
+status   = "done"
+page     = "big-text"
+types    = ["BigText", "Gradient"]
+notes    = "The letters take one flat colour unless a gradient blends them into a second theme colour, across the columns or down the rows. Both ends are theme colours, so a logo changes with the theme; the blend is painted, never animated. It steps per cell, so a blend down the rows has three steps with Unicode and Nerd Font glyphs and five in ASCII mode. Where only the sixteen standard colours exist, or where the theme does not know the colour asked for, the text keeps its flat colour rather than speckling."
+notes-tr = "Harfler tek düz renk alır; gradient açılırsa ikinci bir tema rengine doğru, sütunlar boyunca ya da satırlar boyunca karışır. Geçişin iki ucu da tema rengidir, yani logo temayla değişir; geçiş boyanır, asla oynatılmaz. Karışım hücre hücre ilerler: satır yönünde Unicode ve Nerd Font modunda üç, ASCII modunda beş adım olur. Yalnızca on altı rengin bulunduğu ya da temanın istenen rengi tanımadığı yerde metin benek benek olmak yerine düz rengini korur."
+
+[[item]]
+id       = "date-picker"
+name     = "Date picker"
+group    = "forms"
+kind     = "widget"
+priority = "p3"
+status   = "done"
+page     = "date-picker"
+types    = ["DatePicker", "Date", "Weekday", "is_leap_year", "days_in_month"]
+notes    = "One highlighted day, moved by keys and pointer alike, with three-cell month arrows; a click elsewhere closes the calendar and still reaches its target. The field, month arrows and highlighted day show the pillar in their blank leftmost cell, so nothing slides; the pillar breathes only under keyboard focus."
+notes-tr = "Klavyenin de farenin de taşıdığı tek bir vurgulu gün ve üç hücrelik ay okları vardır; başka yere tıklamak takvimi kapatır ve tıklama hedefine yine ulaşır. Alan, ay okları ve vurgulu gün çubuğu en soldaki boş hücrelerinde gösterir, bu yüzden hiçbir şey kaymaz; çubuk yalnızca klavye odağında nefes alır."
+
+[[item]]
+id       = "time-input"
+name     = "Time input"
+group    = "forms"
+kind     = "widget"
+priority = "p3"
+status   = "done"
+page     = "time-input"
+types    = ["TimeInput", "TimeOfDay"]
+notes    = "The mouse wheel changes the segment under the pointer without a click; over a colon it changes the segment last hovered, or else the active one. ctrl a selects the whole time to copy or cut, pasting a time such as 9:30 sets it, and right click opens the edit menu."
+notes-tr = "Fare tekerleği tıklamaya gerek kalmadan imlecin altındaki bölümü değiştirir; iki noktanın üzerindeyse en son üzerinden geçilen bölümü, yoksa etkin bölümü. ctrl a saatin tamamını kopyalamak ya da kesmek için seçer, 9:30 gibi bir saat yapıştırmak onu ayarlar, sağ tık düzenleme menüsünü açar."
+
+[[item]]
+id       = "duration-input"
+name     = "Duration input"
+group    = "forms"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "duration-input"
+types    = ["DurationInput", "DurationError", "DurationUnit", "parse_duration"]
+notes    = "A length of time edited like the time input, segment by segment, with the unit words of the active language after the numbers: 1 h 30 min, 1 sa 30 dk. The wheel, the keys, pasting and the right-click menu work as in the time input, but a length does not wrap: a step carries between units, stops at zero and at 99 h 59 min 59 s, and 90 typed into the minutes reads 1 h 30 min. Pasting reads numbers with units in every known language, a clock face such as 2:15 (hours and minutes) or a bare number of minutes; a text it cannot read is ignored, or reported with the precise reason through on_reject. A zero length rests faint as the empty state, and where the words do not fit the field falls back to the clock form."
+notes-tr = "Saat girişi gibi bölüm bölüm düzenlenen bir süre; sayılardan sonra etkin dilin birim sözcükleri gelir: 1 sa 30 dk, 1 h 30 min. Tekerlek, tuşlar, yapıştırma ve sağ tık menüsü saat girişindeki gibi çalışır, ama süre başa sarmaz: bir adım birimler arasında taşar, sıfırda ve 99 sa 59 dk 59 sn'de durur; dakikaya 90 yazmak 1 sa 30 dk olur. Yapıştırma, bilinen her dilde birimli sayıları, 2:15 gibi bir saat yüzünü (saat ve dakika) ya da çıplak dakika sayısını okur; okuyamadığı metin yok sayılır ya da on_reject ile tam sebebiyle bildirilir. Sıfır süre boş durum olarak soluk durur; sözcükler sığmayınca alan saat biçimine döner."
+
+[[item]]
+id       = "terminal"
+name     = "Terminal"
+group    = "content"
+kind     = "widget"
+priority = "p3"
+status   = "done"
+page     = "terminal"
+types    = ["Terminal", "TerminalEvent", "TerminalSession", "TerminalWatch"]
+notes    = "The output is selectable, and notes are left out of clean copies."
+notes-tr = "Çıktı seçilebilir; notlar temiz kopyaya girmez."
+
+[[item]]
+id       = "async-tasks"
+name     = "Async tasks"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p3"
+status   = "done"
+page     = "async-tasks"
+types    = ["TaskList", "Task", "TaskCx", "TaskEntry", "TaskEvent", "TaskId", "TaskOutcome", "Tasks"]
+
+[[item]]
+id       = "handoff"
+name     = "Handoff"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p1"
+status   = "done"
+page     = "handoff"
+types    = ["Handoff", "HandoffOutcome", "HandoffRequest"]
+notes    = "A handoff blocks drawing on purpose: the user is talking to another program. The program runs in a process group of its own that is made the terminal's foreground while it runs, so Ctrl-C at a sudo prompt reaches the program and never ends the application, whose signal dispositions are never touched; taking the terminal back blocks SIGTTOU on the drawing thread for one call, through nix, the only safe way to block a signal. A process group is not a session: the program keeps the controlling terminal and the session, so a warm sudo ticket is still shared. Ctrl-Z does not suspend; a stopped program is continued. The screen is taken back and drawn again in full however the program ended."
+notes-tr = "Teslim çizimi bilerek durdurur: kullanıcı başka bir programla konuşuyordur. Program kendi süreç grubunda çalışır ve bu grup çalıştığı sürece terminalin ön planı yapılır; sudo isteminde Ctrl-C programa ulaşır, uygulamayı asla kapatmaz ve uygulamanın sinyal ayarlarına hiç dokunulmaz. Terminal geri alınırken çizim iş parçacığında tek bir çağrı için SIGTTOU engellenir; sinyal engellemenin tek güvenli yolu olan nix ile. Süreç grubu oturum değildir: program kontrol eden terminali ve oturumu korur, sıcak bir sudo bileti paylaşılmaya devam eder. Ctrl-Z askıya almaz; duran program devam ettirilir. Program nasıl biterse bitsin ekran geri alınır ve baştan çizilir."
+
+[[item]]
+id       = "subprocess"
+name     = "Child process"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p2"
+status   = "done"
+page     = "async-tasks"
+types    = ["Process", "Line", "ProcessOutcome"]
+notes    = "Runs a child inside a task and hands its output to the application line by line. With pipes standard output and standard error stay apart, so a failure stays recognisable; with pty(cols, rows) the child gets a pseudo-terminal of the size we choose, so programs that check for a terminal keep their progress and colour, and every line then arrives as Out. A carriage return overwrites the line being built instead of starting a new one, the last line is delivered without a trailing newline, and bytes that are not UTF-8 become the replacement character. Standard input stays the application's own and the child is not put in its own session, which is what keeps a warm sudo ticket shared. no_stdin() gives the child an empty input instead, so a question it asks cannot take the application's keys, and on Unix starts it in a process group of its own, so cancelling kills the whole group and the programs it started go too. Only then: a child that reads the terminal from a group of its own would be stopped by the system, so with inherited input only the child itself is killed."
+notes-tr = "Bir alt süreci bir iş içinde çalıştırır ve çıktısını uygulamaya satır satır verir. Boruyla standart çıktı ve standart hata ayrı kalır, böylece hata hata olarak tanınır; pty(sütun, satır) ile çocuk bizim verdiğimiz boyutta bir sözde terminal alır, terminal denetimi yapan programlar ilerlemesini ve rengini korur ve her satır Out olarak gelir. Satır başı, yeni satır açmak yerine yazılmakta olan satırı ezer; son satır sonunda yeni satır olmasa da teslim edilir; UTF-8 olmayan baytlar değiştirme karakterine döner. Standart girdi uygulamanın kendi girdisi kalır ve çocuk kendi oturumuna konmaz; sıcak sudo biletinin paylaşılmasını sağlayan budur. no_stdin() çocuğa bunun yerine boş bir girdi verir; sorduğu bir soru uygulamanın tuşlarını alamaz. Unix'te onu kendi süreç grubunda da başlatır; iptal bütün grubu öldürür, başlattığı programlar da gider. Yalnızca o zaman: terminali kendi grubundan okuyan bir çocuğu sistem durdurur, bu yüzden devralınan girdiyle yalnızca çocuğun kendisi öldürülür."
+
+[[item]]
+id       = "document"
+name     = "Data file"
+group    = "foundations"
+kind     = "infrastructure"
+priority = "p1"
+status   = "done"
+page     = "document"
+types    = ["Document", "Shape", "ValueKind", "Table"]
+notes    = "An application's own data file, where Settings stops: a declared shape, arrays of tables ([[profile]]) and nested tables, and no self-healing at all. A key nobody declared, a value of another type and a required key that is missing are each a located diagnostic; Table::location gives a key's place and Table::value_location its value's, the column the framework's own findings use, so an application's own checks land on the same column, and the readable part of a broken document is still given, because a file edited by hand is usually wrong in one place. Reading writes nothing: no repair, no default written into the file, no .bak, and the type has no way to write. Saving stays the application's own step with atomic_write, since only the application knows the order, grouping and comments its file should have."
+notes-tr = "Settings'in bittiği yerde uygulamanın kendi veri dosyası: tanımlı bir şekil, tablo dizileri ([[profile]]) ve iç içe tablolar, kendini onarma ise hiç yok. Kimsenin tanımlamadığı bir anahtar, başka türden bir değer ve eksik bir zorunlu anahtar yeri belirtilen birer tanı olur; Table::location anahtarın, Table::value_location değerin yerini verir, framework'ün kendi bulgularının kullandığı sütunu, böylece uygulamanın kendi denetimleri de aynı sütuna düşer; bozuk bir belgenin okunabilen kısmı yine verilir, çünkü elle düzenlenen dosya genelde tek yerinden bozuktur. Okumak hiçbir şey yazmaz: onarım yok, dosyaya yazılan varsayılan yok, .bak yok ve tipin yazma yolu hiç yok. Kaydetmek atomic_write ile uygulamanın kendi adımı kalır, çünkü dosyanın sırasını, gruplamasını ve yorumlarını yalnızca uygulama bilir."
+
+[[item]]
+id       = "example-dashboard"
+name     = "Dashboard"
+group    = "examples"
+kind     = "example"
+priority = "p3"
+status   = "done"
+page     = "example-dashboard"
+
+[[item]]
+id       = "scrollbar-styles"
+name     = "Scrollbar styles"
+group    = "structure"
+kind     = "infrastructure"
+priority = "p2"
+status   = "done"
+page     = "scrollbar-styles"
+types    = ["ScrollbarStyle"]
+notes    = "The theme chooses the scrollbar style, and a scrollbar shows only when content overflows, never as a frame. Block is the default and is drawn with colours only; the others are half, thin and dots. Any other word in a theme, such as cell, is reported as a diagnostic."
+notes-tr = "Kaydırma çubuğu stilini tema seçer; çubuk yalnızca içerik taştığında görünür ve çerçeve çizmez. Varsayılan block yalnızca renkle çizilir; diğerleri half, thin ve dots'tur. Temada bunların dışındaki bir sözcük, örneğin cell, tanılama olarak bildirilir."
+
+[[item]]
+id       = "tab-rail"
+name     = "Tab rail"
+group    = "structure"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "tab-rail"
+types    = ["TabRail", "RailTab", "CollapsedMarker"]
+notes    = "Vertical tabs with icon and name, status badges and a raised selected tab; closing, reordering, the context menu and edge scrolling while dragging are shared with Tabs. Collapsed, the rail is a four-cell strip (pillar, marker, a cell of air, scrollbar) that never slides; collapsed_marker and RailTab::marker show an icon, an initial or a number, and a tab's name card opens it on a click. row_height(n) makes each tab a raised block n lines tall, with content on the middle line and the close mark flush right on the first; blocks are one empty line apart unless gap(n) says otherwise. An optional add tab sits at the end."
+notes-tr = "İkon ve isimli, durum rozetli, seçili sekmesi yükselen dikey sekmeler; kapatma, sıralama, sağ tık menüsü ve sürüklerken kenar kaydırma Tabs ile ortaktır. Daraltılınca ray hiç kaymayan dört hücrelik bir şerit olur (çubuk, işaret, bir hücre boşluk, kaydırma çubuğu); collapsed_marker ve RailTab::marker ikon, baş harf ya da numara gösterir, sekmenin ad kartı tıklanınca sekmeyi açar. row_height(n) her sekmeyi n satırlık yükseltilmiş bir blok yapar; içerik orta satırda, kapatma işareti ilk satırda sağa yaslıdır ve gap(n) başka bir şey söylemedikçe bloklar arasında bir boş satır kalır. Sonda isteğe bağlı bir ekle sekmesi bulunur."
+
+[[item]]
+id       = "widget-dock"
+name     = "Widget dock"
+group    = "structure"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "widget-dock"
+types    = ["WidgetDock"]
+notes    = "A stack of titled sections, like the right panel of an editor: each expands and collapses, and sections are dragged to reorder. Order and collapsed state live in application state so they can be saved. The chevron stays put; only the icon and title slide."
+notes-tr = "Bir editörün sağ paneli gibi başlıklı bölümlerden oluşan bir yığın: her bölüm açılıp kapanır ve sürüklenerek yeniden sıralanır. Sıra ve kapalı durumu uygulama durumunda tutulur, böylece kaydedilebilir. Ok yerinde kalır; yalnızca ikon ve başlık kayar."
+
+[[item]]
+id       = "side-panel"
+name     = "Side panel"
+group    = "structure"
+kind     = "widget"
+priority = "p2"
+status   = "done"
+page     = "side-panel"
+types    = ["SidePanel", "Side", "Closed"]
+notes    = "A resizable side panel whose edge is a tone change that brightens on hover, never a drawn line; the two-cell toggle on the edge shows its pillar only under the pointer or visible keyboard focus. The optional icon strip is an activity bar that stays beside the open panel: active_view raises the shown view's icon, another icon switches views, the shown icon closes the panel and any icon opens a closed one. closed(Closed::Hide) removes the strip too and leaves one edge column in the body's tone, and dragging a closed edge opens the panel. Size limits are the application's choice, and a max of None means no limit."
+notes-tr = "Kenarı çizgi değil, hover'da aydınlanan bir ton farkı olan, boyutlanabilen yan panel; kenardaki iki hücrelik düğmenin çubuğu yalnızca imleç üzerindeyken ya da klavye odağı görünürken çizilir. İsteğe bağlı ikon şeridi, açık panelin yanında da duran bir etkinlik çubuğudur: active_view gösterilen görünümün ikonunu yükseltir, başka bir ikon görünümü değiştirir, gösterilen ikon paneli kapatır, panel kapalıyken her ikon onu açar. closed(Closed::Hide) şeridi de kaldırır ve gövde tonunda tek bir kenar sütunu bırakır; kapalı kenarı sürüklemek paneli açar. Boyut sınırlarını uygulama seçer; max için None sınırsız demektir."

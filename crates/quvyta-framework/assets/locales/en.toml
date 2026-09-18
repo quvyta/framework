@@ -61,6 +61,9 @@ cancelled = "cancelled"
 cancel    = "Cancel"
 empty     = "No tasks running"
 
+[quvyta.handoff]
+pause = "Press any key to return"
+
 [quvyta.date]
 # 1 is Monday, 7 is Sunday. English calendars in the US start on Sunday.
 first-weekday = "7"
@@ -85,6 +88,45 @@ weekday-4 = "Th"
 weekday-5 = "Fr"
 weekday-6 = "Sa"
 weekday-7 = "Su"
+# Whole weekday names, for an axis with room for them; the two-letter names above are its
+# fallback when it does not.
+weekday-long-1 = "Monday"
+weekday-long-2 = "Tuesday"
+weekday-long-3 = "Wednesday"
+weekday-long-4 = "Thursday"
+weekday-long-5 = "Friday"
+weekday-long-6 = "Saturday"
+weekday-long-7 = "Sunday"
+month-short-1 = "Jan"
+month-short-2 = "Feb"
+month-short-3 = "Mar"
+month-short-4 = "Apr"
+month-short-5 = "May"
+month-short-6 = "Jun"
+month-short-7 = "Jul"
+month-short-8 = "Aug"
+month-short-9 = "Sep"
+month-short-10 = "Oct"
+month-short-11 = "Nov"
+month-short-12 = "Dec"
+
+[quvyta.time]
+# `hour` and `minute` arrive as two digits on a 24-hour clock.
+clock = "{hour}:{minute}"
+hour = "{hour}"
+span = "{from}–{to}"
+hours-minutes = "{hours} h {minutes} min"
+hours = "{hours} h"
+minutes = "{minutes} min"
+seconds = "{seconds} s"
+
+[quvyta.timeline]
+empty = "Nothing on this day"
+from-previous-day = "from the previous day"
+from-earlier = "from earlier"
+continues-next-day = "continues next day"
+running = "running"
+open-both = "{start}, {end}"
 
 [quvyta.layer]
 close  = "close"
@@ -120,3 +162,26 @@ copy       = "Copy"
 raw-copy   = "Raw copy"
 paste      = "Paste"
 select-all = "Select all"
+
+[quvyta.duration]
+# The units a duration field shows after its numbers.
+hours   = "h"
+minutes = "min"
+seconds = "s"
+# Every word read as a unit, comma separated. The words of every language are read whatever
+# language is active, so they must not clash across languages.
+hour-words   = "h, hr, hrs, hour, hours"
+minute-words = "m, min, mins, minute, minutes"
+second-words = "s, sec, secs, second, seconds"
+hour-name    = "hours"
+minute-name  = "minutes"
+second-name  = "seconds"
+empty     = "Nothing to read; write a length such as 1 h 30 min, 90 min or 2:15"
+character = "“{text}” cannot be part of a length of time"
+unit      = "“{text}” is not a unit of time; use h, min or s"
+number    = "“{text}” is not a number"
+no-number = "“{text}” needs a number before it"
+no-unit   = "“{text}” needs a unit after it, such as min"
+repeated  = "The {text} are written twice"
+clock     = "“{text}” is not hours and minutes; write 2:15 or 2:15:30, with minutes and seconds under 60"
+too-large = "Longer than the longest length, {text}"

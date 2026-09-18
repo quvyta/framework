@@ -87,9 +87,8 @@ impl<Msg: 'static> Form<Msg> {
         ui: &'v mut View<'_, Msg>,
         build: impl FnOnce(&mut FormFields<'_, '_, Msg>),
     ) -> NodeMut<'v, Msg> {
-        let env = ui.env();
         let mut children = Vec::new();
-        build(&mut FormFields { ui: &mut View::new(&mut children, env), label_width: self.label_width });
+        build(&mut FormFields { ui: &mut ui.nested(&mut children), label_width: self.label_width });
         let mut column = Node::new(Flex::new(Axis::Column, children), 0);
         column.layout.gap = self.gap;
         column.layout.width = Length::Fill(1);

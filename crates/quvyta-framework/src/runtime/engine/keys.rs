@@ -109,7 +109,7 @@ impl<A: App> Engine<A> {
     /// modal layer pauses shortcuts.
     pub(super) fn run_action(&mut self, scope: Scope, action: &str, to_app: bool, now: Duration) {
         match (scope, action) {
-            (Scope::Global, "quit") => self.quit = true,
+            (Scope::Global, "quit") => self.ask_to_quit(),
             (Scope::Global, "focus-next") => self.move_focus(1),
             (Scope::Global, "focus-prev") => self.move_focus(-1),
             (Scope::Global, "debug") => self.debug = !self.debug,

@@ -1,7 +1,7 @@
 //! Toast: notifications that stack in a corner and leave on their own.
 
 use qframe::prelude::*;
-use qframe::widgets::{Corner, Segmented, SpinnerStyle, Toast};
+use qframe::widgets::{Corner, Modal, Segmented, SpinnerStyle, Toast};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -20,6 +20,8 @@ pub struct State {
     pressable: bool,
     /// Whether a press on the deploy toast opened its log.
     log_open: bool,
+    /// Whether the dialog a save is reported under is open.
+    dialog: bool,
 }
 
 impl Default for State {
@@ -27,7 +29,7 @@ impl Default for State {
         let corner = Corner::ALL.iter().position(|corner| *corner == Corner::default()).unwrap_or(0);
         // The upload shows a pulse while it runs.
         let motion = SpinnerStyle::ALL.iter().position(|style| *style == SpinnerStyle::Pulse).map_or(0, |i| i + 1);
-        Self { upload: 0, corner, motion, pressable: false, log_open: false }
+        Self { upload: 0, corner, motion, pressable: false, log_open: false, dialog: false }
     }
 }
 
@@ -51,6 +53,8 @@ pub enum Msg {
     Motion(usize),
     Pressable(bool),
     OpenDeployLog,
+    SaveUnderDialog,
+    CloseDialog,
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -111,6 +115,15 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             log.push(PAGE, "Playground", format!("on_press = {on}"));
             Command::none()
         }
+        Msg::SaveUnderDialog => {
+            state.dialog = true;
+            log.push(PAGE, "Command::toast", "success while a dialog is open");
+            Command::toast(Toast::success(t!("toast.saved")).body(t!("toast.saved-body")))
+        }
+        Msg::CloseDialog => {
+            state.dialog = false;
+            Command::none()
+        }
         Msg::Motion(index) => {
             state.motion = index;
             let name = state.icon_motion().map_or("none", SpinnerStyle::name);
@@ -136,11 +149,30 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             ui.add(Text::new(t!("toast.upload-hint")).role("faint"));
         })
         .gap(2);
+        ui.row(|ui| {
+            ui.add(Button::new(t!("toast.under-dialog")).on_press(send(Msg::SaveUnderDialog))).id("under-dialog");
+            ui.add(Text::new(t!("toast.under-dialog-hint")).role("faint"));
+        })
+        .gap(2);
         if state.log_open {
             ui.add(Text::new(t!("toast.deploy-log")).role("secondary")).id("deploy-log");
         }
     })
     .fill_width();
+
+    // region: toast-modal
+    // A dialog opened together with a toast: nothing to arrange. The toast keeps to the rows
+    // between its corner and the dialog, or waits, its time stopped, until the dialog closes.
+    if state.dialog {
+        let dialog = Modal::new()
+            .title(t!("toast.dialog-title"))
+            .on_close(send(Msg::CloseDialog))
+            .action(Button::new(t!("toast.dialog-close")).variant("primary").on_press(send(Msg::CloseDialog)));
+        ui.add_with(dialog, |ui| {
+            ui.add(Text::new(t!("toast.dialog-body")));
+        });
+    }
+    // endregion
 
     ui.add_with(Panel::new().title(t!("demo.playground")).gap(0), |ui| {
         setting(ui, t!("toast.corner"), |ui| {
@@ -200,6 +232,24 @@ mod tests {
         assert!(h.screen().contains("Deploy log of api-gateway"), "{}", h.screen());
         assert!(h.screen().contains("Deployed api-gateway"), "the pressed toast stays");
         assert_eq!(h.app().log.recent(PAGE, 1)[0].message, "on_press: open the deploy log");
+    }
+
+    #[test]
+    fn a_toast_never_covers_the_dialog_open_with_it() {
+        let mut h = showcase_on(PAGE);
+        h.set_reduced_motion(true);
+        h.click_text("Save under a dialog");
+        let dialog = h.find("Recovered session").expect("the dialog is open").1;
+        let saved = h.find("Session saved").map(|(_, y)| y);
+        let close = h.find("Close").expect("the dialog's button").1;
+        assert!(saved.is_none_or(|y| y > close + 1 || y < dialog - 2), "{}", h.screen());
+        h.resize(80, 20);
+        let screen = h.screen();
+        let close = h.find("Close").expect("the button row stays whole at 80 × 20").1;
+        let row = screen.lines().nth(usize::try_from(close).unwrap_or(0)).unwrap_or_default();
+        assert!(!row.contains("Session saved"), "{screen}");
+        h.press("esc");
+        assert!(h.screen().contains("Session saved"), "after the dialog the toast shows:\n{}", h.screen());
     }
 
     #[test]

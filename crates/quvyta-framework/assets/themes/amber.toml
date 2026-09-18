@@ -21,6 +21,13 @@ success  = "#A6CF7E"
 warning  = "#F28B82"
 danger   = "#E5484D"
 info     = "#8FB8DE"
+# Series tones: the amber accent leads, then sage, sky, rose and violet. The cool tones balance a
+# warm theme, so five categories stay tellable apart without any of them reading as a warning.
+series-1 = "#F59E0B"
+series-2 = "#93C77A"
+series-3 = "#54B6DC"
+series-4 = "#EA8DA6"
+series-5 = "#AE9BF5"
 
 # On warm charcoal the raised tone all but vanishes, so an off switch read as a lone knob.
 # Its track rests one step up the surface ladder, and hovering still lifts it a step more.

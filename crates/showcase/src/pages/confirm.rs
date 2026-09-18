@@ -20,11 +20,20 @@ pub struct State {
     labels: bool,
     cancel_message: bool,
     dismissable: bool,
+    alternative: bool,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { running: [true; 3], danger: true, message: true, labels: true, cancel_message: true, dismissable: true }
+        Self {
+            running: [true; 3],
+            danger: true,
+            message: true,
+            labels: true,
+            cancel_message: true,
+            dismissable: true,
+            alternative: false,
+        }
     }
 }
 
@@ -34,12 +43,14 @@ pub enum Msg {
     AskStop(usize),
     Stop(usize),
     Kept(usize),
+    Restarted(usize),
     StartAll,
     Danger(bool),
     Message(bool),
     Labels(bool),
     CancelMessage(bool),
     Dismissable(bool),
+    Alternative(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -64,6 +75,9 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                 format!("cancelled with the button, Esc or ×, {} keeps running", CONTAINERS[index]),
             );
         }
+        Msg::Restarted(index) => {
+            log.push(PAGE, "Confirm", format!("third way, restarted {}", CONTAINERS[index]));
+        }
         Msg::StartAll => {
             state.running = [true; 3];
             log.push(PAGE, "Button#start-all", "started all");
@@ -73,6 +87,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::Labels(on) => set(log, &mut state.labels, "confirm_label", on),
         Msg::CancelMessage(on) => set(log, &mut state.cancel_message, "on_cancel", on),
         Msg::Dismissable(on) => set(log, &mut state.dismissable, "dismissable", on),
+        Msg::Alternative(on) => set(log, &mut state.alternative, "alternative", on),
     }
     Command::none()
 }
@@ -98,8 +113,12 @@ fn ask(state: &State, index: usize) -> Command<AppMsg> {
     if state.cancel_message {
         question = question.on_cancel(send(Msg::Kept(index)));
     }
-    // Esc and × cancel together; without them only the two buttons answer.
+    // Esc and × cancel together; without them only the buttons answer.
     question = question.dismissable(state.dismissable);
+    // A third way between Cancel and the confirm button; Tab visits it second.
+    if state.alternative {
+        question = question.alternative(t!("confirm.restart"), send(Msg::Restarted(index)));
+    }
     Command::confirm(question)
     // endregion
 }
@@ -152,6 +171,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("confirm.dismissable"), |ui| {
             ui.add(toggle(state.dismissable, |on| send(Msg::Dismissable(on)))).id("dismissable");
         });
+        setting(ui, t!("confirm.alternative"), |ui| {
+            ui.add(toggle(state.alternative, |on| send(Msg::Alternative(on)))).id("alternative");
+        });
     })
     .fill_width();
 }
@@ -192,5 +214,22 @@ mod tests {
         assert!(h.screen().contains("Stop web?"), "Esc does not answer: {}", h.screen());
         h.press("enter");
         assert!(h.app().pages.confirm.running[0], "Cancel answered");
+    }
+
+    #[test]
+    fn a_third_way_restarts_and_sits_between_the_answers() {
+        let mut h = showcase_on(PAGE);
+        h.send(send(Msg::Alternative(true)));
+        h.click_text("Stop").advance(Duration::from_millis(200));
+        let screen = h.screen();
+        let row = screen.lines().find(|line| line.contains("Restart")).unwrap_or_else(|| panic!("{screen}"));
+        let at = |label: &str| row.find(label).unwrap_or_else(|| panic!("`{label}` in {row}"));
+        assert!(at("Keep running") < at("Restart") && at("Restart") < at("Stop"), "{row}");
+        h.press("tab").press("enter");
+        assert!(h.app().pages.confirm.running[0], "restarting keeps it running");
+        assert!(h.screen().contains("third way, restarted web"), "{}", h.screen());
+        h.click_text("Stop").advance(Duration::from_millis(200));
+        h.press("tab").press("tab").press("enter");
+        assert!(!h.app().pages.confirm.running[0], "the confirm button is third in the tab order");
     }
 }

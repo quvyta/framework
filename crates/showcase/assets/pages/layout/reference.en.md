@@ -6,6 +6,7 @@
 - `ui.page(key, |ui| ...)` — a column that remembers focus and scroll while hidden.
 - `ui.spacer()` — empty space that fills.
 - `ui.env()` — theme, icons, language and keymap.
+- `ui.size()` — the terminal's `Size` (`width`, `height` in cells), the same in every nested builder; for choosing the application's arrangement.
 
 ## Node
 

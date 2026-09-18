@@ -23,11 +23,20 @@ Use settings storage for choices the user expects to find again next time: theme
 - **Missing keys use their default and are not written.** A key that is not in the file stays out of it, even while healing: `get_or` gives your default, and the file only holds what the user or your code stored.
 - **Optional keys are kept only when valid.** A valid value stays; an invalid one is removed with a warning, since there is no default to put in its place; a missing one is not added and reads as `None`.
 - **Open prefixes are kept as they are.** Every key under `.open("plugins")`, in `[plugins]` and every table below it, is never checked, reported or removed. A key you declare under the prefix still follows its own rule. `plugins = …` on its own is not under the table and is checked like any other key.
-- **Atomic saves.** The new file is written next to the old one, flushed to disk and renamed over it, so a crash leaves either the old or the new file, never half of one.
+- **Atomic saves.** Saving goes through `atomic_write`: the new file is written next to the old one, flushed, renamed over it and then the folder itself is flushed, so a crash or a power cut leaves either the old or the new file, never half of one.
 - **Broken files never stop the application.** Syntax errors and unusable entries become diagnostics; everything readable is still used. Before a broken file is first overwritten, it is copied to `settings.toml.bak`.
-- **No extra dependency.** The config directory comes from `XDG_CONFIG_HOME`, `HOME` or `APPDATA` directly, and the file is written by the framework's own small TOML writer.
+- **No extra dependency.** The folders come from the platform's own variables, and the file is written by the framework's own small TOML writer. Only the lock needs a crate, for the one call the standard library does not have.
 
 On this page, "Show a broken file" loads a hand-broken file with the showcase's schema, which declares `deploy.note` and `deploy.retries` as optional and opens `plugins`. Turn "Self-heal" on and off to compare: off lists warnings and keeps the file; on lists the repairs, shows the repaired file and writes each repair to the event log. In the repaired file the note stays, `retries = "twice"` is gone, `[plugins]` is untouched, and `deploy.confirm`, which the file never had, is not added. The showcase heals its own settings file this way when it starts.
+
+## The rest of an application's files
+
+Settings are one file; an application has others. Four things belong to all of them, and they live here so every application in the family does them the same way.
+
+1. **Two folders, not one.** `config_dir("qfocus")` is for settings, `data_dir("qfocus")` for the application's own records. A recorded session is not a setting, and on Linux it does not belong in `.config`. Both give `None` when the platform has no home to write in, and neither creates the folder: `fs::create_dir_all` before the first write.
+2. **Write every file with `atomic_write(path, contents)`.** It writes a temporary file in the same folder, flushes it, renames it over the real name and then flushes the folder. The last step is the one that is usually forgotten: without it a power cut can lose the rename, and then both names are gone, the old file replaced and the new one never on the disk. `atomic_write_reporting` is the same write with each finished step handed to a closure, for a log or a screen like the one on this page.
+3. **Keep a second instance out with `AppLock::acquire(path)`.** `Ok(Some(lock))` means this instance may write, and it may write for as long as the value lives. `Ok(None)` means another process holds the lock, so show that and stay read-only. The lock is the operating system's, not the file's existence: when a process dies the kernel releases it, so a crash never leaves a lock nobody holds — and the recovery that has to write is never locked out by the crash it is recovering from. `holder_pid(path)` reads the process id out of the file for a message that names the holder, and for nothing else: a process id is reused, so it may never decide anything.
+4. **One file per machine with `machine_name()`.** When the data folder is synced between machines, a file both of them write is a file one of them overwrites. Put the machine in the name instead: `format!("running-{machine}.toml")`. The name is `uname -n` on Unix and `COMPUTERNAME` on Windows, and it comes back ready for a file name: surrounding whitespace removed, any character other than a letter, a digit, `-`, `_` or `.` turned into `-`, dots at either end dropped. `None` means the system gave nothing usable; pick a fallback name of your own then.
 
 ## Common mistakes
 
@@ -38,4 +47,11 @@ On this page, "Show a broken file" loads a hand-broken file with the showcase's 
 - **Saving in `view`.** `view` must not touch the disk; save from `update` with `save_command`.
 - **Using the real config directory in tests.** Tests that call `Settings::load` read and write the developer's own settings.
 - **Putting dots inside a key segment.** Dots always separate tables; use `-` inside names.
+- **Keeping records next to the settings.** Sessions, history and logs belong in `data_dir`, not in `config_dir`; a user who copies their settings between machines does not want to carry the records along.
+- **Deciding on the lock file instead of the lock.** "The file exists, so somebody is running" refuses to start after a power cut, exactly when the recovery has to write. Ask `AppLock::acquire`; a leftover file is not a lock, and the process id in it may be a process that died last week.
+- **Letting the lock be dropped.** `AppLock::acquire(path)?;` takes the lock and releases it on the same line. Keep the value for as long as the instance runs.
+- **Writing the temporary file somewhere else.** A temporary file in `/tmp` cannot be renamed onto another file system; `atomic_write` keeps it in the target folder for that reason.
+- **Reading the machine name from `HOSTNAME`.** Most shells set it without exporting it, so a program started from them never sees it. `machine_name()` asks the kernel.
+- **Building a file name from the raw host name.** A name can hold a `/`, a space or a leading dot; `machine_name()` has already made it safe, so use it as it comes.
+- **Renaming over a link yourself.** A rename replaces a symbolic link with a plain file and cuts a settings file off from the dotfiles repository it was linked from. `atomic_write` follows the link and replaces the file it points at, in that file's folder.
 - **Treating settings as the source of truth while running.** Keep the live value in your state and store it on change, as the showcase header does.

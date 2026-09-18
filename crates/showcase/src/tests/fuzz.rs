@@ -5,9 +5,9 @@
 //! The sweep is deterministic. A small seeded generator picks every action, so a failure names a
 //! seed, a page, a theme and a glyph mode, and running the same four again replays it exactly.
 //!
-//! - `cargo test -p showcase fuzz` runs the quick sweep of the gate: each page once, the themes
+//! - `cargo test -p quvyta-framework-showcase fuzz` runs the quick sweep of the gate: each page once, the themes
 //!   and glyph modes rotating over the pages.
-//! - `cargo test --release -p showcase fuzz_long -- --ignored --nocapture` runs every page in
+//! - `cargo test --release -p quvyta-framework-showcase fuzz_long -- --ignored --nocapture` runs every page in
 //!   every theme and glyph mode for several seeds (4 seeds × 600 actions by default). Tune it with
 //!   `QUVYTA_FUZZ_SEEDS` (seed count), `QUVYTA_FUZZ_STEPS` (actions per run),
 //!   `QUVYTA_FUZZ_SEED` (first seed), and `QUVYTA_FUZZ_PAGE`, `QUVYTA_FUZZ_THEME` and
@@ -273,7 +273,7 @@ impl fmt::Display for Failure {
         writeln!(
             f,
             "  replay: QUVYTA_FUZZ_SEED={seed} QUVYTA_FUZZ_SEEDS=1 QUVYTA_FUZZ_PAGE={page} QUVYTA_FUZZ_THEME={theme} \
-             QUVYTA_FUZZ_MODE={mode:?} cargo test -p showcase fuzz_long -- --ignored"
+             QUVYTA_FUZZ_MODE={mode:?} cargo test -p quvyta-framework-showcase fuzz_long -- --ignored"
         )?;
         for action in &self.recent {
             writeln!(f, "    {action:?}")?;

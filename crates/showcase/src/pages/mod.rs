@@ -20,7 +20,10 @@ pub mod command_palette;
 pub mod confirm;
 pub mod context_menu;
 pub mod date_picker;
+pub mod date_time;
 pub mod divider;
+pub mod document;
+pub mod duration_input;
 pub mod empty_state;
 pub mod example_dashboard;
 pub mod example_file_explorer;
@@ -30,6 +33,8 @@ pub mod focus_keys;
 pub mod form;
 pub mod gauge;
 pub mod getting_started;
+pub mod handoff;
+pub mod heatmap;
 pub mod help_layer;
 pub mod hold_to_confirm;
 pub mod key_hints;
@@ -74,6 +79,7 @@ pub mod text_input;
 pub mod text_selection;
 pub mod theme_icons_language;
 pub mod time_input;
+pub mod timeline;
 pub mod toast;
 pub mod tooltip;
 pub mod tree;
@@ -87,6 +93,17 @@ use qframe::widgets::Switch;
 
 use crate::app::Msg;
 use crate::log::EventLog;
+
+/// The folder the disk demos (tree, file picker, file explorer, terminal) start in: the user's
+/// home folder, which every machine has. The demos only list and read what is there; nothing in
+/// it is written or removed. Without a home folder they start in the system's temporary folder.
+#[cfg(not(test))]
+pub fn home_folder() -> std::path::PathBuf {
+    std::env::home_dir().filter(|home| home.is_absolute()).unwrap_or_else(std::env::temp_dir)
+}
+
+#[cfg(test)]
+pub use crate::tests::home_folder;
 
 /// Foundation pages, in menu order.
 pub const FOUNDATIONS: [&str; 4] = ["getting-started", "theme-icons-language", "layout", "focus-keys"];
@@ -162,6 +179,8 @@ pub const PAGES: &[PageContent] = &[
     page!("sparkline", "sparkline"),
     page!("gauge", "gauge"),
     page!("bar-chart", "bar_chart"),
+    page!("heatmap", "heatmap"),
+    page!("timeline", "timeline"),
     page!("big-text", "big_text"),
     page!("example-dashboard", "example_dashboard"),
     page!("scrollbar-styles", "scrollbar_styles"),
@@ -176,6 +195,7 @@ pub const PAGES: &[PageContent] = &[
     page!("slider", "slider"),
     page!("number-input", "number_input"),
     page!("time-input", "time_input"),
+    page!("duration-input", "duration_input"),
     page!("text-area", "text_area"),
     page!("table", "table"),
     page!("tree", "tree"),
@@ -190,7 +210,10 @@ pub const PAGES: &[PageContent] = &[
     page!("example-setup-wizard", "example_setup_wizard"),
     page!("clipboard", "clipboard"),
     page!("async-tasks", "async_tasks"),
+    page!("handoff", "handoff"),
     page!("storage", "storage"),
+    page!("date-time", "date_time"),
+    page!("document", "document"),
     page!("page-transitions", "page_transitions"),
     page!("text-selection", "text_selection"),
 ];
@@ -243,6 +266,8 @@ pub struct Pages {
     pub sparkline: sparkline::State,
     pub gauge: gauge::State,
     pub bar_chart: bar_chart::State,
+    pub heatmap: heatmap::State,
+    pub timeline: timeline::State,
     pub big_text: big_text::State,
     pub example_dashboard: example_dashboard::State,
     pub scrollbar_styles: scrollbar_styles::State,
@@ -257,6 +282,7 @@ pub struct Pages {
     pub slider: slider::State,
     pub number_input: number_input::State,
     pub time_input: time_input::State,
+    pub duration_input: duration_input::State,
     pub text_area: text_area::State,
     pub table: table::State,
     pub tree: tree::State,
@@ -271,7 +297,10 @@ pub struct Pages {
     pub example_setup_wizard: example_setup_wizard::State,
     pub clipboard: clipboard::State,
     pub async_tasks: async_tasks::State,
+    pub handoff: handoff::State,
     pub storage: storage::State,
+    pub date_time: date_time::State,
+    pub document: document::State,
     pub page_transitions: page_transitions::State,
     pub text_selection: text_selection::State,
 }
@@ -318,6 +347,8 @@ pub enum PageMsg {
     Sparkline(sparkline::Msg),
     Gauge(gauge::Msg),
     BarChart(bar_chart::Msg),
+    Heatmap(heatmap::Msg),
+    Timeline(timeline::Msg),
     BigText(big_text::Msg),
     ExampleDashboard(example_dashboard::Msg),
     ScrollbarStyles(scrollbar_styles::Msg),
@@ -332,6 +363,7 @@ pub enum PageMsg {
     Slider(slider::Msg),
     NumberInput(number_input::Msg),
     TimeInput(time_input::Msg),
+    DurationInput(duration_input::Msg),
     TextArea(text_area::Msg),
     Table(table::Msg),
     Tree(tree::Msg),
@@ -346,7 +378,10 @@ pub enum PageMsg {
     ExampleSetupWizard(example_setup_wizard::Msg),
     Clipboard(clipboard::Msg),
     AsyncTasks(async_tasks::Msg),
+    Handoff(handoff::Msg),
     Storage(storage::Msg),
+    DateTime(date_time::Msg),
+    Document(document::Msg),
     PageTransitions(page_transitions::Msg),
     TextSelection(text_selection::Msg),
     /// The slide switch of a row page's playground, with the page that sent it.
@@ -399,6 +434,8 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::Sparkline(m) => sparkline::update(&mut pages.sparkline, m, log),
         PageMsg::Gauge(m) => gauge::update(&mut pages.gauge, m, log),
         PageMsg::BarChart(m) => bar_chart::update(&mut pages.bar_chart, m, log),
+        PageMsg::Heatmap(m) => heatmap::update(&mut pages.heatmap, m, log),
+        PageMsg::Timeline(m) => timeline::update(&mut pages.timeline, m, log),
         PageMsg::BigText(m) => big_text::update(&mut pages.big_text, m, log),
         PageMsg::ExampleDashboard(m) => example_dashboard::update(&mut pages.example_dashboard, m, log),
         PageMsg::ScrollbarStyles(m) => scrollbar_styles::update(&mut pages.scrollbar_styles, m, log),
@@ -413,6 +450,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::Slider(m) => slider::update(&mut pages.slider, m, log),
         PageMsg::NumberInput(m) => number_input::update(&mut pages.number_input, m, log),
         PageMsg::TimeInput(m) => time_input::update(&mut pages.time_input, m, log),
+        PageMsg::DurationInput(m) => duration_input::update(&mut pages.duration_input, m, log),
         PageMsg::TextArea(m) => text_area::update(&mut pages.text_area, m, log),
         PageMsg::Table(m) => table::update(&mut pages.table, m, log),
         PageMsg::Tree(m) => tree::update(&mut pages.tree, m, log),
@@ -427,7 +465,10 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::ExampleSetupWizard(m) => example_setup_wizard::update(&mut pages.example_setup_wizard, m, log),
         PageMsg::Clipboard(m) => clipboard::update(&mut pages.clipboard, m, log),
         PageMsg::AsyncTasks(m) => async_tasks::update(&mut pages.async_tasks, m, log),
+        PageMsg::Handoff(m) => handoff::update(&mut pages.handoff, m, log),
         PageMsg::Storage(m) => storage::update(&mut pages.storage, m, log),
+        PageMsg::DateTime(m) => date_time::update(&mut pages.date_time, m, log),
+        PageMsg::Document(m) => document::update(&mut pages.document, m, log),
         PageMsg::PageTransitions(m) => {
             page_transitions::update(&mut pages.page_transitions, &mut pages.storage.settings, m, log)
         }
@@ -480,6 +521,8 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "sparkline" => sparkline::view(&pages.sparkline, ui),
         "gauge" => gauge::view(&pages.gauge, ui),
         "bar-chart" => bar_chart::view(&pages.bar_chart, ui),
+        "heatmap" => heatmap::view(&pages.heatmap, ui),
+        "timeline" => timeline::view(&pages.timeline, ui),
         "big-text" => big_text::view(&pages.big_text, ui),
         "example-dashboard" => example_dashboard::view(&pages.example_dashboard, ui),
         "scrollbar-styles" => scrollbar_styles::view(&pages.scrollbar_styles, ui),
@@ -494,6 +537,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "slider" => slider::view(&pages.slider, ui),
         "number-input" => number_input::view(&pages.number_input, ui),
         "time-input" => time_input::view(&pages.time_input, ui),
+        "duration-input" => duration_input::view(&pages.duration_input, ui),
         "text-area" => text_area::view(&pages.text_area, ui),
         "table" => table::view(&pages.table, ui),
         "tree" => tree::view(&pages.tree, ui),
@@ -508,7 +552,10 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "example-setup-wizard" => example_setup_wizard::view(&pages.example_setup_wizard, ui),
         "clipboard" => clipboard::view(&pages.clipboard, ui),
         "async-tasks" => async_tasks::view(&pages.async_tasks, ui),
+        "handoff" => handoff::view(&pages.handoff, ui),
         "storage" => storage::view(&pages.storage, ui),
+        "date-time" => date_time::view(&pages.date_time, ui),
+        "document" => document::view(&pages.document, ui),
         "page-transitions" => page_transitions::view(&pages.page_transitions, ui),
         "text-selection" => text_selection::view(&pages.text_selection, ui),
         _ => {}
@@ -528,6 +575,7 @@ pub fn clipboard_event(pages: &mut Pages, page: &str, event: &ClipboardEvent, lo
         "text-area" => log_clipboard("text-area", event, log),
         "number-input" => log_clipboard("number-input", event, log),
         "time-input" => log_clipboard("time-input", event, log),
+        "duration-input" => log_clipboard("duration-input", event, log),
         _ => {}
     }
 }

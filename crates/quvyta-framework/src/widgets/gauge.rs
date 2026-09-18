@@ -46,6 +46,12 @@ impl Level {
 /// marker so the state reads without colour. The value shows a percentage of the range unless a
 /// text is given. When the area is too narrow for a meter, only the label and value remain.
 ///
+/// A gauge is a readout, not a control: its one value is always written beside the meter, so there
+/// is nothing a pointer or a key could move to. It takes no keyboard focus and answers no input.
+/// To let someone set the value, use a [`Slider`](super::Slider); to explain a label that had to be
+/// cut, wrap the gauge in a [`Tooltip`](super::Tooltip); to read a value out of a history, use a
+/// [`Sparkline`](super::Sparkline).
+///
 /// Style keys: `gauge` and `gauge.<success|warning|danger>` (`track`, `fill`, `zone` for the
 /// tint past a threshold), `gauge-label` (`fg`), `gauge-value` and `gauge-value.<level>` (`fg`,
 /// `bold`).
@@ -250,6 +256,33 @@ mod tests {
         assert_eq!(h.screen(), "Disk   ✕ 97%\n");
         h.set_glyph_mode(GlyphMode::Ascii);
         assert_eq!(h.screen(), "Disk   x 97%\n");
+    }
+
+    /// A gauge next to a button, to see where keyboard focus goes.
+    struct Row(f32);
+
+    impl App for Row {
+        type Msg = f32;
+        fn update(&mut self, value: f32) -> Command<f32> {
+            self.0 = value;
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, f32>) {
+            ui.add(Gauge::new(self.0).label("CPU")).fill_width();
+            ui.add(super::super::Button::new("Refresh").on_press(50.0)).id("refresh");
+        }
+    }
+
+    #[test]
+    fn a_gauge_is_a_readout_and_answers_no_input() {
+        let mut h = Harness::new(Row(53.0), 20, 2);
+        let meter = h.screen().lines().next().unwrap_or_default().to_owned();
+        h.click(5, 0).drag((3, 0), (15, 0)).hover(7, 0);
+        h.press("right").press("left").press("home").press("enter").press("space");
+        assert_eq!(h.app().0, 53.0, "nothing the gauge saw changed the value");
+        assert_eq!(h.screen().lines().next(), Some(meter.as_str()), "and the gauge is drawn as before");
+        h.press("tab").press("enter");
+        assert_eq!(h.app().0, 50.0, "Tab went past the gauge to the button");
     }
 
     #[test]

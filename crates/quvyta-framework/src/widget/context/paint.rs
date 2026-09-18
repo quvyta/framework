@@ -97,7 +97,7 @@ impl PaintCx<'_> {
     /// layer stack with modal layers ([`PaintCx::open_layer`]): a press on a modal layer above a
     /// dismissable one lands inside the modal layer, so the dismissable layer beneath stays.
     pub fn register_dismissable(&mut self) {
-        self.frame.layers.push(LayerEntry { id: self.id, modal: false });
+        self.frame.layers.push(LayerEntry { id: self.id, modal: false, surface: None });
     }
 
     /// Whether this widget has keyboard focus.
@@ -347,9 +347,24 @@ impl PaintCx<'_> {
     /// The opening time stays the same for as long as the layer is shown, which makes it the
     /// start of an entrance animation, even for layers inside persistent pages.
     pub fn open_layer(&mut self) -> Duration {
-        self.frame.layers.push(LayerEntry { id: self.id, modal: true });
+        self.frame.layers.push(LayerEntry { id: self.id, modal: true, surface: None });
         self.request_focus_within(self.id);
         self.interaction.layers.iter().find(|layer| layer.id == self.id).map_or(self.now, |layer| layer.opened)
+    }
+
+    /// Tells the runtime where the surface of the modal layer this widget opened with
+    /// [`PaintCx::open_layer`] sits, so toasts can keep clear of it.
+    pub(crate) fn set_layer_surface(&mut self, surface: Rect) {
+        let id = self.id;
+        if let Some(layer) = self.frame.layers.iter_mut().rev().find(|layer| layer.id == id) {
+            layer.surface = Some(surface);
+        }
+    }
+
+    /// The areas of the modal layers open in this frame: each layer's surface, or all of
+    /// `screen` for a layer that did not say where its surface is.
+    pub(crate) fn modal_surfaces(&self, screen: Rect) -> Vec<Rect> {
+        self.frame.layers.iter().filter(|layer| layer.modal).map(|layer| layer.surface.unwrap_or(screen)).collect()
     }
 
     /// Delivers `chord` to this widget even when it is not focused, for as long as the widget

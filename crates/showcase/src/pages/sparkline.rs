@@ -22,11 +22,13 @@ pub struct State {
     extremes: bool,
     baseline: bool,
     height: usize,
+    /// The sample being read off the requests series.
+    reading: Option<usize>,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { tick: 120, extremes: false, baseline: false, height: 1 }
+        Self { tick: 120, extremes: false, baseline: false, height: 1, reading: None }
     }
 }
 
@@ -37,6 +39,7 @@ pub enum Msg {
     Extremes(bool),
     Baseline(bool),
     Height(usize),
+    Read(Option<usize>),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -61,6 +64,13 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::Height(index) => {
             state.height = index;
             log.push(PAGE, "Playground", format!("height = {}", index + 1));
+        }
+        Msg::Read(index) => {
+            state.reading = index;
+            match index {
+                Some(index) => log.push(PAGE, "Sparkline#reading", format!("sample {}", index + 1)),
+                None => log.push(PAGE, "Sparkline#reading", "reading stopped".to_owned()),
+            }
         }
     }
     Command::none()
@@ -89,6 +99,24 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         })
         .gap(1)
         .fill_width();
+        ui.spacer().height(Length::Cells(1));
+        // region: reading
+        let requests = samples::history(2, state.tick, HISTORY);
+        let read = state.reading.and_then(|index| requests.get(index).copied());
+        let readout = match (state.reading, read) {
+            (Some(index), Some(value)) => {
+                t!("sparkline.read", sample = (index + 1).to_string(), value = format!("{value:.0}"))
+            }
+            _ => t!("sparkline.read-hint"),
+        };
+        ui.add(Text::new(readout).role(if read.is_some() { "body" } else { "faint" }).no_wrap());
+        ui.add(
+            Sparkline::new(requests).range(0.0, 100.0).reading(state.reading).on_read(|index| send(Msg::Read(index))),
+        )
+        .width(Length::Fill(1))
+        .height(Length::Cells(2))
+        .id("reading");
+        // endregion
         ui.spacer().height(Length::Cells(1));
         ui.add(Button::new(t!("sparkline.sample")).on_press(send(Msg::Sample))).id("sample");
     })
@@ -137,5 +165,24 @@ mod tests {
         h.send(send(Msg::Height(2)));
         h.send(send(Msg::Extremes(true)));
         assert!(h.app().pages.sparkline.extremes);
+    }
+
+    #[test]
+    fn a_sample_is_read_with_the_pointer_and_then_with_the_keys() {
+        let mut h = showcase_on(PAGE);
+        let (x, y) = h.find("Press a column").expect("the reading hint is on screen");
+        // The trend stands on the two rows under the hint.
+        h.click(x + 20, y + 2);
+        let read = h.app().pages.sparkline.reading.expect("a sample was read");
+        assert_eq!(read, 20, "the column pressed is the twenty-first sample shown");
+        assert!(h.screen().contains("Sample 21 of 90"), "{}", h.screen());
+        // The press left focus on the trend, so the keys carry on from there.
+        h.press("right");
+        assert_eq!(h.app().pages.sparkline.reading, Some(21));
+        h.press("end");
+        assert_eq!(h.app().pages.sparkline.reading, Some(89), "End reads the newest sample");
+        h.press("esc");
+        assert_eq!(h.app().pages.sparkline.reading, None);
+        assert!(h.screen().contains("Press a column"), "the hint is back:\n{}", h.screen());
     }
 }

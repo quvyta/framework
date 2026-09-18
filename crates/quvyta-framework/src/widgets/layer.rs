@@ -112,6 +112,8 @@ pub(crate) fn open(cx: &mut PaintCx<'_>, size: Size, placement: SurfacePosition,
             Rect::new(screen.x + i32::from(left), screen.y + i32::from(top), size.width, size.height)
         }
     };
+    // Toasts keep clear of where the surface ends up, not of the part popped in so far.
+    cx.set_layer_surface(full);
     // The surface grows by whole cells; its colours follow the same steps.
     let columns = steps(1.0 - progress, POP.0).min(full.width / 2);
     let rows = steps(1.0 - progress, POP.1).min(full.height / 2);

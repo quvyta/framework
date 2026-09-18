@@ -11,9 +11,14 @@
 //!
 //! Keys are dotted paths (`"editor.tab-width"`); the dots become TOML tables. Loading never
 //! fails: a broken file yields located [`Diagnostic`]s, broken entries are skipped and the rest
-//! is used. Saving writes a temporary file next to the real one and renames it, so a crash never
-//! leaves half a file; a file that could not be read completely is kept as `settings.toml.bak`
-//! before it is first overwritten.
+//! is used. Saving goes through [`atomic_write`], so a crash never leaves half a file; a file
+//! that could not be read completely is kept as `settings.toml.bak` before it is first
+//! overwritten.
+//!
+//! The module also holds what every application needs around its own files, settings or not:
+//! [`config_dir`] and [`data_dir`] for the two folders a platform gives an application,
+//! [`atomic_write`] for writing any file safely, [`AppLock`] for "one instance at a time", and
+//! [`machine_name`] for keeping one file per machine in a folder several machines share.
 //!
 //! An application can describe its keys with a [`Schema`]. Loading then checks every key against
 //! it, and with [`Settings::self_heal`] on it repairs the file: unknown keys are removed, invalid
@@ -22,8 +27,12 @@
 //! ([`Schema::open`]) are kept as they are. A missing key is never written: reading it gives
 //! `None` and the application falls back to its default.
 
+mod atomic;
+mod dirs;
 #[cfg(test)]
 mod healing_tests;
+mod lock;
+mod machine;
 mod schema;
 mod value;
 
@@ -33,10 +42,15 @@ use std::path::{Path, PathBuf};
 
 use toml::de::{DeTable, DeValue};
 
+pub use atomic::{WriteStep, atomic_write, atomic_write_reporting};
+pub use dirs::{config_dir, data_dir};
+pub use lock::{AppLock, holder_pid};
+pub use machine::machine_name;
 pub use schema::{Schema, SettingKind};
 pub use value::{Setting, SettingValue};
 
 use crate::diagnostics::{Diagnostic, Location};
+use crate::doc::Doc;
 use crate::icons::IconMode;
 use crate::runtime::Command;
 
@@ -91,8 +105,8 @@ impl Settings {
     /// memory and a diagnostic says why.
     #[must_use]
     pub fn load(app: &str) -> Self {
-        match config_dir(|name| std::env::var_os(name).map(PathBuf::from)) {
-            Some(dir) => Self::open(dir.join(app).join(FILE_NAME)),
+        match config_dir(app) {
+            Some(dir) => Self::open(dir.join(FILE_NAME)),
             None => {
                 let mut settings = Self::in_memory();
                 settings.read_problem(Diagnostic::warning(None, "no config directory found; settings are not saved"));
@@ -132,14 +146,11 @@ impl Settings {
     }
 
     fn parse(&mut self, file: &str, text: &str) {
-        let (root, errors) = DeTable::parse_recoverable(text);
-        for error in &errors {
-            let location = error.span().map(|span| Location::from_offset(file, text, span.start));
-            self.diagnostics.push(Diagnostic::error(location, error.message().to_owned()));
-        }
+        let (root, errors) = Doc::new(file, text).parse_recoverable();
         self.keep_backup |= !errors.is_empty();
+        self.diagnostics.extend(errors);
         let mut reader = Reader { file, text, settings: self };
-        reader.table(root.get_ref(), "");
+        reader.table(&root, "");
         self.read_problems = self.diagnostics.len();
         self.review();
     }
@@ -479,17 +490,7 @@ impl Settings {
         if self.keep_backup && path.exists() {
             fs::copy(&path, path.with_extension("toml.bak"))?;
         }
-        let temporary = path.with_extension(format!("toml.tmp-{}", std::process::id()));
-        let written = (|| {
-            let file = fs::File::create(&temporary)?;
-            io::Write::write_all(&mut &file, self.to_toml().as_bytes())?;
-            file.sync_all()?;
-            fs::rename(&temporary, &path)
-        })();
-        if written.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        written?;
+        atomic_write(&path, self.to_toml().as_bytes())?;
         self.keep_backup = false;
         Ok(())
     }
@@ -568,20 +569,6 @@ fn display_name(path: &Path) -> String {
     path.file_name().and_then(|name| name.to_str()).unwrap_or(FILE_NAME).to_owned()
 }
 
-/// The platform config directory, from environment variables read through `lookup`.
-fn config_dir(lookup: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
-    let non_empty = |name: &str| lookup(name).filter(|path| !path.as_os_str().is_empty());
-    if cfg!(windows) {
-        return non_empty("APPDATA");
-    }
-    if cfg!(target_os = "macos") {
-        return non_empty("HOME").map(|home| home.join("Library").join("Application Support"));
-    }
-    non_empty("XDG_CONFIG_HOME")
-        .filter(|path| path.is_absolute())
-        .or_else(|| non_empty("HOME").map(|home| home.join(".config")))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -655,21 +642,6 @@ mod tests {
         assert!(fs::read_to_string(path.with_extension("toml.bak")).expect("backup").contains("icons = ["));
         assert_eq!(Settings::open(&path).icon_mode(), Some(IconMode::Ascii));
         fs::remove_dir_all(&dir).expect("clean");
-    }
-
-    #[test]
-    fn config_dir_follows_the_platform() {
-        let lookup = |pairs: &'static [(&'static str, &'static str)]| {
-            move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| PathBuf::from(v))
-        };
-        if cfg!(all(unix, not(target_os = "macos"))) {
-            assert_eq!(config_dir(lookup(&[("HOME", "/home/ada")])), Some(PathBuf::from("/home/ada/.config")));
-            let xdg = lookup(&[("HOME", "/home/ada"), ("XDG_CONFIG_HOME", "/cfg")]);
-            assert_eq!(config_dir(xdg), Some(PathBuf::from("/cfg")));
-            let relative = lookup(&[("HOME", "/home/ada"), ("XDG_CONFIG_HOME", "cfg")]);
-            assert_eq!(config_dir(relative), Some(PathBuf::from("/home/ada/.config")));
-        }
-        assert_eq!(config_dir(lookup(&[])), None);
     }
 
     #[test]

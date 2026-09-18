@@ -12,7 +12,8 @@
 - Aldığı tüm genişliği ve bir satırı ölçer.
 - Ölçer hücrenin sekizde biri kadar dolar; ASCII modunda tam hücre.
 - Eşik varsa izin her sınırdan sonraki bölgesi boyanır ve değer `dot`, `warning` ya da `error` ikonunu taşır.
-- Ölçere dört hücreden az kalırsa yalnızca etiket ve değer çizilir. Odak almaz, mesaj göndermez.
+- Ölçere dört hücreden az kalırsa yalnızca etiket ve değer çizilir.
+- Bir okumadır: odak almaz, tuşlara ve fare olaylarına cevap vermez, mesaj göndermez. Tab onu atlar. Değer ayarlatmak için `Slider`, kesilen etiket için `Tooltip`, geçmişten değer okumak için `Sparkline` kullan.
 
 ## Tema anahtarları
 

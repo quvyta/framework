@@ -1,7 +1,5 @@
 //! Terminal: the user's shell running inside the showcase, in the theme's colours.
 
-use std::path::PathBuf;
-
 use qframe::prelude::*;
 use qframe::widgets::{Terminal, TerminalEvent, TerminalSession};
 
@@ -43,21 +41,18 @@ fn watch(session: &TerminalSession, run: u64) -> Command<AppMsg> {
 /// Applies a demo message.
 pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<AppMsg> {
     match message {
-        Msg::Start => {
-            let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            match TerminalSession::shell(&folder) {
-                Ok(session) => {
-                    state.run += 1;
-                    state.exit = None;
-                    state.error = None;
-                    let command = watch(&session, state.run);
-                    state.session = Some(session);
-                    log.push(PAGE, "Terminal#shell", "started");
-                    return command;
-                }
-                Err(error) => state.error = Some(error.to_string()),
+        Msg::Start => match TerminalSession::shell(&super::home_folder()) {
+            Ok(session) => {
+                state.run += 1;
+                state.exit = None;
+                state.error = None;
+                let command = watch(&session, state.run);
+                state.session = Some(session);
+                log.push(PAGE, "Terminal#shell", "started");
+                return command;
             }
-        }
+            Err(error) => state.error = Some(error.to_string()),
+        },
         Msg::Changed(run, TerminalEvent::Output) if run == state.run => {
             if let Some(session) = &state.session {
                 return watch(session, run);

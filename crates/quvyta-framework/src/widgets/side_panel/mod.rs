@@ -190,11 +190,10 @@ impl<'a, Msg: 'static> SidePanel<'a, Msg> {
 
     /// Adds the panel and its body to `ui`, filling the space they get.
     pub fn show<'v>(self, ui: &'v mut View<'_, Msg>) -> NodeMut<'v, Msg> {
-        let env = ui.env();
         let build = |part: Option<Part<'a, Msg>>| {
             let mut children = Vec::new();
             if let Some(part) = part {
-                part(&mut View::new(&mut children, env));
+                part(&mut ui.nested(&mut children));
             }
             let mut node = Node::new(Flex::new(FlexAxis::Column, children), 0);
             node.layout.width = Length::Fill(1);

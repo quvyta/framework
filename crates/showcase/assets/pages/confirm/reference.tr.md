@@ -8,11 +8,12 @@
 - `.cancel_label(metin)` — vazgeç butonu. Varsayılan: `quvyta.confirm.cancel`.
 - `.on_cancel(mesaj)` — Vazgeç, Esc ve × işaretinde gönderilir. Yoksa vazgeçmek yalnızca kapatır.
 - `.dismissable(bool)` — Esc ve × işareti birlikte vazgeçer mi. Varsayılan: `true`. `false` ile ikisi de çalışmaz, işaret gizlenir, yalnızca butonlar cevaplar.
+- `.alternative(etiket, mesaj)` — Vazgeç ile onay butonu arasında üçüncü bir buton; `mesaj` gönderen düz bir butondur. Verilmezse pencere iki butonuyla eskisinin aynısıdır.
 
 ## Tuşlar
 
 - `enter` / `space` odaklı butonla cevaplar; önce Vazgeç odaklıdır.
-- `tab` / `shift tab` iki buton arasında geçer.
+- `tab` / `shift tab` butonlar arasında soldan sağa geçer: Vazgeç, varsa üçüncü yol, onay butonu.
 - `esc` soru kapatılabilirken vazgeçer.
 
 ## Fare

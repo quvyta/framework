@@ -4,6 +4,11 @@
 //! from `update`. The runtime owns the stack, because a toast outlives the view that asked for
 //! it, counts down while the application is idle and must be drawn above every layer. The
 //! application only hears back through the toast's action message.
+//!
+//! A toast never covers an open modal layer, such as a dialog or the command palette: the stack
+//! keeps to the rows between its corner and the dialog's surface, and a toast that finds no
+//! room there waits until it does, when the dialog closes or the screen grows. A toast's time
+//! runs only while it is on screen, so a waiting toast is not missed.
 
 use std::time::Duration;
 
@@ -222,6 +227,24 @@ impl<Msg> Toast<Msg> {
     }
 }
 
+impl<Msg: 'static> Toast<Msg> {
+    /// The same toast sending `map(message)` for its action and presses.
+    pub(crate) fn map<B: 'static>(self, map: std::sync::Arc<dyn Fn(Msg) -> B + Send + Sync>) -> Toast<B> {
+        let action = self.action.map(|(label, message)| (label, map(message)));
+        let on_press = self.on_press.map(|press| Box::new(move || map(press())) as Box<dyn Fn() -> B>);
+        Toast {
+            kind: self.kind,
+            title: self.title,
+            body: self.body,
+            action,
+            duration: self.duration,
+            key: self.key,
+            icon_motion: self.icon_motion,
+            on_press,
+        }
+    }
+}
+
 impl<Msg: Clone + 'static> Toast<Msg> {
     /// Makes the toast pressable: a press anywhere on it but its action and close mark sends
     /// `message`, e.g. to open the log or the page the news came from. The toast stays; only the
@@ -255,6 +278,9 @@ struct Entry<Msg> {
     shown_at: Option<Duration>,
     leaving: bool,
     left_at: Option<Duration>,
+    /// Found no room in the last frame: not drawn, its time stopped and its entrance still to
+    /// come.
+    waiting: bool,
     rect: Rect,
     action_rect: Rect,
     close_rect: Rect,
@@ -307,6 +333,7 @@ impl<Msg> ToastStack<Msg> {
             shown_at: None,
             leaving: false,
             left_at: None,
+            waiting: false,
             rect: Rect::default(),
             action_rect: Rect::default(),
             close_rect: Rect::default(),
@@ -342,13 +369,18 @@ impl<Msg> ToastStack<Msg> {
         Some(entry.toast.on_press.as_ref().map_or(ToastPress::Held, |message| ToastPress::Pressed(message())))
     }
 
-    /// Counts down, lays out and draws the stack over everything else.
+    /// Counts down, lays out and draws the stack over everything else but open modal layers,
+    /// which it keeps clear of.
     pub(crate) fn paint(&mut self, cx: &mut PaintCx<'_>) {
         let now = cx.now();
         let enter = cx.env().theme().motion().enter;
         let reduced = cx.reduced_motion();
         let pointer = cx.pointer_anywhere();
         for entry in &mut self.entries {
+            if entry.waiting {
+                // Nobody saw it yet, so its time has not started.
+                continue;
+            }
             let hovered = pointer.is_some_and(|(x, y)| entry.rect.contains(x, y));
             let since = entry.ticked.unwrap_or(now);
             if !hovered && !entry.leaving {
@@ -363,17 +395,21 @@ impl<Msg> ToastStack<Msg> {
                 entry.left_at = Some(now);
             }
         }
-        self.entries.retain(|entry| entry.left_at.is_none_or(|left| !reduced && now < left + enter));
+        // A toast dismissed while it waited was never seen, so it goes without sliding out.
+        self.entries.retain(|entry| {
+            !(entry.waiting && entry.leaving) && entry.left_at.is_none_or(|left| !reduced && now < left + enter)
+        });
 
         let screen = cx.clip();
         let style = cx.style("toast", None, &[]);
         let padding = style.padding();
         let width = MAX_WIDTH.min(screen.width.saturating_sub(4));
-        if width < 12 {
-            return;
-        }
         let corner = self.corner;
-        let mut y = if corner.bottom() { screen.bottom() - 1 } else { screen.y + 1 };
+        let x = if corner.right() { screen.right() - 2 - i32::from(width) } else { screen.x + 2 };
+        let modals = cx.modal_surfaces(screen);
+        let (top_limit, bottom_limit) = room(screen, Rect::new(x, screen.y, width, screen.height), corner, &modals);
+        let mut y = if corner.bottom() { bottom_limit - 1 } else { top_limit + 1 };
+        let mut placing = width >= 12;
         // Newest nearest the corner.
         for index in (0..self.entries.len()).rev() {
             let icon_width = text::width(&cx.env().icons().glyph(self.entries[index].toast.kind.icon()));
@@ -382,11 +418,25 @@ impl<Msg> ToastStack<Msg> {
                 self.entries[index].toast.body.as_deref().map_or(0, |body| text::wrap(body, body_width).len());
             let height = cells::sum([padding.vertical(), 1, clamp_u16(i32::try_from(body_lines).unwrap_or(0))]);
             let top = if corner.bottom() { y - i32::from(height) } else { y };
-            if top < screen.y || top + i32::from(height) > screen.bottom() {
-                break;
-            }
-            let x = if corner.right() { screen.right() - 2 - i32::from(width) } else { screen.x + 2 };
+            // The first toast without room waits, and so does every older one, so the stack
+            // keeps its order.
+            placing = placing && top >= top_limit && top + i32::from(height) <= bottom_limit;
             let entry = &mut self.entries[index];
+            if !placing {
+                if !entry.waiting {
+                    entry.waiting = true;
+                    entry.ticked = None;
+                    entry.shown_at = None;
+                    entry.rect = Rect::default();
+                }
+                continue;
+            }
+            if entry.waiting {
+                // Its time starts now, and it slides in as if it had just been shown.
+                entry.waiting = false;
+                entry.ticked = Some(now);
+                entry.shown_at = Some(now);
+            }
             // Slides in from the screen edge over `motion.enter`, and back out when leaving.
             let arrived = cx.progress_since(entry.shown_at.unwrap_or(now), enter, Easing::EaseOut);
             let gone = entry.left_at.map_or(0.0, |left| cx.progress_since(left, enter, Easing::EaseIn));
@@ -404,6 +454,21 @@ impl<Msg> ToastStack<Msg> {
             y = if corner.bottom() { top - 1 } else { top + i32::from(height) + 1 };
         }
     }
+}
+
+/// The rows toasts in `column` may use, as a top and an exclusive bottom: the whole `screen`,
+/// cut back to the side of every modal surface that shares columns with the stack where the
+/// corner is. A row stays free between a surface and the toasts, as between two toasts.
+fn room(screen: Rect, column: Rect, corner: Corner, modals: &[Rect]) -> (i32, i32) {
+    let (mut top, mut bottom) = (screen.y, screen.bottom());
+    for modal in modals.iter().filter(|modal| modal.x < column.right() && column.x < modal.right()) {
+        if corner.bottom() {
+            top = top.max(modal.bottom() + 1);
+        } else {
+            bottom = bottom.min(modal.y - 1);
+        }
+    }
+    (top, bottom)
 }
 
 fn paint_entry<Msg>(cx: &mut PaintCx<'_>, entry: &mut Entry<Msg>, rect: Rect, presence: f32) {

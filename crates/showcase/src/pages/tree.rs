@@ -1,11 +1,11 @@
-//! Tree: a project that opens and closes, folders read from disk when they open, and a folder
-//! with fifty thousand files.
+//! Tree: a project that opens and closes, folders read from disk when they open, a folder with
+//! fifty thousand files, and focus categories that are reordered and managed from a menu.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use qframe::prelude::*;
-use qframe::widgets::{Select, Tree, TreeNode};
+use qframe::widgets::{ContextItem, Select, Tree, TreeMove, TreeNode};
 
 use super::{PageMsg, setting, slide_setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -22,10 +22,10 @@ const PROJECT: [&str; 14] = [
     "crates/quvyta-framework/src/lib.rs",
     "crates/quvyta-framework/Cargo.toml",
     "crates/showcase/src/main.rs",
+    "crates/showcase/CATALOG.toml",
     "crates/showcase/Cargo.toml",
     "docs/guide/getting-started.md",
     "docs/design/framework.md",
-    "CATALOG.toml",
     "Cargo.toml",
     "LICENSE",
     "rustfmt.toml",
@@ -40,6 +40,35 @@ const DISK: &str = "disk:";
 /// What reading a folder gave: entries (name, is a folder) or an error text.
 type Listing = Result<Vec<(String, bool)>, String>;
 
+/// A focus category of the reorder demo: its key names its label in the language files.
+#[derive(Debug, Clone)]
+pub struct Category {
+    key: &'static str,
+    archived: bool,
+    children: Vec<Category>,
+}
+
+fn category(key: &'static str, children: &[&'static str]) -> Category {
+    let children = children.iter().map(|key| Category { key, archived: false, children: Vec::new() }).collect();
+    Category { key, archived: false, children }
+}
+
+fn categories() -> Vec<Category> {
+    vec![
+        category("work", &["work/rust", "work/writing", "work/review"]),
+        category("health", &["health/running", "health/sleep"]),
+        category("learning", &["learning/japanese"]),
+    ]
+}
+
+/// A menu action on a category.
+#[derive(Debug, Clone, Copy)]
+pub enum CategoryAction {
+    Up,
+    Down,
+    Archive,
+}
+
 /// Open nodes, selection, folders read from disk and playground settings.
 #[derive(Debug)]
 pub struct State {
@@ -50,6 +79,9 @@ pub struct State {
     contents: usize,
     icons: bool,
     details: bool,
+    categories: Vec<Category>,
+    category_open: BTreeSet<String>,
+    category_selected: Option<String>,
 }
 
 impl Default for State {
@@ -63,6 +95,9 @@ impl Default for State {
             contents: 0,
             icons: false,
             details: false,
+            categories: categories(),
+            category_open: ["work".to_owned()].into(),
+            category_selected: None,
         }
     }
 }
@@ -77,6 +112,10 @@ pub enum Msg {
     Contents(usize),
     Icons(bool),
     Details(bool),
+    CategorySelect(String),
+    CategoryExpand(String, bool),
+    CategoryMove(TreeMove),
+    CategoryMenu(CategoryAction, String),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -138,8 +177,69 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.details = on;
             log.push(PAGE, "Playground", format!("details = {on}"));
         }
+        Msg::CategorySelect(key) => state.category_selected = Some(key),
+        Msg::CategoryExpand(key, open) => {
+            if open {
+                state.category_open.insert(key);
+            } else {
+                state.category_open.remove(&key);
+            }
+        }
+        Msg::CategoryMove(step) => move_category(state, &step, log),
+        Msg::CategoryMenu(action, key) => {
+            log.push(PAGE, "Tree#categories", format!("menu {action:?} {key}"));
+            if let Some(step) = category_action(state, action, &key) {
+                move_category(state, &step, log);
+            }
+        }
     }
     Command::none()
+}
+
+// region: tree-move
+/// Applies a move a drag, ctrl+shift+↑/↓ or the menu asked for to the categories.
+fn move_category(state: &mut State, step: &TreeMove, log: &mut EventLog) {
+    log.push(PAGE, "Tree#categories", format!("moved {} from {} to {}", step.key, step.from, step.to));
+    if let Some(siblings) = siblings_of(&mut state.categories, step.parent.as_deref()) {
+        step.apply(siblings);
+    }
+}
+// endregion
+
+/// The children of `parent`, or the top-level categories.
+fn siblings_of<'a>(categories: &'a mut Vec<Category>, parent: Option<&str>) -> Option<&'a mut Vec<Category>> {
+    match parent {
+        None => Some(categories),
+        Some(parent) => categories.iter_mut().find(|category| category.key == parent).map(|found| &mut found.children),
+    }
+}
+
+/// The parent key and position of `key` among its siblings.
+fn place_of(categories: &[Category], key: &str) -> Option<(Option<&'static str>, usize, usize)> {
+    if let Some(at) = categories.iter().position(|category| category.key == key) {
+        return Some((None, at, categories.len()));
+    }
+    categories.iter().find_map(|parent| {
+        let at = parent.children.iter().position(|child| child.key == key)?;
+        Some((Some(parent.key), at, parent.children.len()))
+    })
+}
+
+/// A menu action on `key`: the move one place up or down, the same a drag or ctrl+shift+↑/↓
+/// asks for, or archiving, done here.
+fn category_action(state: &mut State, action: CategoryAction, key: &str) -> Option<TreeMove> {
+    let (parent, from, count) = place_of(&state.categories, key)?;
+    let to = match action {
+        CategoryAction::Up if from > 0 => from - 1,
+        CategoryAction::Down if from + 1 < count => from + 1,
+        CategoryAction::Up | CategoryAction::Down => return None,
+        CategoryAction::Archive => {
+            let category = siblings_of(&mut state.categories, parent)?.get_mut(from)?;
+            category.archived = !category.archived;
+            return None;
+        }
+    };
+    Some(TreeMove { key: key.to_owned(), parent: parent.map(str::to_owned), from, to })
 }
 
 // region: tree-nodes
@@ -201,14 +301,43 @@ fn disk_node(state: &State, key: &str, name: String) -> TreeNode {
     }
 }
 
+fn category_node(state: &State, category: &Category) -> TreeNode {
+    let label = t!(&format!("tree.category.{}", category.key.replace('/', "-")));
+    TreeNode::new(category.key, label)
+        .faint(category.archived)
+        .expanded(state.category_open.contains(category.key))
+        .children(category.children.iter().map(|child| category_node(state, child)))
+}
+
+// region: tree-menu
+/// The actions of a category: moving it among its siblings from the keyboard's menu too, and
+/// archiving it.
+fn category_menu(categories: &[Category], key: &str) -> Vec<ContextItem<AppMsg>> {
+    let (_, at, count) = place_of(categories, key).unwrap_or((None, 0, 1));
+    let archived = categories
+        .iter()
+        .flat_map(|category| std::iter::once(category).chain(&category.children))
+        .any(|category| category.key == key && category.archived);
+    let item = |label: String, action: CategoryAction| {
+        ContextItem::new(label, send(Msg::CategoryMenu(action, key.to_owned())))
+    };
+    vec![
+        item(t!("tree.move-up"), CategoryAction::Up).shortcut("ctrl shift ↑").disabled(at == 0),
+        item(t!("tree.move-down"), CategoryAction::Down).shortcut("ctrl shift ↓").disabled(at + 1 >= count),
+        ContextItem::gap(),
+        item(t!(if archived { "tree.restore" } else { "tree.archive" }), CategoryAction::Archive),
+    ]
+}
+// endregion
+
 /// The live demo and the playground.
 pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     ui.add_with(Panel::new().title(t!("demo.live")).gap(0), |ui| {
         let roots = match state.contents {
             0 => {
                 let mut roots = project_nodes(state, "");
-                let assets = concat!(env!("CARGO_MANIFEST_DIR"), "/assets");
-                roots.insert(0, disk_node(state, &format!("{DISK}{assets}"), t!("tree.disk")));
+                let home = super::home_folder();
+                roots.insert(0, disk_node(state, &format!("{DISK}{}", home.display()), t!("tree.disk")));
                 roots
             }
             1 => {
@@ -226,6 +355,25 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             .on_activate(|key| send(Msg::Activate(key.to_owned())))
             .on_expand(|key, open| send(Msg::Expand(key.to_owned(), open)));
         ui.add(tree).width(Length::Fill(1)).height(Length::Cells(12)).id("files");
+        // endregion
+    })
+    .fill_width();
+
+    ui.add_with(Panel::new().title(t!("tree.reorder")).gap(0), |ui| {
+        ui.add(Text::new(t!("tree.reorder-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        // region: tree-reorder
+        let nodes = state.categories.iter().map(|category| category_node(state, category));
+        let tree = Tree::new(nodes)
+            .selected(state.category_selected.as_deref())
+            .on_select(|key| send(Msg::CategorySelect(key.to_owned())))
+            .on_expand(|key, open| send(Msg::CategoryExpand(key.to_owned(), open)))
+            .reorderable(|step| send(Msg::CategoryMove(step)))
+            .context_menu({
+                let categories = state.categories.clone();
+                move |key| category_menu(&categories, key)
+            });
+        ui.add(tree).width(Length::Fill(1)).height(Length::Cells(9)).id("categories");
         // endregion
     })
     .fill_width();
@@ -261,14 +409,41 @@ mod tests {
         h.click_text("docs");
         assert!(h.app().pages.tree.open.contains("docs"));
         assert!(h.screen().contains("guide"));
-        h.click_text("Showcase assets");
-        assert!(h.screen().contains("locales"), "{}", h.screen());
+        // Tests read this crate's folder where the installed program reads the home folder.
+        h.click_text("Home folder");
+        assert!(h.screen().contains("assets"), "{}", h.screen());
         h.send(send(Msg::Contents(1)));
         h.click_text("logs").press("end");
         let screen = h.screen();
         assert!(screen.contains("request-50000.log"), "{screen}");
         h.send(send(Msg::Contents(2)));
         assert!(h.screen().contains("No files"));
+    }
+
+    fn order(h: &qframe::runtime::Harness<crate::app::Showcase>) -> Vec<&'static str> {
+        h.app().pages.tree.categories[0].children.iter().map(|category| category.key).collect()
+    }
+
+    #[test]
+    fn categories_move_by_drag_by_keys_and_from_the_menu() {
+        let mut h = crate::tests::showcase_tall(crate::app::Showcase::default(), PAGE, 60);
+        h.set_reduced_motion(true);
+        let (x, y) = h.find("Code review").expect("the categories demo");
+        let (_, rust) = h.find("Rust").expect("the first work category");
+        h.drag((x, y), (x, rust));
+        assert_eq!(order(&h), ["work/review", "work/rust", "work/writing"], "{}", h.screen());
+        h.press("ctrl+shift+down");
+        assert_eq!(order(&h), ["work/rust", "work/review", "work/writing"], "the keys move the selected category");
+        let (x, y) = h.find("Writing").expect("writing");
+        crate::tests::right_click(&mut h, x, y);
+        h.click_text("Move up");
+        assert_eq!(order(&h), ["work/rust", "work/writing", "work/review"]);
+        let (x, y) = h.find("Writing").expect("writing");
+        crate::tests::right_click(&mut h, x, y);
+        h.click_text("Archive");
+        assert!(h.app().pages.tree.categories[0].children[1].archived);
+        let log: Vec<String> = h.app().log.recent(PAGE, 3).iter().map(|entry| entry.message.clone()).collect();
+        assert!(log.iter().any(|line| line == "moved work/writing from 2 to 1"), "{log:?}");
     }
 
     #[test]

@@ -46,10 +46,17 @@ use crate::icons::IconGlyphs;
 use cache::StyleCache;
 
 /// Colour tokens every resolved theme defines.
-pub const REQUIRED_COLORS: [&str; 15] = [
+pub const REQUIRED_COLORS: [&str; 20] = [
     "canvas", "surface", "raised", "active", "overlay", "accent", "accent-2", "text", "dim", "muted", "ink", "success",
-    "warning", "danger", "info",
+    "warning", "danger", "info", "series-1", "series-2", "series-3", "series-4", "series-5",
 ];
+
+/// How many categorical series tones a theme carries: `series-1` to `series-5`.
+///
+/// The set is deliberately small. Five tones a reader can tell apart are worth more than a dozen
+/// they cannot, and a chart with more than five series is usually a table wearing a chart's
+/// clothes.
+pub const SERIES_COLORS: usize = 5;
 
 /// A fully resolved theme, ready to style widgets.
 #[derive(Debug, Clone, PartialEq)]
@@ -95,6 +102,18 @@ impl Theme {
     /// unknown token, or uses `pulse()`, which breathes and so has no single colour.
     pub fn solid(&self, expression: &str) -> Result<Rgb, String> {
         paint::Expr::parse(expression)?.solid(&self.colors)
+    }
+
+    /// The tone of the `index`-th series of a chart, counted from zero.
+    ///
+    /// A theme carries [`SERIES_COLORS`] series tones, so the tones wrap around: series five takes
+    /// the tone of series zero. Wrapping is why a chart must name its series with a
+    /// [`Legend`](crate::widgets::Legend) instead of leaving the meaning in the colour, and why a
+    /// chart that needs more than five kinds is better off grouping the small ones together.
+    #[must_use]
+    pub fn series_color(&self, index: usize) -> Rgb {
+        let token = format!("series-{}", index % SERIES_COLORS + 1);
+        self.color(&token).unwrap_or_else(|| self.colors.get("accent").copied().unwrap_or(Rgb::new(0, 0, 0)))
     }
 
     /// Every colour token, sorted by name.

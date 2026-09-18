@@ -8,7 +8,7 @@ Use a date picker when the user chooses a single day and seeing the surrounding 
 2. Show it: `DatePicker::new(self.release)`.
 3. Receive choices: `.on_change(Msg::Release)`.
 4. Say what to choose while it is empty: `.placeholder(t!("choose-date"))`.
-5. If your application knows the user's time zone, pass the local day with `.today(date)`; otherwise today comes from the system clock in UTC.
+5. Today is marked on the machine's own day, from the system clock and time zone. Pass `.today(date)` when a different day should count as today, such as the day of a user in another zone.
 
 ## How it works
 
@@ -25,6 +25,6 @@ Use a date picker when the user chooses a single day and seeing the surrounding 
 ## Common mistakes
 
 - **Storing the formatted text.** Keep the `Date`; the text changes with the language.
-- **Trusting UTC for "today" near midnight.** Pass `.today(…)` when the local day matters.
+- **Marking today with `Date::today_utc()`.** Near midnight the UTC day is not the user's day; leave `.today(…)` out to get the local day, or pass `Date::today_local()` yourself.
 - **Expecting the calendar to slide like a list.** Slide is for lists, menus and tabs. The date picker is a grid of fixed columns, so it never slides and shows the pillar instead.
 - **Using it for ranges.** Two pickers work, as in the demo; check the order in `update`.

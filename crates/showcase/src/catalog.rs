@@ -3,7 +3,7 @@
 use toml::de::{DeTable, DeValue};
 
 /// The catalog file, compiled in.
-pub const SOURCE: &str = include_str!("../../../CATALOG.toml");
+pub const SOURCE: &str = include_str!("../CATALOG.toml");
 
 /// Groups in menu order.
 pub const GROUPS: [&str; 8] =

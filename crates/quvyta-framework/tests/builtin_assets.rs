@@ -38,6 +38,32 @@ fn default_icon_set_is_valid_in_every_mode() {
     }
 }
 
+/// The meanings an application's main menu shows. Every icon set must answer all of them, or a
+/// family application would have a menu with icons on only some of its rows.
+const MENU_ICONS: [&str; 4] = ["project", "profile", "settings", "power"];
+
+#[test]
+fn every_icon_set_answers_the_application_menu_in_every_mode_with_one_cell() {
+    let registry = IconSetRegistry::builtin();
+    for (id, _) in registry.list() {
+        for mode in [GlyphMode::Nerd, GlyphMode::Unicode, GlyphMode::Ascii] {
+            let icons = registry.icons(&id, &BTreeMap::new(), mode);
+            for name in MENU_ICONS {
+                let glyph = icons.glyph(name);
+                assert!(icons.keys().any(|key| key == name), "set {id} has no {name}");
+                assert_eq!(qframe::text::width(&glyph), 1, "{name} is one cell in {mode:?} of set {id}: {glyph:?}");
+                if mode == GlyphMode::Ascii {
+                    assert!(
+                        glyph.chars().all(|c| c.is_ascii_graphic()),
+                        "{name} stays printable ASCII in set {id}: {glyph:?}"
+                    );
+                    assert!(!glyph.contains(['[', ']', '(', ')', '{', '}', '|']), "{name} decorates: {glyph:?}");
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn builtin_locales_are_complete() {
     let i18n = I18n::builtin();

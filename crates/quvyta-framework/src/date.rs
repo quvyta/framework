@@ -1,9 +1,20 @@
-//! Calendar dates in the proleptic Gregorian calendar, without time or time zone.
+//! Calendar dates in the proleptic Gregorian calendar, times of day, and the two together.
 //!
 //! The arithmetic counts days since 1970-01-01 with Howard Hinnant's civil-calendar
 //! algorithms, which are exact for every date an `i32` year can hold.
+//!
+//! [`Date`] and [`TimeOfDay`] carry no time zone. [`DateTime`] carries the offset from UTC of
+//! the moment it holds, and [`local_offset_minutes`] reads that offset from the system; where the
+//! system does not say, [`local_offset`] returns `None` instead of a made-up zero.
 
+use std::fmt;
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+mod zone;
+
+/// Seconds in a day.
+const DAY: i64 = 86_400;
 
 /// A day of the week.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -72,12 +83,56 @@ impl Date {
         (day >= 1 && day <= days_in_month(year, month)).then_some(Self { year, month, day })
     }
 
-    /// Today in UTC, from the system clock. The framework does not read the local time zone;
-    /// applications that know it can pass their own "today" to date widgets.
+    /// Today in UTC, from the system clock.
     #[must_use]
     pub fn today_utc() -> Self {
-        let seconds = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-        Self::from_days(i64::try_from(seconds / 86_400).unwrap_or(0))
+        Self::from_days(unix_now().div_euclid(DAY))
+    }
+
+    /// Today where the machine stands, from the system clock and the system time zone. Falls back
+    /// to [`Date::today_utc`] where the zone is unknown; [`local_offset`] tells you which it is.
+    #[must_use]
+    pub fn today_local() -> Self {
+        DateTime::now_local().date
+    }
+
+    /// Reads `YYYY-MM-DD`: four or more digits for the year, then two for the month and the day,
+    /// with a leading `-` for a year before the era. The calendar is checked, so 2026-02-30 is an
+    /// error, and surrounding spaces are ignored.
+    ///
+    /// ```
+    /// use qframe::date::Date;
+    ///
+    /// assert_eq!(Date::parse("2026-09-17"), Ok(Date::new(2026, 9, 17).expect("a real day")));
+    /// assert!(Date::parse("2026-02-30").is_err());
+    /// ```
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let trimmed = text.trim();
+        let (negative, digits) = match trimmed.strip_prefix('-') {
+            Some(rest) => (true, rest),
+            None => (false, trimmed),
+        };
+        let mut parts = digits.split('-');
+        let (Some(year), Some(month), Some(day), None) = (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
+            return Err(format!("`{trimmed}` is no date; a date is written YYYY-MM-DD"));
+        };
+        let number = |part: &str, width: usize, exact: bool, name: &str| -> Result<i32, String> {
+            let length = if exact { part.len() == width } else { part.len() >= width };
+            let digits = length && part.chars().all(|c| c.is_ascii_digit());
+            part.parse::<i32>()
+                .ok()
+                .filter(|_| digits)
+                .ok_or_else(|| format!("`{part}` is no {name}; it takes {width} digits"))
+        };
+        let year = number(year, 4, false, "year")?;
+        let month = number(month, 2, true, "month")?;
+        let day = number(day, 2, true, "day")?;
+        let year = if negative { -year } else { year };
+        let parts = u8::try_from(month).ok().zip(u8::try_from(day).ok());
+        parts
+            .and_then(|(month, day)| Self::new(year, month, day))
+            .ok_or_else(|| format!("{trimmed} is not a day this calendar has"))
     }
 
     /// The year.
@@ -164,6 +219,173 @@ impl Date {
     #[must_use]
     pub fn start_of_week(self, start: Weekday) -> Self {
         self.add_days(-i64::from(self.weekday().days_since(start)))
+    }
+}
+
+impl fmt::Display for Date {
+    /// Writes `YYYY-MM-DD`, the form [`Date::parse`] reads. A year before the era keeps its sign
+    /// in front of four digits, and a year of five digits or more is written in full.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (sign, year) = if self.year < 0 { ("-", self.year.unsigned_abs()) } else { ("", self.year.unsigned_abs()) };
+        write!(f, "{sign}{year:04}-{:02}-{:02}", self.month, self.day)
+    }
+}
+
+impl FromStr for Date {
+    type Err = String;
+
+    /// The same as [`Date::parse`].
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::parse(text)
+    }
+}
+
+/// A time of day on a 24-hour clock, with no date and no time zone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct TimeOfDay {
+    /// Hour, 0 to 23.
+    pub hour: u8,
+    /// Minute, 0 to 59.
+    pub minute: u8,
+    /// Second, 0 to 59.
+    pub second: u8,
+}
+
+impl TimeOfDay {
+    /// The last moment of a day, and so the largest value of each part.
+    pub const LARGEST: Self = Self { hour: 23, minute: 59, second: 59 };
+
+    /// The time `hour:minute:second`; each part is capped at its largest value.
+    #[must_use]
+    pub fn new(hour: u8, minute: u8, second: u8) -> Self {
+        Self {
+            hour: hour.min(Self::LARGEST.hour),
+            minute: minute.min(Self::LARGEST.minute),
+            second: second.min(Self::LARGEST.second),
+        }
+    }
+
+    /// Reads `h:mm` or `h:mm:ss` with every part in range; surrounding spaces are ignored and a
+    /// missing second is zero. Out-of-range parts such as `24:00` are `None`, not capped.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let parts: Vec<&str> = text.trim().split(':').collect();
+        if !(2..=3).contains(&parts.len()) {
+            return None;
+        }
+        let largest = [Self::LARGEST.hour, Self::LARGEST.minute, Self::LARGEST.second];
+        let mut values = [0u8; 3];
+        for (index, part) in parts.iter().enumerate() {
+            let valid = (1..=2).contains(&part.len()) && part.chars().all(|c| c.is_ascii_digit());
+            values[index] = part.parse().ok().filter(|value| valid && *value <= largest[index])?;
+        }
+        Some(Self { hour: values[0], minute: values[1], second: values[2] })
+    }
+
+    /// Seconds from midnight, 0 to 86 399.
+    #[must_use]
+    pub fn seconds_since_midnight(self) -> u32 {
+        u32::from(self.hour) * 3_600 + u32::from(self.minute) * 60 + u32::from(self.second)
+    }
+
+    /// The time `seconds` after midnight; a value past the end of a day wraps into the next one.
+    #[must_use]
+    pub fn from_seconds_since_midnight(seconds: u32) -> Self {
+        let seconds = seconds % 86_400;
+        Self {
+            hour: u8::try_from(seconds / 3_600).unwrap_or(0),
+            minute: u8::try_from(seconds / 60 % 60).unwrap_or(0),
+            second: u8::try_from(seconds % 60).unwrap_or(0),
+        }
+    }
+}
+
+impl fmt::Display for TimeOfDay {
+    /// Writes `hh:mm:ss`, the same in every language.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:02}:{:02}:{:02}", self.hour, self.minute, self.second)
+    }
+}
+
+/// A date and a time of day together, with the offset from UTC the moment was read at.
+///
+/// The date and the time are local: they are what a clock on the wall shows. `offset_minutes`
+/// is what turns them back into an instant, which is what [`DateTime::to_unix`] does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DateTime {
+    /// The local date.
+    pub date: Date,
+    /// The local time of day.
+    pub time: TimeOfDay,
+    /// Minutes local time is ahead of UTC; negative west of it.
+    pub offset_minutes: i16,
+}
+
+impl DateTime {
+    /// Now where the machine stands, from the system clock and [`local_offset_minutes`].
+    #[must_use]
+    pub fn now_local() -> Self {
+        Self::from_unix(unix_now(), local_offset_minutes())
+    }
+
+    /// The moment `seconds` after 1970-01-01 00:00 UTC, written in an offset of
+    /// `offset_minutes`.
+    #[must_use]
+    pub fn from_unix(seconds: i64, offset_minutes: i16) -> Self {
+        let local = seconds.saturating_add(i64::from(offset_minutes) * 60);
+        let day_seconds = u32::try_from(local.rem_euclid(DAY)).unwrap_or(0);
+        Self {
+            date: Date::from_days(local.div_euclid(DAY)),
+            time: TimeOfDay::from_seconds_since_midnight(day_seconds),
+            offset_minutes,
+        }
+    }
+
+    /// Seconds since 1970-01-01 00:00 UTC.
+    ///
+    /// ```
+    /// use qframe::date::DateTime;
+    ///
+    /// // Noon in Istanbul is 09:00 UTC.
+    /// let noon = DateTime::from_unix(1_773_997_200, 180);
+    /// assert_eq!(noon.time.to_string(), "12:00:00");
+    /// assert_eq!(noon.to_unix(), 1_773_997_200);
+    /// ```
+    #[must_use]
+    pub fn to_unix(&self) -> i64 {
+        self.date
+            .to_days()
+            .saturating_mul(DAY)
+            .saturating_add(i64::from(self.time.seconds_since_midnight()))
+            .saturating_sub(i64::from(self.offset_minutes) * 60)
+    }
+}
+
+/// Minutes local time is ahead of UTC right now, or `None` when the system does not say.
+///
+/// The offset is read from the system time zone file — what `TZ` names, or `/etc/localtime` —
+/// once per process. `None` means there was no such file or it could not be understood: Windows,
+/// a system with no zone database, or a `TZ` holding a POSIX rule rather than a zone name. An
+/// application that wants to be exact can tell its user the local time is unknown instead of
+/// showing UTC as if it were local.
+#[must_use]
+pub fn local_offset() -> Option<i16> {
+    zone::offset_minutes(unix_now())
+}
+
+/// Minutes local time is ahead of UTC right now, and 0 when the system does not say.
+///
+/// Use [`local_offset`] where the difference between "UTC" and "unknown" matters.
+#[must_use]
+pub fn local_offset_minutes() -> i16 {
+    local_offset().unwrap_or(0)
+}
+
+/// Seconds since 1970-01-01 00:00 UTC, from the system clock; negative before it.
+fn unix_now() -> i64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(since) => i64::try_from(since.as_secs()).unwrap_or(i64::MAX),
+        Err(before) => i64::try_from(before.duration().as_secs()).unwrap_or(i64::MAX).saturating_neg(),
     }
 }
 
@@ -259,5 +481,146 @@ mod tests {
     fn today_is_a_real_date() {
         let today = Date::today_utc();
         assert!(today.year() >= 2024 && Date::new(today.year(), today.month(), today.day()).is_some());
+    }
+
+    #[test]
+    fn reads_and_writes_iso_dates() {
+        assert_eq!(Date::parse("2026-09-17"), Ok(date(2026, 9, 17)));
+        assert_eq!("2026-09-17".parse::<Date>(), Ok(date(2026, 9, 17)));
+        assert_eq!(Date::parse("  2026-09-17\n"), Ok(date(2026, 9, 17)), "spaces around it are ignored");
+        assert_eq!(date(2026, 9, 17).to_string(), "2026-09-17");
+        assert_eq!(date(999, 1, 2).to_string(), "0999-01-02");
+        assert_eq!(Date::parse("-0044-03-15"), Ok(date(-44, 3, 15)));
+        assert_eq!(date(-44, 3, 15).to_string(), "-0044-03-15");
+        for days in (-400_000..400_000).step_by(499) {
+            let value = Date::from_days(days);
+            assert_eq!(Date::parse(&value.to_string()), Ok(value), "{value}");
+        }
+    }
+
+    #[test]
+    fn iso_dates_that_are_no_date_are_refused() {
+        for text in [
+            "",
+            "2026",
+            "2026-09",
+            "2026-09-17-01",
+            "2026/09/17",
+            "20260917",
+            "2026-9-17",
+            "2026-09-7",
+            "2026-09-017",
+            "26-09-17",
+            "2026-aa-17",
+            "2026-09-1x",
+            "2026-13-40",
+            "2026-02-30",
+            "2026-04-31",
+            "2026-00-10",
+            "2026-09-00",
+            "1900-02-29",
+            "+2026-09-17",
+        ] {
+            assert!(Date::parse(text).is_err(), "`{text}` was read as a date");
+        }
+        // Leap years are the calendar's, not a guess.
+        assert_eq!(Date::parse("2024-02-29"), Ok(date(2024, 2, 29)));
+        assert_eq!(Date::parse("2000-02-29"), Ok(date(2000, 2, 29)));
+        assert!(Date::parse("2100-02-29").is_err());
+        // The message names what was wrong.
+        assert!(Date::parse("2026-02-30").is_err_and(|error| error.contains("not a day this calendar has")));
+        assert!(Date::parse("2026-9-17").is_err_and(|error| error.contains("2 digits")));
+    }
+
+    #[test]
+    fn times_of_day_are_capped_read_and_written() {
+        assert_eq!(TimeOfDay::new(25, 70, 90), TimeOfDay::LARGEST);
+        assert_eq!(TimeOfDay::new(9, 30, 0).to_string(), "09:30:00");
+        assert_eq!(TimeOfDay::parse("9:30"), Some(TimeOfDay::new(9, 30, 0)));
+        assert_eq!(TimeOfDay::parse(" 09:30:15 "), Some(TimeOfDay::new(9, 30, 15)));
+        assert_eq!(TimeOfDay::parse("24:00"), None, "out of range is refused, not capped");
+        assert_eq!(TimeOfDay::parse("9"), None);
+        assert_eq!(TimeOfDay::parse("9:30:15:20"), None);
+        assert_eq!(TimeOfDay::parse("nine:thirty"), None);
+        assert_eq!(TimeOfDay::default(), TimeOfDay::new(0, 0, 0));
+        assert!(TimeOfDay::new(9, 30, 0) < TimeOfDay::new(9, 30, 1), "times compare in clock order");
+    }
+
+    #[test]
+    fn seconds_since_midnight_go_both_ways() {
+        assert_eq!(TimeOfDay::new(0, 0, 0).seconds_since_midnight(), 0);
+        assert_eq!(TimeOfDay::LARGEST.seconds_since_midnight(), 86_399);
+        assert_eq!(TimeOfDay::new(9, 30, 15).seconds_since_midnight(), 34_215);
+        for seconds in (0..86_400).step_by(37) {
+            assert_eq!(TimeOfDay::from_seconds_since_midnight(seconds).seconds_since_midnight(), seconds);
+        }
+        assert_eq!(TimeOfDay::from_seconds_since_midnight(86_400), TimeOfDay::new(0, 0, 0), "a day wraps");
+    }
+
+    #[test]
+    fn a_moment_and_its_unix_second_agree() {
+        let epoch = DateTime::from_unix(0, 0);
+        assert_eq!(epoch.date, date(1970, 1, 1));
+        assert_eq!(epoch.time, TimeOfDay::new(0, 0, 0));
+        assert_eq!(epoch.to_unix(), 0);
+
+        // The same instant in Istanbul and in Los Angeles.
+        let istanbul = DateTime::from_unix(1_773_997_200, 180);
+        assert_eq!((istanbul.date.to_string(), istanbul.time.to_string()), ("2026-03-20".into(), "12:00:00".into()));
+        let angeles = DateTime::from_unix(1_773_997_200, -420);
+        assert_eq!((angeles.date.to_string(), angeles.time.to_string()), ("2026-03-20".into(), "02:00:00".into()));
+        assert_eq!(istanbul.to_unix(), angeles.to_unix());
+
+        // An offset can push the local day over either end of the UTC day.
+        let before = DateTime::from_unix(0, -180);
+        assert_eq!((before.date.to_string(), before.time.to_string()), ("1969-12-31".into(), "21:00:00".into()));
+        assert_eq!(before.to_unix(), 0);
+        let after = DateTime::from_unix(-1, 120);
+        assert_eq!((after.date.to_string(), after.time.to_string()), ("1970-01-01".into(), "01:59:59".into()));
+        assert_eq!(after.to_unix(), -1);
+
+        for seconds in (-2_000_000_000..2_000_000_000).step_by(1_000_003) {
+            for offset in [-720, -270, 0, 180, 345, 840] {
+                assert_eq!(DateTime::from_unix(seconds, offset).to_unix(), seconds, "{seconds} at {offset}");
+            }
+        }
+    }
+
+    #[test]
+    fn extreme_unix_seconds_do_not_overflow() {
+        for seconds in [i64::MIN, i64::MIN + 1, i64::MAX - 1, i64::MAX] {
+            for offset in [i16::MIN, -1, 0, 1, i16::MAX] {
+                let moment = DateTime::from_unix(seconds, offset);
+                assert!(Date::new(moment.date.year(), moment.date.month(), moment.date.day()).is_some());
+                let _ = moment.to_unix();
+            }
+        }
+    }
+
+    #[test]
+    fn the_local_offset_is_either_known_or_said_to_be_unknown() {
+        match local_offset() {
+            Some(minutes) => {
+                assert_eq!(local_offset_minutes(), minutes);
+                assert!((-720..=840).contains(&minutes), "{minutes} minutes is no time zone offset");
+            }
+            None => assert_eq!(local_offset_minutes(), 0, "an unknown offset counts as UTC"),
+        }
+    }
+
+    #[test]
+    fn local_today_and_now_agree_with_utc_within_the_offset() {
+        let now = DateTime::now_local();
+        assert_eq!(now.offset_minutes, local_offset_minutes());
+        assert_eq!(Date::today_local(), now.date);
+        let difference = Date::today_local().to_days() - Date::today_utc().to_days();
+        assert!((-1..=1).contains(&difference), "the local day is at most a day from the UTC one");
+        assert!(now.date.year() >= 2024, "{}", now.date);
+        // The offset is exactly what turns the local reading back into the UTC one.
+        let utc = DateTime::from_unix(now.to_unix(), 0);
+        let minutes = (now.date.to_days() - utc.date.to_days()) * 1_440
+            + i64::from(now.time.seconds_since_midnight()) / 60
+            - i64::from(utc.time.seconds_since_midnight()) / 60;
+        assert_eq!(minutes, i64::from(now.offset_minutes));
     }
 }

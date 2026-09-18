@@ -3,12 +3,12 @@
 - `DatePicker::new(Option<Date>)` — seçili tarih.
 - `.on_change(|tarih| msg)` — farklı bir gün seçildiğinde gönderilir.
 - `.placeholder(metin)` — tarih seçilmemişken gösterilir.
-- `.today(Date)` — bugün olarak işaretlenen gün. Varsayılan: `Date::today_utc()`.
+- `.today(Date)` — bugün olarak işaretlenen gün. Varsayılan: `Date::today_local()`, makinenin saatine ve saat dilimine göre bugün.
 - `.disabled(bool)` — odak almaz, açılamaz. Varsayılan: `false`.
 
 ## Date
 
-- `Date::new(yıl, ay, gün) -> Option<Date>`, `Date::today_utc()`, `Date::from_days(n)`.
+- `Date::new(yıl, ay, gün) -> Option<Date>`, `Date::today_local()`, `Date::today_utc()`, `Date::from_days(n)`.
 - `.year()`, `.month()`, `.day()`, `.weekday()`, `.to_days()` (1970-01-01'den beri geçen gün).
 - `.add_days(n)`, `.add_months(n)` (ayın son gününe kırpar), `.first_of_month()`, `.start_of_week(Weekday)`.
 - `date::is_leap_year(yıl)`, `date::days_in_month(yıl, ay)`; `Weekday::ALL`, `.number()`, `Weekday::from_number(n)`, `.days_since(başlangıç)` (`başlangıç` gününden ileri doğru gün sayısı, `0..7`).

@@ -8,7 +8,9 @@ use ratatui_core::style::{Color, Modifier};
 
 use super::app::App;
 use super::engine::{Engine, TaskMode};
-use crate::color::Rgb;
+use super::handoff::{HandoffOutcome, HandoffRequest};
+use super::termination::Termination;
+use crate::color::{ColorDepth, Rgb};
 use crate::env::Env;
 use crate::event::{Event, KeyEvent, MouseButton, MouseEvent, MouseKind};
 use crate::icons::GlyphMode;
@@ -32,6 +34,10 @@ pub struct Harness<A: App> {
 
 impl<A: App> Harness<A> {
     /// A harness with the built-in environment and a `width` × `height` screen, already rendered.
+    ///
+    /// The first frame starts the application as the terminal runtime does: the size reaches
+    /// [`App::resized`], then [`App::init`] runs, so the focus it asks for is in place before the
+    /// first simulated key.
     pub fn new(app: A, width: u16, height: u16) -> Self {
         Self::with_env(app, Env::builtin(), width, height)
     }
@@ -161,10 +167,59 @@ impl<A: App> Harness<A> {
         self.render()
     }
 
-    /// Moves the fake clock forward and renders.
+    /// Moves the fake clock forward and renders. Idleness moves with it: what
+    /// [`View::idle_for`](crate::widget::View::idle_for) reads grows by `duration`, and a
+    /// [`View::on_idle`](crate::widget::View::on_idle) watch whose silence is reached is told.
+    /// Every simulated input (a key, the mouse, a paste) starts the silence again; `send`,
+    /// `resize` and theme or language changes do not.
+    ///
+    /// A termination whose [`Termination::grace`] is over by then quits, as it does in the
+    /// runtime.
     pub fn advance(&mut self, duration: Duration) -> &mut Self {
         self.now += duration;
         self.engine.tick(self.now);
+        self.engine.end_when_due(self.now);
+        self.render()
+    }
+
+    /// Simulates the signal behind `cause`, the way the terminal runtime hears a `SIGTERM` or a
+    /// `SIGHUP`, then renders. The application hears it through
+    /// [`App::terminating`](super::App::terminating) exactly as it would in a terminal, so a test
+    /// can check its answer:
+    ///
+    /// - An answer of `None` quits at once: [`Harness::quit_requested`] is true.
+    /// - A message is applied; the application stays until it quits or until
+    ///   [`Harness::advance`] moves the clock past [`Termination::grace`].
+    /// - Calling this again with [`Termination::Terminate`] quits, as a second signal does. A
+    ///   repeated [`Termination::Hangup`] changes nothing, and one during a pending terminate is
+    ///   told to the application again.
+    ///
+    /// The harness keeps drawing after a hangup, so a test can still read the screen; the
+    /// runtime stops drawing, since the terminal is gone.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    /// use qframe::runtime::Termination;
+    ///
+    /// struct Editor;
+    ///
+    /// impl App for Editor {
+    ///     type Msg = ();
+    ///     fn update(&mut self, (): ()) -> Command<()> {
+    ///         Command::none()
+    ///     }
+    ///     fn view(&self, ui: &mut View<'_, ()>) {
+    ///         ui.add(Text::new("notes.md"));
+    ///     }
+    /// }
+    ///
+    /// // An application that implements nothing quits cleanly on either signal.
+    /// let mut app = Harness::new(Editor, 20, 3);
+    /// app.terminate(Termination::Terminate);
+    /// assert!(app.quit_requested());
+    /// ```
+    pub fn terminate(&mut self, cause: Termination) -> &mut Self {
+        self.engine.terminate(cause, self.now);
         self.render()
     }
 
@@ -195,6 +250,14 @@ impl<A: App> Harness<A> {
         self.render()
     }
 
+    /// Draws as a terminal with `depth` colours would. Cells then carry palette indices instead of
+    /// colours, which [`Harness::fg`] and [`Harness::bg`] cannot read; compare
+    /// [`Harness::buffer`] cells for those.
+    pub fn set_depth(&mut self, depth: ColorDepth) -> &mut Self {
+        self.engine.env.set_depth(depth);
+        self.render()
+    }
+
     /// Switches the glyph column drawn.
     pub fn set_glyph_mode(&mut self, mode: GlyphMode) -> &mut Self {
         self.engine.env.set_glyph_mode(mode);
@@ -203,7 +266,7 @@ impl<A: App> Harness<A> {
 
     /// Resizes the screen to `width` × `height` and renders, as a terminal resize does in the
     /// runtime: the backend hands the engine a fresh, empty buffer of the new size and the next
-    /// frame is drawn in full.
+    /// frame is drawn in full. A new size reaches [`App::resized`] before that frame is built.
     pub fn resize(&mut self, width: u16, height: u16) -> &mut Self {
         self.buffer = Buffer::empty(BufferRect::new(0, 0, width, height));
         self.engine.dirty = true;
@@ -345,6 +408,22 @@ impl<A: App> Harness<A> {
         self
     }
 
+    /// The handoffs of [`Command::handoff`](super::Command::handoff) the application asked for,
+    /// oldest first. A harness has no terminal to hand over, so it records the request and
+    /// answers it with the outcome of [`Harness::set_handoff_outcome`] instead of running the
+    /// program.
+    #[must_use]
+    pub fn handoffs(&self) -> &[HandoffRequest] {
+        self.engine.handoff_requests()
+    }
+
+    /// The outcome every handoff from now on ends with; `Finished { code: Some(0) }` without
+    /// this.
+    pub fn set_handoff_outcome(&mut self, outcome: HandoffOutcome) -> &mut Self {
+        self.engine.set_handoff_outcome(outcome);
+        self
+    }
+
     /// Whether the application asked to quit.
     #[must_use]
     pub fn quit_requested(&self) -> bool {
@@ -408,5 +487,88 @@ mod resize_tests {
         harness.resize(40, 3);
         assert_eq!((harness.buffer().area.width, harness.buffer().area.height), (40, 3));
         assert_eq!(harness.screen(), "container engines\n\n\n");
+    }
+}
+
+#[cfg(test)]
+mod handoff_tests {
+    use std::ffi::OsString;
+
+    use super::Harness;
+    use crate::runtime::{App, Command, Handoff, HandoffOutcome};
+    use crate::widget::View;
+    use crate::widgets::{Button, Text};
+
+    /// Asks for the authorization ticket and shows how the handoff ended.
+    #[derive(Default)]
+    struct Installer {
+        outcomes: Vec<HandoffOutcome>,
+    }
+
+    #[derive(Clone)]
+    enum Msg {
+        Authorize,
+        Done(HandoffOutcome),
+    }
+
+    impl App for Installer {
+        type Msg = Msg;
+        fn update(&mut self, msg: Msg) -> Command<Msg> {
+            match msg {
+                Msg::Authorize => Command::handoff(
+                    Handoff::new("sudo", Msg::Done).arg("-v").notice("Authorizing the installation").pause(false),
+                ),
+                Msg::Done(outcome) => {
+                    self.outcomes.push(outcome);
+                    Command::none()
+                }
+            }
+        }
+        fn view(&self, ui: &mut View<'_, Msg>) {
+            ui.add(Button::new("Authorize").on_press(Msg::Authorize)).id("authorize");
+            let text = match self.outcomes.last() {
+                None => "not asked yet".to_owned(),
+                Some(HandoffOutcome::Finished { code }) => format!("finished {code:?}"),
+                Some(HandoffOutcome::Failed(reason)) => format!("failed {reason}"),
+            };
+            ui.add(Text::new(text));
+        }
+    }
+
+    #[test]
+    fn a_handoff_is_recorded_and_answered_with_the_outcome_the_test_set() {
+        let mut harness = Harness::new(Installer::default(), 40, 3);
+        assert!(harness.handoffs().is_empty(), "nothing was asked for yet");
+        harness.send(Msg::Authorize);
+        let asked = harness.handoffs();
+        assert_eq!(asked.len(), 1);
+        assert_eq!(asked[0].program, OsString::from("sudo"));
+        assert_eq!(asked[0].args, vec![OsString::from("-v")]);
+        assert_eq!(asked[0].notice.as_deref(), Some("Authorizing the installation"));
+        assert!(!asked[0].pause);
+        // No program ran: the outcome the harness holds answered the request.
+        assert_eq!(harness.app().outcomes, [HandoffOutcome::Finished { code: Some(0) }]);
+        assert!(harness.screen().contains("finished Some(0)"), "{}", harness.screen());
+    }
+
+    #[test]
+    fn the_outcome_a_test_sets_reaches_the_application() {
+        let mut harness = Harness::new(Installer::default(), 40, 3);
+        harness.set_handoff_outcome(HandoffOutcome::Finished { code: Some(1) });
+        harness.send(Msg::Authorize);
+        assert_eq!(harness.app().outcomes, [HandoffOutcome::Finished { code: Some(1) }]);
+        harness.set_handoff_outcome(HandoffOutcome::Failed("sudo is not installed".to_owned()));
+        harness.send(Msg::Authorize);
+        assert_eq!(harness.app().outcomes.len(), 2);
+        assert!(harness.screen().contains("failed sudo is not installed"), "{}", harness.screen());
+        assert_eq!(harness.handoffs().len(), 2, "both requests are kept, oldest first");
+    }
+
+    #[test]
+    fn several_handoffs_are_answered_one_after_another() {
+        let mut harness = Harness::new(Installer::default(), 40, 3);
+        harness.send(Msg::Authorize).send(Msg::Authorize).send(Msg::Authorize);
+        assert_eq!(harness.handoffs().len(), 3);
+        assert_eq!(harness.app().outcomes.len(), 3);
     }
 }

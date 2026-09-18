@@ -1,6 +1,7 @@
 //! Time of day entry.
 
 use super::edit_menu::{self, EditAction, TextMenu};
+use crate::date::TimeOfDay;
 use crate::event::{Event, KeyEvent, MouseButton, MouseKind};
 use crate::geometry::{Rect, Size};
 use crate::keymap::{Key, Modifiers, Scope};
@@ -13,58 +14,23 @@ use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
 const SEGMENT: u16 = 4;
 
 /// Largest value of the hour, minute and second segments.
-const MAX: [u8; 3] = [23, 59, 59];
+const MAX: [u8; 3] = [TimeOfDay::LARGEST.hour, TimeOfDay::LARGEST.minute, TimeOfDay::LARGEST.second];
 
-/// A time of day on a 24-hour clock.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct TimeOfDay {
-    /// Hour, 0 to 23.
-    pub hour: u8,
-    /// Minute, 0 to 59.
-    pub minute: u8,
-    /// Second, 0 to 59.
-    pub second: u8,
+/// The hour, minute or second of `time`, by segment index.
+fn part(time: TimeOfDay, index: usize) -> u8 {
+    [time.hour, time.minute, time.second][index]
 }
 
-impl TimeOfDay {
-    /// The time `hour:minute:second`; each part is capped at its largest value.
-    #[must_use]
-    pub fn new(hour: u8, minute: u8, second: u8) -> Self {
-        Self { hour: hour.min(MAX[0]), minute: minute.min(MAX[1]), second: second.min(MAX[2]) }
-    }
+/// `time` with the segment at `index` set to `value`, capped at the segment's largest value.
+fn with_part(time: TimeOfDay, index: usize, value: u8) -> TimeOfDay {
+    let mut parts = [time.hour, time.minute, time.second];
+    parts[index] = value.min(MAX[index]);
+    TimeOfDay { hour: parts[0], minute: parts[1], second: parts[2] }
+}
 
-    fn part(self, index: usize) -> u8 {
-        [self.hour, self.minute, self.second][index]
-    }
-
-    fn with_part(self, index: usize, value: u8) -> Self {
-        let mut parts = [self.hour, self.minute, self.second];
-        parts[index] = value.min(MAX[index]);
-        Self { hour: parts[0], minute: parts[1], second: parts[2] }
-    }
-
-    /// `hh:mm`, or `hh:mm:ss` with `seconds`.
-    fn write(self, seconds: bool) -> String {
-        if seconds {
-            format!("{:02}:{:02}:{:02}", self.hour, self.minute, self.second)
-        } else {
-            format!("{:02}:{:02}", self.hour, self.minute)
-        }
-    }
-
-    /// Reads `h:mm` or `h:mm:ss` with every part in range; surrounding spaces are ignored.
-    fn parse(text: &str) -> Option<Self> {
-        let parts: Vec<&str> = text.trim().split(':').collect();
-        if !(2..=3).contains(&parts.len()) {
-            return None;
-        }
-        let mut values = [0u8; 3];
-        for (index, part) in parts.iter().enumerate() {
-            let valid = (1..=2).contains(&part.len()) && part.chars().all(|c| c.is_ascii_digit());
-            values[index] = part.parse().ok().filter(|value| valid && *value <= MAX[index])?;
-        }
-        Some(Self { hour: values[0], minute: values[1], second: values[2] })
-    }
+/// `hh:mm`, or `hh:mm:ss` with `seconds`: what the field shows and copies.
+fn write(time: TimeOfDay, seconds: bool) -> String {
+    if seconds { time.to_string() } else { format!("{:02}:{:02}", time.hour, time.minute) }
 }
 
 /// Builds a message from a new time.
@@ -189,7 +155,7 @@ impl<Msg> TimeInput<Msg> {
         if complete && segment < last {
             memory.segment = segment + 1;
         }
-        self.change(cx, self.value.with_part(segment, value));
+        self.change(cx, with_part(self.value, segment, value));
     }
 
     /// Moves segment `segment` one up or down, wrapping around (23 → 00).
@@ -202,8 +168,8 @@ impl<Msg> TimeInput<Msg> {
         }
         let span = u16::from(MAX[segment]) + 1;
         let delta = if up { 1 } else { span - 1 };
-        let value = (u16::from(self.value.part(segment)) + delta) % span;
-        self.change(cx, self.value.with_part(segment, u8::try_from(value).unwrap_or(0)));
+        let value = (u16::from(part(self.value, segment)) + delta) % span;
+        self.change(cx, with_part(self.value, segment, u8::try_from(value).unwrap_or(0)));
     }
 
     /// The segment whose cells include column `offset` of the field; `None` over a colon or past
@@ -241,7 +207,7 @@ impl<Msg> TimeInput<Msg> {
         let all = std::mem::take(&mut cx.memory::<TimeMemory>().all);
         match action {
             EditAction::Cut | EditAction::Copy if all => {
-                cx.copy(self.value.write(self.seconds));
+                cx.copy(write(self.value, self.seconds));
                 if action == EditAction::Cut {
                     self.change(cx, TimeOfDay::default());
                 }
@@ -354,7 +320,7 @@ impl<Msg: 'static> Widget<Msg> for TimeInput<Msg> {
             if let Some(bg) = style.bg {
                 cx.clear(rect, bg);
             }
-            let digits = format!("{:02}", self.value.part(index));
+            let digits = format!("{:02}", part(self.value, index));
             let text_style = CellStyle { bg: None, fg: style.fg.or(surface.fg), ..style };
             cx.text(x + 1, field.y, &digits, text_style, text::width(&digits).min(rect.width.saturating_sub(1)));
         }
@@ -413,7 +379,7 @@ impl<Msg: 'static> Widget<Msg> for TimeInput<Msg> {
                 }
                 if key.is_plain(Key::Backspace) {
                     cx.memory::<TimeMemory>().pending = None;
-                    self.change(cx, self.value.with_part(segment, 0));
+                    self.change(cx, with_part(self.value, segment, 0));
                     return true;
                 }
                 match key.text {

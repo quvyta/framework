@@ -1,9 +1,9 @@
 ## Methods
 
-- `FilePicker::new(&browser, wrap)` — `wrap` turns a `FilePickerMsg` into your message, e.g. `Msg::Picker`.
+- `FilePicker::new(&browser, wrap)` — `wrap` turns a `FilePickerMsg` into your message: a function such as `Msg::Picker`, or a closure that captures what it needs, such as a screen's own conversion (`move |m| Msg::Tab(index, m)`). Any `Fn(FilePickerMsg) -> Msg + 'static`.
 - `.show(ui)` — adds the picker as a column and returns its node for sizing.
 - `FileBrowser::new(folder, PickMode)`, `.extensions(list)`.
-- `.open(folder, wrap)` and `.update(message, wrap)` — both return the command that reads folders.
+- `.open(folder, wrap)` and `.update(message, wrap)` — both return the command that reads folders. `wrap` runs once on the thread that read the folder: any `FnOnce(FilePickerMsg) -> Msg + Send + 'static`, the same function or closure the picker takes.
 - `.folder()` (the folder shown), `.loading()` (the folder being read, if any), `.shows_hidden()`, `.selected_path()`.
 - `FilePickerMsg::Open(path) | Loaded(path, listing) | Select(Option<name>) | Filter(text) | ShowHidden(bool) | Refresh | Chosen(path)`.
 - `PickMode::Files | Folders`; `read_folder(path) -> Listing`; `FileEntry` (`name`, `is_folder`, `size`, `is_hidden`); `ListingError::PermissionDenied | NotFound | NotAFolder | Other(text)`.

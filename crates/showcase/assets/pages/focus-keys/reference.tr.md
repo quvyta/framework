@@ -22,6 +22,7 @@
 - `Scope::Global`, `Scope::App`, `scope.label_key(eylem)`.
 - `KeyChord`, `"ctrl+shift+p"` metnini okur; `.label()` `ctrl shift p` verir.
 - `Runtime::keymap_file(yol)` — gömülü haritanın üstüne bir dosya ekler.
+- `Runtime::keymap_source(dosya, metin)` — metin olarak verilen, örneğin bir `include_str!` olan haritayı ekler; kurulan ikili tuşlarını kendi taşır, yanında dosyaya gerek kalmaz. `keymap_file`'dan sonra gelir ve kazanır; ayrıca verilen dosya artık zorunlu değildir: okunamadığında metin onun yerine geçer ve sebep, programı durdurmak yerine bir tanılamaya dönüşür.
 
 ## Dil anahtarları
 

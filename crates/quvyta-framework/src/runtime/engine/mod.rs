@@ -4,7 +4,9 @@
 //! Keys, the pointer, focus and layers, and the clipboard each have a module of their own.
 
 mod clipboard;
+mod ending;
 mod focus;
+mod idle;
 mod keys;
 mod pointer;
 
@@ -16,6 +18,7 @@ use std::time::{Duration, Instant};
 use ratatui_core::buffer::Buffer;
 
 use self::clipboard::ClipboardRead;
+use self::idle::Idle;
 use self::pointer::PointerRepeat;
 
 use super::app::App;
@@ -23,16 +26,19 @@ use super::clipboard::ClipboardReader;
 use super::command::{Action, Command};
 use super::confirm::{Confirm, ConfirmLayer};
 use super::debug;
+use super::handoff::{Handoff, HandoffOutcome, HandoffRequest};
 use super::selection::{Press, Selection};
 use super::selection_menu::{self, SelectionMenu};
 use super::task::{self, Delivery, TaskClock};
+use super::termination::Ending;
 use crate::env::Env;
 use crate::event::{Event, MouseButton, MouseKind};
-use crate::geometry::Rect;
+use crate::geometry::{Rect, Size};
 use crate::i18n;
 use crate::keymap::Key;
 use crate::widget::{
-    Axis, Effects, EventCx, Flex, Frame, Interaction, Key as NodeKey, Length, Memory, Node, PaintCx, View, WidgetId,
+    Axis, Effects, EventCx, Flex, Frame, IdleScope, Interaction, Key as NodeKey, Length, Memory, Node, PaintCx, View,
+    WidgetId,
 };
 use crate::widgets::ToastStack;
 
@@ -94,6 +100,13 @@ pub(crate) struct Engine<A: App> {
     /// and work whose thread could not start. Each round runs only what was queued before it,
     /// so work that performs again waits for the next round instead of recursing.
     queued_work: Vec<Work<A::Msg>>,
+    /// Handoffs waiting for the loop that owns the terminal, oldest first. The engine never
+    /// touches the terminal itself, so it only queues them.
+    handoffs: Vec<Handoff<A::Msg>>,
+    /// Handoffs a harness recorded instead of running, oldest first.
+    handoff_requests: Vec<HandoffRequest>,
+    /// The outcome a harness gives every handoff.
+    handoff_outcome: HandoffOutcome,
     /// Starts the threads of performs and tasks; tests swap in one that fails.
     pub(crate) spawner: task::Spawner,
     pub(crate) clipboard: Vec<String>,
@@ -111,8 +124,16 @@ pub(crate) struct Engine<A: App> {
     pub(crate) terminal_query: bool,
     /// The time of the latest input, frame or tick, for work that finishes between them.
     clock: Duration,
+    /// When the user last did something, and the silences the view watches.
+    idle: Idle<A::Msg>,
+    /// Whether [`App::init`] ran; it runs at the start of the first frame.
+    started: bool,
+    /// The screen size last reported through [`App::resized`].
+    screen: Option<Size>,
     pub(crate) dirty: bool,
     pub(crate) quit: bool,
+    /// A termination the application was told about, until the run ends.
+    ending: Option<Ending>,
     pub(crate) debug: bool,
     pub(crate) stats: Stats,
 }
@@ -144,6 +165,9 @@ impl<A: App> Engine<A> {
             task_mode,
             pending_tasks: 0,
             queued_work: Vec::new(),
+            handoffs: Vec::new(),
+            handoff_requests: Vec::new(),
+            handoff_outcome: HandoffOutcome::Finished { code: Some(0) },
             spawner: task::spawn_thread,
             clipboard: Vec::new(),
             clipboard_text: None,
@@ -157,8 +181,12 @@ impl<A: App> Engine<A> {
             clipboard_reads: Vec::new(),
             terminal_query: false,
             clock: Duration::ZERO,
+            idle: Idle::default(),
+            started: false,
+            screen: None,
             dirty: true,
             quit: false,
+            ending: None,
             debug: false,
             stats: Stats::default(),
         }
@@ -167,10 +195,16 @@ impl<A: App> Engine<A> {
     /// Builds the view and paints it into `buf`.
     pub(crate) fn render(&mut self, buf: &mut Buffer, now: Duration) {
         let started = Instant::now();
+        let size = Size::new(buf.area.width, buf.area.height);
+        self.clock = now;
+        self.begin_frame(size);
+        // A silence the view watches may have been reached: its message changes what is built.
+        self.wake_idle(now);
         self.memory.begin_frame();
         let mut selection_copy = None;
-        let root = self.build_tree();
-        self.clock = now;
+        let idle = self.idle.scope(now);
+        let root = self.build_tree(size, &idle);
+        self.idle.settle(idle, now);
         self.selection_menu =
             self.selection.is_some().then(|| root.id.child(&NodeKey::Named(selection_menu::NAME.to_owned()), ""));
 
@@ -201,10 +235,10 @@ impl<A: App> Engine<A> {
                         continue;
                     };
                     cx.id = id;
-                    cx.layout = node.layout;
+                    cx.layout = node.layout();
                     cx.scope = cx.frame.scopes.get(&id).copied();
                     cx.clip = screen;
-                    node.widget.paint_overlay(&mut cx, anchor);
+                    node.paint_overlay(&mut cx, anchor);
                 }
                 cx.id = WidgetId::ROOT;
                 cx.clip = screen;
@@ -221,9 +255,9 @@ impl<A: App> Engine<A> {
                 }
                 // The selection's menu opens over the highlight it acts on.
                 if let Some(node) = self.selection_menu.and_then(|id| root.find(id)) {
-                    cx.id = node.id;
-                    cx.layout = node.layout;
-                    node.widget.paint_overlay(&mut cx, screen);
+                    cx.id = node.id();
+                    cx.layout = node.layout();
+                    node.paint_overlay(&mut cx, screen);
                     cx.id = WidgetId::ROOT;
                 }
                 self.toasts.paint(&mut cx);
@@ -235,25 +269,73 @@ impl<A: App> Engine<A> {
         self.memory.end_frame();
         self.tree = Some(root);
         self.spare_frame = std::mem::replace(&mut self.frame, frame);
+        // Settling what this frame showed can change what the next one looks like, such as the
+        // focus a command asked for landing on a widget that just appeared; each such change
+        // asks for that frame.
+        self.dirty = false;
         self.settle_layers(now);
         self.settle_openers();
         self.settle_interaction();
         self.apply_focus_request();
         self.stats.frames += 1;
         self.stats.paint_time = started.elapsed();
-        self.dirty = false;
         if let Some(text) = selection_copy.filter(|text| !text.is_empty()) {
             self.copy_from_ui(text);
         }
     }
 
-    /// The tree of this frame with ids assigned: the application's view filling the screen, then
-    /// the layers the runtime adds itself.
-    fn build_tree(&self) -> Node<A::Msg> {
+    /// The lifecycle hooks due before a frame of `size` is built: the size when it is new, then,
+    /// on the first frame only, [`App::init`]. Both come before the view, so the frame already
+    /// shows what they changed, and before any input is read, so a focus `init` asks for is in
+    /// place for the first key.
+    fn begin_frame(&mut self, size: Size) {
+        if self.screen != Some(size) {
+            self.screen = Some(size);
+            let message = {
+                let app = &self.app;
+                i18n::scope(self.env.i18n_arc(), || app.resized(size))
+            };
+            if let Some(message) = message {
+                self.update(message);
+            }
+        }
+        if !self.started {
+            self.started = true;
+            let command = {
+                let app = &mut self.app;
+                i18n::scope(self.env.i18n_arc(), || app.init())
+            };
+            self.run(command);
+        }
+    }
+
+    /// Quits on the user's behalf, unless the application answers [`App::before_quit`] with a
+    /// message; that message is applied instead and the application stays. Every quit the
+    /// runtime starts for the user goes through here; a quit the system asks for with a signal
+    /// goes through `Engine::terminate`, and [`Command::quit`] is the application's own decision
+    /// and goes through neither.
+    pub(crate) fn ask_to_quit(&mut self) {
+        if self.quit {
+            return;
+        }
+        let message = {
+            let app = &self.app;
+            i18n::scope(self.env.i18n_arc(), || app.before_quit())
+        };
+        match message {
+            Some(message) => self.update(message),
+            None => self.quit = true,
+        }
+    }
+
+    /// The tree of this frame with ids assigned: the application's view filling the `screen`,
+    /// then the layers the runtime adds itself. The view reads idleness from `idle` and declares
+    /// its watches there.
+    fn build_tree(&self, screen: Size, idle: &IdleScope<A::Msg>) -> Node<A::Msg> {
         let mut nodes = Vec::new();
         let env = &self.env;
         let app = &self.app;
-        i18n::scope(env.i18n_arc(), || app.view(&mut View::new(&mut nodes, env)));
+        i18n::scope(env.i18n_arc(), || app.view(&mut View::new(&mut nodes, env, screen, idle)));
         // A pending confirmation is a runtime-owned layer after the application's view; every
         // question gets its own id, so the next one opens fresh with Cancel focused.
         if let Some((serial, confirm)) = self.confirms.last() {
@@ -277,6 +359,7 @@ impl<A: App> Engine<A> {
     /// Handles one input event at `now`.
     pub(crate) fn handle(&mut self, event: Event, now: Duration) {
         self.clock = now;
+        self.note_input(&event, now);
         match &event {
             Event::Key(_) => self.interaction.focus_by_pointer = false,
             Event::Mouse(mouse) if matches!(mouse.kind, MouseKind::Down(_)) => {
@@ -313,7 +396,7 @@ impl<A: App> Engine<A> {
                     now,
                     persistent: self.frame.scopes.contains_key(id),
                 };
-                node.widget.event(&mut cx, event)
+                node.event(&mut cx, event)
             };
             let (run_action, answer) = (effects.run_action.clone(), effects.answer);
             self.apply_effects(*id, effects, handled, now);
@@ -385,6 +468,11 @@ impl<A: App> Engine<A> {
             let app = &mut self.app;
             i18n::scope(self.env.i18n_arc(), || app.update(message))
         };
+        self.run(command);
+    }
+
+    /// Runs the work of a command the application returned.
+    fn run(&mut self, command: Command<A::Msg>) {
         self.dirty = true;
         for action in command.actions {
             match action {
@@ -421,6 +509,17 @@ impl<A: App> Engine<A> {
                     }
                 }
                 Action::CancelTask(id) => self.task_clock.cancel(id),
+                Action::Handoff(handoff) => match self.task_mode {
+                    // No terminal to hand over: the request is recorded and the outcome the test
+                    // set answers it, from the loop like perform work so the message arrives in
+                    // a later update.
+                    TaskMode::Inline => {
+                        self.handoff_requests.push(handoff.request());
+                        let outcome = self.handoff_outcome.clone();
+                        self.queued_work.push(Box::new(move || handoff.finish(outcome)));
+                    }
+                    TaskMode::Threads => self.handoffs.push(handoff),
+                },
             }
         }
     }
@@ -448,6 +547,25 @@ impl<A: App> Engine<A> {
         } else if let Some(work) = slot.lock().ok().and_then(|mut slot| slot.take()) {
             self.queued_work.push(work);
         }
+    }
+
+    /// The handoff waiting longest, taken out of the queue. The loop that owns the terminal
+    /// calls this until it returns `None`, so several handoffs run one after another.
+    pub(crate) fn take_handoff(&mut self) -> Option<Handoff<A::Msg>> {
+        let handoff = (!self.handoffs.is_empty()).then(|| self.handoffs.remove(0))?;
+        // The user works in the program that gets the terminal, so its end counts as input.
+        self.idle.handing_off();
+        Some(handoff)
+    }
+
+    /// Handoffs a harness recorded, oldest first.
+    pub(crate) fn handoff_requests(&self) -> &[HandoffRequest] {
+        &self.handoff_requests
+    }
+
+    /// Sets the outcome a harness answers every handoff with.
+    pub(crate) fn set_handoff_outcome(&mut self, outcome: HandoffOutcome) {
+        self.handoff_outcome = outcome;
     }
 
     /// Whether perform work waits for [`Engine::run_queued_work`].
@@ -666,6 +784,74 @@ mod tests {
             std::thread::yield_now();
         }
         assert_eq!(engine.pending_tasks, 0, "the loop would otherwise keep waking up for it");
+    }
+
+    /// Asks for a handoff per message and remembers what came back.
+    #[derive(Default)]
+    struct Steps {
+        asked: Vec<&'static str>,
+        ended: Vec<crate::runtime::HandoffOutcome>,
+    }
+
+    #[derive(Clone)]
+    enum Step {
+        Hand(&'static str),
+        Back(crate::runtime::HandoffOutcome),
+    }
+
+    impl App for Steps {
+        type Msg = Step;
+        fn update(&mut self, msg: Step) -> Command<Step> {
+            match msg {
+                Step::Hand(program) => {
+                    self.asked.push(program);
+                    Command::handoff(crate::runtime::Handoff::new(program, Step::Back))
+                }
+                Step::Back(outcome) => {
+                    self.ended.push(outcome);
+                    Command::none()
+                }
+            }
+        }
+        fn view(&self, _ui: &mut View<'_, Step>) {}
+    }
+
+    /// The engine owns no terminal, so a handoff waits in its queue for the loop that does, and
+    /// the loop runs the queued handoffs one after another.
+    #[test]
+    fn handoffs_wait_for_the_loop_and_run_in_the_order_they_were_asked_for() {
+        use std::io;
+
+        use crate::runtime::HandoffOutcome;
+
+        let mut engine = super::Engine::new(Steps::default(), crate::env::Env::builtin(), super::TaskMode::Threads);
+        engine.update(Step::Hand("true"));
+        engine.update(Step::Hand("false"));
+        assert_eq!(engine.app.ended, [], "nothing ran while the engine held them");
+        engine.dirty = false;
+        let mut programs = Vec::new();
+        while let Some(handoff) = engine.take_handoff() {
+            programs.push(handoff.request().program);
+            // The loop's screen, without a terminal behind it.
+            let mut release = |_: Option<&str>| -> io::Result<()> { Ok(()) };
+            let mut take = || -> io::Result<()> { Ok(()) };
+            let mut wait_for_key = || -> io::Result<()> { Ok(()) };
+            let screen = &mut crate::runtime::handoff::HandoffScreen {
+                release: &mut release,
+                take: &mut take,
+                wait_for_key: &mut wait_for_key,
+            };
+            let message = crate::runtime::handoff::run(handoff, screen);
+            engine.dirty = true;
+            engine.update(message);
+        }
+        assert_eq!(programs, ["true", "false"].map(std::ffi::OsString::from));
+        assert_eq!(
+            engine.app.ended,
+            [HandoffOutcome::Finished { code: Some(0) }, HandoffOutcome::Finished { code: Some(1) }],
+            "each program's own exit code came back, in the order they were asked for"
+        );
+        assert!(engine.dirty, "the screen the program wrote over is drawn again in full");
     }
 
     #[test]

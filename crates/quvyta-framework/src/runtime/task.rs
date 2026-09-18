@@ -13,6 +13,8 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use super::command::MapFn;
+
 /// Identifies one task for its whole life. Ids are unique within the process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TaskId(u64);
@@ -76,6 +78,10 @@ impl TaskEvent {
 
 type Work<Msg> = Box<dyn FnOnce(&TaskCx<Msg>) -> Result<Msg, String> + Send>;
 type EventMessage<Msg> = Arc<dyn Fn(TaskEvent) -> Msg + Send + Sync>;
+/// Hands a message of running work to the event loop.
+type Deliver<Msg> = Arc<dyn Fn(Msg) + Send + Sync>;
+/// Hands a task event, already turned into a message, to the event loop.
+type Report = Arc<dyn Fn(TaskEvent) + Send + Sync>;
 
 /// Work to run in the background with progress, cancellation and an outcome.
 ///
@@ -137,6 +143,28 @@ impl<Msg: Send + 'static> Task<Msg> {
     #[must_use]
     pub fn label(&self) -> &str {
         &self.label
+    }
+
+    /// The same task delivering `map(message)` for every message it would deliver: its result,
+    /// what the work sends while it runs and its events.
+    pub(crate) fn map<B: Send + 'static>(self, map: MapFn<Msg, B>) -> Task<B> {
+        let Self { id, label, work, on_event } = self;
+        let on_event = on_event.map(|message| {
+            let map = Arc::clone(&map);
+            Arc::new(move |event| map(message(event))) as EventMessage<B>
+        });
+        let work: Work<B> = Box::new(move |cx: &TaskCx<B>| {
+            let deliver = Arc::clone(&cx.deliver);
+            let inner_map = Arc::clone(&map);
+            let inner = TaskCx {
+                id: cx.id,
+                clock: Arc::clone(&cx.clock),
+                deliver: Arc::new(move |message| deliver(inner_map(message))),
+                report: cx.report.clone(),
+            };
+            work(&inner).map(|message| map(message))
+        });
+        Task { id, label, work, on_event }
     }
 }
 
@@ -274,8 +302,10 @@ impl TaskClock {
 pub struct TaskCx<Msg> {
     id: TaskId,
     clock: Arc<TaskClock>,
-    sender: Sender<Delivery<Msg>>,
-    on_event: Option<EventMessage<Msg>>,
+    deliver: Deliver<Msg>,
+    /// Events go out as messages of the application's type, which a task built for another
+    /// message type ([`Command::map`](crate::runtime::Command::map)) does not know.
+    report: Option<Report>,
 }
 
 impl<Msg: Send + 'static> TaskCx<Msg> {
@@ -297,7 +327,7 @@ impl<Msg: Send + 'static> TaskCx<Msg> {
 
     /// Delivers `message` to the application while the work goes on, e.g. a log line.
     pub fn send(&self, message: Msg) {
-        let _ = self.sender.send(Delivery::Message(message));
+        (self.deliver)(message);
     }
 
     /// Whether the application asked this task to stop. Long work should check it and return.
@@ -314,8 +344,8 @@ impl<Msg: Send + 'static> TaskCx<Msg> {
     }
 
     fn event(&self, event: TaskEvent) {
-        if let Some(message) = &self.on_event {
-            self.send(message(event));
+        if let Some(report) = &self.report {
+            report(event);
         }
     }
 }
@@ -342,7 +372,16 @@ pub(crate) fn spawn<Msg: Send + 'static>(
     let Task { id, label, work, on_event } = task;
     let started = on_event.as_ref().map(|message| message(TaskEvent::Started { id, label: label.clone() }));
     let failed = on_event.clone();
-    let cx = TaskCx { id, clock: Arc::clone(clock), sender: sender.clone(), on_event };
+    let outlet = sender.clone();
+    let deliver: Deliver<Msg> = Arc::new(move |message| {
+        let _ = outlet.send(Delivery::Message(message));
+    });
+    let report = on_event.map(|message| {
+        let deliver = Arc::clone(&deliver);
+        Arc::new(move |event| deliver(message(event))) as Report
+    });
+    let cx = TaskCx { id, clock: Arc::clone(clock), deliver, report };
+    let ended = sender.clone();
     clock.begin(id);
     let run = Box::new(move || {
         let result = catch_unwind(AssertUnwindSafe(|| work(&cx)))
@@ -355,8 +394,11 @@ pub(crate) fn spawn<Msg: Send + 'static>(
             }
             Err(reason) => TaskOutcome::Failed(reason),
         };
-        cx.event(TaskEvent::Finished { id, outcome });
-        let _ = cx.sender.send(Delivery::Ended);
+        // The event's message is the application's code (and a conversion of `Command::map`);
+        // if it panics there is nothing left to tell, but the task must still end, or the
+        // runtime would wait for it forever.
+        let _ = catch_unwind(AssertUnwindSafe(|| cx.event(TaskEvent::Finished { id, outcome })));
+        let _ = ended.send(Delivery::Ended);
         cx.clock.end(id);
     });
     if spawner(format!("quvyta-task-{}", id.0), run).is_err() {
@@ -568,6 +610,37 @@ mod tests {
         assert_eq!(entry.outcome, Some(TaskOutcome::Failed("could not start a thread".into())));
         assert_eq!((engine.app.tasks.running(), engine.pending_tasks), (0, 0));
         assert!(engine.app.built.is_none());
+    }
+
+    /// Starts, on `Some(())`, a task whose event message panics once the task finishes.
+    struct Fragile;
+
+    impl App for Fragile {
+        type Msg = Option<()>;
+        fn update(&mut self, start: Option<()>) -> Command<Option<()>> {
+            if start.is_none() {
+                return Command::none();
+            }
+            Command::task(Task::new("Fragile", |_| Ok(None)).on_event(|event| match event {
+                TaskEvent::Finished { .. } => panic!("the message of the outcome failed"),
+                _ => None,
+            }))
+        }
+        fn view(&self, ui: &mut View<'_, Option<()>>) {
+            ui.add(Text::new("fragile"));
+        }
+    }
+
+    #[test]
+    fn a_task_whose_last_event_message_panics_still_ends() {
+        let mut engine = Engine::new(Fragile, crate::env::Env::builtin(), TaskMode::Threads);
+        engine.update(Some(()));
+        let started = Instant::now();
+        while engine.pending_tasks > 0 {
+            assert!(started.elapsed() < Duration::from_secs(10), "the runtime waits for the task forever");
+            engine.poll_tasks();
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[test]

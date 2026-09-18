@@ -1,9 +1,9 @@
 ## Metotlar
 
-- `FilePicker::new(&tarayıcı, sar)` — `sar` bir `FilePickerMsg`'yi senin mesajına çevirir, örneğin `Msg::Picker`.
+- `FilePicker::new(&tarayıcı, sar)` — `sar` bir `FilePickerMsg`'yi senin mesajına çevirir: `Msg::Picker` gibi bir fonksiyon ya da ihtiyacını yakalayan bir kapanış, örneğin bir ekranın kendi dönüşümü (`move |m| Msg::Tab(sıra, m)`). Herhangi bir `Fn(FilePickerMsg) -> Msg + 'static`.
 - `.show(ui)` — seçiciyi bir sütun olarak ekler ve boyutlandırmak için düğümünü döndürür.
 - `FileBrowser::new(klasör, PickMode)`, `.extensions(liste)`.
-- `.open(klasör, sar)` ve `.update(mesaj, sar)` — ikisi de klasörleri okuyan komutu döndürür.
+- `.open(klasör, sar)` ve `.update(mesaj, sar)` — ikisi de klasörleri okuyan komutu döndürür. `sar` klasörü okuyan iş parçacığında bir kez çalışır: herhangi bir `FnOnce(FilePickerMsg) -> Msg + Send + 'static`, seçicinin aldığı aynı fonksiyon ya da kapanış.
 - `.folder()` (gösterilen klasör), `.loading()` (okunmakta olan klasör, varsa), `.shows_hidden()`, `.selected_path()`.
 - `FilePickerMsg::Open(yol) | Loaded(yol, liste) | Select(Option<ad>) | Filter(metin) | ShowHidden(bool) | Refresh | Chosen(yol)`.
 - `PickMode::Files | Folders`; `read_folder(yol) -> Listing`; `FileEntry` (`name`, `is_folder`, `size`, `is_hidden`); `ListingError::PermissionDenied | NotFound | NotAFolder | Other(metin)`.

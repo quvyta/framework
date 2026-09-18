@@ -68,6 +68,8 @@ pub struct SettingsRows<'a, Msg> {
     entries: Vec<Entry<Msg>>,
     controls: Vec<Node<Msg>>,
     env: &'a crate::env::Env,
+    size: crate::geometry::Size,
+    idle: &'a crate::widget::IdleScope<Msg>,
 }
 
 impl<Msg: 'static> SettingsRows<'_, Msg> {
@@ -81,7 +83,7 @@ impl<Msg: 'static> SettingsRows<'_, Msg> {
     /// one control and passes keys to the selected row.
     pub fn row(&mut self, row: SettingRow<Msg>, control: impl FnOnce(&mut View<'_, Msg>)) {
         let mut children = Vec::new();
-        control(&mut View::new(&mut children, self.env));
+        control(&mut View::new(&mut children, self.env, self.size, self.idle));
         let index = self.controls.len();
         self.controls.push(Node::new(Flex::new(Axis::Row, children), index));
         self.entries.push(Entry::Row(row, index));
@@ -127,7 +129,13 @@ impl<Msg: Clone + 'static> SettingsList<Msg> {
     /// Adds a settings list with the headings and rows `build` adds to `ui`.
     pub fn show<'v>(ui: &'v mut View<'_, Msg>, build: impl FnOnce(&mut SettingsRows<'_, Msg>)) -> NodeMut<'v, Msg> {
         let (entries, controls) = {
-            let mut rows = SettingsRows { entries: Vec::new(), controls: Vec::new(), env: ui.env() };
+            let mut rows = SettingsRows {
+                entries: Vec::new(),
+                controls: Vec::new(),
+                env: ui.env(),
+                size: ui.size(),
+                idle: ui.idle_scope(),
+            };
             build(&mut rows);
             (rows.entries, rows.controls)
         };

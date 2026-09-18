@@ -22,6 +22,7 @@
 - `Scope::Global`, `Scope::App`, `scope.label_key(action)`.
 - `KeyChord` parses `"ctrl+shift+p"`; `.label()` gives `ctrl shift p`.
 - `Runtime::keymap_file(path)` — layer a file over the built-in keymap.
+- `Runtime::keymap_source(file, text)` — layer a keymap given as text, such as an `include_str!`, so an installed binary carries its keys and needs no file beside it. It wins over `keymap_file`, and a file named as well is then optional: when it cannot be read the text stands in for it and the reason becomes a diagnostic instead of stopping the program.
 
 ## Locale keys
 

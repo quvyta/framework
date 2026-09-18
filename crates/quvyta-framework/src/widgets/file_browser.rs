@@ -211,10 +211,14 @@ impl FileBrowser {
     /// Reads `folder` in the background and goes there when it has been read; `wrap` turns
     /// picker messages into yours. The folder shown stays until then, and a later `open` makes
     /// the answer of this one stale.
+    ///
+    /// `wrap` is a function such as `Msg::Picker` or a closure that captures what it needs. It
+    /// runs once, on the background thread that read the folder, so it must be `Send`; it is
+    /// never copied, so it need not be `Clone`.
     pub fn open<Msg: Send + 'static>(
         &mut self,
         folder: impl Into<PathBuf>,
-        wrap: fn(FilePickerMsg) -> Msg,
+        wrap: impl FnOnce(FilePickerMsg) -> Msg + Send + 'static,
     ) -> Command<Msg> {
         let folder = folder.into();
         self.loading = Some(folder.clone());
@@ -225,10 +229,11 @@ impl FileBrowser {
     }
 
     /// Applies a picker message. [`FilePickerMsg::Chosen`] changes nothing; act on it yourself.
+    /// `wrap` is used as by [`open`](Self::open), for the folder a message asks to read.
     pub fn update<Msg: Send + 'static>(
         &mut self,
         message: FilePickerMsg,
-        wrap: fn(FilePickerMsg) -> Msg,
+        wrap: impl FnOnce(FilePickerMsg) -> Msg + Send + 'static,
     ) -> Command<Msg> {
         match message {
             FilePickerMsg::Open(folder) => return self.open(folder, wrap),

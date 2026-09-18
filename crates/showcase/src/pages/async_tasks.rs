@@ -1,11 +1,11 @@
 //! Async tasks: background work with progress, notes, cancellation and outcomes, shown with a
-//! task list.
+//! task list, and a child process whose output is streamed into a log view.
 
 use std::time::Duration;
 
 use qframe::prelude::*;
-use qframe::runtime::{Task, TaskEvent, TaskId, TaskOutcome, Tasks};
-use qframe::widgets::TaskList;
+use qframe::runtime::{Line, Process, ProcessOutcome, Task, TaskEvent, TaskId, TaskOutcome, Tasks};
+use qframe::widgets::{LogBuffer, LogLevel, LogLine, LogView, TaskList};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -20,18 +20,48 @@ const BUILD_STEPS: [&str; 4] = ["resolving base image", "compiling release", "wr
 const MIGRATIONS: [&str; 5] =
     ["add deploys table", "index deploys by project", "add rollout column", "backfill rollouts", "drop legacy jobs"];
 
-/// The tasks the demo started and the playground.
+/// What the streamed command prints: a word about the terminal it sees, a step per dependency,
+/// a progress line overwritten with `\r`, one line on standard error and a last line.
+const SCRIPT: &str = "if test -t 1; then echo 'stdout is a terminal, progress and colour stay on'; \
+else echo 'stdout is a pipe, progress and colour are off'; fi; \
+for name in base runtime tools; do echo \"resolving $name\"; sleep 0.08; done; \
+for step in 25 50 75; do printf 'downloading %s%%\\r' \"$step\"; sleep 0.05; done; \
+printf 'downloading 100%%\\n'; \
+echo 'the signature of tools is from an unknown key' >&2; \
+echo 'installed 3 packages'";
+
+/// Streamed lines kept before the oldest ones fall out.
+const OUTPUT_CAPACITY: usize = 2000;
+
+/// The pseudo-terminal the streamed command is given, in cells.
+const OUTPUT_SIZE: (u16, u16) = (60, 12);
+
+/// The tasks the demo started, the streamed output and the playground.
 #[derive(Debug)]
 pub struct State {
     tasks: Tasks,
     cancellable: bool,
     failing: bool,
     digest: Option<String>,
+    /// Lines the child process streamed, as a log.
+    output: LogBuffer,
+    /// The streaming task, while it runs.
+    stream: Option<TaskId>,
+    /// Whether the child runs on a pseudo-terminal instead of pipes.
+    terminal: bool,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { tasks: Tasks::new(), cancellable: true, failing: true, digest: None }
+        Self {
+            tasks: Tasks::new(),
+            cancellable: true,
+            failing: true,
+            digest: None,
+            output: LogBuffer::new(OUTPUT_CAPACITY),
+            stream: None,
+            terminal: false,
+        }
     }
 }
 
@@ -49,6 +79,11 @@ pub enum Msg {
     ClearFinished,
     Cancellable(bool),
     Failing(bool),
+    Stream,
+    StopStream,
+    Streamed(Line),
+    StreamEnded(ProcessOutcome),
+    Terminal(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -107,12 +142,34 @@ fn sync_registry(failing: bool) -> Task<AppMsg> {
     .on_event(|event| send(Msg::Event(event)))
 }
 
+// region: process-stream
+/// Runs a shell command and turns every line it prints into a message, so the log view fills
+/// while the command is still running. `cancel` reads the task's own flag, so cancelling the
+/// task kills the child; on a pseudo-terminal the child sees a terminal of the size given here
+/// and keeps its progress and colour. The script asks nothing, so it gets no standard input:
+/// the keys stay the showcase's, and cancelling ends the `sleep` it is waiting on as well.
+fn stream_output(terminal: bool) -> Task<AppMsg> {
+    Task::new("Install packages", move |cx| {
+        let process = Process::new("sh").arg("-c").arg(SCRIPT).env("LC_ALL", "C").env("LANG", "C").no_stdin();
+        let process = if terminal { process.pty(OUTPUT_SIZE.0, OUTPUT_SIZE.1) } else { process };
+        let outcome = process
+            .run(&|| cx.is_cancelled(), &mut |line| cx.send(send(Msg::Streamed(line))))
+            .map_err(|error| error.to_string())?;
+        Ok(send(Msg::StreamEnded(outcome)))
+    })
+    .on_event(|event| send(Msg::Event(event)))
+}
+// endregion
+
 /// Applies a demo message.
 pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<AppMsg> {
     match message {
         // region: start
         Msg::Build => return Command::task(build_image()),
         Msg::Event(event) => {
+            if matches!(event, TaskEvent::Finished { .. }) && state.stream == Some(event.id()) {
+                state.stream = None;
+            }
             log_event(&event, log);
             state.tasks.apply(&event);
         }
@@ -137,6 +194,38 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::Failing(on) => {
             log.push(PAGE, "Playground", format!("sync fails = {on}"));
             state.failing = on;
+        }
+        // region: process-start
+        Msg::Stream => {
+            let task = stream_output(state.terminal);
+            state.stream = Some(task.id());
+            state.output.clear();
+            return Command::task(task);
+        }
+        Msg::Streamed(line) => {
+            let (level, text) = match line {
+                Line::Out(text) => (LogLevel::Info, text),
+                Line::Err(text) => (LogLevel::Error, text),
+            };
+            state.output.push(LogLine::new(level, text));
+        }
+        Msg::StopStream => {
+            if let Some(id) = state.stream {
+                return Command::cancel_task(id);
+            }
+        }
+        // endregion
+        Msg::StreamEnded(outcome) => {
+            let text = match outcome {
+                ProcessOutcome::Finished { code: Some(code) } => format!("finished with code {code}"),
+                ProcessOutcome::Finished { code: None } => "ended by a signal".to_owned(),
+                ProcessOutcome::Cancelled => "cancelled".to_owned(),
+            };
+            log.push(PAGE, "Process#sh", text);
+        }
+        Msg::Terminal(on) => {
+            log.push(PAGE, "Playground", format!("pseudo-terminal = {on}"));
+            state.terminal = on;
         }
     }
     Command::none()
@@ -184,7 +273,31 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     })
     .fill_width();
 
+    ui.add_with(Panel::new().title(t!("async-tasks.process")).gap(0), |ui| {
+        ui.add(Text::new(t!("async-tasks.process-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        ui.row(|ui| {
+            ui.add(Button::new(t!("async-tasks.stream")).variant("primary").on_press(send(Msg::Stream))).id("stream");
+            if state.stream.is_some() {
+                ui.add(Button::new(t!("async-tasks.stop")).on_press(send(Msg::StopStream))).id("stop");
+            }
+        })
+        .gap(2)
+        .fill_width();
+        ui.spacer().height(Length::Cells(1));
+        // region: process-view
+        ui.add(LogView::new(&state.output).empty_text(t!("async-tasks.output-empty")))
+            .width(Length::Fill(1))
+            .height(Length::Cells(9))
+            .id("output");
+        // endregion
+    })
+    .fill_width();
+
     ui.add_with(Panel::new().title(t!("demo.playground")).gap(0), |ui| {
+        setting(ui, t!("async-tasks.terminal"), |ui| {
+            ui.add(toggle(state.terminal, |on| send(Msg::Terminal(on)))).id("terminal");
+        });
         setting(ui, t!("async-tasks.cancellable"), |ui| {
             ui.add(toggle(state.cancellable, |on| send(Msg::Cancellable(on)))).id("cancellable");
         });
@@ -216,6 +329,33 @@ mod tests {
         assert!(h.screen().contains("cancelled"));
         h.click_text("Clear finished");
         assert!(h.app().pages.async_tasks.tasks.entries().is_empty());
+    }
+
+    #[test]
+    fn a_child_process_streams_its_lines_into_the_log_view() {
+        let mut h = showcase_on(PAGE);
+        assert!(h.screen().contains("No command has run yet."), "{}", h.screen());
+        h.click_text("Install packages");
+        // The task runs a real command, so the harness waits for it rather than for a clock.
+        h.advance(Duration::from_millis(0));
+        let screen = h.screen();
+        assert!(screen.contains("stdout is a pipe"), "{screen}");
+        assert!(screen.contains("resolving tools"), "{screen}");
+        assert!(screen.contains("downloading 100%"), "the overwritten lines collapse: {screen}");
+        assert!(screen.contains("unknown key"), "the standard error line: {screen}");
+        assert!(screen.contains("installed 3 packages"), "{screen}");
+        assert_eq!(h.app().pages.async_tasks.stream, None, "the task is finished");
+        let log = h.app().log.recent(PAGE, 20);
+        assert!(log.iter().any(|entry| entry.message == "finished with code 0"), "{log:?}");
+    }
+
+    #[test]
+    fn on_a_pseudo_terminal_the_child_sees_a_terminal() {
+        let mut h = showcase_on(PAGE);
+        h.send(send(Msg::Terminal(true)));
+        h.click_text("Install packages");
+        h.advance(Duration::from_millis(0));
+        assert!(h.screen().contains("stdout is a terminal"), "{}", h.screen());
     }
 
     #[test]

@@ -16,7 +16,7 @@
 ## İkon dosyası
 
 - `[meta] name` ve `anahtar = { nerd = "…", unicode = "…", ascii = "…" }` içeren `[icons]`.
-- Gömülü anahtarlar: `check check-partial close dot dot-outline select-on select-off radio-mark-small pillar bullet mask prompt enter arrow-left arrow-right arrow-up arrow-down chevron-left chevron-right chevron-down switch-rail switch-knob cap-left cap-right slider-rail slider-knob stepper-minus stepper-plus add search scroll-thumb scroll-track scroll-thin scroll-dot scroll-dot-thumb section-open section-closed tree-collapsed tree-expanded edge-left edge-right crumb-separator path-separator folder file inbox success warning error info`. Spinner stilleri gibi tek hücrelik animasyonlar aynı dosyaların `[animations.<ad>]` tablolarında yaşar; Animasyon stüdyosu sayfasına bak.
+- Gömülü anahtarlar: `check check-partial close dot dot-outline select-on select-off radio-mark-small pillar bullet mask prompt enter arrow-left arrow-right arrow-up arrow-down chevron-left chevron-right chevron-down switch-rail switch-knob cap-left cap-right slider-rail slider-knob stepper-minus stepper-plus add search scroll-thumb scroll-track scroll-thin scroll-dot scroll-dot-thumb section-open section-closed tree-collapsed tree-expanded edge-left edge-right crumb-separator path-separator folder file inbox success warning error info project profile settings power`. Spinner stilleri gibi tek hücrelik animasyonlar aynı dosyaların `[animations.<ad>]` tablolarında yaşar; Animasyon stüdyosu sayfasına bak.
 
 ## Dil dosyası
 
@@ -26,8 +26,9 @@
 ## Kod
 
 - `t!("anahtar")`, `t!("anahtar", n = 3, name = değer)` — etkin dille çevirir.
+- `i18n.has(kod, anahtar)` — `kod` dilinin kendi dosyaları anahtarı içeriyor mu; etkin dile bakmaz, yedek dile düşmez, çoğul anahtarı da sayar. `i18n.missing_keys(kod, referans)` — `referans`ta olup `kod`da olmayan anahtarlar.
 - `Command::set_theme(id)`, `Command::set_locale(kod)`, `Command::set_icon_mode(IconMode::Ascii)`.
-- `env.theme()`, `env.themes()`, `env.icons()`, `env.icon_mode()`, `env.glyph_mode()`, `env.i18n()`, `env.keymap()`, `env.diagnostics()`.
-- `Runtime::theme_dir`, `icon_dir`, `locale_dir` — dosyaları yükler.
-- `Runtime::locale_source` — metin olarak verilen dil dosyasını yükler; `include_str!` ile programa gömülen dosyalar için.
+- `env.theme()`, `env.themes()`, `env.icons()`, `env.icon_sets()`, `env.icon_mode()`, `env.glyph_mode()`, `env.i18n()`, `env.keymap()`, `env.diagnostics()`.
+- `Runtime::theme_dir`, `icon_dir`, `locale_dir`, `keymap_file` — dosyaları yoldan yükler.
+- `Runtime::theme_source(dosya, metin)`, `icon_source(dosya, metin)`, `keymap_source(dosya, metin)`, `locale_source(dosya, metin)` — TOML metninin kendisini, örneğin bir `include_str!`'ı yükler; kurulan ikilinin yanında dosya taşımasına gerek kalmaz. Metin yollardan sonra yüklenir, yani kazanır; tema ve ikon setlerinde dosya adının kökü id olur. Ayrıca verilen bir yol isteğe bağlıdır: okunamadığında metin onun yerine geçer ve sebep hata değil, bir tanılama olur.
 - `Command::set_pillar(PillarStyle::Thin)`, `Command::set_slide(false)`, `Command::set_reduced_motion(true)` — her ekranın hissini çalışırken değiştirir; `Env::pillar_style`, `Env::slide`, `Env::reduced_motion` geçerli seçimi okur; `Settings::PILLAR`, `Settings::SLIDE` ve `Settings::REDUCED_MOTION` onu hatırlar.

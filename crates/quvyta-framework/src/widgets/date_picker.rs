@@ -83,7 +83,8 @@ impl<Msg: 'static> DatePicker<Msg> {
         self
     }
 
-    /// The day marked as today; [`Date::today_utc`] by default.
+    /// The day marked as today; by default [`Date::today_local`], the day on the machine's own
+    /// clock and time zone, so the mark does not jump a day early or late around midnight.
     #[must_use]
     pub fn today(mut self, today: Date) -> Self {
         self.today = Some(today);
@@ -105,7 +106,7 @@ impl<Msg: 'static> DatePicker<Msg> {
     }
 
     fn today_or_clock(&self) -> Date {
-        self.today.unwrap_or_else(Date::today_utc)
+        self.today.unwrap_or_else(Date::today_local)
     }
 
     fn open(&self, cx: &mut EventCx<'_, Msg>) {
@@ -490,6 +491,17 @@ mod tests {
         let (x, y) = h.find("16").expect("today shown");
         let theme = h.env().theme();
         assert_eq!(h.fg(u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0)), theme.color("accent"));
+    }
+
+    #[test]
+    fn today_is_the_local_day_unless_given() {
+        // Read the local day on both sides, so a midnight passing in between cannot fail the test.
+        let before = Date::today_local();
+        let marked = DatePicker::<Date>::new(None).today_or_clock();
+        let after = Date::today_local();
+        assert!(marked == before || marked == after, "{marked} is not the local day {before}");
+        let given = date(2026, 9, 16);
+        assert_eq!(DatePicker::<Date>::new(None).today(given).today_or_clock(), given);
     }
 
     #[test]

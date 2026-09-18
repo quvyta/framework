@@ -52,6 +52,9 @@ pub(crate) struct LayerEntry {
     /// Modal layers trap focus and input; see [`PaintCx::open_layer`](crate::widget::PaintCx::open_layer). Other layers only close
     /// on presses outside them and unused Esc; see [`PaintCx::register_dismissable`](crate::widget::PaintCx::register_dismissable).
     pub(crate) modal: bool,
+    /// Where a modal layer's surface sits, once the layer said so; toasts keep clear of it.
+    /// `None` counts as the whole screen.
+    pub(crate) surface: Option<Rect>,
 }
 
 /// A focus change asked for while painting, applied after the frame.

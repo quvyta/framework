@@ -8,11 +8,12 @@
 - `.cancel_label(text)` — the cancel button. Default: `quvyta.confirm.cancel`.
 - `.on_cancel(msg)` — sent on Cancel, Esc and the close mark. Without it cancelling only closes.
 - `.dismissable(bool)` — whether Esc and the close mark cancel, together. Default: `true`. With `false` neither works, the mark is hidden and only the buttons answer.
+- `.alternative(label, msg)` — a third button between Cancel and the confirm button, a plain button that sends `msg`. Without it the dialog has its two buttons exactly as before.
 
 ## Keys
 
 - `enter` / `space` answer with the focused button; Cancel is focused first.
-- `tab` / `shift tab` switch between the two buttons.
+- `tab` / `shift tab` switch between the buttons, left to right: Cancel, the alternative when there is one, the confirm button.
 - `esc` cancels while the question is dismissable.
 
 ## Mouse

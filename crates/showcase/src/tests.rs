@@ -1,7 +1,7 @@
 //! Whole-showcase tests (the catalog, the aesthetics rules, the shell and sweeps over every page)
 //! and the harness helpers that page tests share.
 
-use qframe::env::{AssetDirs, Env};
+use qframe::env::Env;
 use qframe::event::{MouseButton, MouseKind};
 use qframe::icons::GlyphMode;
 use qframe::runtime::Harness;
@@ -11,16 +11,21 @@ use crate::app::{Msg, Showcase};
 /// Terminal size used by showcase tests.
 pub const SIZE: (u16, u16) = (140, 44);
 
-/// The showcase environment: built-in files plus the showcase's locales and keymap, English,
-/// Unicode glyphs.
+/// The showcase environment as the installed program builds it: built-in files plus the
+/// showcase's compiled-in locales and keymap, English, Unicode glyphs.
 pub fn env() -> Env {
-    let assets = concat!(env!("CARGO_MANIFEST_DIR"), "/assets");
-    let dirs = AssetDirs {
-        locales: Some(format!("{assets}/locales").into()),
-        keymap: Some(format!("{assets}/keymap.toml").into()),
-        ..AssetDirs::default()
-    };
-    Env::load(&dirs).expect("showcase assets are readable")
+    Env::load(&crate::assets::dirs()).expect("compiled-in files need no disk")
+}
+
+/// The folder the disk demos start in under test: this crate's own folder, whose contents the
+/// tests know, where the installed program uses the home folder.
+pub fn home_folder() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+/// A showcase harness as it starts, before any input.
+pub fn fresh() -> Harness<Showcase> {
+    Harness::with_env(Showcase::new(), env(), SIZE.0, SIZE.1)
 }
 
 /// A showcase harness showing `page`.
@@ -235,10 +240,86 @@ mod catalog {
         let catalog = Catalog::load();
         let ids = catalog.items.iter().map(|item| item.id.as_str()).chain(FOUNDATIONS);
         for id in ids {
-            let name = i18n.translate(&format!("names.{id}"), &[]);
-            assert!(!name.starts_with('⟦'), "no name for `{id}`");
+            let key = format!("names.{id}");
+            assert!(i18n.has("en", &key) && i18n.has("tr", &key), "no name for `{id}`");
         }
         assert!(env.keymap().conflicts().is_empty(), "{:?}", env.keymap().conflicts());
+    }
+}
+
+/// The showcase as an installed program runs it: from any folder, with no repository beside it.
+mod installed {
+    use std::path::{Path, PathBuf};
+
+    use qframe::env::Env;
+    use qframe::runtime::Harness;
+
+    use super::SIZE;
+    use crate::app::{Msg, Showcase};
+    use crate::pages::PAGES;
+
+    /// The environment is built from compiled-in text alone, and every page and section of the
+    /// whole application draws from it in every language.
+    #[test]
+    fn every_page_draws_from_compiled_in_files_only() {
+        let dirs = crate::assets::dirs();
+        let paths = [&dirs.themes, &dirs.icons, &dirs.locales, &dirs.keymap];
+        assert!(paths.iter().all(|path| path.is_none()), "a path is read at start: {dirs:?}");
+        let env = Env::load(&dirs).expect("compiled-in files need no disk");
+        assert!(env.diagnostics().is_empty(), "{:?}", env.diagnostics());
+        for language in ["en", "tr"] {
+            for page in PAGES {
+                let mut harness = Harness::with_env(Showcase::new(), env.clone(), SIZE.0, SIZE.1);
+                harness.set_locale(language);
+                harness.send(Msg::Open(page.id.to_owned()));
+                for section in 0..4 {
+                    harness.send(Msg::Section(section));
+                    harness.advance(std::time::Duration::from_millis(300));
+                    let screen = harness.screen();
+                    assert!(!screen.trim().is_empty(), "{language} {} section {section} is blank", page.id);
+                }
+            }
+        }
+    }
+
+    /// Every `.rs` file under `dir`, recursively.
+    fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("the source folder is readable").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                sources(&path, out);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    /// A path built from the build folder exists on the machine that compiled the showcase and
+    /// nowhere else, and a file compiled in from outside this crate is not in its package. The
+    /// program's code, tests apart, uses neither.
+    #[test]
+    fn the_program_reads_nothing_from_the_build_folder() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let crate_dir = root.canonicalize().expect("the crate folder exists");
+        let mut files = Vec::new();
+        sources(&root.join("src"), &mut files);
+        let test_code =
+            |path: &Path| path.ends_with("tests.rs") || path.components().any(|part| part.as_os_str() == "tests");
+        for file in files.iter().filter(|file| !test_code(file)) {
+            let text = std::fs::read_to_string(file).expect("the source is readable");
+            let program = text.split("#[cfg(test)]\nmod tests").next().unwrap_or_default();
+            assert!(!program.contains("CARGO_MANIFEST_DIR"), "{} builds a path from the build folder", file.display());
+            for include in program.split("include_str!(\"").skip(1) {
+                let relative = include.split('"').next().unwrap_or_default();
+                let target = file.parent().expect("a file has a folder").join(relative);
+                let target = target.canonicalize().unwrap_or(target);
+                assert!(
+                    target.starts_with(&crate_dir),
+                    "{} compiles in {relative} from outside the crate",
+                    file.display()
+                );
+            }
+        }
     }
 }
 
@@ -250,7 +331,7 @@ mod aesthetics {
     use crate::pages::PAGES;
 
     /// Pages whose demos show code or documents, where brackets are content.
-    const CONTENT_PAGES: [&str; 4] = ["code-view", "markdown", "storage", "cell-animation"];
+    const CONTENT_PAGES: [&str; 5] = ["code-view", "markdown", "storage", "cell-animation", "document"];
 
     /// Labels that are content: the layout demo names the lengths it uses.
     const CONTENT_LABELS: [&str; 3] = ["Fill(1)", "Fill(2)", "Cells(14)"];

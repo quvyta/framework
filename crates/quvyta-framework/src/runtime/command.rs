@@ -1,6 +1,9 @@
 //! Work an application asks the runtime to do after an update.
 
+use std::sync::Arc;
+
 use super::confirm::Confirm;
+use super::handoff::Handoff;
 use super::task::{Task, TaskId};
 use crate::icons::IconMode;
 use crate::widgets::{Corner, Toast};
@@ -23,6 +26,46 @@ pub(crate) enum Action<Msg> {
     ToastCorner(Corner),
     Task(Task<Msg>),
     CancelTask(TaskId),
+    Handoff(Handoff<Msg>),
+}
+
+/// A message conversion shared by every action of a mapped command; the work of tasks and
+/// performs calls it on their own threads.
+pub(crate) type MapFn<A, B> = Arc<dyn Fn(A) -> B + Send + Sync>;
+
+impl<A: Send + 'static> Action<A> {
+    /// The same action delivering `map(message)` wherever it would deliver `message`.
+    fn map<B: Send + 'static>(self, map: &MapFn<A, B>) -> Action<B> {
+        match self {
+            Self::Quit => Action::Quit,
+            Self::Focus(name) => Action::Focus(name),
+            Self::SetTheme(id) => Action::SetTheme(id),
+            Self::SetLocale(code) => Action::SetLocale(code),
+            Self::SetIconMode(mode) => Action::SetIconMode(mode),
+            Self::SetReducedMotion(reduced) => Action::SetReducedMotion(reduced),
+            Self::SetPillar(style) => Action::SetPillar(style),
+            Self::SetSlide(slide) => Action::SetSlide(slide),
+            Self::Copy(text) => Action::Copy(text),
+            Self::Confirm(confirm) => Action::Confirm(confirm.map(|message| map(message))),
+            Self::ReadClipboard(message) => {
+                let map = Arc::clone(map);
+                Action::ReadClipboard(Box::new(move |text| map(message(text))))
+            }
+            Self::Perform(work) => {
+                let map = Arc::clone(map);
+                Action::Perform(Box::new(move || map(work())))
+            }
+            Self::Toast(toast) => Action::Toast(toast.map(Arc::clone(map))),
+            Self::DismissToast(key) => Action::DismissToast(key),
+            Self::ToastCorner(corner) => Action::ToastCorner(corner),
+            Self::Task(task) => Action::Task(task.map(Arc::clone(map))),
+            Self::CancelTask(id) => Action::CancelTask(id),
+            Self::Handoff(handoff) => {
+                let map = Arc::clone(map);
+                Action::Handoff(handoff.map(move |message| map(message)))
+            }
+        }
+    }
 }
 
 /// Work for the runtime, returned from [`App::update`](crate::runtime::App::update).
@@ -154,6 +197,10 @@ impl<Msg: Send + 'static> Command<Msg> {
 
     /// Shows `toast` in the toast corner, above everything else. It slides in, stays for its
     /// duration (paused while the pointer is on it) and slides out; a click on its close mark dismisses it.
+    ///
+    /// It never covers an open dialog or other modal layer: it keeps to the rows between its
+    /// corner and the dialog, and when there is no room there it waits, its time stopped,
+    /// until there is, such as when the dialog closes.
     #[must_use]
     pub fn toast(toast: Toast<Msg>) -> Self {
         Self::single(Action::Toast(toast))
@@ -184,6 +231,84 @@ impl<Msg: Send + 'static> Command<Msg> {
     #[must_use]
     pub fn cancel_task(id: TaskId) -> Self {
         Self::single(Action::CancelTask(id))
+    }
+
+    /// Hands the terminal to another program and waits for it: the application leaves raw mode
+    /// and the alternate screen, the program runs attached to the real terminal, and afterwards
+    /// the screen is taken back and drawn again in full. Use it for programs that talk to the
+    /// user themselves, such as `sudo` asking for a password, an editor or a pager. The message
+    /// of [`Handoff::new`] arrives once the application has the screen back. Several handoffs run
+    /// one after another.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    /// use qframe::runtime::{Handoff, HandoffOutcome};
+    ///
+    /// enum Msg {
+    ///     Edit,
+    ///     Edited(HandoffOutcome),
+    /// }
+    ///
+    /// fn update(msg: Msg) -> Command<Msg> {
+    ///     match msg {
+    ///         Msg::Edit => Command::handoff(Handoff::new("vi", Msg::Edited).arg("notes.md")),
+    ///         Msg::Edited(_) => Command::none(),
+    ///     }
+    /// }
+    /// ```
+    #[must_use]
+    pub fn handoff(handoff: Handoff<Msg>) -> Self {
+        Self::single(Action::Handoff(handoff))
+    }
+
+    /// The same work delivering `map(message)` wherever it would deliver `message`, so a screen
+    /// with messages of its own can return its commands from the application's `update`:
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    ///
+    /// mod search {
+    ///     use qframe::prelude::*;
+    ///
+    ///     pub enum Msg {
+    ///         Run,
+    ///         Found(usize),
+    ///     }
+    ///
+    ///     pub fn update(msg: Msg) -> Command<Msg> {
+    ///         match msg {
+    ///             Msg::Run => Command::perform(|| Msg::Found(3)),
+    ///             Msg::Found(_) => Command::none(),
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// enum Msg {
+    ///     Search(search::Msg),
+    /// }
+    ///
+    /// fn update(msg: Msg) -> Command<Msg> {
+    ///     match msg {
+    ///         Msg::Search(msg) => search::update(msg).map(Msg::Search),
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// Every kind of work is carried over: a message the work of [`Command::perform`] or a
+    /// [`Task`] produces later on its own thread (its result, what it sends while it runs, its
+    /// events), the answers of [`Command::confirm`], the action and presses of a toast, the
+    /// clipboard text of [`Command::read_clipboard`] and the message after a
+    /// [`Command::handoff`]. Work without messages (focus, theme, copy, cancelling a task) is
+    /// unchanged.
+    ///
+    /// `map` runs on the threads of that background work, and one command can hold several of
+    /// them, so it is shared rather than copied: it must be `Send` and `Sync`, and it is never
+    /// required to be `Clone`. An enum variant such as `Msg::Search` or a closure over
+    /// `Send + Sync` values qualifies.
+    #[must_use]
+    pub fn map<B: Send + 'static>(self, map: impl Fn(Msg) -> B + Send + Sync + 'static) -> Command<B> {
+        let map: MapFn<Msg, B> = Arc::new(map);
+        Command { actions: self.actions.into_iter().map(|action| action.map(&map)).collect() }
     }
 
     fn single(action: Action<Msg>) -> Self {

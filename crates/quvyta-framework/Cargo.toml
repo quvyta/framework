@@ -3,7 +3,7 @@ name = "quvyta-framework"
 description = "A Rust framework for building terminal applications"
 repository = "https://github.com/quvyta/framework"
 readme = "../../README.md"
-keywords = ["tui", "terminal", "framework", "widgets", "theme"]
+keywords = ["tui", "terminal", "cli", "widgets", "framework"]
 categories = ["command-line-interface"]
 version.workspace = true
 edition.workspace = true
@@ -28,6 +28,22 @@ toml = { version = "1.1.6", default-features = false, features = ["std", "parse"
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
 vt100 = { version = "0.16.2", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+# What `std` does not expose, read without `unsafe`: `time` for Uptime, `fs` for storage::AppLock,
+# `pty` and `termios` for the pseudo-terminal of runtime::Process, `process` for the process
+# groups of runtime::Process and runtime::Handoff, `system` for storage::machine_name, `event` for
+# the terminal loop's wait on the keyboard and on the signals that end a run, `stdio` for the stand-in
+# a hung-up terminal leaves on standard input.
+# crossterm already brings this exact version in, so naming it here adds no crate.
+rustix = { version = "1.1.4", default-features = false, features = ["std", "time", "fs", "pty", "termios", "process", "system", "event", "stdio"] }
+# The one thing neither `std` nor `rustix` offers safely: blocking a signal on the calling thread.
+# A handoff needs it to take the terminal back from the program's process group, which the
+# system otherwise answers with SIGTTOU. The `pty` feature already locks this version in.
+nix = { version = "0.28.0", default-features = false, features = ["signal"] }
+# Catches SIGTERM, SIGINT and SIGHUP without `unsafe`, so a run can end gracefully. crossterm
+# already uses this version with these features to hear resizes, so it adds no crate.
+signal-hook = { version = "0.3.18", default-features = false, features = ["iterator"] }
 
 [features]
 # The embedded terminal: a shell in a pseudo-terminal, parsed into theme-coloured cells.

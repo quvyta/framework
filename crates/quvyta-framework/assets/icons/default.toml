@@ -75,6 +75,16 @@ warning          = { nerd = "\uf071", unicode = "▲", ascii = "!" }
 error            = { nerd = "\uf057", unicode = "✕", ascii = "x" }
 info             = { nerd = "\uf05a", unicode = "ℹ", ascii = "i" }
 
+# ---- Application main menu
+# The rows every application in the family shows: a project, who you are, the settings and the way
+# out. Nerd Font draws the thing itself (cube, person, cog, power); Unicode stays inside Geometric
+# Shapes, which terminals and monospace fonts draw as one cell, so no row falls back to another
+# font and overflows; ASCII borrows the character people already read as that meaning.
+project          = { nerd = "\uf1b2", unicode = "◈", ascii = "#" }
+profile          = { nerd = "\uf007", unicode = "◉", ascii = "@" }
+settings         = { nerd = "\uf013", unicode = "▤", ascii = "*" }   # stacked rails, like sliders
+power            = { nerd = "\uf011", unicode = "○", ascii = "x" }   # the power ring; quitting closes
+
 # ---- Animations
 # One-cell animations: every frame has a glyph per mode (a missing nerd glyph uses the unicode
 # one, a missing unicode glyph the ascii one) and may have a colour; $fg is the widget's colour.

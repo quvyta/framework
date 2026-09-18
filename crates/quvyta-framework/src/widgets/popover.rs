@@ -111,11 +111,10 @@ impl<'a, Msg: Clone + 'static> Popover<'a, Msg> {
 
     /// Adds the popover to `ui`. The returned node sizes the anchor.
     pub fn show<'v>(self, ui: &'v mut View<'_, Msg>) -> NodeMut<'v, Msg> {
-        let env = ui.env();
         let build = |part: Option<Part<'a, Msg>>, index: usize| {
             let mut children = Vec::new();
             if let Some(part) = part {
-                part(&mut View::new(&mut children, env));
+                part(&mut ui.nested(&mut children));
             }
             Node::new(Flex::new(Axis::Column, children), index)
         };

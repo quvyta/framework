@@ -1,10 +1,15 @@
 //! Settings storage: typed values saved as TOML in the config directory, the showcase's own
-//! appearance choices, located diagnostics for a broken file, and self-healing by a schema.
+//! appearance choices, located diagnostics for a broken file, self-healing by a schema, and the
+//! rest of what an application needs around its own files: the two platform folders and the
+//! machine's name for files of its own in them, an atomic write step by step, and the lock that
+//! keeps a second instance out.
+
+use std::path::{Path, PathBuf};
 
 use qframe::diagnostics::Severity;
 use qframe::env::Env;
 use qframe::prelude::*;
-use qframe::storage::{Schema, SettingKind, Settings};
+use qframe::storage::{AppLock, Schema, SettingKind, Settings, WriteStep, atomic_write_reporting};
 use qframe::widgets::{CodeView, Language, Segmented, Switch, TextInput};
 
 use super::{PageMsg, setting, toggle};
@@ -49,6 +54,20 @@ fn load_broken(schema: &Schema, self_heal: bool) -> Settings {
     // endregion
 }
 
+/// What the last attempt at the demo lock answered.
+#[derive(Debug, Default)]
+enum Attempt {
+    /// Nobody has pressed the button yet.
+    #[default]
+    None,
+    /// This instance took the lock and still holds it.
+    Taken,
+    /// Another holder has it; the process id is the one written in the file, when it holds one.
+    Busy(Option<u32>),
+    /// The lock could not be tried at all, e.g. on a platform without an advisory lock.
+    Failed(String),
+}
+
 /// The showcase's settings, shared with the shell, and the playground.
 #[derive(Debug)]
 pub struct State {
@@ -58,14 +77,62 @@ pub struct State {
     last_save: Option<Result<(), String>>,
     show_broken: bool,
     self_heal: bool,
+    /// The steps of the last safe write, or why it failed.
+    write: Option<Result<Vec<WriteStep>, String>>,
+    /// The demo lock, held for as long as this value lives.
+    lock: Option<AppLock>,
+    attempt: Attempt,
+    /// The folder this page's demo files live in, one per instance of the page.
+    demo: PathBuf,
 }
 
 impl State {
     /// State around `settings`, e.g. loaded from the config directory.
     #[must_use]
     pub fn new(settings: Settings) -> Self {
-        Self { settings, schema: schema(&Env::builtin()), last_save: None, show_broken: false, self_heal: false }
+        Self {
+            settings,
+            schema: schema(&Env::builtin()),
+            last_save: None,
+            show_broken: false,
+            self_heal: false,
+            write: None,
+            lock: None,
+            attempt: Attempt::None,
+            demo: demo_dir(),
+        }
     }
+}
+
+impl Drop for State {
+    /// Takes the demo folder away with the page, so a run leaves nothing in the temporary folder.
+    /// The folder is this instance's own, named after the process; nothing else is removed.
+    fn drop(&mut self) {
+        self.lock = None;
+        if self.demo.is_dir() {
+            let _ = std::fs::remove_dir_all(&self.demo);
+        }
+    }
+}
+
+/// Tells the demo folders of two pages in one process apart, which the tests need.
+static DEMO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// A folder for this page's own demo files: a folder of this run, never the user's own files.
+fn demo_dir() -> PathBuf {
+    let ticket = DEMO.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!("quvyta-showcase-storage-{}-{ticket}", std::process::id()))
+}
+
+/// Writes the demo file safely and gives back every step it took.
+fn write_safely(path: &Path) -> Result<Vec<WriteStep>, String> {
+    let contents = "theme = \"nordic\"\nlanguage = \"en\"\n";
+    let mut steps = Vec::new();
+    // region: storage-atomic
+    std::fs::create_dir_all(path.parent().expect("the demo file has a folder")).map_err(|e| e.to_string())?;
+    atomic_write_reporting(path, contents.as_bytes(), |step| steps.push(step)).map_err(|e| e.to_string())?;
+    // endregion
+    Ok(steps)
 }
 
 impl Default for State {
@@ -84,6 +151,9 @@ pub enum Msg {
     Reset,
     ShowBroken(bool),
     SelfHeal(bool),
+    Write,
+    Take,
+    Release,
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -117,6 +187,24 @@ fn log_broken(state: &State, log: &mut EventLog) {
         let source = if diagnostic.severity == Severity::Error { "Settings::parse_str" } else { checked };
         log.push(PAGE, source, diagnostic.message.clone());
     }
+}
+
+/// Tries the lock at `path` and says what came of it. The lock has to be kept: dropping the
+/// value releases it at once.
+fn take_the_lock(path: &Path) -> (Option<AppLock>, Attempt) {
+    if let Some(parent) = path.parent()
+        && let Err(error) = std::fs::create_dir_all(parent)
+    {
+        return (None, Attempt::Failed(error.to_string()));
+    }
+    // region: storage-lock
+    match AppLock::acquire(path) {
+        Ok(Some(lock)) => (Some(lock), Attempt::Taken),
+        // Nobody else's business but the message: the process id is diagnostics, not a decision.
+        Ok(None) => (None, Attempt::Busy(qframe::storage::holder_pid(path))),
+        Err(error) => (None, Attempt::Failed(error.to_string())),
+    }
+    // endregion
 }
 
 /// Applies a demo message.
@@ -171,6 +259,36 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             }
             Command::none()
         }
+        Msg::Write => {
+            let result = write_safely(&state.demo.join("tree.toml"));
+            match &result {
+                Ok(steps) => {
+                    for step in steps {
+                        log.push(PAGE, "atomic_write_reporting", format!("{step:?}"));
+                    }
+                }
+                Err(error) => log.push(PAGE, "atomic_write_reporting", error.clone()),
+            }
+            state.write = Some(result);
+            Command::none()
+        }
+        Msg::Take => {
+            let (lock, attempt) = take_the_lock(&state.demo.join("lock"));
+            log.push(PAGE, "AppLock::acquire", format!("{attempt:?}"));
+            // A lock already held stays held: dropping it first would free the very lock the
+            // second attempt is supposed to meet.
+            if let Some(lock) = lock {
+                state.lock = Some(lock);
+            }
+            state.attempt = attempt;
+            Command::none()
+        }
+        Msg::Release => {
+            log.push(PAGE, "AppLock", "dropped the lock");
+            state.lock = None;
+            state.attempt = Attempt::None;
+            Command::none()
+        }
     }
 }
 
@@ -183,6 +301,130 @@ fn diagnostic_line(ui: &mut View<'_, AppMsg>, text: String) {
         ui.add(Text::new(text).role("secondary")).fill_width();
     })
     .gap(1);
+}
+
+/// The two folders a platform gives an application, one for settings and one for its own data,
+/// and the name that keeps one machine's file apart from another's in a folder they share.
+fn folders(ui: &mut View<'_, AppMsg>) {
+    ui.add_with(Panel::new().title(t!("storage.folders")).gap(0), |ui| {
+        ui.add(Text::new(t!("storage.folders-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        // region: storage-folders
+        let config = qframe::storage::config_dir("qfocus");
+        let data = qframe::storage::data_dir("qfocus");
+        // endregion
+        for (label, dir) in [(t!("storage.config-dir"), config), (t!("storage.data-dir"), data)] {
+            setting(ui, label, |ui| {
+                let (text, role) = match dir {
+                    Some(dir) => (dir.display().to_string(), "body"),
+                    None => (t!("storage.no-folder"), "faint"),
+                };
+                ui.add(Text::new(text).role(role)).fill_width();
+            });
+        }
+        ui.spacer().height(Length::Cells(1));
+        ui.add(Text::new(t!("storage.machine-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        // region: storage-machine
+        let machine = qframe::storage::machine_name();
+        let running = machine.as_ref().map(|machine| format!("running-{machine}.toml"));
+        // endregion
+        setting(ui, t!("storage.machine"), |ui| {
+            let (text, role) = match machine {
+                Some(machine) => (machine, "body"),
+                None => (t!("storage.no-machine"), "faint"),
+            };
+            ui.add(Text::new(text).role(role)).fill_width();
+        });
+        if let Some(running) = running {
+            setting(ui, t!("storage.machine-file"), |ui| {
+                ui.add(Text::new(running).role("body")).fill_width();
+            });
+        }
+    })
+    .fill_width();
+}
+
+/// One safe write, step by step, so the order that makes it safe is visible.
+fn safe_write(state: &State, ui: &mut View<'_, AppMsg>) {
+    ui.add_with(Panel::new().title(t!("storage.safe-write")).gap(0), |ui| {
+        ui.add(Text::new(t!("storage.safe-write-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        ui.add(Button::new(t!("storage.write")).on_press(send(Msg::Write))).id("write");
+        match &state.write {
+            None => {
+                ui.spacer().height(Length::Cells(1));
+                ui.add(Text::new(t!("storage.not-written")).role("faint"));
+            }
+            Some(Ok(steps)) => {
+                ui.spacer().height(Length::Cells(1));
+                let marker = ui.env().icons().glyph("success").into_owned();
+                for step in steps {
+                    let text = match step {
+                        WriteStep::Wrote(temporary) => {
+                            let name = temporary.file_name().unwrap_or_default().display().to_string();
+                            t!("storage.step-wrote", name = name)
+                        }
+                        WriteStep::SyncedFile => t!("storage.step-synced-file"),
+                        WriteStep::Renamed => t!("storage.step-renamed"),
+                        WriteStep::SyncedDirectory => t!("storage.step-synced-directory"),
+                    };
+                    ui.row(|ui| {
+                        ui.add(Text::new(marker.clone()).color("success").no_wrap());
+                        ui.add(Text::new(text).role("body")).fill_width();
+                    })
+                    .gap(1);
+                }
+                if !steps.contains(&WriteStep::SyncedDirectory) {
+                    ui.add(Text::new(t!("storage.no-directory-sync")).role("faint"));
+                }
+            }
+            Some(Err(error)) => {
+                ui.spacer().height(Length::Cells(1));
+                let marker = ui.env().icons().glyph("error").into_owned();
+                ui.row(|ui| {
+                    ui.add(Text::new(marker).color("danger").no_wrap());
+                    ui.add(Text::new(error.clone()).color("danger")).fill_width();
+                })
+                .gap(1);
+            }
+        }
+    })
+    .fill_width();
+}
+
+/// Taking the lock twice: the first attempt has it, the second is told who does.
+fn one_instance(state: &State, ui: &mut View<'_, AppMsg>) {
+    ui.add_with(Panel::new().title(t!("storage.one-instance")).gap(0), |ui| {
+        ui.add(Text::new(t!("storage.one-instance-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        ui.row(|ui| {
+            ui.add(Button::new(t!("storage.take")).on_press(send(Msg::Take))).id("take");
+            if state.lock.is_some() {
+                ui.add(Button::new(t!("storage.release")).on_press(send(Msg::Release))).id("release");
+            }
+        })
+        .gap(2);
+        ui.spacer().height(Length::Cells(1));
+        let (marker, color, text) = {
+            let icons = ui.env().icons();
+            match &state.attempt {
+                Attempt::None => (icons.glyph("info").into_owned(), "muted", t!("storage.lock-free")),
+                Attempt::Taken => (icons.glyph("success").into_owned(), "success", t!("storage.lock-taken")),
+                Attempt::Busy(Some(pid)) => {
+                    (icons.glyph("warning").into_owned(), "warning", t!("storage.lock-busy-pid", pid = pid.to_string()))
+                }
+                Attempt::Busy(None) => (icons.glyph("warning").into_owned(), "warning", t!("storage.lock-busy")),
+                Attempt::Failed(error) => (icons.glyph("error").into_owned(), "danger", error.clone()),
+            }
+        };
+        ui.row(|ui| {
+            ui.add(Text::new(marker).color(color).no_wrap());
+            ui.add(Text::new(text).color(color)).fill_width();
+        })
+        .gap(1);
+    })
+    .fill_width();
 }
 
 /// The live demo and the playground.
@@ -238,6 +480,10 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         ui.add(CodeView::new(contents, Language::Toml).line_numbers(false)).fill_width().id("contents");
     })
     .fill_width();
+
+    folders(ui);
+    safe_write(state, ui);
+    one_instance(state, ui);
 
     if state.show_broken {
         ui.add_with(Panel::new().title(t!("storage.broken")).gap(0), |ui| {
@@ -372,6 +618,93 @@ mod tests {
         let reread = Settings::parse_str("settings.toml", &written).schema(schema(h.env())).self_heal(true);
         assert_eq!(reread.diagnostics(), &[], "{written}");
         assert_eq!(reread.to_toml(), written, "healing keeps every value the showcase saves");
+    }
+
+    #[test]
+    fn both_platform_folders_are_shown() {
+        let h = tall(Showcase::new());
+        let screen = h.screen();
+        assert!(screen.contains("THE TWO FOLDERS"), "{screen}");
+        for dir in [qframe::storage::config_dir("qfocus"), qframe::storage::data_dir("qfocus")] {
+            // The panel is narrower than a long path, so the last segment is what is checked.
+            let shown = match dir {
+                Some(dir) => dir.file_name().expect("the folder ends in the app name").display().to_string(),
+                None => "this platform gives no folder here".to_owned(),
+            };
+            assert!(screen.contains(&shown), "{shown} is missing from {screen}");
+        }
+    }
+
+    #[test]
+    fn the_machine_and_its_own_file_are_shown_next_to_the_folders() {
+        let h = tall(Showcase::new());
+        let screen = h.screen();
+        let row = |label: &str| screen.lines().find(|line| line.contains(label)).map(str::to_owned);
+        match qframe::storage::machine_name() {
+            Some(machine) => {
+                assert!(row("This machine").is_some_and(|line| line.contains(&machine)), "{screen}");
+                let file = format!("running-{machine}.toml");
+                assert!(row("Its file").is_some_and(|line| line.contains(&file)), "{screen}");
+            }
+            None => {
+                assert!(row("This machine").is_some_and(|line| line.contains("gives no name")), "{screen}");
+                assert!(row("Its file").is_none(), "no file name is made up:\n{screen}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_safe_write_shows_every_step_it_took() {
+        let mut h = tall(Showcase::new());
+        assert!(h.screen().contains("Nothing written yet"), "{}", h.screen());
+        h.click_text("Write a file safely");
+        let steps = match h.app().pages.storage.write.as_ref().expect("the write ran") {
+            Ok(steps) => steps.clone(),
+            Err(error) => panic!("the demo write failed: {error}"),
+        };
+        assert!(matches!(steps.first(), Some(WriteStep::Wrote(_))), "{steps:?}");
+        assert!(steps.contains(&WriteStep::Renamed), "{steps:?}");
+        let screen = h.screen();
+        assert!(screen.contains("in the same folder"), "{screen}");
+        assert!(screen.contains("renamed it over the real name"), "{screen}");
+        if cfg!(unix) {
+            assert!(steps.contains(&WriteStep::SyncedDirectory), "{steps:?}");
+            assert!(screen.contains("survives a power cut"), "{screen}");
+        } else {
+            assert!(screen.contains("cannot flush a folder"), "{screen}");
+        }
+        let log: Vec<String> = h.app().log.recent(PAGE, 10).iter().map(|entry| entry.message.clone()).collect();
+        assert_eq!(log.len(), steps.len(), "every step is logged: {log:?}");
+        std::fs::remove_dir_all(&h.app().pages.storage.demo).expect("clean up the demo folder");
+    }
+
+    #[test]
+    fn the_second_attempt_at_the_lock_says_another_process_holds_it() {
+        if !cfg!(unix) {
+            return;
+        }
+        let mut h = tall(Showcase::new());
+        assert!(h.screen().contains("Nobody has tried the lock yet"), "{}", h.screen());
+
+        h.click_text("Take the lock");
+        assert!(matches!(h.app().pages.storage.attempt, Attempt::Taken), "{:?}", h.app().pages.storage.attempt);
+        assert!(h.screen().contains("This instance holds the lock"), "{}", h.screen());
+
+        // The same call a second process would make; the first lock is still held.
+        h.click_text("Take the lock");
+        let pid = std::process::id();
+        match &h.app().pages.storage.attempt {
+            Attempt::Busy(Some(shown)) => assert_eq!(*shown, pid, "the file names the holder"),
+            other => panic!("the second attempt must meet the first, not {other:?}"),
+        }
+        assert!(h.screen().contains("Another process holds it"), "{}", h.screen());
+
+        h.click_text("Release the lock");
+        assert!(h.app().pages.storage.lock.is_none());
+        h.click_text("Take the lock");
+        assert!(matches!(h.app().pages.storage.attempt, Attempt::Taken), "the released lock is free again");
+        h.send(send(Msg::Release));
+        std::fs::remove_dir_all(&h.app().pages.storage.demo).expect("clean up the demo folder");
     }
 
     #[test]

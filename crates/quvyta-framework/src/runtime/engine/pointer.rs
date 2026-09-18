@@ -21,13 +21,10 @@ pub(super) struct PointerRepeat {
 }
 
 impl<A: App> Engine<A> {
-    /// The time at which an animation needs the next frame, if any.
+    /// The time at which an animation, a held pointer or idleness needs the next frame, if any.
     pub(crate) fn deadline(&self) -> Option<Duration> {
         let repeat = self.pointer_repeat.map(|repeat| repeat.next);
-        match (self.frame.next_frame, repeat) {
-            (Some(frame), Some(repeat)) => Some(frame.min(repeat)),
-            (frame, repeat) => frame.or(repeat),
-        }
+        [self.frame.next_frame, repeat, self.idle.deadline()].into_iter().flatten().min()
     }
 
     /// Delivers timed input that is due at `now`: repeated drags for a pointer held still.

@@ -29,3 +29,25 @@ Bir kareden uzun süren her iş için `Task` kullan: imaj derlemek, migration ç
 - **`on_event` eklemeyi unutmak.** Onsuz yalnızca son mesajı alırsın; ilerlemeyi ve hataları hiç görmezsin.
 - **İlerlemeyi işin içinde tutmak.** Model `Tasks::apply` ile senin durumunda yaşar; iş yalnızca bildirir.
 - **Dosya ya da ağ işini `view` veya `update` içinde yapmak.** Bir `Task` içine taşı ki çizim hiç beklemesin.
+
+## Alt süreci akıtmak
+
+`Process`, bir alt süreci bir iş içinde çalıştırır ve çıktısını uygulamaya satır satır verir; bir paket yöneticisinin, bir derlemenin ya da bir dağıtım betiğinin ihtiyacı budur.
+
+1. Kur: `Process::new("sh").arg("-c").arg(betik).env("LC_ALL", "C")`; başka bir yerde çalışması gerekiyorsa `.dir(yol)` ekle.
+2. Bir işin içinde çalıştır: `process.run(&|| cx.is_cancelled(), &mut |satir| cx.send(Msg::Satir(satir)))`. Çağrı yalnızca kendi iş parçacığını bekletir, ekranı asla.
+3. Her `Line` değerini bir log satırına çevir: `Line::Out` sıradan çıktı, `Line::Err` çocuğun standart hatasıdır; ayrı tutulur ki hata hata olarak tanınsın.
+4. İptal butonuna `Command::cancel_task(id)` ile cevap ver; işin bayrağı `run` çağrısının çocuğu öldürüp `ProcessOutcome::Cancelled` döndürmesini sağlar.
+5. Çocuğun gerçekten klavyeyi okuması gerekmiyorsa `.no_stdin()` ekle. Çocuk terminal yerine boş bir girdi okur; soru soran bir program kullanıcının tuşlarını uygulamadan çalamaz. Kendi süreç grubunda da çalışır; iptal, onun başlattığı programları da bitirir (`podman`, ardından `buildah`, ardından derlemenin adımları).
+6. Ayrıştıracağın çıktının dilini `LC_ALL` **ve** `LANG` ile birlikte sabitle; bazı programlar yalnızca birine bakar.
+
+Çocuğun ilerleme çubuğunu ve rengini koruması gerekiyorsa `.pty(sütun, satır)` ekle: programlar terminal denetimi yapar ve boruya yazarken süssüz çıktıya döner. Çocuk böylece gerçek terminalin değil, senin verdiğin boyutta bir terminal görür; ilerleme çubuğu da çizeceğin alana göre kurulur. Standart girdi uygulamanın kendi girdisi kalır ve çocuk kontrol eden terminali korur; sıcak bir `sudo` biletinin paylaşılmasını sağlayan budur. Sözde terminalde iki akış aynı satıra düştüğü için her satır `Line::Out` olarak gelir.
+
+## Sık yapılan hatalar
+
+- **İki akışı `2>&1` ile birleştirmek.** Tanı böylece kaybolur: birçok program bir şey ters gitmedikçe standart hatayı boş bırakır.
+- **Borudan ilerleme çubuğu beklemek.** `.pty(..)` olmadan çocuk terminal görmez ve süssüz satırlar yazar; bu bizim değil, çocuğun kararıdır.
+- **İlerlemeyi görmek için yeni satır beklemek.** Satır başı yazılmakta olan satırı ezer; eline biten satır, bir kez geçer.
+- **Çocuğu öldürüp çocuklarının da gideceğini sanmak.** Yalnızca `.no_stdin()` ile başlatılan bir çocuk kendi çocuklarını da götürür; onsuz yalnızca çocuğun kendisi öldürülür ve kendi çocuklarını başlatan bir program onları çalışır bırakabilir.
+- **Çocuğun terminal girdisini paylaşması.** `.no_stdin()` olmadan soru soran bir çocuk uygulamana gelen tuşları okur; iptal edildiğinde de kendi çocukları çalışmaya devam eder.
+- **Girdisiz bir çocuğa `sudo` parolası sordurmak.** Onun grubu terminalin sahibi değildir; parolayı okumaya çalıştığında sistem onu durdurur ve iptal edilene kadar bekler. Bileti önce bir `sudo -v` devriyle ısıt ya da `sudo -n` kullan.

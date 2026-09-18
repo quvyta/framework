@@ -63,11 +63,15 @@
 //! - [`keymap`] — named actions bound to key chords; [`event`] — key, mouse and paste events.
 //! - [`env`](mod@env) — the loaded theme, icons, language and keymap an application runs with.
 //! - [`geometry`] and [`text`] — rectangles and padding in cells, and text measured in cells.
-//! - [`date`] — calendar dates and their arithmetic.
+//! - [`date`] — calendar dates, times of day and the local time zone offset.
+//! - [`uptime`] — the monotonic clocks that tell time awake from time the machine slept.
 //! - [`motion`] — easing, moving values and cell-stepped progress.
 //! - [`router`] — page navigation.
 //! - [`storage`] — settings saved as TOML in the platform config directory, checked against a
-//!   schema and optionally repaired.
+//!   schema and optionally repaired; the config and data folders, atomic writes and the
+//!   one-instance lock every application needs around its own files.
+//! - [`document`] — an application's own data file: a schema'd TOML document that holds arrays
+//!   of tables and is never repaired behind the application's back.
 //!
 //! Every loader reports problems as [`diagnostics::Diagnostic`]s with file, line and column
 //! instead of failing, and built-in defaults are always available.
@@ -76,6 +80,7 @@ pub mod animation;
 pub mod color;
 pub mod date;
 pub mod diagnostics;
+pub mod document;
 pub mod env;
 pub mod event;
 pub mod geometry;
@@ -90,6 +95,7 @@ pub mod storage;
 pub mod style;
 pub mod text;
 pub mod theme;
+pub mod uptime;
 pub mod widget;
 pub mod widgets;
 

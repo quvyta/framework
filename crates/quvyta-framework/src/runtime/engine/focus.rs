@@ -11,8 +11,11 @@ impl<A: App> Engine<A> {
     pub(super) fn settle_interaction(&mut self) {
         if let Some(name) = self.pending_focus.take()
             && let Some(target) = self.named_focusable(&name)
+            && self.interaction.focused != Some(target)
         {
+            // The frame just painted showed the widget without focus; the next one shows it.
             self.interaction.focused = Some(target);
+            self.dirty = true;
         }
         let focusable = &self.frame.focusable;
         if let Some(focused) = self.interaction.focused {

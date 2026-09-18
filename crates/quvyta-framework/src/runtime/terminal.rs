@@ -1,5 +1,6 @@
 //! Running an application in a real terminal.
 
+use std::cell::Cell;
 use std::io::{self, Stdout, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -10,8 +11,8 @@ use crossterm::event::{
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::terminal::{
-    BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-    enable_raw_mode, supports_keyboard_enhancement,
+    BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
+    disable_raw_mode, enable_raw_mode, supports_keyboard_enhancement,
 };
 use crossterm::{cursor, execute};
 use ratatui_core::terminal::Terminal;
@@ -19,7 +20,10 @@ use ratatui_crossterm::CrosstermBackend;
 
 use super::app::App;
 use super::engine::{Engine, TaskMode};
+use super::handoff::{self, HandoffOutcome, HandoffScreen};
+use super::signals::Signals;
 use super::terminal_clipboard::TerminalClipboard;
+use super::termination::Termination;
 use crate::env::{AssetDirs, Env};
 use crate::event::{Event, KeyEvent, KeyKind, MouseButton, MouseEvent, MouseKind};
 use crate::keymap::{Key, KeyChord, Modifiers};
@@ -51,10 +55,30 @@ impl<A: App> Runtime<A> {
         self
     }
 
+    /// Loads a theme file given as text, such as one compiled in with `include_str!`, so an
+    /// installed program needs no files beside it. `file` names it in diagnostics and its stem
+    /// is the theme id, the way a directory names its files. Text given this way wins over
+    /// [`Runtime::theme_dir`].
+    #[must_use]
+    pub fn theme_source(mut self, file: impl Into<String>, text: impl Into<String>) -> Self {
+        self.dirs.theme_sources.push((file.into(), text.into()));
+        self
+    }
+
     /// Loads icon set files from `dir`.
     #[must_use]
     pub fn icon_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.dirs.icons = Some(dir.into());
+        self
+    }
+
+    /// Loads an icon set given as text, such as one compiled in with `include_str!`, so an
+    /// installed program needs no files beside it. `file` names it in diagnostics and its stem
+    /// is the icon set id, the way a directory names its files. Text given this way wins over
+    /// [`Runtime::icon_dir`].
+    #[must_use]
+    pub fn icon_source(mut self, file: impl Into<String>, text: impl Into<String>) -> Self {
+        self.dirs.icon_sources.push((file.into(), text.into()));
         self
     }
 
@@ -95,6 +119,29 @@ impl<A: App> Runtime<A> {
         self
     }
 
+    /// Layers a keymap given as text over the built-in keymap, such as one compiled in with
+    /// `include_str!`, so an installed program needs no files beside it. `file` names it in
+    /// diagnostics. Text given this way wins over [`Runtime::keymap_file`].
+    ///
+    /// ```no_run
+    /// # use qframe::prelude::*;
+    /// # struct Hello;
+    /// # impl App for Hello {
+    /// #     type Msg = ();
+    /// #     fn update(&mut self, _: ()) -> Command<()> { Command::none() }
+    /// #     fn view(&self, ui: &mut View<'_, ()>) { ui.add(Text::new("hello")); }
+    /// # }
+    /// # fn main() -> std::io::Result<()> {
+    /// let keys = "[app]\nsave = \"ctrl+s\"\n";
+    /// Runtime::new(Hello).keymap_source("keymap.toml", keys).run()
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn keymap_source(mut self, file: impl Into<String>, text: impl Into<String>) -> Self {
+        self.dirs.keymap_source = Some((file.into(), text.into()));
+        self
+    }
+
     /// Starts with theme `id` instead of the default.
     #[must_use]
     pub fn theme(mut self, id: impl Into<String>) -> Self {
@@ -114,6 +161,27 @@ impl<A: App> Runtime<A> {
     /// Takes over the terminal and runs until the application quits. The terminal is restored
     /// on return and on panic.
     ///
+    /// # Signals
+    ///
+    /// On Unix the run catches `SIGTERM`, `SIGINT` and `SIGHUP` and ends gracefully instead of
+    /// dying on the spot: the application hears the cause through
+    /// [`App::terminating`](super::App::terminating), may save, and quits; see
+    /// [`Termination`] for what each signal does and the grace it leaves. The loop is woken the
+    /// moment a signal arrives, even while it waits for a key or a deadline.
+    ///
+    /// Every way out ends in bounded time: after the grace the run quits without the
+    /// application, a second `SIGTERM` or `SIGINT` quits at once, and when the loop itself is
+    /// stuck the process is ended a second later all the same, by the signal, after the terminal
+    /// is restored. The terminal is left in application mode in no case while it exists; after a
+    /// hangup nothing more is written to it.
+    ///
+    /// During a [`Handoff`](super::Handoff) the program owns the terminal's foreground. A
+    /// signal the application catches meanwhile is passed on to the program, which ends the way
+    /// it would have as a job of the shell; the application then takes the terminal back and
+    /// hears the signal itself. A hangup reaches the program from the system anyway.
+    ///
+    /// Once `run` returns the signals have their usual effect again.
+    ///
     /// # Errors
     ///
     /// Returns I/O errors from loading asset directories or from the terminal.
@@ -125,105 +193,387 @@ impl<A: App> Runtime<A> {
         if let Some(settings) = &self.settings {
             env.apply_settings(settings);
         }
+        // Before the terminal is taken, so the modes restored if the process has to be ended by
+        // force are the ones the user had.
+        let signals = Signals::catch()?;
         let guard = TerminalGuard::enter()?;
         install_panic_hook();
         let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-        let result = event_loop(&mut terminal, Engine::new(self.app, env, TaskMode::Threads));
-        drop(terminal);
+        let result = event_loop(&mut terminal, Engine::new(self.app, env, TaskMode::Threads), &guard, &signals);
+        if guard.abandoned.get() {
+            // Dropping it would show the cursor on a terminal that is gone.
+            std::mem::forget(terminal);
+        } else {
+            drop(terminal);
+        }
         drop(guard);
+        drop(signals);
         result
     }
 }
 
-fn event_loop<A: App>(terminal: &mut Terminal<CrosstermBackend<Stdout>>, mut engine: Engine<A>) -> io::Result<()> {
+fn event_loop<A: App>(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    mut engine: Engine<A>,
+    guard: &TerminalGuard,
+    signals: &Signals,
+) -> io::Result<()> {
     let start = Instant::now();
     let mut clipboard = TerminalClipboard::default();
+    // Set once the terminal hung up: from then on nothing is drawn, read or handed over, and the
+    // run only finishes the application's work until it quits.
+    let mut gone = false;
     loop {
         let now = start.elapsed();
+        let heard = signals.take();
+        if heard.resized {
+            // The next frame measures the terminal again, even when crossterm's own resize
+            // event has not been read yet.
+            engine.dirty = true;
+        }
+        for cause in heard.causes {
+            if cause == Termination::Hangup && !gone && signals.terminal_gone() {
+                gone = true;
+                guard.abandon();
+            }
+            engine.terminate(cause, now);
+        }
         engine.poll_tasks();
         engine.run_queued_work();
-        clipboard.update(&mut engine, now)?;
-        engine.tick(now);
-        let animation_due = engine.deadline().is_some_and(|deadline| deadline <= now);
-        if engine.dirty || animation_due {
-            execute!(io::stdout(), BeginSynchronizedUpdate)?;
-            terminal.draw(|frame| engine.render(frame.buffer_mut(), start.elapsed()))?;
-            execute!(io::stdout(), EndSynchronizedUpdate)?;
-            for text in engine.clipboard.drain(..) {
-                execute!(io::stdout(), CopyToClipboard::to_clipboard_from(text))?;
+        if gone {
+            refuse_handoffs(&mut engine);
+        } else {
+            run_handoffs(terminal, &mut engine, guard, signals);
+            // Output to a terminal that just hung up fails before its signal is heard.
+            if let Err(error) = draw(terminal, &mut engine, &mut clipboard, start) {
+                hang_up_or(error, signals, guard, &mut gone)?;
             }
         }
+        engine.end_when_due(start.elapsed());
         if engine.quit {
             return Ok(());
         }
         let now = start.elapsed();
-        let mut wait = engine.deadline().map_or(IDLE_WAIT, |deadline| deadline.saturating_sub(now));
-        if engine.pending_tasks > 0 || engine.clipboard_reader.is_reading() {
-            wait = wait.min(TASK_WAIT);
-        }
-        if let Some(deadline) = clipboard.deadline() {
+        let mut wait = match (gone, engine.deadline()) {
+            // Frames are not drawn any more, so their deadlines never move.
+            (true, _) | (false, None) => IDLE_WAIT,
+            (false, Some(deadline)) => deadline.saturating_sub(now),
+        };
+        if let Some(deadline) = engine.ending_deadline() {
             wait = wait.min(deadline.saturating_sub(now));
         }
-        if engine.dirty || engine.has_queued_work() {
+        if engine.pending_tasks > 0 || (!gone && engine.clipboard_reader.is_reading()) {
+            wait = wait.min(TASK_WAIT);
+        }
+        if let Some(deadline) = clipboard.deadline().filter(|_| !gone) {
+            wait = wait.min(deadline.saturating_sub(now));
+        }
+        if (engine.dirty && !gone) || engine.has_queued_work() {
             wait = Duration::ZERO;
         }
-        if ct::poll(wait)? {
-            loop {
-                let event = ct::read()?;
-                if let ct::Event::Resize(..) = event {
-                    engine.dirty = true;
+        if gone {
+            signals.wait(wait, false)?;
+            continue;
+        }
+        match read_input(&mut engine, &mut clipboard, signals, start, wait) {
+            Ok(true) => hang_up(signals, guard, &mut gone),
+            Ok(false) => {}
+            Err(error) => hang_up_or(error, signals, guard, &mut gone)?,
+        }
+    }
+}
+
+/// Draws a frame when one is due, after the terminal clipboard and timed input had their turn.
+fn draw<A: App>(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    engine: &mut Engine<A>,
+    clipboard: &mut TerminalClipboard,
+    start: Instant,
+) -> io::Result<()> {
+    let now = start.elapsed();
+    clipboard.update(engine, now)?;
+    engine.tick(now);
+    let animation_due = engine.deadline().is_some_and(|deadline| deadline <= now);
+    if engine.dirty || animation_due {
+        execute!(io::stdout(), BeginSynchronizedUpdate)?;
+        terminal.draw(|frame| engine.render(frame.buffer_mut(), start.elapsed()))?;
+        execute!(io::stdout(), EndSynchronizedUpdate)?;
+        for text in engine.clipboard.drain(..) {
+            execute!(io::stdout(), CopyToClipboard::to_clipboard_from(text))?;
+        }
+    }
+    Ok(())
+}
+
+/// Waits up to `wait` for the keyboard or a signal and hands every waiting event to the engine.
+/// Returns whether the terminal hung up instead.
+fn read_input<A: App>(
+    engine: &mut Engine<A>,
+    clipboard: &mut TerminalClipboard,
+    signals: &Signals,
+    start: Instant,
+    wait: Duration,
+) -> io::Result<bool> {
+    // Events crossterm already read ahead come first: the terminal has nothing more to say about
+    // them, so waiting on it would not end.
+    let Some(mut ready) = event_waiting(signals)? else {
+        return Ok(true);
+    };
+    if !ready && !wait.is_zero() {
+        let woken = signals.wait(wait, true)?;
+        if woken.hung_up {
+            return Ok(true);
+        }
+        if woken.keyboard {
+            let Some(waiting) = event_waiting(signals)? else {
+                return Ok(true);
+            };
+            ready = waiting;
+        }
+    }
+    while ready {
+        let event = ct::read()?;
+        if let ct::Event::Resize(..) = event {
+            engine.dirty = true;
+        }
+        let more = event_waiting(signals)?;
+        ready = more == Some(true);
+        for event in clipboard.filter(event, ready, engine, start.elapsed()) {
+            if let Some(event) = translate(event) {
+                engine.handle(event, start.elapsed());
+            }
+        }
+        if more.is_none() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Whether crossterm has an event to read, or `None` when the terminal hung up. Crossterm is
+/// asked only while the terminal is there: on a terminal that hung up every read finds nothing,
+/// and its reader would keep reading forever.
+fn event_waiting(signals: &Signals) -> io::Result<Option<bool>> {
+    if signals.hung_up_now() {
+        return Ok(None);
+    }
+    ct::poll(Duration::ZERO).map(Some)
+}
+
+/// Handles a failed exchange with the terminal: when the terminal is gone, it hung up and the
+/// run goes on without it; otherwise the error ends the run.
+fn hang_up_or(error: io::Error, signals: &Signals, guard: &TerminalGuard, gone: &mut bool) -> io::Result<()> {
+    if !signals.terminal_gone() {
+        return Err(error);
+    }
+    hang_up(signals, guard, gone);
+    Ok(())
+}
+
+/// The terminal hung up: nothing is written to it again, and the application hears a hangup
+/// whether or not its `SIGHUP` arrives.
+fn hang_up(signals: &Signals, guard: &TerminalGuard, gone: &mut bool) {
+    *gone = true;
+    guard.abandon();
+    signals.hung_up();
+}
+
+/// Answers the handoffs the engine queued after the terminal hung up: there is nothing to hand
+/// over, so each one fails without running its program.
+fn refuse_handoffs<A: App>(engine: &mut Engine<A>) {
+    while let Some(work) = engine.take_handoff() {
+        let message = work.finish(HandoffOutcome::Failed("the terminal is gone".to_owned()));
+        engine.update(message);
+    }
+}
+
+/// Runs the handoffs the engine queued, oldest first, each one blocking this thread: the screen
+/// is given back, the program runs with the terminal to itself, and afterwards the application
+/// takes the screen and draws all of it again. The engine owns no terminal, so this is the only
+/// place a handoff can happen.
+fn run_handoffs<A: App>(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    engine: &mut Engine<A>,
+    guard: &TerminalGuard,
+    signals: &Signals,
+) {
+    while let Some(work) = engine.take_handoff() {
+        let prompt = engine.env.i18n().translate("quvyta.handoff.pause", &[]);
+        let message = {
+            let mut release = |notice: Option<&str>| -> io::Result<()> {
+                guard.suspend()?;
+                let mut out = io::stdout();
+                execute!(out, Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+                if let Some(text) = notice {
+                    writeln!(out, "{text}")?;
                 }
-                let more = ct::poll(Duration::ZERO)?;
-                for event in clipboard.filter(event, more, &mut engine, start.elapsed()) {
-                    if let Some(event) = translate(event) {
-                        engine.handle(event, start.elapsed());
-                    }
+                out.flush()
+            };
+            let mut take = || -> io::Result<()> {
+                // Even when a step of taking the terminal back failed, the rest of it happened
+                // and the next frame must be drawn whole, so the failure is reported afterwards.
+                let resumed = guard.resume();
+                // The program wrote over the screen we left, so nothing of it can be reused, and
+                // it may have been resized meanwhile. Resizing to the size the terminal has now
+                // clears it and empties the buffer the next frame is compared against, so every
+                // cell is drawn again. `Terminal::clear` would do the same but first ask the
+                // terminal where its cursor is, a round trip some terminals never answer.
+                let area = terminal.size()?.into();
+                terminal.resize(area)?;
+                resumed
+            };
+            let mut wait_for_key = || wait_for_key_press(&prompt, signals);
+            let mut screen = HandoffScreen { release: &mut release, take: &mut take, wait_for_key: &mut wait_for_key };
+            // Signals caught while the program owns the terminal are passed on to it.
+            signals.handoff(true);
+            let message = handoff::run(work, &mut screen);
+            signals.handoff(false);
+            message
+        };
+        engine.dirty = true;
+        engine.update(message);
+    }
+}
+
+/// Prints `prompt` on the screen the program leaves behind and waits for one key press.
+fn wait_for_key_press(prompt: &str, signals: &Signals) -> io::Result<()> {
+    let mut out = io::stdout();
+    write!(out, "\n{prompt}")?;
+    out.flush()?;
+    // The keys are still the terminal's to echo; raw mode makes one press enough.
+    enable_raw_mode()?;
+    let pressed = wait_for_key(signals);
+    disable_raw_mode()?;
+    writeln!(out)?;
+    pressed
+}
+
+/// Waits for one key press, or for a signal that ends the run: nobody should have to press a
+/// key for the application to hear it.
+fn wait_for_key(signals: &Signals) -> io::Result<()> {
+    loop {
+        if signals.pending() {
+            return Ok(());
+        }
+        match event_waiting(signals)? {
+            // Nobody is left to press a key.
+            None => return Ok(()),
+            Some(true) => {
+                if let ct::Event::Key(key) = ct::read()?
+                    && key.kind == ct::KeyEventKind::Press
+                {
+                    return Ok(());
                 }
-                if !more {
-                    break;
+            }
+            Some(false) => {
+                if signals.wait(IDLE_WAIT, true)?.hung_up {
+                    return Ok(());
                 }
             }
         }
     }
 }
 
-/// Puts the terminal into application mode and restores it when dropped.
+/// Puts the terminal into application mode and restores it when dropped. The pair of
+/// [`TerminalGuard::suspend`] and [`TerminalGuard::resume`] gives the terminal back for a while,
+/// for a [`Handoff`](super::Handoff), and takes it again with the same keyboard enhancement flags.
 struct TerminalGuard {
     keyboard_enhanced: bool,
+    /// Set when the terminal hung up: there is nothing left to restore, and nothing is written
+    /// to a terminal that is gone.
+    abandoned: Cell<bool>,
 }
 
 impl TerminalGuard {
     fn enter() -> io::Result<Self> {
         enable_raw_mode()?;
-        let mut out = io::stdout();
-        execute!(out, EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste, cursor::Hide)?;
-        let keyboard_enhanced = supports_keyboard_enhancement().unwrap_or(false);
-        if keyboard_enhanced {
-            execute!(
-                out,
-                PushKeyboardEnhancementFlags(
-                    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
-                )
-            )?;
-        }
-        Ok(Self { keyboard_enhanced })
+        // From here on the guard exists, so a failure below drops it and the terminal is
+        // restored instead of being left in raw mode.
+        let mut guard = Self { keyboard_enhanced: false, abandoned: Cell::new(false) };
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste, cursor::Hide)?;
+        // Asked once: the terminal cannot change its answer while the application runs, and the
+        // question costs a round trip to it.
+        guard.keyboard_enhanced = supports_keyboard_enhancement().unwrap_or(false);
+        guard.push_keyboard_flags()?;
+        Ok(guard)
     }
+
+    /// Gives the terminal back: raw mode off, the normal screen and the cursor again.
+    fn suspend(&self) -> io::Result<()> {
+        release(self.keyboard_enhanced)
+    }
+
+    /// Takes the terminal again after [`TerminalGuard::suspend`], flags and all. The caller
+    /// redraws afterwards, because the screen it left is gone.
+    fn resume(&self) -> io::Result<()> {
+        take_back(&mut io::stdout(), self.keyboard_enhanced, enable_raw_mode)
+    }
+
+    /// Gives up the terminal after it hung up: dropping the guard then writes nothing.
+    fn abandon(&self) {
+        self.abandoned.set(true);
+    }
+
+    fn push_keyboard_flags(&self) -> io::Result<()> {
+        push_keyboard_flags(&mut io::stdout(), self.keyboard_enhanced)
+    }
+}
+
+/// Takes the terminal again: raw mode through `raw_on`, then the screen, the mouse and the
+/// keyboard flags written to `out`. Every step is tried even when one before it failed, so a
+/// failure leaves the terminal as close to application mode as it can be; the first error is
+/// the one reported.
+fn take_back(out: &mut impl Write, keyboard_enhanced: bool, raw_on: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+    let raw = raw_on();
+    let screen = execute!(out, EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste, cursor::Hide);
+    let flags = push_keyboard_flags(out, keyboard_enhanced);
+    raw.and(screen).and(flags)
+}
+
+fn push_keyboard_flags(out: &mut impl Write, keyboard_enhanced: bool) -> io::Result<()> {
+    if keyboard_enhanced {
+        execute!(
+            out,
+            PushKeyboardEnhancementFlags(
+                KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+            )
+        )?;
+    }
+    Ok(())
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        restore(self.keyboard_enhanced);
+        if !self.abandoned.get() {
+            restore(self.keyboard_enhanced);
+        }
     }
 }
 
+/// Leaves application mode, reporting what failed.
+fn release(keyboard_enhanced: bool) -> io::Result<()> {
+    give_back(&mut io::stdout(), keyboard_enhanced, disable_raw_mode)
+}
+
+/// Leaves application mode: the keyboard flags, the mouse and the screen written to `out`, and
+/// raw mode through `raw_off`. Every step is tried even when one before it failed: raw mode is a
+/// setting of the terminal device, not output, and output that cannot be written must not leave
+/// the user's shell in raw mode. The first error is the one reported.
+pub(super) fn give_back(
+    out: &mut impl Write,
+    keyboard_enhanced: bool,
+    raw_off: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
+    let flags = if keyboard_enhanced { execute!(out, PopKeyboardEnhancementFlags) } else { Ok(()) };
+    let screen = execute!(out, DisableBracketedPaste, DisableMouseCapture, LeaveAlternateScreen, cursor::Show);
+    let raw = raw_off();
+    let flushed = out.flush();
+    flags.and(screen).and(raw).and(flushed)
+}
+
+/// Leaves application mode as far as it can, for a drop or a panic: nothing is left to report to.
 fn restore(keyboard_enhanced: bool) {
-    let mut out = io::stdout();
-    if keyboard_enhanced {
-        let _ = execute!(out, PopKeyboardEnhancementFlags);
-    }
-    let _ = execute!(out, DisableBracketedPaste, DisableMouseCapture, LeaveAlternateScreen, cursor::Show);
-    let _ = disable_raw_mode();
-    let _ = out.flush();
+    let _ = release(keyboard_enhanced);
 }
 
 fn install_panic_hook() {
@@ -347,6 +697,50 @@ mod tests {
         assert_eq!(restores.load(Ordering::SeqCst), 0, "the terminal stays in application mode");
         let _ = std::panic::catch_unwind(|| panic!("the runtime failed"));
         assert_eq!(restores.load(Ordering::SeqCst), 1, "a panic of the runtime thread restores it");
+    }
+
+    /// Output that cannot be written, as when the terminal went away.
+    struct Broken;
+
+    impl Write for Broken {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("the terminal is gone"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::other("the terminal is gone"))
+        }
+    }
+
+    #[test]
+    fn raw_mode_is_left_even_when_the_screen_cannot_be_written() {
+        let mut raw_left = false;
+        let result = give_back(&mut Broken, true, || {
+            raw_left = true;
+            Ok(())
+        });
+        assert!(raw_left, "raw mode is a terminal setting, not output, and is always left");
+        assert_eq!(result.expect_err("the failure is reported").to_string(), "the terminal is gone");
+    }
+
+    #[test]
+    fn leaving_application_mode_writes_every_step_after_one_fails() {
+        let mut out = Vec::new();
+        let result = give_back(&mut out, true, || Err(io::Error::other("no raw mode")));
+        assert_eq!(result.expect_err("the failure is reported").to_string(), "no raw mode");
+        let text = String::from_utf8(out).expect("escape codes");
+        assert!(text.contains("\x1b[?1049l"), "the alternate screen was left: {text:?}");
+        assert!(text.contains("\x1b[?25h"), "the cursor is shown again: {text:?}");
+    }
+
+    #[test]
+    fn taking_the_terminal_back_goes_on_when_raw_mode_fails() {
+        // Without the alternate screen the application would draw over the shell's own lines.
+        let mut out = Vec::new();
+        let result = take_back(&mut out, false, || Err(io::Error::other("no raw mode")));
+        assert_eq!(result.expect_err("the failure is reported").to_string(), "no raw mode");
+        let text = String::from_utf8(out).expect("escape codes");
+        assert!(text.contains("\x1b[?1049h"), "the alternate screen is entered again: {text:?}");
     }
 
     #[test]

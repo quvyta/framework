@@ -3,12 +3,12 @@
 - `DatePicker::new(Option<Date>)` — the chosen date.
 - `.on_change(|date| msg)` — sent when a different day is chosen.
 - `.placeholder(text)` — shown while no date is chosen.
-- `.today(Date)` — the day marked as today. Default: `Date::today_utc()`.
+- `.today(Date)` — the day marked as today. Default: `Date::today_local()`, the day on the machine's clock and time zone.
 - `.disabled(bool)` — not focusable, cannot open. Default: `false`.
 
 ## Date
 
-- `Date::new(year, month, day) -> Option<Date>`, `Date::today_utc()`, `Date::from_days(n)`.
+- `Date::new(year, month, day) -> Option<Date>`, `Date::today_local()`, `Date::today_utc()`, `Date::from_days(n)`.
 - `.year()`, `.month()`, `.day()`, `.weekday()`, `.to_days()` (days since 1970-01-01).
 - `.add_days(n)`, `.add_months(n)` (clamps to the month's last day), `.first_of_month()`, `.start_of_week(Weekday)`.
 - `date::is_leap_year(year)`, `date::days_in_month(year, month)`; `Weekday::ALL`, `.number()`, `Weekday::from_number(n)`, `.days_since(start)` (days forward from `start`, `0..7`).

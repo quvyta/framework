@@ -20,3 +20,10 @@ success  = "#7DDC9B"
 warning  = "#F4C06A"
 danger   = "#F2777A"
 info     = "#B4A7F5"
+# Series tones: the accent leads, then teal, sand, rose and lavender, spread around the wheel so
+# neighbouring shares of a stacked bar never merge.
+series-1 = "#38BDF8"
+series-2 = "#5FD3AE"
+series-3 = "#E3B778"
+series-4 = "#EE8FA8"
+series-5 = "#A99CF0"

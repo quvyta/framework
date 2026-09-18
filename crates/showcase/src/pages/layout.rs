@@ -1,6 +1,8 @@
-//! Layout and pages: rows, columns, sizes, spacing, alignment, and page navigation with a router.
+//! Layout and pages: rows, columns, sizes, spacing, alignment, an arrangement chosen from the
+//! terminal's size, and page navigation with a router.
 
 use qframe::prelude::*;
+use qframe::widget::NodeMut;
 use qframe::widgets::Select;
 
 use super::{PageMsg, setting};
@@ -8,6 +10,10 @@ use crate::app::Msg as AppMsg;
 use crate::log::EventLog;
 
 const PAGE: &str = "layout";
+
+/// Below this many terminal columns the space-aware demo folds its three columns. The showcase's
+/// own menu takes part of the width, so the demo folds well before the page gets cramped.
+const FOLD_BELOW: u16 = 110;
 
 /// The three pages of the router demo.
 const PAGES: [&str; 3] = ["inbox", "message", "reply"];
@@ -137,12 +143,57 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         ]));
     })
     .fill_width();
+
+    adaptive(ui);
+}
+
+/// Three panes side by side on a wide terminal; below `FOLD_BELOW` columns the groups fold into a
+/// strip above a full-width list and the detail pane is left for a page of its own.
+fn adaptive(ui: &mut View<'_, AppMsg>) {
+    ui.add_with(Panel::new().title(t!("layout.adaptive")), |ui| {
+        // region: adaptive
+        let size = ui.size();
+        let narrow = size.width < FOLD_BELOW;
+        let arrangement = if narrow { t!("layout.narrow") } else { t!("layout.wide") };
+        ui.add(Text::rich([
+            Span::new(t!("layout.terminal")).role("faint"),
+            Span::new(t!("layout.size", width = size.width, height = size.height)).color("accent"),
+            Span::new(format!("   {arrangement}")).role("secondary"),
+        ]));
+        if narrow {
+            ui.column(|ui| {
+                pane(ui, t!("layout.panes.groups")).fill_width();
+                pane(ui, t!("layout.panes.items")).fill_width();
+            })
+            .gap(1)
+            .fill_width();
+        } else {
+            ui.row(|ui| {
+                pane(ui, t!("layout.panes.groups")).width(Length::Cells(18));
+                pane(ui, t!("layout.panes.items")).width(Length::Fill(2));
+                pane(ui, t!("layout.panes.detail")).width(Length::Fill(1));
+            })
+            .gap(2)
+            .fill_width();
+        }
+        // endregion
+        ui.add(Text::new(t!("layout.adaptive-hint", columns = FOLD_BELOW)).role("faint"));
+    })
+    .fill_width();
+}
+
+/// One pane of the space-aware demo: an inset surface with its name.
+fn pane<'v>(ui: &'v mut View<'_, AppMsg>, name: String) -> NodeMut<'v, AppMsg> {
+    ui.add_with(Panel::new().variant("inset"), |ui| {
+        ui.add(Text::new(name).no_wrap());
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::showcase_on;
+    use crate::app::Showcase;
+    use crate::tests::{showcase_on, showcase_tall};
 
     #[test]
     fn router_keeps_history_and_gap_changes_layout() {
@@ -153,6 +204,32 @@ mod tests {
         assert_eq!(*h.app().pages.layout.router.current(), "message");
         h.send(send(Msg::Gap(3)));
         assert!(h.screen().contains("Fill(2)"));
+    }
+
+    #[test]
+    fn the_space_aware_demo_folds_below_its_width() {
+        let mut h = showcase_tall(Showcase::new(), PAGE, 80);
+        let wide = h.screen();
+        assert!(wide.contains("140 × 80"), "{wide}");
+        let (groups, items, detail) = (h.find("Groups"), h.find("Items"), h.find("Detail"));
+        let (Some(groups), Some(items), Some(_)) = (groups, items, detail) else {
+            panic!("three panes on a wide terminal:\n{wide}");
+        };
+        assert_eq!(groups.1, items.1, "side by side:\n{wide}");
+        assert!(groups.0 < items.0);
+
+        h.resize(100, 80);
+        let narrow = h.screen();
+        assert!(narrow.contains("100 × 80"), "{narrow}");
+        assert!(h.find("Detail").is_none(), "the detail leaves the narrow layout:\n{narrow}");
+        let (Some(groups), Some(items)) = (h.find("Groups"), h.find("Items")) else {
+            panic!("groups and items on a narrow terminal:\n{narrow}");
+        };
+        assert!(groups.1 < items.1, "the groups strip sits above the list:\n{narrow}");
+        assert_eq!(groups.0, items.0, "{narrow}");
+
+        h.resize(140, 80);
+        assert!(h.find("Detail").is_some(), "{}", h.screen());
     }
 
     #[test]

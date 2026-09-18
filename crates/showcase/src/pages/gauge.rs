@@ -1,7 +1,7 @@
 //! Gauge: meters for a host's resources with warning and danger limits.
 
 use qframe::prelude::*;
-use qframe::widgets::Gauge;
+use qframe::widgets::{Gauge, Tooltip};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -80,6 +80,15 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         ui.add(Gauge::new(96.0).label(t!("gauge.inodes")).label_width(8).thresholds(75.0, 90.0))
             .width(Length::Cells(64));
         // endregion
+        ui.spacer().height(Length::Cells(1));
+        ui.add(Text::new(t!("gauge.narrow-hint")).role("faint"));
+        // region: narrow
+        // A gauge answers no keys and no clicks: its value is always written out. When the area
+        // cuts the label, a tooltip is what the pointer reads.
+        ui.add_with(Tooltip::new(t!("gauge.narrow-full")), |ui| {
+            ui.add(Gauge::new(96.0).label(t!("gauge.narrow")).thresholds(75.0, 90.0)).width(Length::Cells(16));
+        });
+        // endregion
     })
     .fill_width();
 
@@ -131,5 +140,16 @@ mod tests {
         assert!(h.screen().contains("▲ 6.4 of 8 GiB"), "{}", h.screen());
         h.send(send(Msg::Text(false)));
         assert!(h.screen().contains("▲ 80%"), "{}", h.screen());
+    }
+
+    #[test]
+    fn a_cut_label_is_read_from_the_tooltip_and_the_gauge_itself_stays_quiet() {
+        let mut h = showcase_on(PAGE);
+        let (x, y) = h.find("Inodes o…").expect("the narrow gauge cuts its label");
+        let before = h.screen();
+        h.click(x + 2, y).press("right").press("enter");
+        assert_eq!(h.screen(), before, "the gauge answers neither the pointer nor the keys");
+        h.hover(x + 2, y).advance(std::time::Duration::from_secs(1));
+        assert!(h.screen().contains("Inodes on the build volume · 96%"), "{}", h.screen());
     }
 }

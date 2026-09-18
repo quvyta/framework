@@ -1,6 +1,7 @@
 //! Browsing the file system to choose a file or a folder.
 
 use std::path::{Component, Path, PathBuf};
+use std::rc::Rc;
 
 use crate::event::{Event, MouseButton, MouseKind};
 use crate::geometry::{Rect, Size};
@@ -64,14 +65,22 @@ use super::{Button, List, ListItem, SpinnerStyle, Switch, Text, TextInput};
 /// `path-separator`, `error`. Framework strings under `quvyta.file-picker`.
 pub struct FilePicker<'a, Msg> {
     browser: &'a FileBrowser,
-    wrap: fn(FilePickerMsg) -> Msg,
+    wrap: Wrap<Msg>,
 }
+
+/// Turns picker messages into the application's; shared by every widget of one picker.
+type Wrap<Msg> = Rc<dyn Fn(FilePickerMsg) -> Msg>;
 
 impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
     /// A picker showing `browser`; `wrap` turns picker messages into application messages.
+    ///
+    /// `wrap` is a function such as `Msg::Picker`, or a closure that captures what it needs,
+    /// e.g. a screen's own conversion: `move |message| wrap(screen::Msg::Picker(message))`. It
+    /// runs while events are handled on the drawing thread, so it need not be `Send`, and the
+    /// picker shares it among its widgets, so it need not be `Clone`.
     #[must_use]
-    pub fn new(browser: &'a FileBrowser, wrap: fn(FilePickerMsg) -> Msg) -> Self {
-        Self { browser, wrap }
+    pub fn new(browser: &'a FileBrowser, wrap: impl Fn(FilePickerMsg) -> Msg + 'static) -> Self {
+        Self { browser, wrap: Rc::new(wrap) }
     }
 
     /// Adds the picker to `ui` as a column.
@@ -81,11 +90,12 @@ impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
         ui.column(|ui| {
             let failed = matches!(browser.state, FolderState::Failed(_));
             let busy = browser.loading.is_some();
-            ui.add(PathBar { folder: browser.folder.clone(), busy, failed, wrap }).fill_width();
+            ui.add(PathBar { folder: browser.folder.clone(), busy, failed, wrap: Rc::clone(&wrap) }).fill_width();
+            let filter = Rc::clone(&wrap);
             ui.add(
                 TextInput::new(&browser.filter)
                     .placeholder(crate::t!("quvyta.file-picker.filter"))
-                    .on_change(move |text| wrap(FilePickerMsg::Filter(text))),
+                    .on_change(move |text| filter(FilePickerMsg::Filter(text))),
             )
             .fill_width();
             match &browser.state {
@@ -95,9 +105,9 @@ impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
                     ui.add(Text::new("")).height(Length::Fill(1));
                 }
                 FolderState::Failed(error) => Self::failure(ui, error, &browser.folder),
-                FolderState::Ready(_) => Self::entries(ui, browser, wrap),
+                FolderState::Ready(_) => Self::entries(ui, browser, &wrap),
             }
-            Self::footer(ui, browser, wrap);
+            Self::footer(ui, browser, &wrap);
         })
         .gap(1)
     }
@@ -127,7 +137,7 @@ impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
         .fill_width();
     }
 
-    fn entries(ui: &mut View<'_, Msg>, browser: &FileBrowser, wrap: fn(FilePickerMsg) -> Msg) {
+    fn entries(ui: &mut View<'_, Msg>, browser: &FileBrowser, wrap: &Wrap<Msg>) {
         let parent = browser.folder.parent().map(Path::to_path_buf);
         let visible = browser.visible();
         let mut items = Vec::new();
@@ -164,10 +174,11 @@ impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
             // Rows without an action (a file in a folder picker) only select.
             .map(|(name, action)| action.unwrap_or(FilePickerMsg::Select(name)))
             .collect();
+        let (select, activate) = (Rc::clone(wrap), Rc::clone(wrap));
         let list = List::new(items)
             .selected(selected)
-            .on_select(move |index| wrap(FilePickerMsg::Select(names.get(index).cloned().flatten())))
-            .on_activate(move |index| wrap(actions.get(index).cloned().unwrap_or(FilePickerMsg::Refresh)));
+            .on_select(move |index| select(FilePickerMsg::Select(names.get(index).cloned().flatten())))
+            .on_activate(move |index| activate(actions.get(index).cloned().unwrap_or(FilePickerMsg::Refresh)));
         if nothing {
             // An empty folder still offers the way back up above its empty text.
             ui.add(list).fill_width();
@@ -179,7 +190,7 @@ impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
         ui.add(list).width(Length::Fill(1)).height(Length::Fill(1));
     }
 
-    fn footer(ui: &mut View<'_, Msg>, browser: &FileBrowser, wrap: fn(FilePickerMsg) -> Msg) {
+    fn footer(ui: &mut View<'_, Msg>, browser: &FileBrowser, wrap: &Wrap<Msg>) {
         // The selected entry, when it is one the mode can choose: a file, or a folder.
         let wants_folder = browser.mode == PickMode::Folders;
         let selected = browser.selected.as_ref().filter(|name| {
@@ -194,10 +205,11 @@ impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
         };
         let ready = matches!(browser.state, FolderState::Ready(_));
         ui.row(|ui| {
+            let toggle = Rc::clone(wrap);
             ui.add(
                 Switch::new(browser.show_hidden)
                     .label(crate::t!("quvyta.file-picker.hidden"))
-                    .on_toggle(move |on| wrap(FilePickerMsg::ShowHidden(on))),
+                    .on_toggle(move |on| toggle(FilePickerMsg::ShowHidden(on))),
             );
             if !browser.extensions.is_empty() {
                 ui.add(Text::new(browser.extensions.join(", ")).role("faint").no_wrap());
@@ -246,7 +258,7 @@ struct PathBar<Msg> {
     busy: bool,
     /// The folder shown could not be read; its error replaces any indicator at once.
     failed: bool,
-    wrap: fn(FilePickerMsg) -> Msg,
+    wrap: Wrap<Msg>,
 }
 
 impl<Msg> PathBar<Msg> {
@@ -478,6 +490,83 @@ mod tests {
         let screen = h.screen();
         assert!(screen.contains("✕  This folder does not exist"), "{screen}");
         assert!(!screen.contains('['));
+    }
+
+    /// A picker inside a screen of the application: the screen's messages carry the tab it sits
+    /// in, so `wrap` is a closure over that tab rather than a function.
+    struct Tabbed {
+        tab: usize,
+        browser: FileBrowser,
+        chosen: Vec<(usize, PathBuf)>,
+    }
+
+    #[derive(Debug, Clone)]
+    enum TabMsg {
+        Picker(usize, FilePickerMsg),
+    }
+
+    impl App for Tabbed {
+        type Msg = TabMsg;
+        fn update(&mut self, msg: TabMsg) -> Command<TabMsg> {
+            let TabMsg::Picker(tab, message) = msg;
+            if let FilePickerMsg::Chosen(path) = message {
+                self.chosen.push((tab, path));
+                return Command::none();
+            }
+            self.browser.update(message, move |message| TabMsg::Picker(tab, message))
+        }
+        fn view(&self, ui: &mut View<'_, TabMsg>) {
+            let tab = self.tab;
+            FilePicker::new(&self.browser, move |message| TabMsg::Picker(tab, message)).show(ui).fill();
+        }
+    }
+
+    #[test]
+    fn a_closure_capturing_state_wraps_every_picker_message() {
+        let dir = scratch("closure");
+        let browser = FileBrowser::new(&dir, PickMode::Files);
+        let mut h = Harness::new(Tabbed { tab: 3, browser, chosen: Vec::new() }, 60, 14);
+        h.set_glyph_mode(GlyphMode::Unicode);
+        // `update` hands the closure to `open`, whose read delivers `Loaded` through it.
+        h.send(TabMsg::Picker(3, FilePickerMsg::Open(dir.clone())));
+        assert!(h.screen().contains("compose.yaml"), "{}", h.screen());
+        h.click_text("deploy").click_text("release.sh");
+        assert_eq!(h.app().chosen, [(3, dir.join("deploy/release.sh"))]);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    impl From<FilePickerMsg> for Msg {
+        fn from(message: FilePickerMsg) -> Self {
+            Msg::Picker(message)
+        }
+    }
+
+    /// Callers that pass a plain function keep compiling: an item, a pointer held in a value, and
+    /// a generic function made concrete by the message type.
+    #[test]
+    fn plain_functions_still_wrap() {
+        fn wrap(message: FilePickerMsg) -> Msg {
+            Msg::Picker(message)
+        }
+        fn picked<M: From<FilePickerMsg>>(message: FilePickerMsg) -> M {
+            M::from(message)
+        }
+        let dir = scratch("plain");
+        let pointer: fn(FilePickerMsg) -> Msg = wrap;
+        let mut browser = FileBrowser::new(&dir, PickMode::Files);
+        let command: Command<Msg> = browser.open(dir.clone(), pointer);
+        assert_eq!(command.actions.len(), 1);
+        let command: Command<Msg> = browser.update(FilePickerMsg::Refresh, picked::<Msg>);
+        assert_eq!(command.actions.len(), 1);
+        let _ = browser.update(FilePickerMsg::Loaded(dir.clone(), read_folder(&dir)), wrap);
+        let mut h = Harness::new(Demo { browser, chosen: None }, 60, 14);
+        h.set_glyph_mode(GlyphMode::Unicode);
+        assert!(h.screen().contains("compose.yaml"), "{}", h.screen());
+        // `Demo` shows its picker with the variant `Msg::Picker`; a pointer is accepted as well.
+        let _ = FilePicker::new(&h.app().browser, pointer);
+        h.click_text("compose.yaml");
+        assert_eq!(h.app().chosen.as_deref(), Some(dir.join("compose.yaml").as_path()));
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

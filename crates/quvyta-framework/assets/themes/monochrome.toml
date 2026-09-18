@@ -21,6 +21,14 @@ success  = "#6EE7A8"
 warning  = "#F5C66B"
 danger   = "#F47174"
 info     = "#8AB4F8"
+# The categorical palette a chart tells its series apart with. Monochrome keeps its word and
+# steps down in lightness only; the ladder is even in OKLab, so no two steps merge, and the
+# faintest still shows against a panel.
+series-1 = "#F5F5F7"   # the first series carries the accent itself
+series-2 = "#C6C8D6"
+series-3 = "#9EA0AE"
+series-4 = "#797B89"
+series-5 = "#555765"
 
 [motion]
 pulse-period = "1400ms"
@@ -1555,10 +1563,14 @@ bg        = "$raised"
 highlight = "mix($dim, $raised, 24%)"
 
 # Sparklines: columns a step below the accent so the peak can stand out in the accent itself.
+# The column being read is chosen the way a checked box or a selected row is, so it takes the
+# full accent over the `active` band the widget raises under it. Iris, Nordic and Amber inherit
+# these tones and resolve them with their own accent.
 [style.sparkline]
 fg       = "mix($accent, $surface, 72%)"
 peak     = "$accent"
 low      = "$muted"
+reading  = "$accent"
 baseline = "mix($accent, $surface, 12%)"
 track    = "$raised"
 

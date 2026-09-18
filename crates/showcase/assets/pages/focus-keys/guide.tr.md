@@ -25,6 +25,8 @@ search = ["/", "ctrl+f"]
 
 `App::action` bir adı mesaja çevirir. Kullanıcılar tuşları bir dosyayla yeniden bağlayabilir; kodda hiçbir şey değişmez. Aynı tuş bir tablonun iki eylemine bağlanırsa bir uyarı bunu söyler.
 
+Uygulamanın kendi bağlamalarının diskte bir dosya olması şart değil. `Runtime::keymap_source(dosya, metin)` TOML metninin kendisini alır; bu metin genelde deponuzdaki kısayol dosyasının `include_str!`'ıdır, böylece kurulan ikili tuşlarını kendi taşır. `CARGO_MANIFEST_DIR`'den kurulan bir yol, ikili başka bir yere kurulunca kırılır. Ayrıca verilen bir `keymap_file` artık zorunlu değildir: okunamadığında metin onun yerine geçer ve sebep, programı durdurmak yerine bir tanılamaya dönüşür. Bozuk bir satır dosya, satır ve sütunuyla bildirilip atlanır; gömülü bağlamalar çalışmaya devam eder.
+
 ## İpucu etiketleri dilden gelir
 
 İpucu çubuğu etiketleri dil anahtarlarından okur: global eylemler için `quvyta.keys.<eylem>`, seninkiler için `keys.<eylem>`. Dili değiştirince her ipucu da değişir.

@@ -12,6 +12,8 @@
 //!
 //! Lookups try the active locale, then its `fallback` chain, then English. A key found
 //! nowhere is shown as `⟦key⟧` so a missing translation is visible on screen.
+//! [`I18n::has`] asks whether one language carries a key itself, without the fallbacks, so a
+//! test can keep every language complete.
 
 mod locale;
 mod plural;
@@ -188,6 +190,37 @@ impl I18n {
             }
         };
         render(template, args)
+    }
+
+    /// Whether the locale `code` itself defines `key`, as a plain message or as a plural table
+    /// (a plural key counts once, whatever forms it has).
+    ///
+    /// The language is always the one named, never the active one, so the answer does not change
+    /// with [`set_active`](Self::set_active). Only that locale's own text counts: a key it would
+    /// borrow from its `fallback` or from English is not its own, so `has` answers `false` for it
+    /// even though [`translate`](Self::translate) shows the borrowed text on screen. That lets a
+    /// test require every language to carry its own translation. An unknown `code` has no keys.
+    ///
+    /// Comparing `translate(key, &[])` with `key` cannot stand in for this: a key found nowhere
+    /// translates to `⟦key⟧`, which differs from the key.
+    #[must_use]
+    pub fn has(&self, code: &str, key: &str) -> bool {
+        self.locales.get(code).is_some_and(|locale| locale.messages.contains_key(key))
+    }
+
+    /// The plain text of `key` in every locale that defines it itself, the active locale first and
+    /// the others in code order. Lets input be read in any known language, such as the unit words
+    /// of a length of time typed by someone whose interface is in another language.
+    pub(crate) fn in_every_locale(&self, key: &str) -> Vec<String> {
+        let active = self.locales.get(&self.active).into_iter();
+        let others = self.locales.values().filter(|locale| locale.code != self.active);
+        active
+            .chain(others)
+            .filter_map(|locale| match locale.messages.get(key) {
+                Some(Message::Plain(template)) => Some(render(template, &[])),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Keys present in `reference` but missing from `code`, sorted. Use in tests to keep
@@ -367,6 +400,35 @@ mod tests {
             i18n.list(),
             vec![("en".to_owned(), "English (app)".to_owned()), ("tr".to_owned(), "Türkçe".to_owned()),]
         );
+    }
+
+    #[test]
+    fn has_looks_at_the_named_language_only() {
+        let mut i18n = catalog();
+        assert!(i18n.has("en", "files.hello") && i18n.has("tr", "files.hello"));
+        assert!(i18n.has("en", "files.only-en"));
+        assert!(!i18n.has("tr", "files.only-en"), "borrowed from English, not Turkish's own");
+        assert!(i18n.set_active("tr"));
+        assert_eq!(i18n.translate("files.only-en", &[]), "English only", "yet the screen shows the fallback");
+        assert!(!i18n.has("tr", "files.only-en"), "the active language changes nothing");
+        assert!(i18n.has("en", "files.only-en"));
+        assert!(!i18n.has("en", "files.nope") && !i18n.has("tr", "files.nope"));
+        assert!(!i18n.has("xx", "files.hello"), "an unknown language has no keys");
+    }
+
+    #[test]
+    fn a_plural_key_counts_as_present() {
+        let i18n = catalog();
+        assert!(i18n.has("en", "files.count") && i18n.has("tr", "files.count"));
+        assert!(!i18n.has("en", "files.count.one"), "a form is not a key of its own");
+    }
+
+    #[test]
+    fn comparing_a_translation_with_its_key_misses_a_missing_key() {
+        let i18n = catalog();
+        let key = "files.nope";
+        assert_ne!(i18n.translate(key, &[]), key, "the indirect check passes");
+        assert!(!i18n.has("en", key), "has reports it missing");
     }
 
     #[test]

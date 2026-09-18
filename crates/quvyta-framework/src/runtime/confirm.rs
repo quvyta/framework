@@ -1,6 +1,8 @@
 //! "Are you sure?" dialogs the runtime shows for [`Command::confirm`](super::Command::confirm).
 
 use std::marker::PhantomData;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::event::{Event, MouseKind};
 use crate::geometry::{Rect, Size};
@@ -15,6 +17,11 @@ use crate::widgets::{Button, Modal, Text};
 /// question is dismissable by default: Esc and the close mark `×` at the top right cancel, always
 /// together; [`dismissable(false)`](Confirm::dismissable) turns both off so only the buttons
 /// answer. A click on the dimmed screen never answers, so a stray click is harmless.
+///
+/// [`alternative`](Confirm::alternative) adds a third way between the two, such as "Save ·
+/// Continue · Discard" for recovered work. The buttons then read Cancel, the alternative and the
+/// confirm button from left to right, Tab and Shift+Tab visit them in that order, and Cancel
+/// still has focus when the dialog opens; Esc and the close mark still cancel.
 pub struct Confirm<Msg> {
     title: String,
     message: Option<String>,
@@ -24,6 +31,11 @@ pub struct Confirm<Msg> {
     dismissable: bool,
     on_confirm: Msg,
     on_cancel: Option<Msg>,
+    alternative: Option<(String, Msg)>,
+    /// Set by the dialog when the alternative is chosen. The runtime reports an answer as
+    /// confirmed or not; the alternative travels as a confirmation with this flag set, which
+    /// [`into_answer`](Self::into_answer) reads.
+    alternative_chosen: Arc<AtomicBool>,
 }
 
 impl<Msg> Confirm<Msg> {
@@ -39,6 +51,8 @@ impl<Msg> Confirm<Msg> {
             dismissable: true,
             on_confirm,
             on_cancel: None,
+            alternative: None,
+            alternative_chosen: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -58,7 +72,7 @@ impl<Msg> Confirm<Msg> {
     }
 
     /// Whether Esc and the close mark cancel the question; `true` by default. With `false`
-    /// neither works, the mark is not drawn and only the two buttons answer.
+    /// neither works, the mark is not drawn and only the buttons answer.
     #[must_use]
     pub fn dismissable(mut self, dismissable: bool) -> Self {
         self.dismissable = dismissable;
@@ -87,9 +101,39 @@ impl<Msg> Confirm<Msg> {
         self
     }
 
-    /// The message for an answer.
+    /// A third answer between Cancel and the confirm button: a button labelled `label` that sends
+    /// `message`, such as "Continue" beside "Discard" and "Save". Without it the dialog has its
+    /// two buttons exactly as before.
+    #[must_use]
+    pub fn alternative(mut self, label: impl Into<String>, message: Msg) -> Self {
+        self.alternative = Some((label.into(), message));
+        self
+    }
+
+    /// The same question answered with `map(message)`.
+    pub(crate) fn map<B>(self, map: impl Fn(Msg) -> B) -> Confirm<B> {
+        Confirm {
+            title: self.title,
+            message: self.message,
+            confirm_label: self.confirm_label,
+            cancel_label: self.cancel_label,
+            danger: self.danger,
+            dismissable: self.dismissable,
+            on_confirm: map(self.on_confirm),
+            on_cancel: self.on_cancel.map(&map),
+            alternative: self.alternative.map(|(label, message)| (label, map(message))),
+            alternative_chosen: self.alternative_chosen,
+        }
+    }
+
+    /// The message for an answer; a confirmation stands for the alternative when the dialog
+    /// recorded that choice.
     pub(crate) fn into_answer(self, confirmed: bool) -> Option<Msg> {
-        if confirmed { Some(self.on_confirm) } else { self.on_cancel }
+        match self.alternative {
+            Some((_, message)) if confirmed && self.alternative_chosen.load(Ordering::Relaxed) => Some(message),
+            _ if confirmed => Some(self.on_confirm),
+            _ => self.on_cancel,
+        }
     }
 }
 
@@ -97,6 +141,7 @@ impl<Msg> Confirm<Msg> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Answer {
     Cancel,
+    Alternative,
     Confirm,
 }
 
@@ -116,6 +161,8 @@ pub(crate) struct ConfirmLayer<Msg> {
     cancel_label: Option<String>,
     danger: bool,
     dismissable: bool,
+    alternative_label: Option<String>,
+    alternative_chosen: Arc<AtomicBool>,
     marker: PhantomData<fn() -> Msg>,
 }
 
@@ -128,6 +175,8 @@ impl<Msg> ConfirmLayer<Msg> {
             cancel_label: confirm.cancel_label.clone(),
             danger: confirm.danger,
             dismissable: confirm.dismissable,
+            alternative_label: confirm.alternative.as_ref().map(|(label, _)| label.clone()),
+            alternative_chosen: Arc::clone(&confirm.alternative_chosen),
             marker: PhantomData,
         }
     }
@@ -143,8 +192,13 @@ impl<Msg> ConfirmLayer<Msg> {
             .title(self.title.clone())
             .on_close(Answer::Cancel)
             .dismissable(self.dismissable)
-            .action(Button::new(cancel).on_press(Answer::Cancel))
-            .action(confirm_button);
+            .action(Button::new(cancel).on_press(Answer::Cancel));
+        // Read left to right: the safe answer, the third way, the confirming one; focus visits
+        // them in the same order.
+        if let Some(label) = &self.alternative_label {
+            dialog = dialog.action(Button::new(label.clone()).on_press(Answer::Alternative));
+        }
+        dialog = dialog.action(confirm_button);
         if self.danger {
             dialog = dialog.variant("danger");
         }
@@ -244,8 +298,13 @@ impl<Msg: 'static> Widget<Msg> for ConfirmLayer<Msg> {
             };
             button.widget.event(&mut button_cx, event)
         };
-        if let Some(answer) = answers.first() {
-            cx.answer(*answer == Answer::Confirm);
+        match answers.first() {
+            Some(Answer::Alternative) => {
+                self.alternative_chosen.store(true, Ordering::Relaxed);
+                cx.answer(true);
+            }
+            Some(answer) => cx.answer(*answer == Answer::Confirm),
+            None => {}
         }
         handled || matches!(event, Event::Mouse(_))
     }
@@ -259,6 +318,7 @@ struct ButtonRects(Vec<(WidgetId, Rect)>);
 mod tests {
     use std::time::Duration;
 
+    use crate::event::{MouseButton, MouseKind};
     use crate::runtime::{App, Command, Confirm, Harness};
     use crate::widget::View;
     use crate::widgets::{Button, Text};
@@ -276,6 +336,10 @@ mod tests {
         Kept,
         Prune,
         AskFirm,
+        AskRecover,
+        Saved,
+        Resumed,
+        Discarded,
     }
 
     impl App for Demo {
@@ -302,6 +366,19 @@ mod tests {
                         Confirm::new("Rotate keys?", Msg::Remove).dismissable(false).on_cancel(Msg::Kept),
                     );
                 }
+                Msg::AskRecover => {
+                    return Command::confirm(
+                        Confirm::new("Recover the session?", Msg::Saved)
+                            .message("47 minutes were counted.")
+                            .confirm_label("Save")
+                            .cancel_label("Discard")
+                            .on_cancel(Msg::Discarded)
+                            .alternative("Continue", Msg::Resumed),
+                    );
+                }
+                Msg::Saved => self.log.push("saved"),
+                Msg::Resumed => self.log.push("resumed"),
+                Msg::Discarded => self.log.push("discarded"),
                 Msg::Remove => self.log.push("removed"),
                 Msg::Kept => self.log.push("kept"),
                 Msg::Prune => self.log.push("pruned"),
@@ -408,5 +485,90 @@ mod tests {
         assert!(h.screen().contains("Prune images?"), "{}", h.screen());
         h.press("tab").press("enter");
         assert_eq!(h.app().log, ["removed", "pruned"]);
+    }
+
+    #[test]
+    fn a_two_way_question_draws_exactly_as_before() {
+        let h = asked();
+        let screen = h.screen();
+        let rows: Vec<&str> = screen.lines().collect();
+        assert_eq!(rows[3].trim_end().chars().last(), Some('×'), "{screen}");
+        assert_eq!(rows[4], "  ▌  Remove web?", "{screen}");
+        assert_eq!(rows[6], "  ▌  Its volumes go too.", "{screen}");
+        assert_eq!(rows[8], "  ▌  esc close   tab switch      ▌ Cancel      Remove", "{screen}");
+        assert_eq!(rows.iter().filter(|row| row.contains('▌')).count(), 7, "one surface, two buttons:\n{screen}");
+    }
+
+    fn recovering() -> Harness<Demo> {
+        let mut h = Harness::new(Demo::default(), 60, 14);
+        h.send(Msg::AskRecover).advance(Duration::from_millis(200));
+        h
+    }
+
+    #[test]
+    fn a_third_way_sits_between_cancel_and_confirm_with_cancel_focused() {
+        let mut h = recovering();
+        let screen = h.screen();
+        let row = screen.lines().find(|line| line.contains("Continue")).unwrap_or_else(|| panic!("{screen}"));
+        let at = |label: &str| row.find(label).unwrap_or_else(|| panic!("`{label}` in {row}"));
+        assert!(at("Discard") < at("Continue") && at("Continue") < at("Save"), "{row}");
+        assert!(!screen.contains(['[', ']', '|']), "{screen}");
+        let (dx, dy) = cell(&h, "Discard");
+        let (cx, cy) = cell(&h, "Continue");
+        let focused = h.bg(dx, dy);
+        assert_ne!(focused, h.bg(cx, cy), "Cancel has the focus, the third way rests: {screen}");
+        h.press("tab");
+        assert_eq!(h.bg(cx, cy), focused, "tab lifts the third way like the focused Cancel was");
+    }
+
+    #[test]
+    fn the_keyboard_reaches_each_way_in_reading_order() {
+        let mut h = recovering();
+        h.press("enter");
+        assert_eq!(h.app().log, ["discarded"], "enter on the focused Cancel");
+        let mut h = recovering();
+        h.press("tab").press("enter");
+        assert_eq!(h.app().log, ["resumed"], "tab reaches the third way first");
+        let mut h = recovering();
+        h.press("tab").press("tab").press("enter");
+        assert_eq!(h.app().log, ["saved"]);
+        let mut h = recovering();
+        h.press("shift+tab").press("enter");
+        assert_eq!(h.app().log, ["saved"], "shift tab goes round the other way");
+        let mut h = recovering();
+        h.press("esc");
+        assert_eq!(h.app().log, ["discarded"], "esc still cancels");
+        assert!(!h.screen().contains("Recover the session?"));
+    }
+
+    #[test]
+    fn the_mouse_reaches_each_way() {
+        for (label, answer) in [("Continue", "resumed"), ("Save", "saved"), ("Discard", "discarded")] {
+            let mut h = recovering();
+            let (x, y) = cell(&h, label);
+            h.click(i32::from(x), i32::from(y));
+            assert_eq!(h.app().log, [answer], "{label}");
+            assert!(!h.screen().contains("Recover the session?"));
+        }
+        let mut h = recovering();
+        let (x, y) = cell(&h, "Continue");
+        h.mouse(MouseKind::Down(MouseButton::Left), i32::from(x), i32::from(y));
+        let (x, y) = cell(&h, "Save");
+        h.mouse(MouseKind::Up(MouseButton::Left), i32::from(x), i32::from(y));
+        assert!(h.app().log.is_empty(), "a release over another button answers nothing");
+    }
+
+    #[test]
+    fn a_three_way_question_survives_tiny_terminals_and_ascii() {
+        let mut h = recovering();
+        h.set_glyph_mode(crate::icons::GlyphMode::Ascii);
+        assert!(!h.screen().contains(['[', ']', '|', '(', ')']), "{}", h.screen());
+        assert!(h.screen().contains("Continue"), "{}", h.screen());
+        for (width, height) in [(0, 0), (1, 1), (12, 4), (30, 8)] {
+            let mut h = Harness::new(Demo::default(), width, height);
+            h.send(Msg::AskRecover).advance(Duration::from_millis(200));
+            h.press("tab").press("tab").press("enter");
+            assert_eq!(h.app().log, ["saved"], "{width}×{height}");
+        }
     }
 }

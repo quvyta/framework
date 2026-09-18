@@ -16,6 +16,7 @@ Bir kaynağın şu an ne kadar dolu olduğunu, sorun olmaya başladığı bir no
 - **Tek satır.** Solda etiket, ortada ölçer, sağda değer. Ölçer hücrenin sekizde biri hassasiyetle dolar.
 - **Görünen sınırlar.** Eşik varsa, izin her sınırdan sonraki bölümü orada bekleyen tonla hafifçe boyanır; bir şey ters gitmeden önce ne kadar yer kaldığını görürsün.
 - **Renk asla tek başına kalmaz.** Eşik varsa değer bir işaret taşır: her şey yolundaysa nokta, uyarıda `▲`, tehlikede `✕`.
+- **Kontrol değil, okuma.** Gösterge tuşa da tıklamaya da cevap vermez ve klavye odağı almaz: tek değeri her zaman ölçerin yanında yazılıdır, yani imlecin ya da tuşun geçebileceği bir şey yoktur; fare ve klavye kullananlar aynı satırı okur. Değeri ayarlatmak için kaydırıcı, alanın kestiği etiketi anlatmak için göstergeyi bir ipucu balonuna sarmak, geçmişten değer okumak için sparkline kullan.
 - **Dar alanlar.** Ölçere dört hücreden az kalırsa ölçer çizilmez, etiket ve değer kalır; önce etiket `…` ile kesilir.
 
 ## Sık yapılan hatalar
@@ -23,3 +24,4 @@ Bir kaynağın şu an ne kadar dolu olduğunu, sorun olmaya başladığı bir no
 - **Sınırı olmayan şeylere eşik.** Bir istek sayacının tehlike bölgesi yoktur; sayı ya da sparkline kullan.
 - **Anlamsız uyarı renkleri.** Sisteminde %90 disk normalse, insanlara uyarı rengini görmezden gelmeyi öğretmek yerine eşikleri taşı.
 - **Farklı genişlikler.** Farklı genişlikteki göstergeler zor karşılaştırılır; bir gruba aynı genişliği ver.
+- **Tıklama beklemek.** Göstergeye basınca hiçbir şey olmaz. İnsanların bir şey yapması gerekiyorsa eylemi yanına buton olarak koy.

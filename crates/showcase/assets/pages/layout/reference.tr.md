@@ -6,6 +6,7 @@
 - `ui.page(anahtar, |ui| ...)` — gizliyken odağı ve kaydırmayı hatırlayan bir sütun.
 - `ui.spacer()` — dolduran boş alan.
 - `ui.env()` — tema, ikonlar, dil ve kısayol haritası.
+- `ui.size()` — terminalin `Size` değeri (hücre olarak `width`, `height`), her iç içe kurucuda aynı; uygulamanın dizilişini seçmek için.
 
 ## Düğüm
 

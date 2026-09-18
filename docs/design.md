@@ -14,8 +14,11 @@ yazılabilmelidir.**
 İki parça:
 
 1. **`quvyta-framework`**: kütüphane. Kodda `qframe` adıyla kullanılır.
-2. **`showcase`**: her bileşenin canlı demosunu, kodunu, rehberini ve referansını gösteren
-   uygulama. Yayımlanmaz (`publish = false`).
+2. **`quvyta-framework-showcase`** (`crates/showcase`): her bileşenin canlı demosunu, kodunu,
+   rehberini ve referansını gösteren uygulama. Kendi paketi olarak yayımlanır; `cargo install
+   quvyta-framework-showcase` iki komut kurar: `qframe-showcase` ve `quvyta-framework-showcase`.
+   Gösterdiği her dosya ikiliye gömülüdür, depo olmadan her klasörde açılır. Kütüphaneye bağımlı
+   olan biri showcase'i indirmez ve derlemez.
 
 Bir uygulama framework'e **üç şey** verir:
 
@@ -50,7 +53,6 @@ quvyta/framework/
 ├── Cargo.toml                    workspace ve ortak lint ayarları
 ├── rust-toolchain.toml, rustfmt.toml
 ├── README.md                     kısa tanıtım ve başlangıç
-├── CATALOG.toml                  tüm bileşen ve sistemlerin tek listesi (bkz. §8)
 ├── showcase.sh                   showcase'i başlatır
 ├── .githooks/pre-commit
 ├── docs/                         tasarım belgesi
@@ -69,7 +71,9 @@ quvyta/framework/
     │   ├── assets/{themes,icons,locales,keymaps}/
     │   └── tests/builtin_assets.rs
     └── showcase/
-        ├── src/{main.rs, app.rs, catalog.rs, layers.rs, log.rs, regions.rs, tests.rs, pages/}
+        ├── CATALOG.toml          tüm bileşen ve sistemlerin tek listesi (bkz. §8)
+        ├── src/{lib.rs, main.rs, bin/qframe-showcase.rs, assets.rs, app.rs, catalog.rs,
+        │        layers.rs, log.rs, regions.rs, tests.rs, pages/}
         └── assets/{pages/<sayfa>/{guide,reference}.{en,tr}.md, locales/, keymap.toml}
 ```
 
@@ -600,7 +604,7 @@ Pre-commit bu testleri çalıştırır; sayfası olmayan bileşen commit edileme
 | Gömülü dosyalar | temalar tanılamasız çözülür, ikon seti her modda geçerli, gömülü diller tamam, keymap geçerli ve etiketli |
 | Katalog ve showcase | §9.4; her sayfa çok küçük terminallerde çizilir |
 | Doctest | public API örnekleri derlenir ve çalışır |
-| Görsel inceleme | `QUVYTA_REVIEW=1 cargo test -p showcase visual_review` her sayfayı her temada `target/showcase-review.html`'e yazar |
+| Görsel inceleme | `QUVYTA_REVIEW=1 cargo test -p quvyta-framework-showcase visual_review` her sayfayı her temada `target/showcase-review.html`'e yazar |
 
 ### 10.4 Kapılar
 

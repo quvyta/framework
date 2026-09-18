@@ -20,7 +20,7 @@ const PAGE: &str = "file-picker";
 const SLOW_DISK: Duration = Duration::from_secs(1);
 
 /// Start folders the playground offers.
-const STARTS: [&str; 3] = ["showcase", "denied", "missing"];
+const STARTS: [&str; 3] = ["home", "denied", "missing"];
 
 /// The picker, what was chosen and the playground.
 #[derive(Debug)]
@@ -35,10 +35,10 @@ pub struct State {
 
 fn start_folder(index: usize) -> PathBuf {
     match STARTS[index] {
-        "showcase" => PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+        "home" => super::home_folder(),
         // A folder only its owner may read on Unix systems.
         "denied" => PathBuf::from("/root"),
-        _ => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("no-such-folder"),
+        _ => super::home_folder().join("quvyta-no-such-folder"),
     }
 }
 

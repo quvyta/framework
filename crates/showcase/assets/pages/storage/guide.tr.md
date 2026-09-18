@@ -23,11 +23,20 @@ Kullanıcının bir dahaki açılışta aynen bulmayı beklediği seçimler içi
 - **Eksik anahtar varsayılanını kullanır ve dosyaya yazılmaz.** Dosyada olmayan bir anahtar onarırken de dosyaya eklenmez: `get_or` senin varsayılanını verir, dosyada yalnızca kullanıcının ya da kodunun sakladığı şeyler durur.
 - **İsteğe bağlı anahtar yalnızca geçerliyse kalır.** Geçerli değer kalır; geçersiz değer bir uyarıyla silinir, çünkü yerine yazılacak bir varsayılan yoktur; eksikse eklenmez ve `None` olarak okunur.
 - **Açık önekler olduğu gibi kalır.** `.open("plugins")` altındaki her anahtar, yani `[plugins]` ve altındaki her tablo, hiç denetlenmez, bildirilmez ve silinmez. Önekin altında tanımladığın bir anahtar yine kendi kuralına uyar. Tek başına `plugins = …` tablonun altında sayılmaz, her anahtar gibi denetlenir.
-- **Bölünmeyen kayıt.** Yeni dosya eskisinin yanına yazılır, diske işlenir ve eskisinin üstüne taşınır; çökme olursa geriye eski ya da yeni dosya kalır, asla yarısı kalmaz.
+- **Bölünmeyen kayıt.** Kaydetme `atomic_write` üzerinden gider: yeni dosya eskisinin yanına yazılır, diske indirilir, eskisinin üstüne taşınır ve sonra klasörün kendisi diske indirilir; çökme ya da elektrik kesintisi olursa geriye eski ya da yeni dosya kalır, asla yarısı kalmaz.
 - **Bozuk dosya uygulamayı durdurmaz.** Söz dizimi hataları ve kullanılamayan girdiler tanılara dönüşür; okunabilen her şey yine kullanılır. Bozuk bir dosyanın üstüne ilk kez yazılmadan önce `settings.toml.bak` olarak kopyası alınır.
-- **Ek bağımlılık yok.** Ayar klasörü doğrudan `XDG_CONFIG_HOME`, `HOME` ya da `APPDATA` değişkeninden bulunur; dosyayı framework'ün küçük TOML yazıcısı yazar.
+- **Ek bağımlılık yok.** Klasörler doğrudan platformun kendi değişkenlerinden bulunur; dosyayı framework'ün küçük TOML yazıcısı yazar. Yalnızca kilit, standart kütüphanede olmayan tek çağrı için bir crate ister.
 
 Bu sayfada "Bozuk bir dosya göster", elle bozulmuş bir dosyayı showcase'in şemasıyla yükler; bu şema `deploy.note` ve `deploy.retries` anahtarlarını isteğe bağlı tanımlar ve `plugins` tablosunu açar. Karşılaştırmak için "Kendini onar" anahtarını aç kapa: kapalıyken uyarılar listelenir ve dosya olduğu gibi kalır; açıkken onarımlar listelenir, onarılmış dosya görünür ve her onarım olay günlüğüne yazılır. Onarılmış dosyada not kalır, `retries = "twice"` gider, `[plugins]` olduğu gibi durur; dosyada hiç olmayan `deploy.confirm` da eklenmez. Showcase açılırken kendi ayar dosyasını da böyle onarır.
+
+## Uygulamanın diğer dosyaları
+
+Ayarlar tek bir dosyadır; bir uygulamanın başka dosyaları da olur. Dört şey hepsi için geçerlidir ve ailedeki her uygulama aynı şekilde yapsın diye burada durur.
+
+1. **Tek klasör değil, iki klasör.** `config_dir("qfocus")` ayarlar için, `data_dir("qfocus")` uygulamanın kendi kayıtları için. Kaydedilmiş bir oturum ayar değildir ve Linux'ta `.config` altına ait değildir. Platformun yazacak bir evi yoksa ikisi de `None` verir, ikisi de klasörü oluşturmaz: ilk yazmadan önce `fs::create_dir_all` çağır.
+2. **Her dosyayı `atomic_write(path, contents)` ile yaz.** Aynı klasöre geçici bir dosya yazar, diske indirir, gerçek adın üzerine taşır ve sonra klasörü diske indirir. Genelde atlanan adım sonuncusudur: o olmadan bir elektrik kesintisi yeniden adlandırmayı kaybedebilir ve iki ad da gider; eski dosyanın üstüne yazılmıştır, yenisi ise diske hiç inmemiştir. `atomic_write_reporting` aynı yazmadır, biten her adımı bir closure'a verir; bu sayfadaki gibi bir log ya da ekran için.
+3. **İkinci bir örneği `AppLock::acquire(path)` ile dışarıda tut.** `Ok(Some(lock))` bu örneğin yazabileceğini söyler ve değer yaşadığı sürece yazabilir. `Ok(None)` kilidi başka bir sürecin tuttuğunu söyler; bunu göster ve salt okunur kal. Kilit dosyanın varlığı değil, işletim sisteminin kendisidir: süreç ölünce çekirdek kilidi salar, bu yüzden çökme kimsenin tutmadığı bir kilit bırakmaz — ve yazması gereken kurtarma, kurtardığı çökme yüzünden asla kapıda kalmaz. `holder_pid(path)` dosyadaki süreç kimliğini kilidi tutanı adıyla anan bir mesaj için okur, başka hiçbir şey için değil: süreç kimlikleri yeniden kullanılır, hiçbir karar buna dayanamaz.
+4. **`machine_name()` ile makine başına bir dosya.** Veri klasörü makineler arasında eşitleniyorsa, ikisinin de yazdığı bir dosya birinin ötekinin üzerine yazdığı bir dosyadır. Bunun yerine makineyi adın içine koy: `format!("running-{machine}.toml")`. Ad Unix'te `uname -n`, Windows'ta `COMPUTERNAME` olur ve dosya adına hazır gelir: çevresindeki boşluk atılır, harf, rakam, `-`, `_` ya da `.` dışındaki her karakter `-` olur, iki uçtaki noktalar düşer. `None` sistemin kullanılabilir bir şey vermediğini söyler; o zaman kendi yedek adını seç.
 
 ## Sık yapılan hatalar
 
@@ -38,4 +47,11 @@ Bu sayfada "Bozuk bir dosya göster", elle bozulmuş bir dosyayı showcase'in ş
 - **`view` içinde kaydetmek.** `view` diske dokunmamalı; `update` içinden `save_command` ile kaydet.
 - **Testlerde gerçek ayar klasörünü kullanmak.** `Settings::load` çağıran testler geliştiricinin kendi ayarlarını okur ve yazar.
 - **Anahtar parçasının içine nokta koymak.** Nokta her zaman tabloları ayırır; isimlerin içinde `-` kullan.
+- **Kayıtları ayarların yanında tutmak.** Oturumlar, geçmiş ve loglar `config_dir` değil `data_dir` altına aittir; ayarlarını makineler arasında taşıyan bir kullanıcı kayıtları da yanında götürmek istemez.
+- **Kilit yerine kilit dosyasına bakıp karar vermek.** "Dosya var, demek ki bir örnek çalışıyor" mantığı elektrik kesintisinden sonra açılmayı reddeder; tam da kurtarmanın yazması gereken anda. `AppLock::acquire`'a sor; geriye kalmış bir dosya kilit değildir ve içindeki süreç kimliği geçen hafta ölmüş bir sürece ait olabilir.
+- **Kilidin düşmesine izin vermek.** `AppLock::acquire(path)?;` kilidi alır ve aynı satırda salar. Değeri, örnek çalıştığı sürece elinde tut.
+- **Geçici dosyayı başka bir yere yazmak.** `/tmp` içindeki geçici bir dosya başka bir dosya sistemindeki dosyanın üzerine taşınamaz; `atomic_write` bu yüzden onu hedef klasörde tutar.
+- **Makine adını `HOSTNAME`'den okumak.** Çoğu kabuk onu tanımlar ama dışa aktarmaz; oradan başlatılan bir program onu hiç görmez. `machine_name()` çekirdeğe sorar.
+- **Dosya adını ham makine adından kurmak.** Bir ad `/`, boşluk ya da baştaki bir nokta taşıyabilir; `machine_name()` onu zaten güvenli hale getirmiştir, geldiği gibi kullan.
+- **Bağın üzerine kendin taşımak.** Yeniden adlandırma sembolik bağı düz bir dosyayla değiştirir ve ayar dosyasını bağlandığı dotfiles deposundan koparır. `atomic_write` bağı izler ve gösterdiği dosyayı, o dosyanın klasöründe değiştirir.
 - **Çalışırken ayarları asıl kaynak saymak.** Canlı değeri durumunda tut ve değişince sakla; showcase'in üst çubuğu böyle yapar.

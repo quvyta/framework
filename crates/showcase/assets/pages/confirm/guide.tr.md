@@ -17,6 +17,7 @@ Geri alması zor bir işten önce onay iste: canlı ortamdaki bir container'ı d
 - **Odak güvenli cevaptadır.** Pencere açılınca Vazgeç odaklıdır; aceleyle basılan Enter hiçbir şeyi bozmaz. Tab onay butonuna geçer.
 - **Esc ve × vazgeçer, dışarı tıklamak bir şey yapmaz.** Kapatılabilir demek ikisi birden demek: hem Esc hem sağ üst köşedeki × işareti vazgeçer. `.dismissable(false)` ikisini birlikte kaldırır; yalnızca butonla cevaplanması gereken sorular için. Karartılmış ekrana kazara bir tıklama soruyu cevaplamaz.
 - **Her pencere gibi görünür.** `Modal` ile aynı katman: karartılmış ekran, hafif beliriş, sol kenar boyunca bir çubuk (yıkıcı sorularda tehlike renginde) ve tehlike renginde onay butonu.
+- **İki yol yetmeyince üçüncü yol.** Kurtarılan iş "At · Sürdür · Kaydet" diye sorar: `.alternative(etiket, mesaj)` Vazgeç ile onay butonu arasına düz bir buton koyar. Odak yine Vazgeç'tedir, Tab önce üçüncü yola, en son onay butonuna gider; Esc ve × yine vazgeçer.
 - **Sorular üst üste biner.** Bir soru açıkken yeniden sormak yenisini üste koyar; önce en yenisi cevaplanır.
 - **Odak geri döner**, sorudan önce onu tutan bileşene.
 
@@ -24,4 +25,5 @@ Geri alması zor bir işten önce onay iste: canlı ortamdaki bir container'ı d
 
 - **Belirsiz butonlar.** "Durdur" ve "Çalışsın" ne olacağını söyler; "Tamam" söylemez.
 - **Her şey için sormak.** İnsanlar okumadan Enter'a basmayı öğrenir. Soruları gerçek kayıplar için sakla.
+- **Evet-hayır sorusuna üç yol.** Üçüncü buton gerçek bir üçüncü sonuç içindir, iki kez söylenmiş bir "Vazgeç" için değil.
 - **İşi cevaptan önce yapmak.** İşi sorarken değil, onay mesajının işlendiği yerde yap.

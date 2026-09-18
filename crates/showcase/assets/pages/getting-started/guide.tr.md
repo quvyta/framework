@@ -10,7 +10,7 @@ Elle çizim yapmazsın, fareyi takip etmezsin, ne zaman yeniden çizileceğine k
 
 ## Adım adım
 
-1. Ekranın bağlı olduğu her şeyi tutan bir struct yaz. Burada sayaç, isteğe bağlı dosya sayısı ve işin sürdüğünü söyleyen bir bayrak taşıyan `State`.
+1. Ekranın bağlı olduğu her şeyi tutan bir struct yaz. Burada sayacı ve altındaki klasör ekranını taşıyan `State`.
 2. Olabilecek her şeyi bir enum'da topla: `Msg`. Her buton, alan ve liste bunlardan birini gönderir.
 3. `update` fonksiyonunu yaz: mesajı eşle, durumu değiştir, motorun senin için bir şey yapması gerekiyorsa bir `Command` döndür.
 4. `view` fonksiyonunu yaz: bileşenleri `ui.add` ile ekle, `ui.row` ve `ui.column` ile grupla, her bileşene göndereceği mesajı ver.
@@ -22,6 +22,48 @@ Elle çizim yapmazsın, fareyi takip etmezsin, ne zaman yeniden çizileceğine k
 - **Hiçbir şey değişmezse çizim yapılmaz.** Girdi ya da animasyon yokken döngü bekler ve hiçbir şey çizmez; boştaki uygulama işlemciyi neredeyse hiç kullanmaz.
 - **Senin için anlamı olmayan durum motorda yaşar.** Hover, odak, imleç konumu ve kaydırma her bileşen için hatırlanır; senin durumun yalnızca uygulamanın anlamını tutar.
 - **Yavaş iş bir komuttur.** `Command::perform` bir kapanışı arka plan iş parçacığında çalıştırır ve bittiğinde mesajını teslim eder. Yukarıdaki sayma butonu diski bu şekilde okur; iş sürerken spinner dönmeye devam eder.
+
+## Kendi mesajları olan ekranlar
+
+Birden çok ekranı olan bir uygulama her ekrana kendi `Msg`, `update` ve `view` fonksiyonlarını verir; ekran tek başınaymış gibi yazılır. Yukarıdaki klasör paneli böyle bir ekrandır: `folder::Msg::Count` gönderir, `update` fonksiyonu da bir `Command<folder::Msg>` döndürür.
+
+Uygulama onu bir varyant ve iki dönüşümle bağlar:
+
+- **Görünüm:** `ui.map(|m| send(Msg::Folder(m)), |ui| state.folder.view(ui))` ekranın mesajlarıyla kurulan bir sütun ekler. İçindeki her şey dönüştürülmüş gelir: butonlar ve alanlar, iç içe satırlar ve paneller, ekranın açtığı pencereler, odak istekleri.
+- **Komutlar:** `state.folder.update(m).map(|m| send(Msg::Folder(m)))` ekranın motordan istediklerini dönüştürür. Arka plan işinin sonradan gönderdiği mesaj da, buradaki `Counted` gibi, aynı dönüşümden geçer.
+
+Dönüşüm `Msg::Folder` gibi bir varyant ya da ihtiyacını yakalayan bir kapanış olabilir; örneğin ekranın durduğu sekme. Komutun dönüşümü arka plan iş parçacıklarında çalışır, bu yüzden `Send` ve `Sync` olmalıdır.
+
+## Yaşam döngüsü: açılış, ölçü ve çıkış
+
+`App`'in dört isteğe bağlı metodu uygulamaya ömrü boyunca eşlik eder. Her birinin bir varsayılanı vardır; uygulama yalnızca gerekenleri yazar. Yukarıdaki Yaşam döngüsü paneli dördünü de gösterir; showcase'in kendisi onları uygular.
+
+- **`init(&mut self) -> Command<Msg>`** bir kez, ilk karenin başında, görünümü kurulmadan önce çalışır. İlk işi döndür: ilk tuş listeye ulaşsın diye `Command::focus("menu")`, başlayacak bir tik, açılacak bir diyalog. Odak o kare çizilir çizilmez, hiçbir girdi okunmadan yerine oturur ve kare, bileşen odaklı halde yeniden çizilir. Showcase'in menüsü klavyeyi bu yolla alır: ilk ↓ onun içinde ilerler.
+- **`resized(&self, ölçü: Size) -> Option<Msg>`** terminalin ölçüsünü uygulama açılırken (`init`'ten hemen önce) ve her yeniden boyutlanmada duyar. Mesajı `update`'ten geçer; ölçüye ihtiyaç duyan iş, örneğin `Process::pty(sütun, satır)`, orada başlar. `view` içinde `ui.size()`'ın bildirdiği ölçünün aynısıdır ve o kare kurulmadan önce uygulanır, bu yüzden ikisi hiç ayrışmaz.
+- **`before_quit(&self) -> Option<Msg>`** çalışma motoru kullanıcı adına çıkmak üzereyken her seferinde sorulur: `ctrl q` bağı ve komut paletinden çalıştırılan çıkış eylemi. `None` çıkar. Bir mesaj uygulamayı açık tutar ve onun yerine teslim edilir; örneğin "bitir ve çık, çalışır bırak ya da vazgeç" diye sormak için. Uygulama kararını verince `Command::quit()` döndürür; bu kendi kararıdır ve yeniden sorulmaz. Yukarıdaki "Çıkmadan önce sor"u aç ve `ctrl q`'ya bas.
+- **`terminating(&self, sebep: Termination) -> Option<Msg>`** uygulamayı kullanıcının değil sistemin kapattığını duyar. Kaydetmek için tek şanstır. `None` hemen çıkar; bir mesaj uygulamayı açık tutar, `update` kaydeder ve `Command::quit()` döndürür. Varsayılan, `Termination::Terminate`'e `before_quit` ile cevap verir ve `Termination::Hangup`'ta hemen çıkar; iki kancayı da yazmayan uygulama yine temiz çıkar.
+
+Yalnızca bir şey bildiren kancalar (`resized`, `before_quit`, `terminating`, `action`, `clipboard`) durumu okur ve bir mesajla cevap verir; iş başlatan kanca (`init`) `update` gibi bir komut döndürür. Test düzeneği hepsini terminalin çalıştırdığı yerde çalıştırır: `Harness::new(app, 120, 30)` 120 × 30'u bildirir ve `init`'i çalıştırır, `resize(60, 20)` 60 × 20'yi bildirir, `press("ctrl+q")` `before_quit`'e sorar, `terminate(Termination::Hangup)` `terminating`'e haber verir.
+
+## Uygulamayı sistem kapatınca
+
+Unix'te çalışma motoru, çalıştığı sürece üç sinyali yakalar ve her biri bir `Termination` olur:
+
+- **`SIGTERM`** (`kill`, bir servis yöneticisi, kapanan makine) ve dışarıdan gönderilen **`SIGINT`** `Terminate` olur. Terminal hâlâ yerindedir; uygulama kaydedip çıkabilir, hatta sorabilir. Uygulamanın içinde `ctrl c` bu sinyal değil, bir tuştur.
+- **`SIGHUP`** `Hangup` olur: SSH bağlantısı koptu, pencere ya da `tmux` bölmesi kapandı. Artık kimse bir soruya cevap veremez ve bundan sonra hiçbir şey çizilmez: sormadan kaydet. Kabuğun ilettiği kopuş ile kabuk kapanınca sistemin gönderdiği aynı kopuştur, bir kez bildirilir.
+
+Her çıkış sınırlı sürede biter. `Termination::grace` dolunca (terminate'ten sonra beş, kopuştan sonra üç saniye) motor uygulamayı beklemeden çıkar. İkinci bir `SIGTERM` ya da `SIGINT` hemen çıkarır. Döngünün kendisi takılmışsa, hiç dönmeyen bir `update` içinde, süreç bir saniye sonra yine de sinyalin kendisiyle sona erer. Terminal var olduğu sürece her durumda eski haline döner: ham kip kapanır, normal ekran ve imleç geri gelir. Kopuştan sonra ona hiçbir şey yazılmaz.
+
+Döngü sinyali geldiği anda duyar; bir tuşu ya da bir süreyi beklerken bile. `Command::handoff` sırasında terminal programındır; sinyal ona iletilir, program kabuğun bir işi olsaydı nasıl biterse öyle biter, sonra uygulama terminali geri alır ve sinyali kendisi duyar.
+
+Showcase'i başlat, "Çıkmadan önce sor"u aç ve başka bir terminalden `kill <pid>` gönder: soru `App::terminating`'ten gelir ve olay günlüğü bunu gösterir.
+
+```rust
+fn terminating(&self, _sebep: Termination) -> Option<Msg> {
+    // Çalışan sayaç, onu ister bir kişi ister sistem kapatsın, önce kaydedilir.
+    self.running.then_some(Msg::SaveAndQuit)
+}
+```
 
 ## Terminal olmadan test
 

@@ -61,7 +61,7 @@ pub struct State {
 
 impl Default for State {
     fn default() -> Self {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let root = super::home_folder();
         let root = root.canonicalize().unwrap_or(root);
         // Page states are built once at start-up, before any view; the first folder is read here so
         // the example opens ready. Every later read runs in a background command.
@@ -443,18 +443,19 @@ mod tests {
     use super::*;
     use crate::tests::showcase_on;
 
+    /// Tests read this crate's folder where the installed program reads the home folder.
     #[test]
-    fn browses_the_repository_and_previews_files() {
+    fn browses_a_folder_and_previews_files() {
         let mut h = showcase_on(PAGE);
         let screen = h.screen();
-        assert!(screen.contains("Cargo.lock") && screen.contains("crates"), "{screen}");
+        assert!(screen.contains("Cargo.toml") && screen.contains("assets"), "{screen}");
         let catalog = h.app().pages.example_file_explorer.entries.iter().position(|e| e.name() == "CATALOG.toml");
         h.send(send(Msg::RowSelected(catalog.expect("the catalog is listed"))));
         assert!(h.screen().contains("Every component"), "{}", h.screen());
-        let crates = h.app().pages.example_file_explorer.entries.iter().position(|e| e.name() == "crates");
-        h.send(send(Msg::RowOpened(crates.expect("crates is listed"))));
-        assert!(h.screen().contains("quvyta-framework"), "{}", h.screen());
-        assert!(h.app().pages.example_file_explorer.current.ends_with("crates"));
+        let src = h.app().pages.example_file_explorer.entries.iter().position(|e| e.name() == "src");
+        h.send(send(Msg::RowOpened(src.expect("src is listed"))));
+        assert!(h.screen().contains("pages"), "{}", h.screen());
+        assert!(h.app().pages.example_file_explorer.current.ends_with("src"));
         h.send(send(Msg::Sort(1, SortDirection::Descending)));
         assert_eq!(h.app().pages.example_file_explorer.sort, (1, SortDirection::Descending));
     }
@@ -469,19 +470,19 @@ mod tests {
         let path = state.root.join("CATALOG.toml");
         let _read = update(&mut state, Msg::RowSelected(catalog), &mut log);
         let _answer = update(&mut state, Msg::PreviewLoaded(path, Ok(Some("catalog".into()))), &mut log);
-        let readme = position(&state, "README.md").expect("the readme is listed");
-        let _read = update(&mut state, Msg::RowSelected(readme), &mut log);
+        let manifest = position(&state, "Cargo.toml").expect("the manifest is listed");
+        let _read = update(&mut state, Msg::RowSelected(manifest), &mut log);
         // The next file is on its way: the catalog's preview stays.
         assert!(matches!(&state.preview, Preview::Text(_, text) if text == "catalog"));
-        let docs = state.root.join("docs");
+        let assets = state.root.join("assets");
         let entries = state.entries.clone();
-        let _read = update(&mut state, Msg::FolderSelected(docs.to_string_lossy().into_owned()), &mut log);
+        let _read = update(&mut state, Msg::FolderSelected(assets.to_string_lossy().into_owned()), &mut log);
         // So is a folder: the table and the preview stay as they were.
         assert_eq!((&state.current, &state.entries), (&state.root, &entries));
         assert!(matches!(&state.preview, Preview::Text(_, text) if text == "catalog"));
-        let _answer = update(&mut state, Msg::Loaded(docs.clone(), read_folder(&docs)), &mut log);
-        assert_eq!(state.current, docs);
+        let _answer = update(&mut state, Msg::Loaded(assets.clone(), read_folder(&assets)), &mut log);
+        assert_eq!(state.current, assets);
         assert_eq!(state.preview, Preview::Nothing);
-        assert!(position(&state, "design.md").is_some());
+        assert!(position(&state, "keymap.toml").is_some());
     }
 }

@@ -3,7 +3,7 @@
 use qframe::icons::{IconMode, PillarStyle};
 use qframe::keymap::Scope;
 use qframe::prelude::*;
-use qframe::runtime::ClipboardEvent;
+use qframe::runtime::{ClipboardEvent, Termination};
 use qframe::storage::Settings;
 use qframe::widgets::{CodeView, Language, Markdown, PageTransition, ScrollView, TextInput};
 
@@ -387,6 +387,22 @@ impl Default for Showcase {
 
 impl App for Showcase {
     type Msg = Msg;
+
+    fn init(&mut self) -> Command<Msg> {
+        pages::getting_started::init()
+    }
+
+    fn resized(&self, size: Size) -> Option<Msg> {
+        pages::getting_started::resized(size)
+    }
+
+    fn before_quit(&self) -> Option<Msg> {
+        pages::getting_started::before_quit(&self.pages.getting_started)
+    }
+
+    fn terminating(&self, cause: Termination) -> Option<Msg> {
+        pages::getting_started::terminating(cause)
+    }
 
     fn update(&mut self, msg: Msg) -> Command<Msg> {
         match msg {

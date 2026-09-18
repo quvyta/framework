@@ -132,10 +132,6 @@ fn body<Msg: 'static>(children: Vec<Node<Msg>>) -> Node<Msg> {
     column
 }
 
-fn count_focusable<M: 'static>(node: &Node<M>) -> usize {
-    usize::from(node.widget.focusable()) + node.widget.children().iter().map(count_focusable).sum::<usize>()
-}
-
 impl<Msg: Clone + 'static> Default for Modal<Msg> {
     fn default() -> Self {
         Self::new()
@@ -171,7 +167,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Modal<Msg> {
         if dismissable {
             hints.push(layer::hint(cx, "esc", "close"));
         }
-        if count_focusable(body) + actions.len() > 1 {
+        if body.count_focusable() + actions.len() > 1 {
             hints.push(layer::hint(cx, "tab", "switch"));
         }
         let footer_rows: u16 = if actions.is_empty() && hints.is_empty() { 0 } else { 2 };

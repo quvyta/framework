@@ -189,6 +189,14 @@ fn syntax_errors_and_unstorable_values_are_backed_up_and_repaired() {
 }
 
 #[test]
+fn a_syntax_error_is_located_by_line_and_character_column() {
+    // The non-ASCII value before the error counts as one column per character, not per byte.
+    let settings = Settings::parse_str("settings.toml", "theme = \"amber\"\nlanguage = \"ğüş\" x\n");
+    assert_eq!(located(&settings), ["settings.toml:2:18: error: unexpected key or value, expected newline, `#`"]);
+    assert_eq!(settings.theme().as_deref(), Some("amber"), "the line before the error is kept");
+}
+
+#[test]
 fn read_errors_survive_the_schema_check() {
     let dir = std::env::temp_dir().join(format!("quvyta-healing-unreadable-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);

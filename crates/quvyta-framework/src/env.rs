@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::color::ColorDepth;
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{Diagnostic, Location};
 use crate::i18n::I18n;
 use crate::icons::{
     GlyphMode, IconMode, IconSetRegistry, Icons, PILLAR, PillarStyle, default_font_dirs, detect_glyph_mode,
@@ -16,12 +16,24 @@ use crate::keymap::Keymap;
 use crate::theme::{Theme, ThemeRegistry};
 
 /// Where an application's own theme, icon, locale and keymap files live.
+///
+/// Every kind of file can be given as text instead of as a path, for files compiled into the
+/// binary with `include_str!`. An application that gives all of its files as text starts with
+/// nothing beside it on disk, and a path it also names is then optional: when the path cannot be
+/// read the text stands in for it and the reason becomes a [diagnostic](Env::diagnostics)
+/// instead of stopping the program.
 #[derive(Debug, Clone, Default)]
 pub struct AssetDirs {
     /// Directory of `*.toml` theme files.
     pub themes: Option<PathBuf>,
+    /// Theme files given as text, as `(file name, TOML text)`, loaded after `themes` so they
+    /// win. The file stem is the theme id, as it is in a directory.
+    pub theme_sources: Vec<(String, String)>,
     /// Directory of `*.toml` icon set files.
     pub icons: Option<PathBuf>,
+    /// Icon set files given as text, as `(file name, TOML text)`, loaded after `icons` so they
+    /// win. The file stem is the icon set id, as it is in a directory.
+    pub icon_sources: Vec<(String, String)>,
     /// Directory of `*.toml` locale files.
     pub locales: Option<PathBuf>,
     /// Locale files given as text, as `(file name, TOML text)`, loaded after `locales` so they
@@ -30,6 +42,9 @@ pub struct AssetDirs {
     pub locale_sources: Vec<(String, String)>,
     /// A keymap file layered over the built-in keymap.
     pub keymap: Option<PathBuf>,
+    /// A keymap given as text, as `(file name, TOML text)`, layered over the built-in keymap and
+    /// over `keymap`, so it wins. The file name only labels diagnostics.
+    pub keymap_source: Option<(String, String)>,
 }
 
 /// Everything widgets need to know about how to draw and label themselves.
@@ -84,20 +99,31 @@ impl Env {
     ///
     /// # Errors
     ///
-    /// Returns an I/O error when a configured directory or file cannot be read. Problems inside
-    /// files are not errors; they are collected in [`Env::diagnostics`].
+    /// Returns an I/O error when a configured directory or file cannot be read and no text was
+    /// given for that kind of file; with text given, an unreadable path is a diagnostic and the
+    /// text stands in for it. Problems inside files are never errors; they are collected in
+    /// [`Env::diagnostics`].
     pub fn load(dirs: &AssetDirs) -> io::Result<Self> {
         let lookup = |name: &str| std::env::var(name).ok();
         let mut env = Self::builtin();
         if let Some(dir) = &dirs.themes {
-            env.themes.load_dir(dir)?;
+            let read = env.themes.load_dir(dir);
+            stand_in(read, dir, !dirs.theme_sources.is_empty(), &mut env.diagnostics)?;
+        }
+        for (file, text) in &dirs.theme_sources {
+            env.themes.add_source(&source_id(file), file, text);
         }
         if let Some(dir) = &dirs.icons {
-            env.icon_sets.load_dir(dir)?;
+            let read = env.icon_sets.load_dir(dir);
+            stand_in(read, dir, !dirs.icon_sources.is_empty(), &mut env.diagnostics)?;
+        }
+        for (file, text) in &dirs.icon_sources {
+            env.icon_sets.add_source(&source_id(file), file, text);
         }
         let mut i18n = I18n::builtin();
         if let Some(dir) = &dirs.locales {
-            i18n.load_dir(dir)?;
+            let read = i18n.load_dir(dir);
+            stand_in(read, dir, !dirs.locale_sources.is_empty(), &mut env.diagnostics)?;
         }
         for (file, text) in &dirs.locale_sources {
             i18n.add_source(file, text);
@@ -106,7 +132,15 @@ impl Env {
             i18n.set_active(&code);
         }
         if let Some(file) = &dirs.keymap {
-            env.keymap.overlay(&load_keymap(file, &mut env.diagnostics)?);
+            let read = load_keymap(file, &mut env.diagnostics);
+            let has_source = dirs.keymap_source.is_some();
+            if let Some(keymap) = stand_in(read, file, has_source, &mut env.diagnostics)? {
+                env.keymap.overlay(&keymap);
+            }
+        }
+        if let Some((file, text)) = &dirs.keymap_source {
+            let keymap = Keymap::parse(file, text, &mut env.diagnostics);
+            env.keymap.overlay(&keymap);
         }
         env.diagnostics.extend(env.themes.diagnostics().iter().cloned());
         env.diagnostics.extend(env.icon_sets.diagnostics().iter().cloned());
@@ -131,6 +165,13 @@ impl Env {
     #[must_use]
     pub fn themes(&self) -> Vec<(String, String)> {
         self.themes.list()
+    }
+
+    /// `(id, name)` of every icon set, the way [`Env::themes`] lists the themes. A theme names
+    /// the set it draws with, so this tells which sets a theme may name.
+    #[must_use]
+    pub fn icon_sets(&self) -> Vec<(String, String)> {
+        self.icon_sets.list()
     }
 
     /// The icons in the active glyph mode.
@@ -173,6 +214,13 @@ impl Env {
     #[must_use]
     pub fn depth(&self) -> ColorDepth {
         self.depth
+    }
+
+    /// Draws as a terminal of `depth` would, instead of the depth that was detected. Lets a test
+    /// see what a widget looks like where colours are scarce; see
+    /// [`Harness::set_depth`](crate::runtime::Harness::set_depth).
+    pub(crate) fn set_depth(&mut self, depth: ColorDepth) {
+        self.depth = depth;
     }
 
     /// Whether animations are reduced: layers appear at once, nothing breathes or spins.
@@ -323,6 +371,34 @@ fn forced_reduced_motion(lookup: impl Fn(&str) -> Option<String>) -> Option<bool
     lookup("QUVYTA_REDUCED_MOTION").filter(|value| !value.is_empty()).map(|value| value != "0")
 }
 
+/// Lets text given for the same kind of file stand in for a path that cannot be read: with
+/// `has_source` the reason becomes a warning and loading carries on, without it the I/O error
+/// travels on, because then nothing would take the file's place.
+fn stand_in<T>(
+    read: io::Result<T>,
+    path: &Path,
+    has_source: bool,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> io::Result<Option<T>> {
+    match read {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if has_source => {
+            let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+            diagnostics.push(Diagnostic::warning(
+                Some(Location::from_offset(name, "", 0)),
+                format!("cannot read `{}`, the text given instead is used: {error}", path.display()),
+            ));
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// The asset id of a file given as text: its stem, the way a directory names its files.
+fn source_id(file: &str) -> String {
+    Path::new(file).file_stem().and_then(|stem| stem.to_str()).unwrap_or(file).to_owned()
+}
+
 fn load_keymap(file: &Path, diagnostics: &mut Vec<Diagnostic>) -> io::Result<Keymap> {
     let text = std::fs::read_to_string(file)?;
     let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("keymap.toml");
@@ -375,6 +451,106 @@ mod tests {
             "{:?}",
             env.diagnostics()
         );
+    }
+
+    /// A theme, an icon set and a keymap an application would compile into its binary.
+    const BRAND_THEME: &str = "[meta]\nname = \"Brand\"\nextends = \"monochrome\"\nicon-set = \"brand\"\n\
+                               [colors]\naccent = \"#FF8800\"\n";
+    const BRAND_ICONS: &str =
+        "[meta]\nname = \"Brand\"\n[icons]\ncheck = { nerd = \"!\", unicode = \"!\", ascii = \"!\" }\n";
+    const BRAND_KEYS: &str = "[app]\nsave = \"ctrl+s\"\n";
+
+    /// Everything an application gives as text, and nothing on disk.
+    fn brand_sources() -> AssetDirs {
+        AssetDirs {
+            theme_sources: vec![("brand.toml".to_owned(), BRAND_THEME.to_owned())],
+            icon_sources: vec![("brand.toml".to_owned(), BRAND_ICONS.to_owned())],
+            keymap_source: Some(("keymap.toml".to_owned(), BRAND_KEYS.to_owned())),
+            ..AssetDirs::default()
+        }
+    }
+
+    fn chord(text: &str) -> crate::keymap::KeyChord {
+        text.parse().expect("a chord")
+    }
+
+    #[test]
+    fn a_theme_an_icon_set_and_a_keymap_given_as_text_load_with_no_files_on_disk() {
+        let mut env = Env::load(&brand_sources()).expect("nothing to read from disk");
+        assert!(env.diagnostics().is_empty(), "{:?}", env.diagnostics());
+        assert!(env.themes().iter().any(|(id, name)| id == "brand" && name == "Brand"));
+        env.set_theme("brand");
+        assert_eq!(env.theme().id(), "brand");
+        assert_eq!(env.theme().color("accent").map(|c| c.to_string()).as_deref(), Some("#ff8800"));
+        env.set_glyph_mode(GlyphMode::Ascii);
+        assert_eq!(env.icons().glyph("check"), "!", "the icon set the theme names came from text");
+        assert_eq!(
+            env.keymap().action_for(chord("ctrl+s")),
+            Some((crate::keymap::Scope::App, "save")),
+            "the keymap came from text"
+        );
+        assert_eq!(
+            env.keymap().action_for(chord("ctrl+q")),
+            Some((crate::keymap::Scope::Global, "quit")),
+            "the built-in keymap is still under it"
+        );
+    }
+
+    #[test]
+    fn a_missing_path_no_longer_stops_the_start_when_text_stands_in_for_it() {
+        let missing = std::env::temp_dir().join("quvyta-not-installed");
+        let dirs = AssetDirs {
+            themes: Some(missing.join("themes")),
+            icons: Some(missing.join("icons")),
+            locales: Some(missing.join("locales")),
+            locale_sources: vec![(
+                "en.toml".to_owned(),
+                "[meta]\nname = \"English\"\ncode = \"en\"\n[app]\ngreeting = \"Hello\"\n".to_owned(),
+            )],
+            keymap: Some(missing.join("keymap.toml")),
+            ..brand_sources()
+        };
+        let mut env = Env::load(&dirs).expect("the text compiled in stands in for the files");
+        env.set_theme("brand");
+        assert_eq!(env.theme().id(), "brand");
+        assert_eq!(env.keymap().action_for(chord("ctrl+s")), Some((crate::keymap::Scope::App, "save")));
+        assert_eq!(env.i18n().translate("app.greeting", &[]), "Hello");
+        for file in ["themes", "icons", "locales", "keymap.toml"] {
+            assert!(
+                env.diagnostics().iter().any(|problem| problem.to_string().contains(file)),
+                "the unreadable {file} is reported: {:?}",
+                env.diagnostics()
+            );
+        }
+        let alone = AssetDirs { keymap: Some(missing.join("keymap.toml")), ..AssetDirs::default() };
+        assert!(Env::load(&alone).is_err(), "without text to stand in for it a named file must be there");
+    }
+
+    #[test]
+    fn broken_text_sources_are_skipped_with_located_diagnostics_and_the_built_ins_still_work() {
+        let dirs = AssetDirs {
+            theme_sources: vec![("brand.toml".to_owned(), "[meta\n".to_owned())],
+            icon_sources: vec![("brand.toml".to_owned(), "[icons\n".to_owned())],
+            keymap_source: Some(("keymap.toml".to_owned(), "[app\n".to_owned())),
+            ..AssetDirs::default()
+        };
+        let mut env = Env::load(&dirs).expect("broken text is never an I/O error");
+        for file in ["brand.toml", "keymap.toml"] {
+            assert!(
+                env.diagnostics().iter().any(|problem| problem
+                    .location
+                    .as_ref()
+                    .is_some_and(|at| at.file == file && at.line > 0 && at.column > 0)),
+                "{file} is reported with file, line and column: {:?}",
+                env.diagnostics()
+            );
+        }
+        assert_eq!(env.theme().id(), "monochrome");
+        env.set_glyph_mode(GlyphMode::Unicode);
+        assert_eq!(env.icons().glyph("check"), "✓", "the built-in icon set is still there");
+        assert_eq!(env.keymap().action_for(chord("ctrl+q")), Some((crate::keymap::Scope::Global, "quit")));
+        env.set_theme("brand");
+        assert_eq!(env.theme().id(), "monochrome", "an unusable theme falls back to the default");
     }
 
     /// Looks names up in `vars` instead of the process environment.
