@@ -2,7 +2,7 @@
 //! back afterwards.
 
 use qframe::prelude::*;
-use qframe::runtime::{Handoff, HandoffOutcome};
+use qframe::runtime::{ChildLine, DetachedHandoff, DetachedOutcome, Handoff, HandoffOutcome, LiveChild};
 use qframe::widgets::Badge;
 
 use super::{PageMsg, setting, toggle};
@@ -15,6 +15,12 @@ const PAGE: &str = "handoff";
 /// keyboard. The line comes from the environment, so no text is built into the script.
 const WAIT_SCRIPT: &str = r#"printf '%s\n' "$QUVYTA_HANDOFF_LINE"; read -r _"#;
 
+/// A small helper: it asks for a line on the terminal, as `pkexec` asks for a password, says
+/// `ready` on its output and then echoes every line it is sent until its input ends. Its standard
+/// input and output are the application's pipes, so the question goes to standard error and the
+/// answer is read from the terminal itself.
+const HELPER_SCRIPT: &str = r#"printf '%s ' "$QUVYTA_HELPER_ASK" >&2; read -r _ < /dev/tty; echo ready; exec cat"#;
+
 /// A program nobody has installed, for the outcome of a handoff that cannot start.
 const MISSING: &str = "quvyta-not-installed";
 
@@ -24,11 +30,15 @@ pub struct State {
     outcome: Option<HandoffOutcome>,
     pause: bool,
     notice: bool,
+    /// The helper of the detached handoff while it runs.
+    helper: Option<LiveChild>,
+    /// How many lines were sent to the helper, to number the next.
+    sent: usize,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { outcome: None, pause: false, notice: true }
+        Self { outcome: None, pause: false, notice: true, helper: None, sent: 0 }
     }
 }
 
@@ -41,6 +51,11 @@ pub enum Msg {
     Ended(HandoffOutcome),
     Pause(bool),
     Notice(bool),
+    Helper,
+    HelperStarted(DetachedOutcome),
+    HelperSaid(ChildLine),
+    HelperSend,
+    HelperStop,
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -86,6 +101,54 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             log.push(PAGE, "Command::handoff", MISSING);
             return Command::handoff(Handoff::new(MISSING, |outcome| send(Msg::Ended(outcome))).pause(state.pause));
         }
+        // region: detach
+        Msg::Helper => {
+            // The helper owns the terminal only until it says `ready`; then the screen comes back
+            // and it keeps running, its lines arriving as `HelperSaid`.
+            let handoff = DetachedHandoff::new("sh", |outcome| send(Msg::HelperStarted(outcome)))
+                .args(["-c", HELPER_SCRIPT])
+                .env("QUVYTA_HELPER_ASK", t!("handoff.helper-ask"))
+                .on_line(|line| send(Msg::HelperSaid(line)))
+                .pause(state.pause);
+            let handoff = if state.notice { handoff.notice(t!("handoff.helper-notice")) } else { handoff };
+            log.push(PAGE, "Command::handoff_detached", "sh -c");
+            return Command::handoff_detached(handoff);
+        }
+        Msg::HelperStarted(DetachedOutcome::Detached { child, first_line }) => {
+            log.push(PAGE, "DetachedOutcome", format!("detached after {first_line:?}"));
+            state.helper = Some(child);
+        }
+        Msg::HelperStarted(DetachedOutcome::Finished { code }) => {
+            // Ended before it was ready, such as a refused password: a handoff that finished.
+            log.push(PAGE, "DetachedOutcome", outcome_line(&HandoffOutcome::Finished { code }));
+            state.outcome = Some(HandoffOutcome::Finished { code });
+        }
+        Msg::HelperStarted(DetachedOutcome::Failed(reason)) => {
+            log.push(PAGE, "DetachedOutcome", outcome_line(&HandoffOutcome::Failed(reason.clone())));
+            state.outcome = Some(HandoffOutcome::Failed(reason));
+        }
+        Msg::HelperSaid(ChildLine::Line(line)) => log.push(PAGE, "LiveChild", line),
+        Msg::HelperSaid(ChildLine::Ended { code }) => {
+            log.push(PAGE, "LiveChild", outcome_line(&HandoffOutcome::Finished { code }));
+            state.helper = None;
+        }
+        Msg::HelperSend => {
+            if let Some(helper) = &state.helper {
+                state.sent += 1;
+                let line = t!("handoff.helper-line", n = state.sent);
+                if let Err(error) = helper.write_line(&line) {
+                    log.push(PAGE, "LiveChild", format!("write failed: {error}"));
+                }
+            }
+        }
+        Msg::HelperStop => {
+            // Closing its input is how the helper is asked to finish; its end arrives as a line.
+            if let Some(helper) = &state.helper {
+                helper.close_stdin();
+                log.push(PAGE, "LiveChild", "close_stdin");
+            }
+        }
+        // endregion
         Msg::Pause(on) => {
             log.push(PAGE, "Playground", format!("pause = {on}"));
             state.pause = on;
@@ -119,6 +182,28 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         })
         .gap(2)
         .fill_width();
+        ui.spacer().height(Length::Cells(1));
+        ui.add(Text::new(t!("handoff.helper-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        let running = state.helper.is_some();
+        ui.row(|ui| {
+            ui.add(Button::new(t!("handoff.helper")).disabled(running).on_press(send(Msg::Helper))).id("helper");
+            ui.add(Button::new(t!("handoff.helper-send")).disabled(!running).on_press(send(Msg::HelperSend)))
+                .id("helper-send");
+            ui.add(Button::new(t!("handoff.helper-stop")).disabled(!running).on_press(send(Msg::HelperStop)))
+                .id("helper-stop");
+        })
+        .gap(2)
+        .fill_width();
+        if running {
+            ui.spacer().height(Length::Cells(1));
+            ui.row(|ui| {
+                ui.add(Badge::new(t!("handoff.badge-running")).variant("success"));
+                ui.add(Text::new(t!("handoff.running")).role("secondary")).fill_width().id("helper-state");
+            })
+            .gap(2)
+            .fill_width();
+        }
         ui.spacer().height(Length::Cells(1));
         // region: outcome
         // Every outcome is read the same way: the badge carries the tone and its marker, the
@@ -216,5 +301,40 @@ mod tests {
         assert_eq!(programs, [&OsString::from("sh"), &OsString::from(editor()), &OsString::from(MISSING)]);
         let log = h.app().log.recent(PAGE, 10);
         assert!(log.iter().any(|entry| entry.message == "ended by a signal"), "{log:?}");
+    }
+
+    #[test]
+    fn the_helper_detaches_echoes_what_the_page_sends_and_stops() {
+        let mut h = showcase_on(PAGE);
+        let (child, program) = LiveChild::for_tests();
+        h.set_detached_outcome(DetachedOutcome::Detached { child, first_line: "ready".to_owned() });
+        h.click_text("Start a helper");
+        let asked = h.detached_handoffs();
+        assert_eq!(asked.len(), 1);
+        assert_eq!(asked[0].args, ["-c", HELPER_SCRIPT].map(OsString::from));
+        assert_eq!(asked[0].notice.as_deref(), Some("Handing the terminal to a helper until it is ready"));
+        assert!(h.screen().contains("runs in the background"), "{}", h.screen());
+        h.click_text("Send a line");
+        assert_eq!(program.written(), ["hello 1"]);
+        program.say("hello 1");
+        h.render();
+        let log = h.app().log.recent(PAGE, 10);
+        assert!(log.iter().any(|entry| entry.source == "LiveChild" && entry.message == "hello 1"), "{log:?}");
+        h.click_text("Stop the helper");
+        assert!(!program.stdin_open(), "stopping closes the helper's input");
+        program.exit(Some(0));
+        h.render();
+        assert!(!h.screen().contains("runs in the background"), "{}", h.screen());
+        let log = h.app().log.recent(PAGE, 10);
+        assert!(log.iter().any(|entry| entry.message == "finished with code 0"), "{log:?}");
+    }
+
+    #[test]
+    fn a_helper_that_ends_before_it_is_ready_shows_its_code() {
+        let mut h = showcase_on(PAGE);
+        h.set_detached_outcome(DetachedOutcome::Finished { code: Some(126) });
+        h.click_text("Start a helper");
+        assert!(h.screen().contains("exit code 126"), "{}", h.screen());
+        assert!(!h.screen().contains("runs in the background"), "{}", h.screen());
     }
 }

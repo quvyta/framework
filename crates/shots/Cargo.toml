@@ -1,0 +1,30 @@
+[package]
+name = "quvyta-framework-shots"
+description = "Screenshots of Quvyta terminal UI test screens as SVG and PNG, for READMEs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT AND OFL-1.1"
+repository = "https://github.com/quvyta/framework"
+readme = "README.md"
+keywords = ["tui", "terminal", "screenshot", "svg", "png"]
+categories = ["command-line-interface", "development-tools::testing", "rendering"]
+publish = false
+include = ["src/**/*.rs", "fonts/*.ttf", "fonts/OFL.txt", "fonts/README.md", "Cargo.toml", "LICENSE", "README.md"]
+
+[lib]
+# Published as quvyta-framework-shots, used in code as `qshots`.
+name = "qshots"
+
+[lints]
+workspace = true
+
+[dependencies]
+quvyta-framework = { version = "0.1.6", path = "../quvyta-framework" }
+# The harness hands out its screen as a ratatui buffer; reading cell styles needs its types.
+# The framework already depends on this version, so it adds no crate.
+ratatui-core = { version = "0.1.2", features = ["std"] }
+# Only the rasteriser: the SVG holds glyph outlines, never text, so no font loading (and no
+# system fonts) is compiled in.
+resvg = { version = "0.48.1", default-features = false }
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }

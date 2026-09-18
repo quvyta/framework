@@ -25,7 +25,8 @@ use std::time::{Duration, Instant};
 
 use qframe::prelude::*;
 use qframe::widgets::{
-    Column, LogBuffer, LogLevel, LogLine, LogView, Markdown, PageTransition, ScrollView, Table, TableCell, TableRow,
+    CardGrid, Column, LogBuffer, LogLevel, LogLine, LogView, Markdown, PageTransition, ScrollView, Table, TableCell,
+    TableRow,
 };
 
 const WIDTH: u16 = 160;
@@ -40,6 +41,7 @@ enum Scenario {
     List,
     SharedList,
     Table,
+    Cards,
     Markdown,
     Log,
     Nested,
@@ -52,6 +54,7 @@ impl Scenario {
             Self::List => "list 100 000 rows",
             Self::SharedList => "list 100 000 rows, shared",
             Self::Table => "table 200 000 rows",
+            Self::Cards => "card grid 10 000 cards",
             Self::Markdown => "markdown, long document",
             Self::Log => "log view 10 000 lines",
             Self::Nested => "nested layout, 60 cards",
@@ -176,6 +179,15 @@ impl App for Screen {
                     .fill()
                     .id("heavy");
             }
+            Scenario::Cards => {
+                // Only the cards on screen are built, each a column of three texts.
+                let grid = CardGrid::new(10_000).selected(self.selected).on_select(Msg::Select).card(|ui, index| {
+                    ui.add(Text::new(format!("app-{index}")).role("title").no_wrap());
+                    ui.add(Text::new("quvyta/api:2.4 on port 8080, up 3 days").role("secondary").no_wrap());
+                    ui.add(Text::new("Repo · Flatpak").role("faint").no_wrap());
+                });
+                ui.add(grid).fill().id("heavy");
+            }
             Scenario::Markdown => {
                 ui.add_with(ScrollView::new(), |ui| {
                     ui.add(Markdown::new(&self.markdown)).fill_width();
@@ -285,6 +297,7 @@ fn frame_times() {
         Scenario::List,
         Scenario::SharedList,
         Scenario::Table,
+        Scenario::Cards,
         Scenario::Markdown,
         Scenario::Log,
         Scenario::Nested,

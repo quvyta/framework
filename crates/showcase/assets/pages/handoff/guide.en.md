@@ -26,6 +26,20 @@ Use a handoff when another program has to talk to the user itself. An applicatio
 - **The terminal is restored whichever way it ends.** A program that cannot start, one killed by a signal, a panic of the runtime: the guard and the panic hook put the terminal back either way.
 - **Several handoffs run one after another**, in the order they were asked for.
 
+## A program that keeps running
+
+Some programs ask once and then serve the application for the rest of the session. `pkexec /usr/lib/app/helper --serve` asks for the password on the terminal and becomes a privileged helper that answers requests line by line. A handoff waits for its program to end, so its screen would never come back; `Command::handoff_detached` takes it back as soon as the program says it is ready.
+
+1. Build it like a handoff, with a message for each line that comes later: `DetachedHandoff::new("pkexec", Msg::Started).args([helper, "--serve"]).notice(...).on_line(Msg::Helper)`.
+2. Return it from `update`: `Command::handoff_detached(handoff)`.
+3. The program writes its first line on standard output when it is ready. The terminal's foreground goes back to the application, the screen is drawn again in full, and `DetachedOutcome::Detached { child, first_line }` arrives. Keep the `LiveChild` in your state: `child.write_line(request)` writes to its standard input.
+4. Every later line arrives as `ChildLine::Line(text)`, for as long as the program runs; `ChildLine::Ended { code }` follows the last one.
+5. A program that ends before its first line — `pkexec` after a refused or cancelled password returns 126 or 127 — gives `DetachedOutcome::Finished { code }`, as a handoff would. `.pause(true)` waits for a key only then, so the reason can be read.
+6. To finish, close its input with `child.close_stdin()`; a helper reads the end of its input and ends. When the application's state is dropped at the end of the run, the input closes by itself. `child.kill()` exists too, but a program running as root cannot be signalled by you.
+7. In tests, `LiveChild::for_tests()` gives a stand-in child and a `TestChild` that plays the program: `harness.set_detached_outcome(DetachedOutcome::Detached { child, first_line })` answers the handoff, `program.written()` shows what the application wrote, `program.say(line)` and `program.exit(code)` answer it at the next step. `harness.detached_handoffs()` shows what was asked for.
+
+Until the first line everything above holds: `Ctrl-C` reaches the program, `Ctrl-Z` does not suspend, the session is kept. Only standard error stays the terminal, because `pkexec` and `sudo` ask on the controlling terminal itself, not on standard input. Afterwards the program runs in the background of the terminal; it should keep quiet on standard error from then on, since whatever it writes there lands on the application's screen.
+
 ## Common mistakes
 
 - **Running `sudo` with a pipe.** Then the prompt has nowhere to go. A handoff or a pseudo-terminal, nothing in between.

@@ -19,7 +19,8 @@ use ratatui_core::terminal::Terminal;
 use ratatui_crossterm::CrosstermBackend;
 
 use super::app::App;
-use super::engine::{Engine, TaskMode};
+use super::detached::{self, DetachedOutcome};
+use super::engine::{Engine, HandOver, TaskMode};
 use super::handoff::{self, HandoffOutcome, HandoffScreen};
 use super::signals::Signals;
 use super::terminal_clipboard::TerminalClipboard;
@@ -175,7 +176,8 @@ impl<A: App> Runtime<A> {
     /// is restored. The terminal is left in application mode in no case while it exists; after a
     /// hangup nothing more is written to it.
     ///
-    /// During a [`Handoff`](super::Handoff) the program owns the terminal's foreground. A
+    /// During a [`Handoff`](super::Handoff), and a [`DetachedHandoff`](super::DetachedHandoff)
+    /// until the program's first line, the program owns the terminal's foreground. A
     /// signal the application catches meanwhile is passed on to the program, which ends the way
     /// it would have as a job of the shell; the application then takes the terminal back and
     /// hears the signal itself. A hangup reaches the program from the system anyway.
@@ -381,8 +383,12 @@ fn hang_up(signals: &Signals, guard: &TerminalGuard, gone: &mut bool) {
 /// Answers the handoffs the engine queued after the terminal hung up: there is nothing to hand
 /// over, so each one fails without running its program.
 fn refuse_handoffs<A: App>(engine: &mut Engine<A>) {
+    const GONE: &str = "the terminal is gone";
     while let Some(work) = engine.take_handoff() {
-        let message = work.finish(HandoffOutcome::Failed("the terminal is gone".to_owned()));
+        let message = match work {
+            HandOver::Wait(handoff) => handoff.finish(HandoffOutcome::Failed(GONE.to_owned())),
+            HandOver::Detach(handoff) => handoff.finish(DetachedOutcome::Failed(GONE.to_owned()), engine.deliveries()),
+        };
         engine.update(message);
     }
 }
@@ -399,6 +405,7 @@ fn run_handoffs<A: App>(
 ) {
     while let Some(work) = engine.take_handoff() {
         let prompt = engine.env.i18n().translate("quvyta.handoff.pause", &[]);
+        let deliveries = engine.deliveries();
         let message = {
             let mut release = |notice: Option<&str>| -> io::Result<()> {
                 guard.suspend()?;
@@ -426,7 +433,10 @@ fn run_handoffs<A: App>(
             let mut screen = HandoffScreen { release: &mut release, take: &mut take, wait_for_key: &mut wait_for_key };
             // Signals caught while the program owns the terminal are passed on to it.
             signals.handoff(true);
-            let message = handoff::run(work, &mut screen);
+            let message = match work {
+                HandOver::Wait(handoff) => handoff::run(handoff, &mut screen),
+                HandOver::Detach(handoff) => detached::run(handoff, &mut screen, &deliveries),
+            };
             signals.handoff(false);
             message
         };

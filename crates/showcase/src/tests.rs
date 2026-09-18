@@ -442,3 +442,46 @@ mod shell {
         assert!(screen.contains("Nordic") && screen.contains("Amber"), "the theme list opened:\n{screen}");
     }
 }
+
+/// The pictures in the repository's README, drawn from fixed scenes so they come out the same on
+/// every machine. Regenerate with
+/// `cargo test -p quvyta-framework-showcase readme_shots -- --ignored`; the normal run skips it,
+/// so the gate never writes a file.
+mod readme_shots {
+    use std::time::Duration;
+
+    use qframe::icons::GlyphMode;
+    use qframe::runtime::Harness;
+
+    use super::showcase_tall;
+    use crate::app::Showcase;
+
+    /// `page` of the showcase in `theme`, `width` × `height`, with Nerd Font icons and every
+    /// transition finished.
+    fn scene(page: &str, theme: &str, width: u16, height: u16) -> Harness<Showcase> {
+        let mut harness = showcase_tall(Showcase::new(), page, height);
+        harness.resize(width, height).set_theme(theme).set_glyph_mode(GlyphMode::Nerd);
+        harness.advance(Duration::from_secs(2));
+        harness
+    }
+
+    fn save(harness: &Harness<Showcase>, name: &str) {
+        let shot = qshots::Shot::of(harness).title("qframe");
+        assert!(shot.missing().is_empty(), "{name}: the font lacks {:?}", shot.missing());
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/screenshots/");
+        shot.save(format!("{path}{name}")).expect("the screenshots folder is writable");
+    }
+
+    #[test]
+    #[ignore = "writes docs/screenshots; run on purpose to refresh the README pictures"]
+    fn readme_shots() {
+        save(&scene("example-dashboard", "nordic", 120, 36), "dashboard");
+        save(&scene("heatmap", "iris", 120, 44), "heatmap");
+        let mut palette = scene("getting-started", "amber", 120, 36);
+        palette.press("ctrl+p").type_text("tab");
+        palette.advance(Duration::from_secs(1));
+        save(&palette, "command-palette");
+        save(&scene("example-setup-wizard", "iris", 120, 36), "setup-wizard");
+        save(&scene("markdown", "monochrome", 120, 40), "markdown");
+    }
+}

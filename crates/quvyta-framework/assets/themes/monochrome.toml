@@ -110,6 +110,44 @@ fg = "$dim"
 [style."panel-title:pressed"]
 fg = "$text"
 
+# ---- Card grids -------------------------------------------------------------------------------
+# A card sits one step above the page. Hover lifts its own tone 8% towards the text colour with a
+# soft pillar down the whole left edge, as on a pressable panel; the selected card takes the
+# selected surface, its pillar calm, and breathing while the grid has keyboard focus. A press
+# flashes 16%. Nothing slides: a card is a surface, not a list row.
+
+[style.card]
+bg      = "$raised"
+padding = [0, 2]
+
+[style."card:hover"]
+bg     = "mix($text, $raised, 8%)"
+pillar = "mix($accent, $active, 45%)"
+
+[style."card:selected"]
+bg     = "$active"
+pillar = "mix($accent, $surface, 70%)"
+
+[style."card:selected:focus"]
+pillar = "pulse($accent, $accent-2)"
+
+[style."card:hover:selected"]
+bg = "mix($text, $active, 8%)"
+
+[style."card:pressed"]
+bg     = "mix($text, $raised, 16%)"
+pillar = "$accent"
+
+[style."card:pressed:selected"]
+bg = "mix($text, $active, 16%)"
+
+# A checked card carries the accent mark; a lit card offers a faint one while checks are on.
+[style.card-mark]
+fg = "$accent"
+
+[style."card-mark.off"]
+fg = "$muted"
+
 [style.shell-header]
 bg = "$surface"
 

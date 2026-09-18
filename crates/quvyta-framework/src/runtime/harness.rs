@@ -7,6 +7,7 @@ use ratatui_core::layout::Rect as BufferRect;
 use ratatui_core::style::{Color, Modifier};
 
 use super::app::App;
+use super::detached::DetachedOutcome;
 use super::engine::{Engine, TaskMode};
 use super::handoff::{HandoffOutcome, HandoffRequest};
 use super::termination::Termination;
@@ -421,6 +422,29 @@ impl<A: App> Harness<A> {
     /// this.
     pub fn set_handoff_outcome(&mut self, outcome: HandoffOutcome) -> &mut Self {
         self.engine.set_handoff_outcome(outcome);
+        self
+    }
+
+    /// The handoffs of [`Command::handoff_detached`](super::Command::handoff_detached) the
+    /// application asked for, oldest first. Like [`Harness::handoffs`] they are recorded, not
+    /// run, and answered with the outcome of [`Harness::set_detached_outcome`].
+    #[must_use]
+    pub fn detached_handoffs(&self) -> &[HandoffRequest] {
+        self.engine.detached_requests()
+    }
+
+    /// The outcome every detached handoff from now on ends with; `Finished { code: Some(0) }`
+    /// without this. A [`DetachedOutcome::Detached`] with the child of
+    /// [`LiveChild::for_tests`](super::LiveChild::for_tests) lets the test play the program: what
+    /// the application writes is recorded on its [`TestChild`](super::TestChild), and the lines
+    /// the test says there reach [`DetachedHandoff::on_line`](super::DetachedHandoff::on_line)
+    /// at the next step.
+    ///
+    /// The harness keeps the outcome, and with it a clone of the child, until it is given
+    /// another or dropped; the child's input closes then at the latest, as it does when a real
+    /// run ends.
+    pub fn set_detached_outcome(&mut self, outcome: DetachedOutcome) -> &mut Self {
+        self.engine.set_detached_outcome(outcome);
         self
     }
 

@@ -51,74 +51,41 @@ use std::process::{Command as Child, Stdio};
 /// }
 /// ```
 pub struct Handoff<Msg> {
-    program: OsString,
-    args: Vec<OsString>,
-    dir: Option<PathBuf>,
-    env: Vec<(OsString, OsString)>,
-    notice: Option<String>,
-    pause: bool,
+    program: Program,
     on_finish: Box<dyn FnOnce(HandoffOutcome) -> Msg + Send>,
 }
 
-impl<Msg: Send + 'static> Handoff<Msg> {
-    /// Runs `program`, delivering `on_finish(outcome)` once the application has the screen back.
-    pub fn new(program: impl Into<OsString>, on_finish: impl FnOnce(HandoffOutcome) -> Msg + Send + 'static) -> Self {
-        Self {
-            program: program.into(),
-            args: Vec::new(),
-            dir: None,
-            env: Vec::new(),
-            notice: None,
-            pause: false,
-            on_finish: Box::new(on_finish),
+/// The program a handoff runs and how the screen is left for it; shared by [`Handoff`] and
+/// [`DetachedHandoff`](super::DetachedHandoff).
+#[derive(Debug, Clone)]
+pub(crate) struct Program {
+    pub(crate) program: OsString,
+    pub(crate) args: Vec<OsString>,
+    pub(crate) dir: Option<PathBuf>,
+    pub(crate) env: Vec<(OsString, OsString)>,
+    pub(crate) notice: Option<String>,
+    pub(crate) pause: bool,
+}
+
+impl Program {
+    pub(crate) fn new(program: OsString) -> Self {
+        Self { program, args: Vec::new(), dir: None, env: Vec::new(), notice: None, pause: false }
+    }
+
+    /// The command that starts the program, its standard streams still to be chosen.
+    pub(crate) fn command(&self) -> Child {
+        let mut child = Child::new(&self.program);
+        child.args(&self.args);
+        if let Some(dir) = &self.dir {
+            child.current_dir(dir);
         }
+        for (key, value) in &self.env {
+            child.env(key, value);
+        }
+        child
     }
 
-    /// Adds one argument.
-    #[must_use]
-    pub fn arg(mut self, arg: impl Into<OsString>) -> Self {
-        self.args.push(arg.into());
-        self
-    }
-
-    /// Adds several arguments, in order.
-    #[must_use]
-    pub fn args(mut self, args: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
-        self.args.extend(args.into_iter().map(Into::into));
-        self
-    }
-
-    /// Runs the program in `dir` instead of the application's working directory.
-    #[must_use]
-    pub fn dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.dir = Some(dir.into());
-        self
-    }
-
-    /// Sets an environment variable for the program. The rest of the environment is inherited.
-    #[must_use]
-    pub fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
-        self.env.push((key.into(), value.into()));
-        self
-    }
-
-    /// A line printed on the cleared screen before the program starts, so the user knows why the
-    /// application stepped aside.
-    #[must_use]
-    pub fn notice(mut self, text: impl Into<String>) -> Self {
-        self.notice = Some(text.into());
-        self
-    }
-
-    /// Waits for a key press after the program ends, so its last output can be read. Off by
-    /// default: a program that only takes a moment, such as `sudo -v`, has nothing to read.
-    #[must_use]
-    pub fn pause(mut self, pause: bool) -> Self {
-        self.pause = pause;
-        self
-    }
-
-    /// What a test sees of this handoff.
+    /// What a test sees of the handoff.
     pub(crate) fn request(&self) -> HandoffRequest {
         HandoffRequest {
             program: self.program.clone(),
@@ -126,6 +93,62 @@ impl<Msg: Send + 'static> Handoff<Msg> {
             notice: self.notice.clone(),
             pause: self.pause,
         }
+    }
+}
+
+impl<Msg: Send + 'static> Handoff<Msg> {
+    /// Runs `program`, delivering `on_finish(outcome)` once the application has the screen back.
+    pub fn new(program: impl Into<OsString>, on_finish: impl FnOnce(HandoffOutcome) -> Msg + Send + 'static) -> Self {
+        Self { program: Program::new(program.into()), on_finish: Box::new(on_finish) }
+    }
+
+    /// Adds one argument.
+    #[must_use]
+    pub fn arg(mut self, arg: impl Into<OsString>) -> Self {
+        self.program.args.push(arg.into());
+        self
+    }
+
+    /// Adds several arguments, in order.
+    #[must_use]
+    pub fn args(mut self, args: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
+        self.program.args.extend(args.into_iter().map(Into::into));
+        self
+    }
+
+    /// Runs the program in `dir` instead of the application's working directory.
+    #[must_use]
+    pub fn dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.program.dir = Some(dir.into());
+        self
+    }
+
+    /// Sets an environment variable for the program. The rest of the environment is inherited.
+    #[must_use]
+    pub fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
+        self.program.env.push((key.into(), value.into()));
+        self
+    }
+
+    /// A line printed on the cleared screen before the program starts, so the user knows why the
+    /// application stepped aside.
+    #[must_use]
+    pub fn notice(mut self, text: impl Into<String>) -> Self {
+        self.program.notice = Some(text.into());
+        self
+    }
+
+    /// Waits for a key press after the program ends, so its last output can be read. Off by
+    /// default: a program that only takes a moment, such as `sudo -v`, has nothing to read.
+    #[must_use]
+    pub fn pause(mut self, pause: bool) -> Self {
+        self.program.pause = pause;
+        self
+    }
+
+    /// What a test sees of this handoff.
+    pub(crate) fn request(&self) -> HandoffRequest {
+        self.program.request()
     }
 
     /// The message of `outcome`, for a harness that never runs the program.
@@ -136,15 +159,7 @@ impl<Msg: Send + 'static> Handoff<Msg> {
     /// The same handoff delivering `map(message)` once the application has the screen back.
     pub(crate) fn map<B>(self, map: impl FnOnce(Msg) -> B + Send + 'static) -> Handoff<B> {
         let on_finish = self.on_finish;
-        Handoff {
-            program: self.program,
-            args: self.args,
-            dir: self.dir,
-            env: self.env,
-            notice: self.notice,
-            pause: self.pause,
-            on_finish: Box::new(move |outcome| map(on_finish(outcome))),
-        }
+        Handoff { program: self.program, on_finish: Box::new(move |outcome| map(on_finish(outcome))) }
     }
 }
 
@@ -193,11 +208,11 @@ pub(crate) struct HandoffScreen<'a> {
 /// own session would not be given it. Its own process group, which the keys' signals go to, is
 /// arranged by `foreground`.
 pub(crate) fn run<Msg: Send + 'static>(handoff: Handoff<Msg>, screen: &mut HandoffScreen<'_>) -> Msg {
-    let outcome = match (screen.release)(handoff.notice.as_deref()) {
+    let outcome = match (screen.release)(handoff.program.notice.as_deref()) {
         Ok(()) => {
-            let outcome = spawn(&handoff);
+            let outcome = spawn(&handoff.program);
             // The screen is still the program's; waiting here lets its last lines be read.
-            if handoff.pause && matches!(outcome, HandoffOutcome::Finished { .. }) {
+            if handoff.program.pause && matches!(outcome, HandoffOutcome::Finished { .. }) {
                 let _ = (screen.wait_for_key)();
             }
             match (screen.take)() {
@@ -215,15 +230,9 @@ pub(crate) fn run<Msg: Send + 'static>(handoff: Handoff<Msg>, screen: &mut Hando
 }
 
 /// Starts the program attached to the terminal and waits for it.
-fn spawn<Msg>(handoff: &Handoff<Msg>) -> HandoffOutcome {
-    let mut child = Child::new(&handoff.program);
-    child.args(&handoff.args).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
-    if let Some(dir) = &handoff.dir {
-        child.current_dir(dir);
-    }
-    for (key, value) in &handoff.env {
-        child.env(key, value);
-    }
+fn spawn(program: &Program) -> HandoffOutcome {
+    let mut child = program.command();
+    child.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
     #[cfg(unix)]
     let status = super::foreground::status(&mut child);
     #[cfg(not(unix))]

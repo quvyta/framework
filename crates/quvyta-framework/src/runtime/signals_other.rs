@@ -58,3 +58,7 @@ impl Signals {
         Ok(Woken { keyboard: ct::poll(timeout)?, hung_up: false })
     }
 }
+
+/// Wakes the loop: there is no socket to wake it through here, so background work is applied
+/// when the loop next wakes by itself, within half a second.
+pub(crate) fn wake() {}

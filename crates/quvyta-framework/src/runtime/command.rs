@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use super::confirm::Confirm;
+use super::detached::DetachedHandoff;
 use super::handoff::Handoff;
 use super::task::{Task, TaskId};
 use crate::icons::IconMode;
@@ -27,6 +28,7 @@ pub(crate) enum Action<Msg> {
     Task(Task<Msg>),
     CancelTask(TaskId),
     Handoff(Handoff<Msg>),
+    HandoffDetached(DetachedHandoff<Msg>),
 }
 
 /// A message conversion shared by every action of a mapped command; the work of tasks and
@@ -64,6 +66,7 @@ impl<A: Send + 'static> Action<A> {
                 let map = Arc::clone(map);
                 Action::Handoff(handoff.map(move |message| map(message)))
             }
+            Self::HandoffDetached(handoff) => Action::HandoffDetached(handoff.map(Arc::clone(map))),
         }
     }
 }
@@ -261,6 +264,37 @@ impl<Msg: Send + 'static> Command<Msg> {
         Self::single(Action::Handoff(handoff))
     }
 
+    /// Hands the terminal to a program until it writes its first line, then takes the screen
+    /// back and leaves the program running in the background, its standard input and output
+    /// piped to the application. Use it for a program that asks the user something on the
+    /// terminal and then serves the application, such as a privileged helper started through
+    /// `pkexec`. See [`DetachedHandoff`] for the whole course; it queues with
+    /// [`Command::handoff`], one after another.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    /// use qframe::runtime::{ChildLine, DetachedHandoff, DetachedOutcome};
+    ///
+    /// enum Msg {
+    ///     Start,
+    ///     Started(DetachedOutcome),
+    ///     Said(ChildLine),
+    /// }
+    ///
+    /// fn update(msg: Msg) -> Command<Msg> {
+    ///     match msg {
+    ///         Msg::Start => Command::handoff_detached(
+    ///             DetachedHandoff::new("sh", Msg::Started).args(["-c", "echo ready; cat"]).on_line(Msg::Said),
+    ///         ),
+    ///         Msg::Started(_) | Msg::Said(_) => Command::none(),
+    ///     }
+    /// }
+    /// ```
+    #[must_use]
+    pub fn handoff_detached(handoff: DetachedHandoff<Msg>) -> Self {
+        Self::single(Action::HandoffDetached(handoff))
+    }
+
     /// The same work delivering `map(message)` wherever it would deliver `message`, so a screen
     /// with messages of its own can return its commands from the application's `update`:
     ///
@@ -297,9 +331,9 @@ impl<Msg: Send + 'static> Command<Msg> {
     /// Every kind of work is carried over: a message the work of [`Command::perform`] or a
     /// [`Task`] produces later on its own thread (its result, what it sends while it runs, its
     /// events), the answers of [`Command::confirm`], the action and presses of a toast, the
-    /// clipboard text of [`Command::read_clipboard`] and the message after a
-    /// [`Command::handoff`]. Work without messages (focus, theme, copy, cancelling a task) is
-    /// unchanged.
+    /// clipboard text of [`Command::read_clipboard`], the message after a [`Command::handoff`],
+    /// and the messages of a [`Command::handoff_detached`] and of the child it leaves running.
+    /// Work without messages (focus, theme, copy, cancelling a task) is unchanged.
     ///
     /// `map` runs on the threads of that background work, and one command can hold several of
     /// them, so it is shared rather than copied: it must be `Send` and `Sync`, and it is never

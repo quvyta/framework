@@ -12,6 +12,7 @@ pub mod bar_chart;
 pub mod big_text;
 pub mod breadcrumb;
 pub mod button;
+pub mod card_grid;
 pub mod cell_animation;
 pub mod checkbox;
 pub mod clipboard;
@@ -199,6 +200,7 @@ pub const PAGES: &[PageContent] = &[
     page!("text-area", "text_area"),
     page!("table", "table"),
     page!("tree", "tree"),
+    page!("card-grid", "card_grid"),
     page!("log-view", "log_view"),
     page!("file-picker", "file_picker"),
     page!("example-file-explorer", "example_file_explorer"),
@@ -286,6 +288,7 @@ pub struct Pages {
     pub text_area: text_area::State,
     pub table: table::State,
     pub tree: tree::State,
+    pub card_grid: card_grid::State,
     pub log_view: log_view::State,
     pub file_picker: file_picker::State,
     pub example_file_explorer: example_file_explorer::State,
@@ -367,6 +370,7 @@ pub enum PageMsg {
     TextArea(text_area::Msg),
     Table(table::Msg),
     Tree(tree::Msg),
+    CardGrid(card_grid::Msg),
     LogView(log_view::Msg),
     FilePicker(file_picker::Msg),
     ExampleFileExplorer(example_file_explorer::Msg),
@@ -454,6 +458,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::TextArea(m) => text_area::update(&mut pages.text_area, m, log),
         PageMsg::Table(m) => table::update(&mut pages.table, m, log),
         PageMsg::Tree(m) => tree::update(&mut pages.tree, m, log),
+        PageMsg::CardGrid(m) => card_grid::update(&mut pages.card_grid, m, log),
         PageMsg::LogView(m) => log_view::update(&mut pages.log_view, m, log),
         PageMsg::FilePicker(m) => file_picker::update(&mut pages.file_picker, m, log),
         PageMsg::ExampleFileExplorer(m) => example_file_explorer::update(&mut pages.example_file_explorer, m, log),
@@ -541,6 +546,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "text-area" => text_area::view(&pages.text_area, ui),
         "table" => table::view(&pages.table, ui),
         "tree" => tree::view(&pages.tree, ui),
+        "card-grid" => card_grid::view(&pages.card_grid, ui),
         "log-view" => log_view::view(&pages.log_view, ui),
         "file-picker" => file_picker::view(&pages.file_picker, ui),
         "example-file-explorer" => example_file_explorer::view(&pages.example_file_explorer, ui),

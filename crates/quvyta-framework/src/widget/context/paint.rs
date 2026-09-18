@@ -32,6 +32,8 @@ pub struct PaintCx<'a> {
     pub(crate) id: WidgetId,
     pub(crate) layout: LayoutProps,
     pub(crate) scope: Option<WidgetId>,
+    /// How long no input has arrived, for views a widget builds while it paints.
+    pub(crate) idle: Duration,
 }
 
 impl PaintCx<'_> {

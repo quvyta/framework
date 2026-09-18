@@ -10,7 +10,7 @@ use crate::icons::GlyphMode;
 use crate::runtime::{App, Command, Harness};
 use crate::widget::View;
 use crate::widgets::{
-    Accordion, Badge, Bar, BarChart, BigText, Breadcrumb, Button, Checkbox, CodeView, Column, CommandPalette,
+    Accordion, Badge, Bar, BarChart, BigText, Breadcrumb, Button, CardGrid, Checkbox, CodeView, Column, CommandPalette,
     ContextItem, ContextMenu, CopyValue, DatePicker, Divider, EmptyState, Field, Form, Gauge, HelpLayer, HoldToConfirm,
     KeyHints, Language, List, ListItem, LogBuffer, LogLevel, LogLine, LogView, Markdown, Menu, MenuGroup, MenuItem,
     Modal, NumberInput, Overflow, PaletteCommand, Panel, Popover, ProgressBar, RadioGroup, RailTab, Section, Segmented,
@@ -50,6 +50,14 @@ const WIDGETS: &[(&str, Build)] = &[
     }),
     ("checkbox", |t, ui| {
         ui.add(Checkbox::new(true).label(t).on_toggle(|_| ()));
+    }),
+    ("card-grid", |t, ui| {
+        let text = t.to_owned();
+        let grid = CardGrid::new(40).checked(vec![true; 40]).on_select(|_| ()).on_activate(|_| ()).on_toggle(|_| ());
+        ui.add(grid.card(move |ui, _| {
+            ui.add(Text::new(text.as_str()).no_wrap());
+            ui.add(Text::new(text.as_str()));
+        }));
     }),
     ("code-view", |t, ui| {
         ui.add(CodeView::new(t, Language::Rust).line_numbers(true));

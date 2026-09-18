@@ -26,6 +26,7 @@ use super::clipboard::ClipboardReader;
 use super::command::{Action, Command};
 use super::confirm::{Confirm, ConfirmLayer};
 use super::debug;
+use super::detached::{DetachedHandoff, DetachedOutcome};
 use super::handoff::{Handoff, HandoffOutcome, HandoffRequest};
 use super::selection::{Press, Selection};
 use super::selection_menu::{self, SelectionMenu};
@@ -47,6 +48,25 @@ type Channel<Msg> = (Sender<Delivery<Msg>>, Receiver<Delivery<Msg>>);
 
 /// The work of a `Command::perform`.
 type Work<Msg> = Box<dyn FnOnce() -> Msg + Send>;
+
+/// A handoff waiting for the loop that owns the terminal.
+pub(crate) enum HandOver<Msg> {
+    /// Until the program ends.
+    Wait(Handoff<Msg>),
+    /// Until the program's first line.
+    Detach(DetachedHandoff<Msg>),
+}
+
+impl<Msg: Send + 'static> HandOver<Msg> {
+    /// What a test sees of the handoff.
+    #[cfg(test)]
+    pub(crate) fn request(&self) -> HandoffRequest {
+        match self {
+            Self::Wait(handoff) => handoff.request(),
+            Self::Detach(handoff) => handoff.request(),
+        }
+    }
+}
 
 /// Whether background work runs on threads or inline (tests).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,11 +122,15 @@ pub(crate) struct Engine<A: App> {
     queued_work: Vec<Work<A::Msg>>,
     /// Handoffs waiting for the loop that owns the terminal, oldest first. The engine never
     /// touches the terminal itself, so it only queues them.
-    handoffs: Vec<Handoff<A::Msg>>,
+    handoffs: Vec<HandOver<A::Msg>>,
     /// Handoffs a harness recorded instead of running, oldest first.
     handoff_requests: Vec<HandoffRequest>,
     /// The outcome a harness gives every handoff.
     handoff_outcome: HandoffOutcome,
+    /// Detached handoffs a harness recorded instead of running, oldest first.
+    detached_requests: Vec<HandoffRequest>,
+    /// The outcome a harness gives every detached handoff.
+    detached_outcome: DetachedOutcome,
     /// Starts the threads of performs and tasks; tests swap in one that fails.
     pub(crate) spawner: task::Spawner,
     pub(crate) clipboard: Vec<String>,
@@ -168,6 +192,8 @@ impl<A: App> Engine<A> {
             handoffs: Vec::new(),
             handoff_requests: Vec::new(),
             handoff_outcome: HandoffOutcome::Finished { code: Some(0) },
+            detached_requests: Vec::new(),
+            detached_outcome: DetachedOutcome::Finished { code: Some(0) },
             spawner: task::spawn_thread,
             clipboard: Vec::new(),
             clipboard_text: None,
@@ -204,6 +230,7 @@ impl<A: App> Engine<A> {
         let mut selection_copy = None;
         let idle = self.idle.scope(now);
         let root = self.build_tree(size, &idle);
+        let silent = idle.silent;
         self.idle.settle(idle, now);
         self.selection_menu =
             self.selection.is_some().then(|| root.id.child(&NodeKey::Named(selection_menu::NAME.to_owned()), ""));
@@ -223,6 +250,7 @@ impl<A: App> Engine<A> {
                 id: WidgetId::ROOT,
                 layout: root.layout,
                 scope: None,
+                idle: silent,
             };
             let canvas = cx.color("canvas");
             cx.clear(screen, canvas);
@@ -518,7 +546,18 @@ impl<A: App> Engine<A> {
                         let outcome = self.handoff_outcome.clone();
                         self.queued_work.push(Box::new(move || handoff.finish(outcome)));
                     }
-                    TaskMode::Threads => self.handoffs.push(handoff),
+                    TaskMode::Threads => self.handoffs.push(HandOver::Wait(handoff)),
+                },
+                Action::HandoffDetached(handoff) => match self.task_mode {
+                    // As for a handoff; a detached child of the test's outcome sends its lines
+                    // through the channel of background work, like a real one.
+                    TaskMode::Inline => {
+                        self.detached_requests.push(handoff.request());
+                        let outcome = self.detached_outcome.clone();
+                        let deliveries = self.tasks.0.clone();
+                        self.queued_work.push(Box::new(move || handoff.finish(outcome, deliveries)));
+                    }
+                    TaskMode::Threads => self.handoffs.push(HandOver::Detach(handoff)),
                 },
             }
         }
@@ -551,7 +590,7 @@ impl<A: App> Engine<A> {
 
     /// The handoff waiting longest, taken out of the queue. The loop that owns the terminal
     /// calls this until it returns `None`, so several handoffs run one after another.
-    pub(crate) fn take_handoff(&mut self) -> Option<Handoff<A::Msg>> {
+    pub(crate) fn take_handoff(&mut self) -> Option<HandOver<A::Msg>> {
         let handoff = (!self.handoffs.is_empty()).then(|| self.handoffs.remove(0))?;
         // The user works in the program that gets the terminal, so its end counts as input.
         self.idle.handing_off();
@@ -566,6 +605,21 @@ impl<A: App> Engine<A> {
     /// Sets the outcome a harness answers every handoff with.
     pub(crate) fn set_handoff_outcome(&mut self, outcome: HandoffOutcome) {
         self.handoff_outcome = outcome;
+    }
+
+    /// Detached handoffs a harness recorded, oldest first.
+    pub(crate) fn detached_requests(&self) -> &[HandoffRequest] {
+        &self.detached_requests
+    }
+
+    /// Sets the outcome a harness answers every detached handoff with.
+    pub(crate) fn set_detached_outcome(&mut self, outcome: DetachedOutcome) {
+        self.detached_outcome = outcome;
+    }
+
+    /// Where background work hands the loop its messages, for a detached child's lines.
+    pub(crate) fn deliveries(&self) -> Sender<Delivery<A::Msg>> {
+        self.tasks.0.clone()
     }
 
     /// Whether perform work waits for [`Engine::run_queued_work`].
@@ -840,6 +894,9 @@ mod tests {
                 release: &mut release,
                 take: &mut take,
                 wait_for_key: &mut wait_for_key,
+            };
+            let super::HandOver::Wait(handoff) = handoff else {
+                panic!("only handoffs that wait were asked for");
             };
             let message = crate::runtime::handoff::run(handoff, screen);
             engine.dirty = true;

@@ -231,6 +231,14 @@ impl Drop for Signals {
     }
 }
 
+/// Wakes the loop of the run, if one is watched, so what background work just handed it is
+/// applied now rather than at the loop's next deadline.
+pub(crate) fn wake() {
+    if let Some(run) = lock().as_ref() {
+        let _ = (&run.wake).write(&[0]);
+    }
+}
+
 fn lock() -> MutexGuard<'static, Option<Run>> {
     RUN.lock().unwrap_or_else(PoisonError::into_inner)
 }

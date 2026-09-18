@@ -20,7 +20,7 @@ use std::time::Duration;
 const POLL: Duration = Duration::from_millis(10);
 
 /// How much is read from a stream at a time.
-const CHUNK: usize = 4096;
+pub(super) const CHUNK: usize = 4096;
 
 /// The longest line held at once. A program that writes more without a newline has its line
 /// delivered in pieces of at most this many bytes, so the reader never holds all of it.
@@ -367,7 +367,7 @@ fn read_lines(mut source: impl Read, tag: fn(String) -> Line, sender: &SyncSende
 
 /// Splits a byte stream into lines, letting `\r` overwrite the line being built.
 #[derive(Debug, Default)]
-struct Lines {
+pub(super) struct Lines {
     buffer: Vec<u8>,
     /// A `\r` was read and it is not yet known whether a `\n` follows it.
     pending_return: bool,
@@ -375,7 +375,7 @@ struct Lines {
 
 impl Lines {
     /// Feeds `bytes`, calling `emit` once per finished line.
-    fn feed(&mut self, bytes: &[u8], emit: &mut impl FnMut(String)) {
+    pub(super) fn feed(&mut self, bytes: &[u8], emit: &mut impl FnMut(String)) {
         for &byte in bytes {
             if self.pending_return {
                 // A terminal ends its lines with `\r\n`, so a `\r` right before a newline ends
@@ -435,7 +435,7 @@ impl Lines {
     }
 
     /// Delivers the last line when the stream ended without a newline.
-    fn finish(&mut self, emit: &mut impl FnMut(String)) {
+    pub(super) fn finish(&mut self, emit: &mut impl FnMut(String)) {
         if self.pending_return {
             // The line was overwritten and nothing was written in its place.
             self.buffer.clear();

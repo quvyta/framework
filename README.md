@@ -6,11 +6,15 @@ Quvyta's own applications and is open source under the MIT licence.
 It provides the runtime, a set of widgets, and theme, icon and language files. Its visual rule is
 simple: shape comes from colour, never from bracket or box-drawing characters.
 
-This repository holds two crates:
+![The showcase on its dashboard example in the Nordic theme: a sparkline, gauges, bar chart, badges and a big clock](https://raw.githubusercontent.com/quvyta/framework/main/docs/screenshots/dashboard.svg)
+
+This repository holds three crates:
 
 - `crates/quvyta-framework`: the library.
 - `crates/showcase`: the `quvyta-framework-showcase` application, with a page for every component,
   each with a live demo, its code, a guide and a reference, in English and Turkish.
+- `crates/shots`: `quvyta-framework-shots`, which turns a test screen into the SVG and PNG
+  pictures on this page (see [`docs/screenshots.md`](docs/screenshots.md)).
 
 ## Installation
 
@@ -73,6 +77,30 @@ assert!(app.screen().contains("Count: 1"));
 Text shown to users belongs in language files and is read with `t!("key")`; the example uses
 plain strings to stay short. The Getting started page in the showcase walks through the same
 steps.
+
+## A look around
+
+Every picture here is a test screen of the showcase, drawn by `quvyta-framework-shots`: no
+terminal, no screen capture, the same file on every machine.
+
+The command palette (`ctrl+p`), filtering every page and command as you type, in the Amber theme:
+
+![The command palette filtering for "tab", over the Getting started page](https://raw.githubusercontent.com/quvyta/framework/main/docs/screenshots/command-palette.svg)
+
+A heatmap of a year of focus, one cell a day, in the Iris theme:
+
+![The heatmap page: a year of days in accent tones and per-category grids](https://raw.githubusercontent.com/quvyta/framework/main/docs/screenshots/heatmap.svg)
+
+A multi-step setup wizard with a required field and its hint, in the Iris theme:
+
+![The setup wizard example on its first step, with project name and location fields](https://raw.githubusercontent.com/quvyta/framework/main/docs/screenshots/setup-wizard.svg)
+
+Markdown with headings, lists, inline code and quotes, in the Monochrome theme:
+
+![The Markdown page rendering release notes](https://raw.githubusercontent.com/quvyta/framework/main/docs/screenshots/markdown.svg)
+
+To draw them again after a change:
+`cargo test -p quvyta-framework-showcase readme_shots -- --ignored`.
 
 ## Running the showcase
 

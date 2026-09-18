@@ -14,7 +14,7 @@ use std::io;
 use std::os::fd::OwnedFd;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, ExitStatus};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use nix::sys::signal::{SigSet, SigmaskHow, Signal as NixSignal};
 use rustix::fs::{Mode, OFlags};
@@ -39,31 +39,97 @@ static FOREGROUND: Mutex<()> = Mutex::new(());
 /// Returns an I/O error when the program cannot be started, when the terminal cannot be handed
 /// to it, or when the terminal cannot be taken back afterwards.
 pub(crate) fn status(command: &mut Command) -> io::Result<ExitStatus> {
-    let _only_one = FOREGROUND.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(terminal) = Terminal::open() else {
-        return command.status();
-    };
-    command.process_group(0);
-    let mut child = command.spawn()?;
-    let group = Pid::from_child(&child);
-    if let Err(error) = tcsetpgrp(&terminal.device, group) {
-        // A program that already ended has nothing to hand the terminal to.
-        if let Ok(Some(status)) = child.try_wait() {
-            return Ok(status);
-        }
-        // In the background it would stop at its first read of the terminal and wait forever.
-        let _ = kill_process_group(group, Signal::KILL);
-        let _ = child.wait();
-        return Err(error.into());
-    }
-    // A program that reached for the terminal in the moment before it was handed over was
-    // stopped for it; now it may go on.
-    let _ = kill_process_group(group, Signal::CONT);
-    let status = wait_through_stops(&mut child, group);
-    let taken = terminal.take_back();
+    let (mut child, foreground) = Foreground::spawn(command)?;
+    let status = foreground.wait(&mut child);
+    let taken = foreground.give_back();
     let status = status?;
     taken?;
     Ok(status)
+}
+
+/// The terminal's foreground, lent to one program. Whatever happens while it is lent, a panic
+/// included, dropping this gives it back to the application.
+pub(crate) struct Foreground {
+    /// The terminal and the program's group, while the program owns the terminal.
+    lent: Option<(Terminal, Pid)>,
+    _only_one: MutexGuard<'static, ()>,
+}
+
+impl Foreground {
+    /// Starts `command` and makes its process group the terminal's foreground.
+    ///
+    /// When the application has no controlling terminal, or is not in its foreground group,
+    /// the program is only started, in the application's own group, as any child is.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error when the program cannot be started or the terminal cannot be handed
+    /// to it; the program is ended then, since in the background it would stop at its first
+    /// read of the terminal and wait forever.
+    pub(crate) fn spawn(command: &mut Command) -> io::Result<(Child, Self)> {
+        let only_one = FOREGROUND.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(terminal) = Terminal::open() else {
+            return Ok((command.spawn()?, Self { lent: None, _only_one: only_one }));
+        };
+        command.process_group(0);
+        let mut child = command.spawn()?;
+        let group = Pid::from_child(&child);
+        if let Err(error) = tcsetpgrp(&terminal.device, group) {
+            // A program that already ended has nothing to hand the terminal to.
+            if let Ok(Some(_)) = child.try_wait() {
+                return Ok((child, Self { lent: None, _only_one: only_one }));
+            }
+            let _ = kill_process_group(group, Signal::KILL);
+            let _ = child.wait();
+            return Err(error.into());
+        }
+        // A program that reached for the terminal in the moment before it was handed over was
+        // stopped for it; now it may go on.
+        let _ = kill_process_group(group, Signal::CONT);
+        Ok((child, Self { lent: Some((terminal, group)), _only_one: only_one }))
+    }
+
+    /// Waits for `child` to end. While it owns the terminal, a stop is answered by letting it go
+    /// on, see [`wait_through_stops`].
+    pub(crate) fn wait(&self, child: &mut Child) -> io::Result<ExitStatus> {
+        match &self.lent {
+            Some((_, group)) => wait_through_stops(child, *group),
+            None => child.wait(),
+        }
+    }
+
+    /// How `child` ended, without waiting: `None` while it runs. A stop is answered by letting
+    /// it go on, as [`Foreground::wait`] does.
+    pub(crate) fn check(&self, child: &mut Child) -> io::Result<Option<ExitStatus>> {
+        if let Some((_, group)) = &self.lent {
+            let pid = Pid::from_child(child);
+            let options = WaitIdOptions::STOPPED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
+            if let Ok(Some(state)) = waitid(WaitId::Pid(pid), options)
+                && state.stopped()
+            {
+                let _ = waitid(WaitId::Pid(pid), WaitIdOptions::STOPPED | WaitIdOptions::NOHANG);
+                let _ = kill_process_group(*group, Signal::CONT);
+            }
+        }
+        child.try_wait()
+    }
+
+    /// Makes the application's group the terminal's foreground again, reporting what went
+    /// wrong. Dropping does the same and forgets the error.
+    pub(crate) fn give_back(mut self) -> io::Result<()> {
+        match self.lent.take() {
+            Some((terminal, _)) => terminal.take_back(),
+            None => Ok(()),
+        }
+    }
+}
+
+impl Drop for Foreground {
+    fn drop(&mut self) {
+        if let Some((terminal, _)) = self.lent.take() {
+            let _ = terminal.take_back();
+        }
+    }
 }
 
 /// Waits for `child` to end. A stop, from `Ctrl-Z` or from reaching for the terminal too early,
@@ -217,6 +283,97 @@ while :; do sleep 0.05; done
         assert_eq!(terminal, our_terminal, "the same controlling terminal, which a sudo ticket is kept for");
     }
 
+    /// The program a detached handoff runs: like [`PROGRAM`], but `Ctrl-C` makes it say it is
+    /// ready and serve its input, echoing every line, until the input ends.
+    const DETACHED_PROGRAM: &str = r#"
+set -- $(cat /proc/$$/stat); echo "$5 $6 $7" > "$D/child"
+while set -- $(cat /proc/$$/stat); [ "$5" != "$8" ]; do sleep 0.01; done
+trap 'echo interrupted > "$D/interrupted"; echo ready; exec cat' INT
+touch "$D/ready"
+while :; do sleep 0.05; done
+"#;
+
+    /// The part of the detached test that runs inside the pseudo-terminal.
+    #[test]
+    #[ignore = "started inside a pseudo-terminal by the tests below"]
+    fn detached_inside_a_terminal() {
+        use crate::runtime::task::Delivery;
+        use crate::runtime::{ChildLine, DetachedHandoff, DetachedOutcome};
+
+        #[derive(Debug)]
+        enum Heard {
+            Started(DetachedOutcome),
+            Said(ChildLine),
+        }
+
+        let dir = PathBuf::from(std::env::var_os(DIR_VAR).expect("started by the tests below, not directly"));
+        assert!(in_the_foreground(), "the test starts as the terminal's foreground");
+        let before = signal_state();
+        let ours = stat_ids("self");
+        let foreground_at_take = std::cell::Cell::new(false);
+        let mut release = |_: Option<&str>| Ok(());
+        let mut take = || {
+            foreground_at_take.set(in_the_foreground());
+            Ok(())
+        };
+        let mut wait_for_key = || Ok(());
+        let (deliveries, lines) = std::sync::mpsc::channel();
+        let message = crate::runtime::detached::run(
+            DetachedHandoff::new("sh", Heard::Started)
+                .args(["-c", DETACHED_PROGRAM])
+                .env("D", &dir)
+                .on_line(Heard::Said),
+            &mut HandoffScreen { release: &mut release, take: &mut take, wait_for_key: &mut wait_for_key },
+            &deliveries,
+        );
+        let Heard::Started(DetachedOutcome::Detached { child, first_line }) = message else {
+            panic!("the program said it was ready after Ctrl-C: {message:?}");
+        };
+        assert_eq!(first_line, "ready");
+        assert!(dir.join("interrupted").exists(), "`Ctrl-C` reached the program, not the application");
+        assert!(foreground_at_take.get(), "the terminal was the application's again when it took the screen back");
+        assert!(in_the_foreground(), "and it stays the application's while the child runs on");
+        assert_eq!(signal_state(), before, "no signal disposition or mask of the application changed");
+        assert_eq!(stat_ids("self"), ours, "the application is still in its own group");
+        let pid = child.id().expect("a real child").to_string();
+        let theirs = stat_ids(&pid);
+        let [group, session, _] = theirs.split(' ').collect::<Vec<_>>()[..] else {
+            panic!("three fields: {theirs}");
+        };
+        let [our_group, our_session, _] = ours.split(' ').collect::<Vec<_>>()[..] else {
+            panic!("three fields: {ours}");
+        };
+        assert_ne!(group, our_group, "the child runs on in a group of its own, in the background");
+        assert_eq!(session, our_session, "in the application's session");
+        child.write_line("still here").expect("the child reads its input");
+        let said = |expected: ChildLine| match lines.recv_timeout(PATIENCE) {
+            Ok(Delivery::Message(Heard::Said(line))) => assert_eq!(line, expected),
+            Ok(Delivery::Message(other)) => panic!("expected {expected:?}, got {other:?}"),
+            Ok(Delivery::Ended) => panic!("expected {expected:?}, got the end of background work"),
+            Err(error) => panic!("expected {expected:?}: {error}"),
+        };
+        said(ChildLine::Line("still here".to_owned()));
+        drop(child);
+        said(ChildLine::Ended { code: Some(0) });
+    }
+
+    /// The part of the panic test that runs inside the pseudo-terminal.
+    #[test]
+    #[ignore = "started inside a pseudo-terminal by the tests below"]
+    fn panic_inside_a_terminal() {
+        assert!(in_the_foreground(), "the test starts as the terminal's foreground");
+        let (mut child, foreground) = super::Foreground::spawn(Command::new("sleep").arg("30")).expect("sleep starts");
+        assert!(!in_the_foreground(), "the program owns the terminal");
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _lent = foreground;
+            panic!("a panic while the program owns the terminal");
+        }));
+        assert!(unwound.is_err());
+        assert!(in_the_foreground(), "unwinding gave the terminal back");
+        child.kill().expect("kill");
+        child.wait().expect("wait");
+    }
+
     /// A pseudo-terminal pair: our side, and the device the session inside it uses.
     fn pseudo_terminal() -> (std::fs::File, std::os::fd::OwnedFd) {
         use rustix::fs::{Mode, OFlags};
@@ -246,11 +403,18 @@ while :; do sleep 0.05; done
     /// (which receives the test binary and its arguments), presses `Ctrl-Z` and then `Ctrl-C`
     /// once the program owns the terminal, and asserts the inner test passed.
     fn press_keys_during_a_handoff(name: &str, launcher: &[&str]) {
+        in_a_terminal("inside_a_terminal", name, launcher, true);
+    }
+
+    /// Runs the ignored test `inner` as a new session on a pseudo-terminal, through `launcher`,
+    /// with `keys` pressing `Ctrl-Z` and then `Ctrl-C` once its program owns the terminal, and
+    /// asserts the inner test passed.
+    fn in_a_terminal(inner: &str, name: &str, launcher: &[&str], keys: bool) {
         let dir = std::env::temp_dir().join(format!("quvyta-foreground-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("test directory");
         let (mut controller, device) = pseudo_terminal();
-        let test = format!("{}::inside_a_terminal", module_path!().split_once("::").expect("crate path").1);
+        let test = format!("{}::{inner}", module_path!().split_once("::").expect("crate path").1);
         let exe = std::env::current_exe().expect("the test binary");
         let mut command = Command::new("setsid");
         command
@@ -275,12 +439,14 @@ while :; do sleep 0.05; done
                 }
             })
         };
-        wait_for(&dir.join("ready"), "the program owning the terminal", &output);
-        // `Ctrl-Z` first: the program stops, and a handoff that did not let it go on would wait
-        // forever, since the interrupt below stays pending on a stopped program.
-        controller.write_all(b"\x1a").expect("Ctrl-Z");
-        std::thread::sleep(Duration::from_millis(300));
-        controller.write_all(b"\x03").expect("Ctrl-C");
+        if keys {
+            wait_for(&dir.join("ready"), "the program owning the terminal", &output);
+            // `Ctrl-Z` first: the program stops, and a handoff that did not let it go on would
+            // wait forever, since the interrupt below stays pending on a stopped program.
+            controller.write_all(b"\x1a").expect("Ctrl-Z");
+            std::thread::sleep(Duration::from_millis(300));
+            controller.write_all(b"\x03").expect("Ctrl-C");
+        }
         let started = Instant::now();
         let status = loop {
             if let Some(status) = session.try_wait().expect("wait") {
@@ -312,5 +478,15 @@ while :; do sleep 0.05; done
     fn keys_reach_the_program_when_a_shell_started_the_application() {
         // Started from a shell script, the application shares the script's group.
         press_keys_during_a_handoff("member", &["sh", "-c", r#""$0" "$@"; exit $?"#]);
+    }
+
+    #[test]
+    fn a_detached_program_gets_the_keys_until_it_is_ready_and_then_runs_in_the_background() {
+        in_a_terminal("detached_inside_a_terminal", "detached", &[], true);
+    }
+
+    #[test]
+    fn a_panic_while_a_program_owns_the_terminal_gives_it_back() {
+        in_a_terminal("panic_inside_a_terminal", "panic", &[], false);
     }
 }
