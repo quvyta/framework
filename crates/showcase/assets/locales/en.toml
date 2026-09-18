@@ -800,6 +800,7 @@ labels = "Own button labels"
 cancel-message = "Message on cancel"
 dismissable = "Dismissable"
 alternative = "Third way: restart"
+require-word = "Type the name to stop"
 restart = "Restart"
 
 [hold-to-confirm]

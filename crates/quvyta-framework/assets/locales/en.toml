@@ -150,8 +150,9 @@ all         = "All commands"
 empty       = "No matching commands"
 
 [quvyta.confirm]
-confirm = "Confirm"
-cancel  = "Cancel"
+confirm   = "Confirm"
+cancel    = "Cancel"
+type-word = "Type {word} to confirm"
 
 [quvyta.tab-rail]
 add = "New tab"

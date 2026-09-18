@@ -1,6 +1,6 @@
 ## Ne zaman kullanılır
 
-Geri alması zor bir işten önce onay iste: canlı ortamdaki bir container'ı durdurmak, projeyi silmek, kaydedilmemiş değişiklikleri atmak. Kolayca geri alınan şeyler için sorma; geri alma, sorudan daha naziktir. Pencerenin evet ya da hayırdan fazlasına, örneğin bir alana ihtiyacı varsa `Modal` ile kur.
+Geri alması zor bir işten önce onay iste: canlı ortamdaki bir container'ı durdurmak, projeyi silmek, kaydedilmemiş değişiklikleri atmak. Kolayca geri alınan şeyler için sorma; geri alma, sorudan daha naziktir. Pencerenin evet ya da hayırdan fazlasına, örneğin bir forma ihtiyacı varsa `Modal` ile kur; geri alınamayan bir işten önce yazılacak tek bir sözcük `.require_word` ile olur.
 
 ## Adım adım
 
@@ -18,6 +18,8 @@ Geri alması zor bir işten önce onay iste: canlı ortamdaki bir container'ı d
 - **Esc ve × vazgeçer, dışarı tıklamak bir şey yapmaz.** Kapatılabilir demek ikisi birden demek: hem Esc hem sağ üst köşedeki × işareti vazgeçer. `.dismissable(false)` ikisini birlikte kaldırır; yalnızca butonla cevaplanması gereken sorular için. Karartılmış ekrana kazara bir tıklama soruyu cevaplamaz.
 - **Her pencere gibi görünür.** `Modal` ile aynı katman: karartılmış ekran, hafif beliriş, sol kenar boyunca bir çubuk (yıkıcı sorularda tehlike renginde) ve tehlike renginde onay butonu.
 - **İki yol yetmeyince üçüncü yol.** Kurtarılan iş "At · Sürdür · Kaydet" diye sorar: `.alternative(etiket, mesaj)` Vazgeç ile onay butonu arasına düz bir buton koyar. Odak yine Vazgeç'tedir, Tab önce üçüncü yola, en son onay butonuna gider; Esc ve × yine vazgeçer.
+- **Yazarak onaylamak.** Geri alınamayan işler için, örneğin çöpü kalıcı olarak boşaltmak, `.require_word(sözcük)` açıklamanın altına "Onaylamak için web yaz" satırı ve bir alan ekler. Pencere açılınca odak alandadır, her soru boş bir alanla başlar. Yazılan metin sözcükle eşleşene kadar onay butonu pasiftir ve Tab onu atlar; eşleşince tehlike rengine döner, alanda Enter da onaylar. Esc ve × her zaman vazgeçer; üçüncü yol sözcüğü beklemez, yalnızca onay butonu bekler.
+- **Eşleşme bilerek hoşgörülü.** Baştaki ve sondaki boşluklar, büyük-küçük harf ve Türkçenin noktalı-noktasız i'si fark etmez: `sil`, `SİL`, `SIL` ve ` Sil ` hepsi `SİL` ile eşleşir. Yazmak bilinçli bir eylemdir, parola değil.
 - **Sorular üst üste biner.** Bir soru açıkken yeniden sormak yenisini üste koyar; önce en yenisi cevaplanır.
 - **Odak geri döner**, sorudan önce onu tutan bileşene.
 
@@ -26,4 +28,5 @@ Geri alması zor bir işten önce onay iste: canlı ortamdaki bir container'ı d
 - **Belirsiz butonlar.** "Durdur" ve "Çalışsın" ne olacağını söyler; "Tamam" söylemez.
 - **Her şey için sormak.** İnsanlar okumadan Enter'a basmayı öğrenir. Soruları gerçek kayıplar için sakla.
 - **Evet-hayır sorusuna üç yol.** Üçüncü buton gerçek bir üçüncü sonuç içindir, iki kez söylenmiş bir "Vazgeç" için değil.
+- **Her şey için yazdırmak.** `.require_word`'ü geri alınamayan işlere sakla: her seferinde istenen sözcük, tıpkı Enter gibi okunmadan yazılır. Kullanıcının tanıdığı bir sözcük seç, örneğin şeyin kendi adı.
 - **İşi cevaptan önce yapmak.** İşi sorarken değil, onay mesajının işlendiği yerde yap.

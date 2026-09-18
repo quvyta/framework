@@ -6,8 +6,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::event::{Event, MouseKind};
 use crate::geometry::{Rect, Size};
-use crate::widget::{EventCx, MeasureCx, Node, PaintCx, Widget, WidgetId};
-use crate::widgets::{Button, Modal, Text};
+use crate::i18n::Arg;
+use crate::widget::{EventCx, Length, MeasureCx, Node, PaintCx, Widget, WidgetId};
+use crate::widgets::{Button, Modal, Span, Text, TextInput};
+
+/// Stands in for the word while the prompt is translated, so the prompt can be split around it
+/// and the word drawn in its own tone wherever the language puts it. A private-use character
+/// never appears in a translation.
+const WORD_MARK: &str = "\u{E000}";
 
 /// A question for [`Command::confirm`](super::Command::confirm): a title, an optional message,
 /// and the messages for the answers.
@@ -22,6 +28,9 @@ use crate::widgets::{Button, Modal, Text};
 /// Continue · Discard" for recovered work. The buttons then read Cancel, the alternative and the
 /// confirm button from left to right, Tab and Shift+Tab visit them in that order, and Cancel
 /// still has focus when the dialog opens; Esc and the close mark still cancel.
+///
+/// [`require_word`](Confirm::require_word) asks the user to type a word before the confirm button
+/// works, for actions that cannot be undone.
 pub struct Confirm<Msg> {
     title: String,
     message: Option<String>,
@@ -32,6 +41,8 @@ pub struct Confirm<Msg> {
     on_confirm: Msg,
     on_cancel: Option<Msg>,
     alternative: Option<(String, Msg)>,
+    /// The word the user types to unlock the confirm button.
+    word: Option<String>,
     /// Set by the dialog when the alternative is chosen. The runtime reports an answer as
     /// confirmed or not; the alternative travels as a confirmation with this flag set, which
     /// [`into_answer`](Self::into_answer) reads.
@@ -52,6 +63,7 @@ impl<Msg> Confirm<Msg> {
             on_confirm,
             on_cancel: None,
             alternative: None,
+            word: None,
             alternative_chosen: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -110,6 +122,35 @@ impl<Msg> Confirm<Msg> {
         self
     }
 
+    /// Asks the user to type `word` before confirming, for an action that cannot be undone, such
+    /// as emptying the trash for good: the dialog gains a line "Type `word` to confirm"
+    /// (`quvyta.confirm.type-word`, with the word in the `title` tone among `secondary` text)
+    /// and a text field below the message.
+    ///
+    /// The field has focus when the dialog opens and each question starts with it empty. The
+    /// confirm button is disabled, drawn in the disabled tone and passed over by Tab, until the
+    /// typed text matches the word; then it takes its danger or primary tone and Enter in the
+    /// field confirms too. Before that Enter does nothing and the dialog stays. Esc and the close
+    /// mark still cancel, and Tab and Shift+Tab visit the field, Cancel, the
+    /// [`alternative`](Self::alternative) and the confirm button in that order.
+    ///
+    /// Only the confirm button waits for the word: an alternative is a different, safe way out
+    /// and works at once.
+    ///
+    /// Matching ignores spaces around the text and case, the Turkish way included: `İ`, `I`, `ı`
+    /// and `i` are all the same letter, so "sil", "SİL", "SIL" and " Sil " all match "SİL", and
+    /// "iptal" matches "İPTAL". Typing the word is meant as a deliberate act, not a secret, so a
+    /// keyboard's idea of the dotted and dotless i never stands in the way. A blank word asks for
+    /// nothing and leaves the dialog as it is without this option.
+    ///
+    /// Keep it for what cannot be undone; a question that always asks for typing teaches people
+    /// to type without reading.
+    #[must_use]
+    pub fn require_word(mut self, word: impl Into<String>) -> Self {
+        self.word = Some(word.into()).filter(|word| !word.trim().is_empty());
+        self
+    }
+
     /// The same question answered with `map(message)`.
     pub(crate) fn map<B>(self, map: impl Fn(Msg) -> B) -> Confirm<B> {
         Confirm {
@@ -122,6 +163,7 @@ impl<Msg> Confirm<Msg> {
             on_confirm: map(self.on_confirm),
             on_cancel: self.on_cancel.map(&map),
             alternative: self.alternative.map(|(label, message)| (label, map(message))),
+            word: self.word,
             alternative_chosen: self.alternative_chosen,
         }
     }
@@ -137,19 +179,43 @@ impl<Msg> Confirm<Msg> {
     }
 }
 
-/// The dialog's answers, the messages of its own buttons.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `text` for comparing typed words: without surrounding spaces, in lower case, with `İ`, `I`,
+/// `ı` and `i` all folded to `i`. A plain lower-casing would turn `İ` into `i` and a combining
+/// dot, and keep `ı` apart from `i`.
+fn fold(text: &str) -> String {
+    let mut folded = String::with_capacity(text.len());
+    for c in text.trim().chars() {
+        match c {
+            'İ' | 'I' | 'ı' | 'i' => folded.push('i'),
+            _ => folded.extend(c.to_lowercase()),
+        }
+    }
+    folded
+}
+
+/// The dialog's answers, the messages of its own buttons and of the word's field.
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Answer {
     Cancel,
     Alternative,
     Confirm,
+    /// The field's text after an edit.
+    Typed(String),
+    /// Enter in the field.
+    Submit,
 }
 
-/// Which answer button took the pointer down, so the release answers only over that button.
+/// Which part took the pointer down, so the release answers only over that button and a drag
+/// that began in the field keeps selecting there.
 #[derive(Debug, Default)]
 struct ConfirmMemory {
     pressed: Option<WidgetId>,
 }
+
+/// The text typed into the word's field. It lives in the layer's memory, which is keyed by the
+/// question's own id, so every question starts empty.
+#[derive(Debug, Default)]
+struct TypedWord(String);
 
 /// The dialog of the topmost pending [`Confirm`]. It is added after the application's view and
 /// draws a [`Modal`] of [`Answer`]s; the runtime turns the answer into the application's
@@ -162,6 +228,7 @@ pub(crate) struct ConfirmLayer<Msg> {
     danger: bool,
     dismissable: bool,
     alternative_label: Option<String>,
+    word: Option<String>,
     alternative_chosen: Arc<AtomicBool>,
     marker: PhantomData<fn() -> Msg>,
 }
@@ -176,17 +243,24 @@ impl<Msg> ConfirmLayer<Msg> {
             danger: confirm.danger,
             dismissable: confirm.dismissable,
             alternative_label: confirm.alternative.as_ref().map(|(label, _)| label.clone()),
+            word: confirm.word.clone(),
             alternative_chosen: Arc::clone(&confirm.alternative_chosen),
             marker: PhantomData,
         }
     }
 
-    /// The dialog, with ids assigned under this layer so focus and hits land on its buttons.
-    fn dialog(&self, env: &crate::env::Env, id: WidgetId) -> Modal<Answer> {
+    /// Whether the confirm button works: always without a word, and once `typed` matches it.
+    fn unlocked(&self, typed: &str) -> bool {
+        self.word.as_deref().is_none_or(|word| fold(word) == fold(typed))
+    }
+
+    /// The dialog, with ids assigned under this layer so focus and hits land on its buttons and
+    /// its field, which shows `typed`.
+    fn dialog(&self, env: &crate::env::Env, id: WidgetId, typed: &str) -> Modal<Answer> {
         let i18n = env.i18n();
         let cancel = self.cancel_label.clone().unwrap_or_else(|| i18n.translate("quvyta.confirm.cancel", &[]));
         let confirm = self.confirm_label.clone().unwrap_or_else(|| i18n.translate("quvyta.confirm.confirm", &[]));
-        let mut confirm_button = Button::new(confirm).on_press(Answer::Confirm);
+        let mut confirm_button = Button::new(confirm).on_press(Answer::Confirm).disabled(!self.unlocked(typed));
         confirm_button = confirm_button.variant(if self.danger { "danger" } else { "primary" });
         let mut dialog = Modal::new()
             .title(self.title.clone())
@@ -202,14 +276,103 @@ impl<Msg> ConfirmLayer<Msg> {
         if self.danger {
             dialog = dialog.variant("danger");
         }
+        let mut body = Vec::new();
         if let Some(message) = &self.message {
-            crate::widget::Container::set_children(&mut dialog, vec![Node::new(Text::new(message.clone()), 0)]);
+            body.push(Node::new(Text::new(message.clone()), body.len()));
+        }
+        if let Some(word) = &self.word {
+            let mut prompt = Node::new(prompt(env, word), body.len());
+            if self.message.is_some() {
+                prompt.layout.padding.top = 1;
+            }
+            body.push(prompt);
+            // The field comes first in the dialog, so it has focus when the question opens.
+            let field = TextInput::new(typed).on_change(Answer::Typed).on_submit(|_| Answer::Submit);
+            let mut field = Node::new(field, body.len());
+            field.layout.width = Length::Fill(1);
+            body.push(field);
+        }
+        if !body.is_empty() {
+            crate::widget::Container::set_children(&mut dialog, body);
         }
         for child in dialog.children_mut() {
             child.assign_ids(id);
         }
         dialog
     }
+
+    /// Hands `event` to `part` of the dialog painted at `rect`, as if it had received it itself:
+    /// it keeps its own memory, its requests (focus, captures, copies, the paste action) go out
+    /// as the layer's, and its answers come back.
+    fn forward(cx: &mut EventCx<'_, Msg>, part: &Node<Answer>, rect: Rect, event: &Event) -> (bool, Vec<Answer>) {
+        let mut answers = Vec::new();
+        let handled = {
+            let mut part_cx = EventCx {
+                id: part.id(),
+                rect,
+                focus_rect: cx.focus_rect,
+                env: cx.env,
+                memory: &mut *cx.memory,
+                interaction: cx.interaction,
+                messages: &mut answers,
+                effects: &mut *cx.effects,
+                now: cx.now,
+                persistent: cx.persistent,
+            };
+            part.widget.event(&mut part_cx, event)
+        };
+        (handled, answers)
+    }
+
+    /// Acts on the answers a part gave.
+    fn settle(&self, cx: &mut EventCx<'_, Msg>, answers: Vec<Answer>) {
+        for answer in answers {
+            match answer {
+                Answer::Typed(text) => cx.memory::<TypedWord>().0 = text,
+                Answer::Submit => {
+                    if self.unlocked(&cx.memory::<TypedWord>().0) {
+                        cx.answer(true);
+                    }
+                }
+                Answer::Alternative => {
+                    self.alternative_chosen.store(true, Ordering::Relaxed);
+                    cx.answer(true);
+                }
+                Answer::Confirm => {
+                    // The disabled button never answers; this only guards the gate twice.
+                    if self.unlocked(&cx.memory::<TypedWord>().0) {
+                        cx.answer(true);
+                    }
+                }
+                Answer::Cancel => cx.answer(false),
+            }
+        }
+    }
+}
+
+/// "Type `word` to confirm", with the word in the `title` tone among `secondary` text.
+fn prompt(env: &crate::env::Env, word: &str) -> Text {
+    let line = env.i18n().translate("quvyta.confirm.type-word", &[("word", Arg::from(WORD_MARK))]);
+    match line.split_once(WORD_MARK) {
+        Some((before, after)) => Text::rich([
+            Span::new(before).role("secondary"),
+            Span::new(word).role("title"),
+            Span::new(after).role("secondary"),
+        ]),
+        None => Text::new(line).role("secondary"),
+    }
+}
+
+/// The word's field of a dialog built by [`ConfirmLayer::dialog`] for a question with a word:
+/// the last node of the body.
+fn field(dialog: &Modal<Answer>) -> Option<&Node<Answer>> {
+    dialog.children().first()?.widget.children().last()
+}
+
+/// The dialog's parts that take input: the word's field, when `word`, and the answer buttons.
+fn parts(dialog: &Modal<Answer>, word: bool) -> Vec<&Node<Answer>> {
+    let field = if word { field(dialog) } else { None };
+    field.into_iter().chain(&dialog.children()[1..]).collect()
 }
 
 impl<Msg: 'static> Widget<Msg> for ConfirmLayer<Msg> {
@@ -222,17 +385,50 @@ impl<Msg: 'static> Widget<Msg> for ConfirmLayer<Msg> {
     }
 
     fn paint_overlay(&self, cx: &mut PaintCx<'_>, anchor: Rect) {
-        let dialog = self.dialog(cx.env(), cx.id());
+        let typed = cx.memory::<TypedWord>().0.clone();
+        let dialog = self.dialog(cx.env(), cx.id(), &typed);
         Widget::<Answer>::paint_overlay(&dialog, cx, anchor);
-        let rects = dialog.children()[1..]
-            .iter()
-            .filter_map(|button| cx.frame.rects.get(&button.id()).map(|rect| (button.id(), *rect)))
-            .collect();
-        cx.memory::<ButtonRects>().0 = rects;
+        let parts = parts(&dialog, self.word.is_some());
+        let rects =
+            parts.iter().filter_map(|part| cx.frame.rects.get(&part.id()).map(|rect| (part.id(), *rect))).collect();
+        cx.memory::<PartRects>().0 = rects;
+        // The field's edit menu is an overlay of its own. The runtime paints the overlays of the
+        // widgets in its tree, and this dialog is built by the layer, so the layer paints it.
+        if self.word.is_some()
+            && let Some(field) = field(&dialog)
+            && let Some(rect) = cx.frame.rects.get(&field.id()).copied()
+        {
+            let saved = (cx.id, cx.layout);
+            (cx.id, cx.layout) = (field.id(), field.layout());
+            field.widget.paint_overlay(cx, rect);
+            (cx.id, cx.layout) = saved;
+        }
     }
 
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
-        let dialog = self.dialog(cx.env, cx.id);
+        let typed = cx.memory::<TypedWord>().0.clone();
+        let dialog = self.dialog(cx.env, cx.id, &typed);
+        let field = if self.word.is_some() { field(&dialog) } else { None };
+        let rect_of = |cx: &mut EventCx<'_, Msg>, id: WidgetId| {
+            cx.memory::<PartRects>().0.iter().find(|(part, _)| *part == id).map(|(_, rect)| *rect).unwrap_or_default()
+        };
+        // An open edit menu of the field takes the keys, Esc included, and the presses first, as
+        // it does anywhere else; a press outside it closes it and goes on.
+        if let Some(field) = field
+            && cx.interaction.key_capture == Some(field.id())
+            && matches!(event, Event::Key(_) | Event::Mouse(_))
+        {
+            let rect = rect_of(cx, field.id());
+            let (used, answers) = Self::forward(cx, field, rect, event);
+            self.settle(cx, answers);
+            if used {
+                if let Event::Mouse(mouse) = event {
+                    cx.memory::<ConfirmMemory>().pressed =
+                        matches!(mouse.kind, MouseKind::Down(_)).then_some(field.id());
+                }
+                return true;
+            }
+        }
         // Esc and the close mark belong to the dialog surface: it reports them as its close
         // message, which here is the cancel answer, and only while the question is dismissable.
         let mut closed = Vec::new();
@@ -258,61 +454,40 @@ impl<Msg: 'static> Widget<Msg> for ConfirmLayer<Msg> {
         if used {
             return true;
         }
-        let buttons = &dialog.children()[1..];
+        let parts = parts(&dialog, self.word.is_some());
         let target = match event {
-            Event::Key(_) => buttons.iter().find(|button| cx.interaction.focused == Some(button.id())),
+            Event::Key(_) | Event::Paste(_) => parts.iter().find(|part| cx.interaction.focused == Some(part.id())),
             Event::Mouse(mouse) => {
-                let rects = cx.memory::<ButtonRects>().0.clone();
-                let over = |button: &&Node<Answer>| {
-                    rects.iter().any(|(id, rect)| *id == button.id() && rect.contains(mouse.x, mouse.y))
+                let rects = cx.memory::<PartRects>().0.clone();
+                let over = |part: &&&Node<Answer>| {
+                    rects.iter().any(|(id, rect)| *id == part.id() && rect.contains(mouse.x, mouse.y))
                 };
                 let pressed = cx.memory::<ConfirmMemory>().pressed;
                 match mouse.kind {
-                    MouseKind::Down(_) => buttons.iter().find(over),
-                    _ => buttons.iter().find(|button| pressed == Some(button.id())),
+                    MouseKind::Down(_) => parts.iter().find(over),
+                    _ => parts.iter().find(|part| pressed == Some(part.id())),
                 }
             }
-            _ => None,
+            Event::PointerOutside => None,
         };
-        let Some(button) = target else {
+        let Some(part) = target else {
             // Everything else on the dimmed screen is swallowed.
             return matches!(event, Event::Mouse(_));
         };
         if let Event::Mouse(mouse) = event {
-            cx.memory::<ConfirmMemory>().pressed = matches!(mouse.kind, MouseKind::Down(_)).then_some(button.id());
+            cx.memory::<ConfirmMemory>().pressed = matches!(mouse.kind, MouseKind::Down(_)).then_some(part.id());
         }
-        let mut answers = Vec::new();
-        let rect = cx.memory::<ButtonRects>().0.iter().find(|(id, _)| *id == button.id()).map(|(_, rect)| *rect);
-        let handled = {
-            let mut button_cx = EventCx {
-                id: button.id(),
-                rect: rect.unwrap_or_default(),
-                focus_rect: cx.focus_rect,
-                env: cx.env,
-                memory: &mut *cx.memory,
-                interaction: cx.interaction,
-                messages: &mut answers,
-                effects: &mut *cx.effects,
-                now: cx.now,
-                persistent: cx.persistent,
-            };
-            button.widget.event(&mut button_cx, event)
-        };
-        match answers.first() {
-            Some(Answer::Alternative) => {
-                self.alternative_chosen.store(true, Ordering::Relaxed);
-                cx.answer(true);
-            }
-            Some(answer) => cx.answer(*answer == Answer::Confirm),
-            None => {}
-        }
+        let rect = rect_of(cx, part.id());
+        let (handled, answers) = Self::forward(cx, part, rect, event);
+        self.settle(cx, answers);
         handled || matches!(event, Event::Mouse(_))
     }
 }
 
-/// Where the answer buttons were painted, for routing pointer events to them.
+/// Where the word's field and the answer buttons were painted, for routing pointer events to
+/// them.
 #[derive(Debug, Default)]
-struct ButtonRects(Vec<(WidgetId, Rect)>);
+struct PartRects(Vec<(WidgetId, Rect)>);
 
 #[cfg(test)]
 mod tests {
@@ -340,6 +515,8 @@ mod tests {
         Saved,
         Resumed,
         Discarded,
+        AskTyped(&'static str),
+        AskTypedWithAlternative,
     }
 
     impl App for Demo {
@@ -374,6 +551,26 @@ mod tests {
                             .cancel_label("Discard")
                             .on_cancel(Msg::Discarded)
                             .alternative("Continue", Msg::Resumed),
+                    );
+                }
+                Msg::AskTyped(word) => {
+                    return Command::confirm(
+                        Confirm::new("Empty the trash?", Msg::Remove)
+                            .message("12 items go for good.")
+                            .confirm_label("Empty")
+                            .danger()
+                            .on_cancel(Msg::Kept)
+                            .require_word(word),
+                    );
+                }
+                Msg::AskTypedWithAlternative => {
+                    return Command::confirm(
+                        Confirm::new("Empty the trash?", Msg::Remove)
+                            .confirm_label("Empty")
+                            .danger()
+                            .on_cancel(Msg::Kept)
+                            .alternative("Archive", Msg::Resumed)
+                            .require_word("SİL"),
                     );
                 }
                 Msg::Saved => self.log.push("saved"),
@@ -570,5 +767,199 @@ mod tests {
             h.press("tab").press("tab").press("enter");
             assert_eq!(h.app().log, ["saved"], "{width}×{height}");
         }
+    }
+
+    fn typing(word: &'static str) -> Harness<Demo> {
+        let mut h = Harness::new(Demo::default(), 60, 16);
+        h.send(Msg::AskTyped(word)).advance(Duration::from_millis(200));
+        h
+    }
+
+    /// The backgrounds of a resting danger button, disabled and enabled, drawn by themselves.
+    fn danger_tones() -> (Option<crate::color::Rgb>, Option<crate::color::Rgb>) {
+        struct Tones;
+        impl App for Tones {
+            type Msg = ();
+            fn update(&mut self, (): ()) -> Command<()> {
+                Command::none()
+            }
+            fn view(&self, ui: &mut View<'_, ()>) {
+                ui.column(|ui| {
+                    ui.add(Button::new("Off").variant("danger").on_press(()).disabled(true));
+                    ui.add(Button::new("On").variant("danger").on_press(()));
+                });
+            }
+        }
+        let h = Harness::new(Tones, 20, 2);
+        (h.bg(3, 0), h.bg(3, 1))
+    }
+
+    #[test]
+    fn a_word_to_type_shows_a_prompt_and_a_field_that_has_focus() {
+        let mut h = typing("SİL");
+        let screen = h.screen();
+        assert!(screen.contains("Type SİL to confirm"), "{screen}");
+        let (x, y) = cell(&h, "SİL to");
+        assert!(h.is_bold(x, y) && !h.is_bold(x - 2, y), "the word stands out by weight: {screen}");
+        assert_ne!(h.fg(x, y), h.fg(x - 2, y), "and by tone");
+        assert!(!screen.contains(['[', ']', '|', '(', ')', '"', '\'']), "{screen}");
+        h.type_text("si");
+        assert!(h.screen().contains("❯ si"), "typing goes straight into the field: {}", h.screen());
+    }
+
+    #[test]
+    fn enter_confirms_only_once_the_word_matches() {
+        let mut h = typing("SİL");
+        h.type_text("sal").press("enter");
+        assert!(h.app().log.is_empty() && h.screen().contains("Empty the trash?"), "{}", h.screen());
+        h.press("backspace").press("backspace").type_text("il").press("enter");
+        assert_eq!(h.app().log, ["removed"]);
+        assert!(!h.screen().contains("Empty the trash?"));
+    }
+
+    #[test]
+    fn matching_ignores_case_surrounding_spaces_and_the_turkish_i() {
+        for (word, typed) in [
+            ("SİL", "sil"),
+            ("SİL", "SİL"),
+            ("SİL", "SIL"),
+            ("SİL", " Sil "),
+            ("SİL", "sıl"),
+            ("İPTAL", "iptal"),
+            ("iptal", "IPTAL"),
+            ("web-1", "WEB-1"),
+        ] {
+            // Typed as one piece: the test keyboard has no capital İ.
+            let mut h = typing(word);
+            h.paste(typed).press("enter");
+            assert_eq!(h.app().log, ["removed"], "`{typed}` for `{word}`");
+        }
+        for (word, typed) in [("SİL", "sl"), ("SİL", "si l"), ("İPTAL", "ptal")] {
+            let mut h = typing(word);
+            h.type_text(typed).press("enter");
+            assert!(h.app().log.is_empty(), "`{typed}` is not `{word}`");
+        }
+        assert_eq!(super::fold(" İIıi Ş "), "iiii ş");
+    }
+
+    #[test]
+    fn escape_cancels_with_a_word_half_typed() {
+        let mut h = typing("SİL");
+        h.type_text("si").press("esc");
+        assert_eq!(h.app().log, ["kept"]);
+        assert!(!h.screen().contains("Empty the trash?"));
+    }
+
+    #[test]
+    fn the_confirm_button_waits_in_the_disabled_tone_until_the_word_matches() {
+        let (disabled, enabled) = danger_tones();
+        assert_ne!(disabled, enabled);
+        let mut h = typing("SİL");
+        let (x, y) = cell(&h, "Empty  ");
+        assert_eq!(h.bg(x, y), disabled, "{}", h.screen());
+        h.click(i32::from(x), i32::from(y));
+        assert!(h.app().log.is_empty() && h.screen().contains("Empty the trash?"), "a disabled button does nothing");
+        h.type_text("sil").hover(0, 0);
+        assert_eq!(h.bg(x, y), enabled, "{}", h.screen());
+        h.click(i32::from(x), i32::from(y));
+        assert_eq!(h.app().log, ["removed"]);
+    }
+
+    #[test]
+    fn tab_passes_over_the_locked_button_and_reaches_it_once_open() {
+        let mut h = typing("SİL");
+        h.press("tab").press("tab").type_text("sil");
+        assert!(h.screen().contains("❯ sil"), "tab went Cancel, then back to the field: {}", h.screen());
+        h.press("tab").press("tab").press("enter");
+        assert_eq!(h.app().log, ["removed"], "Cancel, then the confirm button");
+        let mut h = typing("SİL");
+        h.press("tab").press("enter");
+        assert_eq!(h.app().log, ["kept"], "the field, then Cancel");
+    }
+
+    #[test]
+    fn a_paste_fills_the_field() {
+        let mut h = typing("SİL");
+        h.paste("SİL").press("enter");
+        assert_eq!(h.app().log, ["removed"]);
+    }
+
+    #[test]
+    fn the_field_keeps_its_edit_menu() {
+        let mut h = typing("SİL");
+        h.set_system_clipboard(Some("SİL"));
+        let (x, y) = cell(&h, "❯");
+        h.mouse(MouseKind::Down(MouseButton::Right), i32::from(x) + 3, i32::from(y));
+        h.mouse(MouseKind::Up(MouseButton::Right), i32::from(x) + 3, i32::from(y));
+        h.advance(Duration::from_millis(200));
+        assert!(h.screen().contains("Select all"), "a right click opens the menu: {}", h.screen());
+        h.press("esc");
+        assert!(!h.screen().contains("Select all"), "esc closes the menu first: {}", h.screen());
+        assert!(h.app().log.is_empty() && h.screen().contains("Empty the trash?"), "and not the dialog");
+        h.mouse(MouseKind::Down(MouseButton::Right), i32::from(x) + 3, i32::from(y));
+        h.mouse(MouseKind::Up(MouseButton::Right), i32::from(x) + 3, i32::from(y));
+        h.advance(Duration::from_millis(200)).click_text("Paste");
+        assert!(h.screen().contains("❯ SİL"), "the menu pastes into the field: {}", h.screen());
+        h.press("enter");
+        assert_eq!(h.app().log, ["removed"]);
+    }
+
+    #[test]
+    fn every_question_starts_with_an_empty_field() {
+        let mut h = typing("SİL");
+        h.type_text("sil").press("enter");
+        h.send(Msg::AskTyped("SİL")).advance(Duration::from_millis(200));
+        assert!(!h.screen().contains("❯ sil"), "{}", h.screen());
+        h.press("enter");
+        assert_eq!(h.app().log, ["removed"], "an empty field does not confirm");
+        h.type_text("si").press("esc");
+        h.send(Msg::AskTyped("SİL")).advance(Duration::from_millis(200));
+        h.type_text("l").press("enter");
+        assert_eq!(h.app().log, ["removed", "kept"], "nothing is left over from the cancelled question");
+    }
+
+    #[test]
+    fn the_alternative_does_not_wait_for_the_word() {
+        let mut h = Harness::new(Demo::default(), 60, 16);
+        h.send(Msg::AskTypedWithAlternative).advance(Duration::from_millis(200));
+        let screen = h.screen();
+        let row = screen.lines().find(|line| line.contains("Archive")).unwrap_or_else(|| panic!("{screen}"));
+        assert!(row.find("Archive") < row.find("Empty"), "{row}");
+        h.press("tab").press("tab").press("enter");
+        assert_eq!(h.app().log, ["resumed"], "field, Cancel, then the alternative");
+        let mut h = Harness::new(Demo::default(), 60, 16);
+        h.send(Msg::AskTypedWithAlternative).advance(Duration::from_millis(200));
+        h.click_text("Archive");
+        assert_eq!(h.app().log, ["resumed"]);
+        let mut h = Harness::new(Demo::default(), 60, 16);
+        h.send(Msg::AskTypedWithAlternative).advance(Duration::from_millis(200));
+        h.type_text("sil").press("shift+tab").press("enter");
+        assert_eq!(h.app().log, ["removed"], "shift tab from the field reaches the open confirm button");
+    }
+
+    #[test]
+    fn a_word_to_type_survives_tiny_terminals_and_ascii() {
+        let mut h = typing("SİL");
+        h.set_glyph_mode(crate::icons::GlyphMode::Ascii);
+        let screen = h.screen();
+        assert!(!screen.contains(['[', ']', '|', '(', ')', '{', '}']), "{screen}");
+        assert!(screen.contains("Type SİL to confirm"), "{screen}");
+        for (width, height) in [(0, 0), (1, 1), (12, 4), (30, 8)] {
+            let mut h = Harness::new(Demo::default(), width, height);
+            h.send(Msg::AskTyped("SİL")).advance(Duration::from_millis(200));
+            h.type_text("sil").press("enter");
+            assert_eq!(h.app().log, ["removed"], "{width}×{height}");
+            let mut h = Harness::new(Demo::default(), width, height);
+            h.set_reduced_motion(true).send(Msg::AskTyped("SİL"));
+            h.set_glyph_mode(crate::icons::GlyphMode::Ascii).press("esc");
+            assert_eq!(h.app().log, ["kept"], "{width}×{height}");
+        }
+    }
+
+    #[test]
+    fn the_prompt_follows_the_language() {
+        let mut h = typing("SİL");
+        h.set_locale("tr");
+        assert!(h.screen().contains("Onaylamak için SİL yaz"), "{}", h.screen());
     }
 }

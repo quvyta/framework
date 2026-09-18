@@ -148,8 +148,9 @@ all         = "Tüm komutlar"
 empty       = "Eşleşen komut yok"
 
 [quvyta.confirm]
-confirm = "Onayla"
-cancel  = "Vazgeç"
+confirm   = "Onayla"
+cancel    = "Vazgeç"
+type-word = "Onaylamak için {word} yaz"
 
 [quvyta.tab-rail]
 add = "Yeni sekme"

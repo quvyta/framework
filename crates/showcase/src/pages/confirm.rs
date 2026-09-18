@@ -21,6 +21,7 @@ pub struct State {
     cancel_message: bool,
     dismissable: bool,
     alternative: bool,
+    require_word: bool,
 }
 
 impl Default for State {
@@ -33,6 +34,7 @@ impl Default for State {
             cancel_message: true,
             dismissable: true,
             alternative: false,
+            require_word: false,
         }
     }
 }
@@ -51,6 +53,7 @@ pub enum Msg {
     CancelMessage(bool),
     Dismissable(bool),
     Alternative(bool),
+    RequireWord(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -88,6 +91,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::CancelMessage(on) => set(log, &mut state.cancel_message, "on_cancel", on),
         Msg::Dismissable(on) => set(log, &mut state.dismissable, "dismissable", on),
         Msg::Alternative(on) => set(log, &mut state.alternative, "alternative", on),
+        Msg::RequireWord(on) => set(log, &mut state.require_word, "require_word", on),
     }
     Command::none()
 }
@@ -118,6 +122,11 @@ fn ask(state: &State, index: usize) -> Command<AppMsg> {
     // A third way between Cancel and the confirm button; Tab visits it second.
     if state.alternative {
         question = question.alternative(t!("confirm.restart"), send(Msg::Restarted(index)));
+    }
+    // The confirm button waits until the container's name is typed; case and the Turkish
+    // dotted and dotless i do not matter.
+    if state.require_word {
+        question = question.require_word(name);
     }
     Command::confirm(question)
     // endregion
@@ -173,6 +182,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         });
         setting(ui, t!("confirm.alternative"), |ui| {
             ui.add(toggle(state.alternative, |on| send(Msg::Alternative(on)))).id("alternative");
+        });
+        setting(ui, t!("confirm.require-word"), |ui| {
+            ui.add(toggle(state.require_word, |on| send(Msg::RequireWord(on)))).id("require-word");
         });
     })
     .fill_width();
@@ -231,5 +243,22 @@ mod tests {
         h.click_text("Stop").advance(Duration::from_millis(200));
         h.press("tab").press("tab").press("enter");
         assert!(!h.app().pages.confirm.running[0], "the confirm button is third in the tab order");
+    }
+
+    #[test]
+    fn typing_the_name_unlocks_stopping() {
+        let mut h = showcase_on(PAGE);
+        h.send(send(Msg::RequireWord(true)));
+        h.click_text("Stop").advance(Duration::from_millis(200));
+        assert!(h.screen().contains("Type web to confirm"), "{}", h.screen());
+        h.type_text("wbe").press("enter");
+        assert!(h.app().pages.confirm.running[0], "a wrong name does nothing");
+        assert!(h.screen().contains("Stop web?"), "{}", h.screen());
+        h.press("backspace").press("backspace").type_text("eb").press("enter");
+        assert!(!h.app().pages.confirm.running[0], "{}", h.screen());
+        assert!(h.screen().contains("stopped web"));
+        h.click_text("Stop").advance(Duration::from_millis(200));
+        h.type_text("WORK").press("esc");
+        assert!(h.app().pages.confirm.running[1], "esc cancels with the name half typed");
     }
 }

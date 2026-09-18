@@ -801,6 +801,7 @@ labels = "Kendi buton etiketleri"
 cancel-message = "Vazgeçince mesaj"
 dismissable = "Kapatılabilir"
 alternative = "Üçüncü yol: yeniden başlat"
+require-word = "Adını yazarak durdur"
 restart = "Yeniden başlat"
 
 [hold-to-confirm]
