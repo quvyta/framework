@@ -17,6 +17,8 @@
 
 mod locale;
 mod plural;
+mod tag;
+mod week;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -28,8 +30,10 @@ use std::sync::Arc;
 pub use plural::PluralCategory;
 
 use crate::assets;
+use crate::date::Weekday;
 use crate::diagnostics::Diagnostic;
 use locale::{Locale, Message, Piece, Template};
+use tag::Tag;
 
 /// The final fallback locale.
 const ROOT_LOCALE: &str = "en";
@@ -90,6 +94,7 @@ impl From<usize> for Arg {
 pub struct I18n {
     locales: BTreeMap<String, Locale>,
     active: String,
+    region: Option<String>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -97,7 +102,8 @@ impl I18n {
     /// The built-in locales with English active.
     #[must_use]
     pub fn builtin() -> Self {
-        let mut i18n = Self { locales: BTreeMap::new(), active: ROOT_LOCALE.to_owned(), diagnostics: Vec::new() };
+        let mut i18n =
+            Self { locales: BTreeMap::new(), active: ROOT_LOCALE.to_owned(), region: None, diagnostics: Vec::new() };
         for (code, text) in assets::LOCALES {
             i18n.add_source(&format!("{code}.toml"), text);
         }
@@ -169,6 +175,75 @@ impl I18n {
         }
     }
 
+    /// Activates the locale that serves the language tag `tag`, such as a language setting of
+    /// `en-GB` or `pt_BR.UTF-8`, matched the way [`detect`](Self::detect) matches the system's
+    /// language: `en-GB` activates `en` when there is no `en-GB` locale.
+    ///
+    /// A tag that names a region also sets the [region](Self::region), so `en-GB` starts weeks on
+    /// Monday although English alone starts them on Sunday. A tag without one keeps the region, so
+    /// choosing `tr` from a list of languages does not forget the country the system is set to.
+    /// Returns `false` and changes nothing when no locale serves the tag.
+    pub fn select(&mut self, tag: &str) -> bool {
+        let Some(parsed) = Tag::parse(tag) else {
+            return self.set_active(tag);
+        };
+        let Some(code) = self.matching(&parsed) else {
+            return false;
+        };
+        self.active = code;
+        if let Some(region) = parsed.region().and_then(week::region_code) {
+            self.region = Some(region);
+        }
+        true
+    }
+
+    /// The region whose conventions apply, such as `GB`, uppercase: the one set with
+    /// [`set_region`](Self::set_region) or [`select`](Self::select), or found by
+    /// [`detect_region`](Self::detect_region) when the environment was loaded. `None` leaves the
+    /// conventions to the language.
+    #[must_use]
+    pub fn region(&self) -> Option<&str> {
+        self.region.as_deref()
+    }
+
+    /// Sets the region, two letters such as `GB` or three digits such as `419`, in either case;
+    /// `None` leaves the conventions to the language again. Returns `false` and changes nothing
+    /// when `region` is not a region code.
+    pub fn set_region(&mut self, region: Option<&str>) -> bool {
+        match region {
+            None => {
+                self.region = None;
+                true
+            }
+            Some(text) => match week::region_code(text) {
+                Some(code) => {
+                    self.region = Some(code);
+                    true
+                }
+                None => false,
+            },
+        }
+    }
+
+    /// The day a calendar week starts on.
+    ///
+    /// With a [region](Self::region) it is the region's, from the Unicode CLDR: Sunday in the
+    /// United States, Canada, Brazil, Portugal and Japan, Saturday in much of the Middle East,
+    /// Monday in the United Kingdom and most of the world. Without one it is the active
+    /// language's own `quvyta.date.first-weekday` key (`1` Monday to `7` Sunday), and Monday, the
+    /// ISO 8601 week, for a language that does not give it.
+    #[must_use]
+    pub fn first_weekday(&self) -> Weekday {
+        if let Some(region) = &self.region {
+            return week::first_day(region);
+        }
+        let own = self.locales.get(&self.active).and_then(|locale| match locale.messages.get(FIRST_WEEKDAY) {
+            Some(Message::Plain(template)) => render(template, &[]).trim().parse::<u8>().ok(),
+            _ => None,
+        });
+        own.and_then(Weekday::from_number).unwrap_or(Weekday::Monday)
+    }
+
     /// Translates `key` with `args`.
     #[must_use]
     pub fn translate(&self, key: &str, args: &[(&str, Arg)]) -> String {
@@ -234,14 +309,45 @@ impl I18n {
     }
 
     /// The locale code to use for a system: the first of `LC_ALL`, `LC_MESSAGES`, `LANG`,
-    /// then the operating system setting, reduced to a known locale code.
+    /// then the operating system setting, matched to a known locale code.
+    ///
+    /// Separators and case do not matter (`pt_BR.UTF-8` finds `pt-BR`), and the encoding and
+    /// modifier are ignored. The first of these that names a known locale wins:
+    ///
+    /// 1. the whole tag: `pt_BR` → `pt-BR`, `zh_Hant` → `zh-Hant`;
+    /// 2. the language with its writing system, which for Chinese follows the region: `zh_CN`
+    ///    and `zh_SG` → `zh-Hans`; `zh_TW`, `zh_HK` and `zh_MO` → `zh-Hant`;
+    /// 3. the language alone: `de_AT` → `de`;
+    /// 4. the one locale of that language, when there is exactly one: `pt_PT` → `pt-BR` when
+    ///    `pt-BR` is the only Portuguese, `zh` → `zh-Hans` when it is the only Chinese.
+    ///
+    /// `C` and `POSIX` name no language and give `None`, as does a language with no locale.
     #[must_use]
     pub fn detect(&self, env: impl Fn(&str) -> Option<String>) -> Option<String> {
-        let from_env =
-            ["LC_ALL", "LC_MESSAGES", "LANG"].iter().filter_map(|name| env(name)).find(|value| !value.is_empty());
-        let candidate = from_env.or_else(sys_locale::get_locale)?;
-        let language = language_of(&candidate)?;
-        self.locales.contains_key(&language).then_some(language)
+        self.matching(&system_tag(&["LC_ALL", "LC_MESSAGES", "LANG"], env)?)
+    }
+
+    /// The region the system is set to, uppercase: `GB` for `LANG=en_GB.UTF-8`. Reads the first of
+    /// `LC_ALL`, `LC_TIME`, `LANG`, then the operating system setting, since the calendar
+    /// conventions belong to `LC_TIME` where the language belongs to `LC_MESSAGES`. `None` when
+    /// that name gives no region, as `en` and `C.UTF-8` do.
+    #[must_use]
+    pub fn detect_region(&self, env: impl Fn(&str) -> Option<String>) -> Option<String> {
+        system_tag(&["LC_ALL", "LC_TIME", "LANG"], env)?.region().and_then(week::region_code)
+    }
+
+    /// The known locale code that serves `tag`; see [`I18n::detect`] for the order.
+    fn matching(&self, tag: &Tag) -> Option<String> {
+        let known = |wanted: &str| self.locales.keys().find(|code| code.eq_ignore_ascii_case(wanted)).cloned();
+        let only_one_of_the_language = || {
+            let mut same = self.locales.keys().filter(|code| tag::language_of(code) == tag.language);
+            let first = same.next()?;
+            same.next().is_none().then(|| first.clone())
+        };
+        known(&tag.full())
+            .or_else(|| tag.script().and_then(|script| known(&format!("{}-{script}", tag.language))))
+            .or_else(|| known(&tag.language))
+            .or_else(only_one_of_the_language)
     }
 
     fn find(&self, key: &str) -> Option<(&str, &Message)> {
@@ -267,11 +373,13 @@ impl I18n {
     }
 }
 
-/// Reduces `tr_TR.UTF-8`, `tr-TR` or `tr` to `tr`. `C` and `POSIX` have no language.
-fn language_of(locale: &str) -> Option<String> {
-    let language: String = locale.split(['_', '-', '.', '@']).next().unwrap_or_default().to_ascii_lowercase();
-    let is_language = (2..=3).contains(&language.len()) && language.chars().all(|c| c.is_ascii_lowercase());
-    (is_language && language != "c").then_some(language)
+/// The locale key giving a language's first day of the week, for a language without a region.
+const FIRST_WEEKDAY: &str = "quvyta.date.first-weekday";
+
+/// The locale name in the first of `variables` that is set, or else the operating system's.
+fn system_tag(variables: &[&str], env: impl Fn(&str) -> Option<String>) -> Option<Tag> {
+    let from_env = variables.iter().filter_map(|name| env(name)).find(|value| !value.is_empty());
+    Tag::parse(&from_env.or_else(sys_locale::get_locale)?)
 }
 
 fn render(template: &Template, args: &[(&str, Arg)]) -> String {
@@ -319,6 +427,18 @@ pub fn translate_active(key: &str, args: &[(&str, Arg)]) -> String {
     ACTIVE.with(|active| match active.borrow().as_ref() {
         Some(i18n) => i18n.translate(key, args),
         None => format!("⟦{key}⟧"),
+    })
+}
+
+/// Translates `key` without arguments with the translator installed by [`scope`], or `None` when
+/// neither the active locale, its fallbacks nor English define it: for keys only some
+/// languages need.
+pub(crate) fn translate_active_if_known(key: &str) -> Option<String> {
+    ACTIVE.with(|active| {
+        let active = active.borrow();
+        let i18n = active.as_ref()?;
+        i18n.find(key)?;
+        Some(i18n.translate(key, &[]))
     })
 }
 
@@ -396,10 +516,9 @@ mod tests {
         ));
         assert_eq!(i18n.translate("files.hello", &[("name", Arg::from("Ada"))]), "Hi Ada");
         assert_eq!(i18n.translate("files.only-en", &[]), "English only");
-        assert_eq!(
-            i18n.list(),
-            vec![("en".to_owned(), "English (app)".to_owned()), ("tr".to_owned(), "Türkçe".to_owned()),]
-        );
+        let names: Vec<(String, String)> =
+            i18n.list().into_iter().filter(|(code, _)| code == "en" || code == "tr").collect();
+        assert_eq!(names, vec![("en".to_owned(), "English (app)".to_owned()), ("tr".to_owned(), "Türkçe".to_owned())]);
     }
 
     #[test]
@@ -441,9 +560,228 @@ mod tests {
         let i18n = catalog();
         assert_eq!(i18n.detect(env(&[("LANG", "tr_TR.UTF-8")])), Some("tr".to_owned()));
         assert_eq!(i18n.detect(env(&[("LC_ALL", "en_US.UTF-8"), ("LANG", "tr_TR.UTF-8")])), Some("en".to_owned()));
-        assert_eq!(i18n.detect(env(&[("LANG", "de_DE.UTF-8")])), None);
-        assert_eq!(language_of("C"), None);
-        assert_eq!(language_of("pt-BR"), Some("pt".to_owned()));
+        assert_eq!(i18n.detect(env(&[("LANG", "fi_FI.UTF-8")])), None);
+        assert_eq!(i18n.detect(env(&[("LANG", "C")])), None);
+        assert_eq!(i18n.detect(env(&[("LANG", "POSIX")])), None);
+        assert_eq!(i18n.detect(env(&[("LANG", "C.UTF-8")])), None);
+    }
+
+    /// A catalog with regional and script locales, as an application adding new languages has.
+    fn regional(codes: &[&str]) -> I18n {
+        let mut i18n = catalog();
+        for code in codes {
+            let source = format!("[meta]\nname = \"{code}\"\ncode = \"{code}\"\n[files]\nhello = \"{code}\"\n");
+            assert!(i18n.add_source(&format!("{code}.toml"), &source));
+        }
+        i18n
+    }
+
+    fn detected(i18n: &I18n, lang: &str) -> Option<String> {
+        i18n.detect(env(&[("LANG", lang)]))
+    }
+
+    #[test]
+    fn a_region_or_script_code_matches_whole_whatever_its_separator_and_case() {
+        let i18n = regional(&["pt-BR", "pt-PT", "zh-Hans", "zh-Hant", "de"]);
+        assert_eq!(detected(&i18n, "pt_BR.UTF-8").as_deref(), Some("pt-BR"));
+        assert_eq!(detected(&i18n, "pt_PT.UTF-8").as_deref(), Some("pt-PT"));
+        assert_eq!(detected(&i18n, "PT-br").as_deref(), Some("pt-BR"));
+        assert_eq!(detected(&i18n, "zh-hant").as_deref(), Some("zh-Hant"));
+        assert_eq!(detected(&i18n, "tr_TR.UTF-8").as_deref(), Some("tr"));
+    }
+
+    #[test]
+    fn a_regional_locale_chooses_plural_forms_by_its_language() {
+        let mut i18n = catalog();
+        assert!(i18n.add_source(
+            "pt-BR.toml",
+            "[meta]\nname = \"Português\"\ncode = \"pt-BR\"\n[files]\ncount = { one = \"{n} etapa\", other = \"{n} etapas\" }\n",
+        ));
+        assert!(i18n.set_active("pt-BR"));
+        assert_eq!(i18n.translate("files.count", &[("n", Arg::from(0))]), "0 etapa");
+        assert_eq!(i18n.translate("files.count", &[("n", Arg::from(2))]), "2 etapas");
+    }
+
+    #[test]
+    fn a_chinese_region_picks_its_script() {
+        let i18n = regional(&["zh-Hans", "zh-Hant"]);
+        for lang in ["zh_CN.UTF-8", "zh_SG.UTF-8", "zh-Hans", "zh_Hans_CN"] {
+            assert_eq!(detected(&i18n, lang).as_deref(), Some("zh-Hans"), "{lang}");
+        }
+        for lang in ["zh_TW.UTF-8", "zh_HK.UTF-8", "zh_MO.UTF-8", "zh-Hant"] {
+            assert_eq!(detected(&i18n, lang).as_deref(), Some("zh-Hant"), "{lang}");
+        }
+        assert_eq!(detected(&i18n, "zh"), None, "bare Chinese names no script, and both are known");
+    }
+
+    #[test]
+    fn a_region_without_a_locale_of_its_own_uses_the_language() {
+        let i18n = regional(&["de", "pt-BR", "pt-PT"]);
+        assert_eq!(detected(&i18n, "de_AT.UTF-8").as_deref(), Some("de"));
+        assert_eq!(detected(&i18n, "de_CH.UTF-8@euro").as_deref(), Some("de"));
+        assert_eq!(detected(&i18n, "pt_AO.UTF-8"), None, "two Portuguese locales and no plain one");
+    }
+
+    #[test]
+    fn the_only_locale_of_a_language_serves_every_region_of_it() {
+        let i18n = regional(&["pt-BR", "zh-Hans"]);
+        assert_eq!(detected(&i18n, "pt_PT.UTF-8").as_deref(), Some("pt-BR"));
+        assert_eq!(detected(&i18n, "pt").as_deref(), Some("pt-BR"));
+        assert_eq!(detected(&i18n, "zh").as_deref(), Some("zh-Hans"));
+        assert_eq!(detected(&i18n, "zh_TW.UTF-8").as_deref(), Some("zh-Hans"));
+        assert_eq!(detected(&i18n, "C"), None);
+    }
+
+    /// The languages the framework's own text comes in.
+    const BUILT_IN: [&str; 9] = ["de", "en", "es", "fr", "ja", "pt-BR", "ru", "tr", "zh-Hans"];
+
+    #[test]
+    fn the_framework_speaks_nine_languages() {
+        let codes: Vec<String> = I18n::builtin().list().into_iter().map(|(code, _)| code).collect();
+        assert_eq!(codes, BUILT_IN);
+    }
+
+    #[test]
+    fn every_built_in_plural_gives_each_form_its_language_uses() {
+        let i18n = I18n::builtin();
+        for (code, locale) in &i18n.locales {
+            for (key, message) in &locale.messages {
+                let Message::Plural(forms) = message else { continue };
+                for n in 0..=200 {
+                    let category = PluralCategory::of(code, n);
+                    assert!(forms.contains_key(&category), "{code} {key} has no `{}` form for {n}", category.name());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_system_language_finds_the_built_in_regional_locales() {
+        let i18n = I18n::builtin();
+        for (lang, code) in [
+            ("pt_BR.UTF-8", "pt-BR"),
+            ("pt_PT.UTF-8", "pt-BR"),
+            ("zh_CN.UTF-8", "zh-Hans"),
+            ("zh_TW.UTF-8", "zh-Hans"),
+            ("ja_JP.UTF-8", "ja"),
+            ("de_AT.UTF-8", "de"),
+            ("es_MX.UTF-8", "es"),
+            ("fr_CA.UTF-8", "fr"),
+            ("ru_RU.UTF-8", "ru"),
+            ("tr_TR.UTF-8", "tr"),
+        ] {
+            assert_eq!(i18n.detect(env(&[("LANG", lang)])).as_deref(), Some(code), "{lang}");
+        }
+    }
+
+    #[test]
+    fn a_week_starts_where_the_language_starts_it() {
+        let mut i18n = I18n::builtin();
+        for (code, first) in [
+            ("en", "7"),
+            ("tr", "1"),
+            ("de", "1"),
+            ("es", "1"),
+            ("fr", "1"),
+            ("pt-BR", "7"),
+            ("ru", "1"),
+            ("zh-Hans", "1"),
+            ("ja", "7"),
+        ] {
+            assert!(i18n.set_active(code));
+            assert_eq!(i18n.translate("quvyta.date.first-weekday", &[]), first, "{code}");
+        }
+    }
+
+    #[test]
+    fn without_a_region_the_language_gives_the_first_weekday() {
+        let mut i18n = I18n::builtin();
+        for (code, first) in [
+            ("en", Weekday::Sunday),
+            ("tr", Weekday::Monday),
+            ("de", Weekday::Monday),
+            ("pt-BR", Weekday::Sunday),
+            ("ja", Weekday::Sunday),
+            ("zh-Hans", Weekday::Monday),
+        ] {
+            assert!(i18n.set_active(code));
+            assert_eq!(i18n.first_weekday(), first, "{code}");
+        }
+    }
+
+    #[test]
+    fn a_detected_region_gives_the_first_weekday_over_the_language() {
+        let mut i18n = I18n::builtin();
+        for (lang, first) in [
+            ("en_GB.UTF-8", Weekday::Monday),
+            ("en_US.UTF-8", Weekday::Sunday),
+            ("pt_BR.UTF-8", Weekday::Sunday),
+            ("pt_PT.UTF-8", Weekday::Sunday),
+            ("ar_EG.UTF-8", Weekday::Saturday),
+            ("en_AU.UTF-8", Weekday::Monday),
+        ] {
+            let pairs = [("LANG", lang)];
+            let lookup = env(&pairs);
+            let code = i18n.detect(&lookup).unwrap_or_else(|| ROOT_LOCALE.to_owned());
+            assert!(i18n.set_active(&code));
+            let region = i18n.detect_region(&lookup);
+            assert!(i18n.set_region(region.as_deref()));
+            assert_eq!(i18n.first_weekday(), first, "{lang}");
+        }
+    }
+
+    #[test]
+    fn the_region_follows_the_calendar_variables() {
+        let i18n = I18n::builtin();
+        let region = |pairs: &[(&str, &str)]| i18n.detect_region(env(pairs));
+        assert_eq!(region(&[("LANG", "en_GB.UTF-8")]).as_deref(), Some("GB"));
+        assert_eq!(region(&[("LC_TIME", "en_GB.UTF-8"), ("LANG", "en_US.UTF-8")]).as_deref(), Some("GB"));
+        assert_eq!(region(&[("LC_MESSAGES", "en_GB.UTF-8"), ("LANG", "en_US.UTF-8")]).as_deref(), Some("US"));
+        assert_eq!(region(&[("LC_ALL", "de_AT.UTF-8"), ("LC_TIME", "en_GB.UTF-8")]).as_deref(), Some("AT"));
+        assert_eq!(region(&[("LANG", "es_419.UTF-8")]).as_deref(), Some("419"));
+        assert_eq!(region(&[("LANG", "en")]), None);
+        assert_eq!(region(&[("LANG", "C.UTF-8")]), None);
+    }
+
+    #[test]
+    fn without_a_region_an_unknown_language_starts_on_monday() {
+        let mut i18n = I18n::builtin();
+        assert!(
+            i18n.add_source(
+                "fi.toml",
+                "[meta]\nname = \"Suomi\"\ncode = \"fi\"\nfallback = \"en\"\n[app]\nx = \"x\"\n"
+            )
+        );
+        assert!(i18n.set_active("fi"));
+        assert_eq!(i18n.region(), None);
+        assert_eq!(i18n.first_weekday(), Weekday::Monday, "English's Sunday is not borrowed");
+    }
+
+    #[test]
+    fn a_region_set_by_the_application_decides_until_cleared() {
+        let mut i18n = I18n::builtin();
+        assert!(i18n.set_region(Some("gb")));
+        assert_eq!(i18n.region(), Some("GB"));
+        assert_eq!(i18n.first_weekday(), Weekday::Monday);
+        assert!(!i18n.set_region(Some("Britain")));
+        assert_eq!(i18n.region(), Some("GB"), "a bad code changes nothing");
+        assert!(i18n.set_region(None));
+        assert_eq!(i18n.first_weekday(), Weekday::Sunday, "English again");
+    }
+
+    #[test]
+    fn selecting_a_regional_tag_activates_its_language_and_region() {
+        let mut i18n = I18n::builtin();
+        assert!(i18n.select("en-GB"));
+        assert_eq!((i18n.active(), i18n.region()), ("en", Some("GB")));
+        assert_eq!(i18n.first_weekday(), Weekday::Monday);
+        assert!(i18n.select("tr"));
+        assert_eq!((i18n.active(), i18n.region()), ("tr", Some("GB")), "a tag without a region keeps it");
+        assert!(i18n.select("pt_BR.UTF-8"));
+        assert_eq!((i18n.active(), i18n.region()), ("pt-BR", Some("BR")));
+        assert!(!i18n.select("fi-FI"));
+        assert_eq!((i18n.active(), i18n.region()), ("pt-BR", Some("BR")), "no Finnish, nothing changes");
+        assert!(!i18n.select(""));
     }
 
     #[test]

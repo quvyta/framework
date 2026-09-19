@@ -198,8 +198,10 @@ mod linux {
 
         let (send, receive) = mpsc::channel();
         let waiter = changes.clone();
+        // The clock starts before the thread does: a thread scheduled late would otherwise count
+        // less than the 400 ms this side already waited.
+        let started = Instant::now();
         std::thread::spawn(move || {
-            let started = Instant::now();
             let batch = waiter.next();
             let _ = send.send((batch, started.elapsed()));
         });

@@ -83,6 +83,7 @@ pub fn close_mark_beside(harness: &Harness<Showcase>, title: &str) -> (Option<i3
 }
 
 mod fuzz;
+mod reel;
 
 mod sweeps {
     use qframe::icons::GlyphMode;
@@ -466,7 +467,10 @@ mod readme_shots {
     }
 
     fn save(harness: &Harness<Showcase>, name: &str) {
-        let shot = qshots::Shot::of(harness).title("qframe");
+        save_shot(&qshots::Shot::of(harness).title("qframe"), name);
+    }
+
+    fn save_shot(shot: &qshots::Shot, name: &str) {
         assert!(shot.missing().is_empty(), "{name}: the font lacks {:?}", shot.missing());
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/screenshots/");
         shot.save(format!("{path}{name}")).expect("the screenshots folder is writable");
@@ -476,6 +480,13 @@ mod readme_shots {
     #[ignore = "writes docs/screenshots; run on purpose to refresh the README pictures"]
     fn readme_shots() {
         save(&scene("example-dashboard", "nordic", 120, 36), "dashboard");
+        // One per theme for the website's theme switcher: the same scene, so only colour changes.
+        // Square corners filled with the ground: the site frames them itself, and a transparent
+        // corner would show the page behind it in a different colour for every theme.
+        for theme in ["iris", "nordic", "amber", "monochrome"] {
+            let shot = qshots::Shot::of(&scene("example-dashboard", theme, 120, 36)).title("qframe").square();
+            save_shot(&shot, &format!("dashboard-{theme}"));
+        }
         save(&scene("heatmap", "iris", 120, 44), "heatmap");
         let mut palette = scene("getting-started", "amber", 120, 36);
         palette.press("ctrl+p").type_text("tab");

@@ -513,6 +513,7 @@ impl<A: App> Engine<A> {
                 },
                 Action::SetTheme(id) => self.env.set_theme(&id),
                 Action::SetLocale(code) => self.env.set_locale(&code),
+                Action::SetRegion(region) => self.env.set_region(region.as_deref()),
                 Action::SetIconMode(mode) => self.env.set_icon_mode(mode),
                 Action::SetReducedMotion(reduced) => self.env.set_reduced_motion(reduced),
                 Action::SetPillar(style) => self.env.set_pillar_style(style),

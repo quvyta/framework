@@ -8,6 +8,9 @@
 //! - **A pseudo-terminal** ([`Process::pty`]) gives the child a terminal of the size we choose,
 //!   so it draws its progress. Both of its streams land on that one terminal, so every line
 //!   arrives as [`Line::Out`].
+//!
+//! A line that a `\r` overwrites, such as each frame of a progress bar, is dropped as a screen
+//! would drop it, unless the frames are asked for with [`Process::run_with_overwritten`].
 
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -176,6 +179,57 @@ impl Process {
     /// Returns an I/O error when the child cannot be started, when a pseudo-terminal was asked
     /// for and cannot be opened, or when a reading thread cannot be started.
     pub fn run(self, cancel: &dyn Fn() -> bool, on_line: &mut dyn FnMut(Line)) -> io::Result<ProcessOutcome> {
+        self.run_inner(cancel, on_line, None)
+    }
+
+    /// Runs the child like [`Process::run`], and also hands every line a `\r` overwrites to
+    /// `on_overwritten` instead of dropping it: the frames of a progress bar, as `cargo`,
+    /// `pacman`, `curl` and `git` write them.
+    ///
+    /// A frame is the text built since the last line end or `\r`, delivered when the byte
+    /// after the `\r` shows that the line really is overwritten; `\r\n` and `\r\r\n` stay
+    /// plain line ends and give no frame, and an empty frame is not delivered. When the output
+    /// ends right after a `\r`, its last frame is delivered too. Colour codes and erase codes
+    /// such as `ESC [K` are passed on untouched. A frame comes tagged like a line: [`Line::Out`]
+    /// or [`Line::Err`] for the stream it was written to, and always [`Line::Out`] on a
+    /// pseudo-terminal. Lines and frames arrive in the order the child wrote them; `on_line`
+    /// receives exactly what [`Process::run`] would hand it.
+    ///
+    /// ```no_run
+    /// use qframe::runtime::{Line, Process};
+    ///
+    /// let (mut lines, mut frames) = (Vec::new(), Vec::new());
+    /// Process::new("sh").args(["-c", r"printf '10%\r50%\rdone\n'"]).run_with_overwritten(
+    ///     &|| false,
+    ///     &mut |line| lines.push(line),
+    ///     &mut |frame| frames.push(frame),
+    /// )?;
+    /// assert_eq!(lines, vec![Line::Out("done".to_owned())]);
+    /// assert_eq!(frames, vec![Line::Out("10%".to_owned()), Line::Out("50%".to_owned())]);
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Process::run`].
+    pub fn run_with_overwritten(
+        self,
+        cancel: &dyn Fn() -> bool,
+        on_line: &mut dyn FnMut(Line),
+        on_overwritten: &mut dyn FnMut(Line),
+    ) -> io::Result<ProcessOutcome> {
+        self.run_inner(cancel, on_line, Some(on_overwritten))
+    }
+
+    /// Runs the child; frames are read at all only when someone takes them, so a plain run
+    /// never queues them.
+    fn run_inner(
+        self,
+        cancel: &dyn Fn() -> bool,
+        on_line: &mut dyn FnMut(Line),
+        mut on_overwritten: Option<&mut dyn FnMut(Line)>,
+    ) -> io::Result<ProcessOutcome> {
+        let frames = on_overwritten.is_some();
         let mut command = Command::new(&self.program);
         command.args(&self.args);
         // The group is what lets cancelling reach the child's own children; see `run`'s notes.
@@ -198,8 +252,8 @@ impl Process {
         }
         let (sender, receiver) = mpsc::sync_channel(QUEUE);
         let mut child = match self.pty {
-            Some(size) => spawn_on_pty(command, size, &sender, group)?,
-            None => spawn_on_pipes(command, &sender, group)?,
+            Some(size) => spawn_on_pty(command, size, &sender, frames, group)?,
+            None => spawn_on_pipes(command, &sender, frames, group)?,
         };
         // The readers hold the only remaining senders, so the channel ends when they do.
         drop(sender);
@@ -209,7 +263,12 @@ impl Process {
                 return Ok(ProcessOutcome::Cancelled);
             }
             match receiver.recv_timeout(POLL) {
-                Ok(line) => on_line(line),
+                Ok(Sent::Line(line)) => on_line(line),
+                Ok(Sent::Overwritten(frame)) => {
+                    if let Some(on_overwritten) = on_overwritten.as_deref_mut() {
+                        on_overwritten(frame);
+                    }
+                }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
@@ -227,6 +286,13 @@ impl Process {
             std::thread::sleep(POLL);
         }
     }
+}
+
+/// What a reading thread hands to the loop in [`Process::run_inner`]. One channel carries both
+/// so lines and frames keep the order the child wrote them in.
+enum Sent {
+    Line(Line),
+    Overwritten(Line),
 }
 
 /// Kills the child, and with `group` every process still in its process group, and waits for the
@@ -247,14 +313,14 @@ fn kill(child: &mut Child, group: bool) {
 
 /// Starts the child with a pipe per stream and a reading thread for each, so a failure stays
 /// recognisable as one.
-fn spawn_on_pipes(mut command: Command, sender: &SyncSender<Line>, group: bool) -> io::Result<Child> {
+fn spawn_on_pipes(mut command: Command, sender: &SyncSender<Sent>, frames: bool, group: bool) -> io::Result<Child> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn()?;
     drop(command);
     let taken = child.stdout.take().zip(child.stderr.take());
     let started = match taken {
-        Some((out, err)) => spawn_reader("out", out, Line::Out, sender.clone())
-            .and_then(|()| spawn_reader("err", err, Line::Err, sender.clone())),
+        Some((out, err)) => spawn_reader("out", out, Line::Out, frames, sender.clone())
+            .and_then(|()| spawn_reader("err", err, Line::Err, frames, sender.clone())),
         None => Err(io::Error::other("the child was started without its pipes")),
     };
     match started {
@@ -272,7 +338,8 @@ fn spawn_on_pipes(mut command: Command, sender: &SyncSender<Line>, group: bool) 
 fn spawn_on_pty(
     mut command: Command,
     (cols, rows): (u16, u16),
-    sender: &SyncSender<Line>,
+    sender: &SyncSender<Sent>,
+    frames: bool,
     group: bool,
 ) -> io::Result<Child> {
     use std::fs::File;
@@ -308,7 +375,7 @@ fn spawn_on_pty(
     // The command holds the child's side of the terminal until it is dropped, and while it is
     // open the reading side never reaches its end of file.
     drop(command);
-    match spawn_reader("pty", File::from(controller), Line::Out, sender.clone()) {
+    match spawn_reader("pty", File::from(controller), Line::Out, frames, sender.clone()) {
         Ok(()) => Ok(child),
         Err(error) => {
             kill(&mut child, group);
@@ -320,37 +387,45 @@ fn spawn_on_pty(
 /// Without Unix there is no pseudo-terminal to open, so the caller is told instead of being
 /// given a child that quietly sees no terminal.
 #[cfg(not(unix))]
-fn spawn_on_pty(_command: Command, _size: (u16, u16), _sender: &SyncSender<Line>, _group: bool) -> io::Result<Child> {
+fn spawn_on_pty(
+    _command: Command,
+    _size: (u16, u16),
+    _sender: &SyncSender<Sent>,
+    _frames: bool,
+    _group: bool,
+) -> io::Result<Child> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "a pseudo-terminal needs a Unix system"))
 }
 
-/// Reads `source` on its own thread, sending one message per line until the stream ends or the
-/// receiver is gone.
+/// Reads `source` on its own thread, sending one message per line, and with `frames` one per
+/// overwritten frame, until the stream ends or the receiver is gone.
 fn spawn_reader(
     name: &str,
     source: impl Read + Send + 'static,
     tag: fn(String) -> Line,
-    sender: SyncSender<Line>,
+    frames: bool,
+    sender: SyncSender<Sent>,
 ) -> io::Result<()> {
     std::thread::Builder::new()
         .name(format!("quvyta-process-{name}"))
-        .spawn(move || read_lines(source, tag, &sender))
+        .spawn(move || read_lines(source, tag, frames, &sender))
         .map(|_| ())
 }
 
 /// Sends every line of `source` as a message, stopping as soon as the receiver is gone.
-fn read_lines(mut source: impl Read, tag: fn(String) -> Line, sender: &SyncSender<Line>) {
+fn read_lines(mut source: impl Read, tag: fn(String) -> Line, frames: bool, sender: &SyncSender<Sent>) {
     let mut chunk = [0_u8; CHUNK];
     let mut lines = Lines::default();
+    // Both closures send; a failed send from either means nobody listens any more.
+    let listening = std::cell::Cell::new(true);
+    let mut on_line = |line| listening.set(listening.get() && sender.send(Sent::Line(tag(line))).is_ok());
+    let mut on_frame = |frame| listening.set(listening.get() && sender.send(Sent::Overwritten(tag(frame))).is_ok());
     loop {
         match source.read(&mut chunk) {
             Ok(0) => break,
             Ok(count) => {
-                let mut listening = true;
-                lines.feed(&chunk[..count], &mut |line| {
-                    listening &= sender.send(tag(line)).is_ok();
-                });
-                if !listening {
+                lines.feed_keeping(&chunk[..count], &mut on_line, frames.then_some(&mut on_frame));
+                if !listening.get() {
                     return;
                 }
             }
@@ -360,12 +435,11 @@ fn read_lines(mut source: impl Read, tag: fn(String) -> Line, sender: &SyncSende
             Err(_) => break,
         }
     }
-    lines.finish(&mut |line| {
-        let _ = sender.send(tag(line));
-    });
+    lines.finish_keeping(&mut on_line, frames.then_some(&mut on_frame));
 }
 
-/// Splits a byte stream into lines, letting `\r` overwrite the line being built.
+/// Splits a byte stream into lines, letting `\r` overwrite the line being built. What it
+/// overwrites is dropped, or handed to a second callback by [`Lines::feed_keeping`].
 #[derive(Debug, Default)]
 pub(super) struct Lines {
     buffer: Vec<u8>,
@@ -376,6 +450,17 @@ pub(super) struct Lines {
 impl Lines {
     /// Feeds `bytes`, calling `emit` once per finished line.
     pub(super) fn feed(&mut self, bytes: &[u8], emit: &mut impl FnMut(String)) {
+        self.feed_keeping(bytes, emit, None);
+    }
+
+    /// Feeds `bytes` like [`Lines::feed`], also handing each non-empty frame a `\r`
+    /// overwrites to `overwritten` when it is given.
+    pub(super) fn feed_keeping(
+        &mut self,
+        bytes: &[u8],
+        emit: &mut impl FnMut(String),
+        mut overwritten: Option<&mut dyn FnMut(String)>,
+    ) {
         for &byte in bytes {
             if self.pending_return {
                 // A terminal ends its lines with `\r\n`, so a `\r` right before a newline ends
@@ -390,7 +475,7 @@ impl Lines {
                     }
                     _ => {
                         self.pending_return = false;
-                        self.buffer.clear();
+                        self.overwrite(&mut overwritten);
                     }
                 }
             }
@@ -434,11 +519,29 @@ impl Lines {
         self.buffer = rest;
     }
 
+    /// Drops the line a `\r` overwrites, or hands it to `overwritten` when there is one.
+    fn overwrite(&mut self, overwritten: &mut Option<&mut dyn FnMut(String)>) {
+        match overwritten {
+            Some(overwritten) if !self.buffer.is_empty() => overwritten(self.take()),
+            _ => self.buffer.clear(),
+        }
+    }
+
     /// Delivers the last line when the stream ended without a newline.
     pub(super) fn finish(&mut self, emit: &mut impl FnMut(String)) {
+        self.finish_keeping(emit, None);
+    }
+
+    /// Ends the stream like [`Lines::finish`]; a last line followed by a `\r` goes to
+    /// `overwritten` when it is given.
+    pub(super) fn finish_keeping(
+        &mut self,
+        emit: &mut impl FnMut(String),
+        mut overwritten: Option<&mut dyn FnMut(String)>,
+    ) {
         if self.pending_return {
             // The line was overwritten and nothing was written in its place.
-            self.buffer.clear();
+            self.overwrite(&mut overwritten);
             self.pending_return = false;
         }
         if !self.buffer.is_empty() {
@@ -761,5 +864,116 @@ mod tests {
         lines.feed(b"\xa7a\r\nson", &mut emit);
         lines.finish(&mut emit);
         assert_eq!(seen, vec!["ilk parça".to_owned(), "son".to_owned()]);
+    }
+
+    /// Feeds `bytes` in one go and ends the stream, returning the lines and the overwritten
+    /// frames.
+    fn split_keeping_frames(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
+        let mut lines = Lines::default();
+        let (mut seen, mut frames) = (Vec::new(), Vec::new());
+        lines.feed_keeping(bytes, &mut |line| seen.push(line), Some(&mut |frame| frames.push(frame)));
+        lines.finish_keeping(&mut |line| seen.push(line), Some(&mut |frame| frames.push(frame)));
+        (seen, frames)
+    }
+
+    #[test]
+    fn frames_overwritten_by_a_return_are_kept_only_when_asked_for() {
+        let (seen, frames) = split_keeping_frames(b"bir\riki\ruc\rbitti\r\n");
+        assert_eq!(seen, vec!["bitti".to_owned()]);
+        assert_eq!(frames, vec!["bir".to_owned(), "iki".to_owned(), "uc".to_owned()]);
+        let mut lines = Lines::default();
+        let mut seen = Vec::new();
+        lines.feed(b"bir\riki\ruc\rbitti\r\n", &mut |line| seen.push(line));
+        lines.finish(&mut |line| seen.push(line));
+        assert_eq!(seen, vec!["bitti".to_owned()]);
+    }
+
+    #[test]
+    fn a_line_ended_by_returns_and_a_newline_is_no_frame() {
+        let (seen, frames) = split_keeping_frames(b"hazir\r\r\nbitti\r\n\rbos\r\r\r\n");
+        assert_eq!(seen, vec!["hazir".to_owned(), "bitti".to_owned(), "bos".to_owned()]);
+        assert!(frames.is_empty(), "{frames:?}");
+    }
+
+    #[test]
+    fn a_stream_ending_in_a_return_delivers_its_last_frame() {
+        let (seen, frames) = split_keeping_frames(b"once\r10%\r20%\r");
+        assert!(seen.is_empty(), "{seen:?}");
+        assert_eq!(frames, vec!["once".to_owned(), "10%".to_owned(), "20%".to_owned()]);
+        // A return split from what follows it by a read still waits for that byte.
+        let mut lines = Lines::default();
+        let (mut seen, mut frames) = (Vec::new(), Vec::new());
+        lines.feed_keeping(b"30%\r", &mut |line| seen.push(line), Some(&mut |frame| frames.push(frame)));
+        assert!(frames.is_empty(), "a return before a newline is not yet known to overwrite");
+        lines.feed_keeping(b"\n", &mut |line| seen.push(line), Some(&mut |frame| frames.push(frame)));
+        assert_eq!((seen, frames), (vec!["30%".to_owned()], Vec::new()));
+    }
+
+    #[test]
+    fn frames_keep_their_colour_and_erase_codes() {
+        let (seen, frames) = split_keeping_frames(b"\x1b[1mFetch\x1b[0m 1\r\x1b[K\x1b[92mDone\x1b[0m\r\n");
+        assert_eq!(frames, vec!["\x1b[1mFetch\x1b[0m 1".to_owned()]);
+        assert_eq!(seen, vec!["\x1b[K\x1b[92mDone\x1b[0m".to_owned()]);
+    }
+
+    #[test]
+    fn every_frame_of_a_recorded_cargo_install_is_kept() {
+        let recorded = include_bytes!("../../tests/fixtures/cargo-install-pty.txt");
+        let (seen, frames) = split_keeping_frames(recorded);
+        assert_eq!(frames.len(), 159, "every overwritten frame");
+        assert_eq!(seen.len(), 76, "the lines themselves are unchanged");
+        let building: Vec<&String> = frames.iter().filter(|frame| frame.contains("Building")).collect();
+        assert_eq!(building.len(), 51);
+        assert!(building[0].contains("] 0/46: anstyle"), "{:?}", building[0]);
+        assert!(building.iter().any(|frame| frame.contains("] 45/46: hexyl")), "{building:?}");
+        // Without asking, the same bytes give the same lines and no frame reaches anyone.
+        let mut lines = Lines::default();
+        let mut plain = Vec::new();
+        lines.feed(recorded, &mut |line| plain.push(line));
+        lines.finish(&mut |line| plain.push(line));
+        assert_eq!(plain, seen);
+    }
+
+    /// Runs `process` to its end asking for overwritten frames, returning the lines and frames in
+    /// the order they arrived.
+    fn run_keeping_frames(process: Process) -> Vec<(bool, Line)> {
+        let seen = std::cell::RefCell::new(Vec::new());
+        process
+            .run_with_overwritten(&|| false, &mut |line| seen.borrow_mut().push((false, line)), &mut |frame| {
+                seen.borrow_mut().push((true, frame));
+            })
+            .expect("the shell starts");
+        seen.into_inner()
+    }
+
+    #[test]
+    fn overwritten_frames_arrive_through_a_pipe_in_order_and_tagged_by_stream() {
+        let seen = run_keeping_frames(Process::new("sh").args(["-c", r"printf 'a\rb\rc\n'; printf '1%%\r2%%\r' >&2"]));
+        let out: Vec<_> = seen.iter().filter(|(_, line)| matches!(line, Line::Out(_))).cloned().collect();
+        let err: Vec<_> = seen.iter().filter(|(_, line)| matches!(line, Line::Err(_))).cloned().collect();
+        assert_eq!(
+            out,
+            vec![
+                (true, Line::Out("a".to_owned())),
+                (true, Line::Out("b".to_owned())),
+                (false, Line::Out("c".to_owned()))
+            ]
+        );
+        assert_eq!(err, vec![(true, Line::Err("1%".to_owned())), (true, Line::Err("2%".to_owned()))]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn overwritten_frames_arrive_from_a_pseudo_terminal() {
+        let seen = run_keeping_frames(Process::new("sh").args(["-c", r"printf 'a\rb\rc\nd\r\n'"]).pty(80, 24));
+        assert_eq!(
+            seen,
+            vec![
+                (true, Line::Out("a".to_owned())),
+                (true, Line::Out("b".to_owned())),
+                (false, Line::Out("c".to_owned())),
+                (false, Line::Out("d".to_owned())),
+            ]
+        );
     }
 }

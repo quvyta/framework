@@ -39,8 +39,11 @@ const ARROW: u16 = 3;
 /// field, an arrow or a day, shows the pillar `▌` in its leftmost cell, a column that is always
 /// blank, so nothing in the date picker slides whatever [`Env::slide`](crate::env::Env::slide)
 /// says. The highlighted day's pillar breathes only while the keyboard moved it last. Month and
-/// weekday names, the first day of the week and the field format come from the `quvyta.date`
-/// locale keys.
+/// weekday names and the field format come from the `quvyta.date` locale keys, and the first day
+/// of the week from [`I18n::first_weekday`](crate::i18n::I18n::first_weekday): the region's when
+/// one is known, the language's otherwise. A field too narrow for the long date (`format`) shows
+/// the short one (`format-short`, with `month-short-*`), `Sep 18, 2026`, and a narrower one the
+/// day and month alone (`format-day-month`), `Sep 18`, instead of cutting it.
 ///
 /// The field uses the `select` styles. The calendar uses `calendar` (`bg`, `padding`),
 /// `calendar-title`, `calendar-arrow` with `hover` (`bg` over its three cells, `pillar`),
@@ -150,7 +153,7 @@ impl<Msg: 'static> DatePicker<Msg> {
         memory.by_pointer = false;
         let cursor = self.cursor(cx);
         let shift = Modifiers { shift: true, ..Modifiers::default() };
-        let first = first_weekday(cx.env().i18n());
+        let first = cx.env().i18n().first_weekday();
         let moved = if key.is_plain(Key::Left) {
             Some(cursor.add_days(-1))
         } else if key.is_plain(Key::Right) {
@@ -203,16 +206,9 @@ impl<Msg: 'static> DatePicker<Msg> {
         if !(0..i32::from(WEEKS)).contains(&row) || !(0..7).contains(&column) || x < inner.x {
             return;
         }
-        let date = grid_start(cursor, first_weekday(cx.env().i18n())).add_days(i64::from(row * 7 + column));
+        let date = grid_start(cursor, cx.env().i18n().first_weekday()).add_days(i64::from(row * 7 + column));
         self.choose(cx, date);
     }
-}
-
-/// The first day of the week for the active language. Reads the environment's translator
-/// directly because events are handled outside the translation scope of painting.
-fn first_weekday(i18n: &crate::i18n::I18n) -> Weekday {
-    let number = i18n.translate("quvyta.date.first-weekday", &[]);
-    number.trim().parse::<u8>().ok().and_then(Weekday::from_number).unwrap_or(Weekday::Monday)
 }
 
 /// The first day shown for the month of `cursor`.
@@ -224,9 +220,38 @@ fn month_name(month: u8) -> String {
     crate::t!(&format!("quvyta.date.month-{month}"))
 }
 
-/// `date` written the way the active language writes dates.
+/// `date` written the way the active language writes dates. A language whose month names
+/// change inside a date (Russian `января` for `Январь`, or Spanish writing `enero` in a date and
+/// `Enero` as a heading) gives that form as `quvyta.date.month-in-date-*`; the others use the
+/// month name as it is.
 fn format_date(date: Date) -> String {
-    crate::t!("quvyta.date.format", day = u32::from(date.day()), month = month_name(date.month()), year = date.year())
+    let month = crate::i18n::translate_active_if_known(&format!("quvyta.date.month-in-date-{}", date.month()))
+        .unwrap_or_else(|| month_name(date.month()));
+    crate::t!("quvyta.date.format", day = u32::from(date.day()), month = month, year = date.year())
+}
+
+/// `date` in the active language's short form, with the short month name, for a field too
+/// narrow for [`format_date`]: `Sep 18, 2026`, `18. Sep 2026`.
+fn format_date_short(date: Date) -> String {
+    let month = crate::t!(&format!("quvyta.date.month-short-{}", date.month()));
+    crate::t!("quvyta.date.format-short", day = u32::from(date.day()), month = month, year = date.year())
+}
+
+/// `date` as a day and a short month without the year, for a field too narrow even for
+/// [`format_date_short`]: `Sep 18`, `18. Sep`. The calendar still shows the year when it opens.
+fn format_day_month(date: Date) -> String {
+    let month = crate::t!(&format!("quvyta.date.month-short-{}", date.month()));
+    crate::t!("quvyta.date.format-day-month", day = u32::from(date.day()), month = month)
+}
+
+/// `date` in the longest form that fits in `room` cells: the long date, the short one, or the
+/// day and month alone.
+fn date_that_fits(date: Date, room: u16) -> String {
+    [format_date, format_date_short]
+        .into_iter()
+        .map(|format| format(date))
+        .find(|shown| text::width(shown) <= room)
+        .unwrap_or_else(|| format_day_month(date))
 }
 
 fn calendar_padding(env: &crate::env::Env) -> crate::geometry::Padding {
@@ -249,7 +274,9 @@ impl<Msg: 'static> Widget<Msg> for DatePicker<Msg> {
         if open {
             states.push(State::Active);
         }
-        let label = self.value.map(format_date);
+        // A field too narrow for the long date shows the short one rather than cutting it.
+        let room = super::select::field_text_width(cx, area, &states);
+        let label = self.value.map(|date| date_that_fits(date, room));
         super::select::paint_field(cx, area, &states, label.as_deref(), &self.placeholder);
         if !self.disabled {
             cx.register_hit(area);
@@ -281,7 +308,7 @@ impl<Msg: 'static> Widget<Msg> for DatePicker<Msg> {
         cx.register_hit(shown);
         let mut cursor = remembered.or(self.value).unwrap_or_else(|| self.today_or_clock());
         let today = self.today_or_clock();
-        let first = first_weekday(cx.env().i18n());
+        let first = cx.env().i18n().first_weekday();
         let inner = full.inset(padding);
         let pointer = cx.pointer();
         let weekday_row = inner.y + 2;
@@ -461,6 +488,89 @@ mod tests {
 
     fn date(year: i32, month: u8, day: u8) -> Date {
         Date::new(year, month, day).expect("valid")
+    }
+
+    #[test]
+    fn a_narrow_field_shows_the_short_date_where_the_long_one_does_not_fit() {
+        // Turkish, Chinese and Japanese write the long date short enough to keep it.
+        let cases = [
+            ("en", "Sep 18, 2026"),
+            ("tr", "18 Eylül 2026"),
+            ("de", "18. Sep 2026"),
+            ("es", "18 Sep 2026"),
+            ("fr", "18 Sept. 2026"),
+            ("pt-BR", "18 Set 2026"),
+            ("ru", "18 Сен 2026"),
+            ("zh-Hans", "2026年9月18日"),
+            ("ja", "2026年9月18日"),
+        ];
+        for (code, written) in cases {
+            let mut h = Harness::new(Narrow, 40, 4);
+            h.set_locale(code);
+            let screen = h.screen();
+            assert!(screen.contains(written) && !screen.contains('…'), "{code}: {screen}");
+        }
+        let mut h = Harness::new(Demo { date: Some(date(2026, 3, 5)) }, 40, 4);
+        h.set_locale("de");
+        assert!(h.screen().contains("5. März 2026"), "a field with room keeps the long date: {}", h.screen());
+    }
+
+    /// A date field 20 cells wide, as in a form beside a label column at 40 columns.
+    struct Narrow;
+
+    impl App for Narrow {
+        type Msg = Date;
+        fn update(&mut self, _: Date) -> Command<Date> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, Date>) {
+            ui.add(DatePicker::new(Some(date(2026, 9, 18))).on_change(|date| date)).width(Length::Cells(20));
+        }
+    }
+
+    #[test]
+    fn the_short_dates_read_the_way_each_language_writes_them() {
+        let cases = [
+            ("tr", "18 Eyl 2026", "18 Eyl"),
+            ("zh-Hans", "2026年9月18日", "9月18日"),
+            ("de", "18. Sep 2026", "18. Sep"),
+        ];
+        for (code, short, day_month) in cases {
+            let mut i18n = crate::i18n::I18n::builtin();
+            assert!(i18n.set_active(code));
+            let i18n = std::sync::Arc::new(i18n);
+            let shown = crate::i18n::scope(i18n.clone(), || format_date_short(date(2026, 9, 18)));
+            assert_eq!(shown, short, "{code}");
+            let shown = crate::i18n::scope(i18n, || format_day_month(date(2026, 9, 18)));
+            assert_eq!(shown, day_month, "{code}");
+        }
+        let fitted = |room| {
+            crate::i18n::scope(std::sync::Arc::new(crate::i18n::I18n::builtin()), || {
+                date_that_fits(date(2026, 9, 18), room)
+            })
+        };
+        assert_eq!([fitted(18), fitted(17), fitted(11)], ["September 18, 2026", "Sep 18, 2026", "Sep 18"]);
+    }
+
+    #[test]
+    fn a_date_reads_the_way_each_language_writes_it() {
+        let cases = [
+            ("en", "January 5, 2026"),
+            ("tr", "5 Ocak 2026"),
+            ("de", "5. Januar 2026"),
+            ("es", "5 de enero de 2026"),
+            ("fr", "5 janvier 2026"),
+            ("pt-BR", "5 de janeiro de 2026"),
+            ("ru", "5 января 2026 г."),
+            ("zh-Hans", "2026年1月5日"),
+            ("ja", "2026年1月5日"),
+        ];
+        for (code, written) in cases {
+            let mut i18n = crate::i18n::I18n::builtin();
+            assert!(i18n.set_active(code));
+            let shown = crate::i18n::scope(std::sync::Arc::new(i18n), || format_date(date(2026, 1, 5)));
+            assert_eq!(shown, written, "{code}");
+        }
     }
 
     #[test]

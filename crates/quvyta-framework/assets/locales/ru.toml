@@ -1,0 +1,201 @@
+# Русский
+
+[meta]
+name = "Русский"
+code = "ru"
+fallback = "en"
+
+[quvyta.keys]
+quit       = "выход"
+focus-next = "далее"
+focus-prev = "назад"
+debug      = "отладка"
+toggle-panel = "панель"
+copy       = "копировать"
+paste      = "вставить"
+help       = "клавиши"
+palette    = "команды"
+
+[quvyta.switch]
+on  = "ВКЛ"
+off = "ВЫКЛ"
+
+[quvyta.log]
+below = { one = "ниже ещё {n} строка", few = "ниже ещё {n} строки", many = "ниже ещё {n} строк", other = "ниже ещё {n} строки" }
+no-match = "Нет подходящих строк"
+
+[quvyta.file-picker]
+filter = "Фильтр по имени"
+loading = "Чтение папки…"
+parent = "Родительская папка"
+empty = "Эта папка пуста"
+no-match = "Под фильтр ничего не подходит"
+hidden = "Скрытые файлы"
+choose-file = "Выбрать файл"
+choose-folder = "Выбрать папку"
+permission-denied = "Нет прав на открытие этой папки"
+not-found = "Эта папка не существует"
+not-a-folder = "Это не папка"
+unreadable = "Не удалось прочитать эту папку"
+
+[quvyta.terminal]
+scrolled = { one = "{n} строка назад", few = "{n} строки назад", many = "{n} строк назад", other = "{n} строки назад" }
+exited = "завершён с кодом {code}"
+
+[quvyta.form]
+required = "обязательно"
+summary  = { one = "{n} поле требует внимания", few = "{n} поля требуют внимания", many = "{n} полей требуют внимания", other = "{n} поля требуют внимания" }
+
+[quvyta.wizard]
+cancel = "Отмена"
+back   = "Назад"
+next   = "Далее"
+finish = "Готово"
+
+[quvyta.copy-value]
+copy   = "копировать"
+copied = "скопировано"
+
+[quvyta.tasks]
+done      = "готово"
+cancelled = "отменено"
+cancel    = "Отмена"
+empty     = "Нет запущенных задач"
+
+[quvyta.handoff]
+pause = "Нажмите любую клавишу, чтобы вернуться"
+
+[quvyta.date]
+# 1 is Monday, 7 is Sunday.
+first-weekday = "1"
+format = "{day} {month} {year} г."
+format-short = "{day} {month} {year}"
+format-day-month = "{day} {month}"
+title = "{month} {year}"
+month-1 = "Январь"
+month-2 = "Февраль"
+month-3 = "Март"
+month-4 = "Апрель"
+month-5 = "Май"
+month-6 = "Июнь"
+month-7 = "Июль"
+month-8 = "Август"
+month-9 = "Сентябрь"
+month-10 = "Октябрь"
+month-11 = "Ноябрь"
+month-12 = "Декабрь"
+# Inside a date the month takes the genitive case: 5 января 2026 г.
+month-in-date-1 = "января"
+month-in-date-2 = "февраля"
+month-in-date-3 = "марта"
+month-in-date-4 = "апреля"
+month-in-date-5 = "мая"
+month-in-date-6 = "июня"
+month-in-date-7 = "июля"
+month-in-date-8 = "августа"
+month-in-date-9 = "сентября"
+month-in-date-10 = "октября"
+month-in-date-11 = "ноября"
+month-in-date-12 = "декабря"
+weekday-1 = "Пн"
+weekday-2 = "Вт"
+weekday-3 = "Ср"
+weekday-4 = "Чт"
+weekday-5 = "Пт"
+weekday-6 = "Сб"
+weekday-7 = "Вс"
+weekday-long-1 = "Понедельник"
+weekday-long-2 = "Вторник"
+weekday-long-3 = "Среда"
+weekday-long-4 = "Четверг"
+weekday-long-5 = "Пятница"
+weekday-long-6 = "Суббота"
+weekday-long-7 = "Воскресенье"
+month-short-1 = "Янв"
+month-short-2 = "Фев"
+month-short-3 = "Мар"
+month-short-4 = "Апр"
+month-short-5 = "Май"
+month-short-6 = "Июн"
+month-short-7 = "Июл"
+month-short-8 = "Авг"
+month-short-9 = "Сен"
+month-short-10 = "Окт"
+month-short-11 = "Ноя"
+month-short-12 = "Дек"
+
+[quvyta.time]
+clock = "{hour}:{minute}"
+hour = "{hour}"
+span = "{from}–{to}"
+hours-minutes = "{hours} ч {minutes} мин"
+hours = "{hours} ч"
+minutes = "{minutes} мин"
+seconds = "{seconds} с"
+
+[quvyta.timeline]
+empty = "В этот день ничего нет"
+from-previous-day = "с предыдущего дня"
+from-earlier = "начато раньше"
+continues-next-day = "продолжается на следующий день"
+running = "идёт"
+open-both = "{start}, {end}"
+
+[quvyta.layer]
+close  = "закрыть"
+switch = "переключить"
+scroll = "прокрутка"
+move   = "перемещение"
+run    = "выполнить"
+filter = "Введите текст для фильтра"
+
+[quvyta.help]
+title  = "Сочетания клавиш"
+screen = "Этот экран"
+app    = "Приложение"
+global = "Общие"
+empty  = "Нет подходящих клавиш"
+
+[quvyta.palette]
+placeholder = "Введите команду"
+recent      = "Недавние"
+all         = "Все команды"
+empty       = "Нет подходящих команд"
+
+[quvyta.confirm]
+confirm   = "Подтвердить"
+cancel    = "Отмена"
+type-word = "Введите {word} для подтверждения"
+
+[quvyta.tabs]
+add = "Новая вкладка"
+
+[quvyta.tab-rail]
+add = "Новая вкладка"
+
+[quvyta.edit]
+cut        = "Вырезать"
+copy       = "Копировать"
+raw-copy   = "Копировать как есть"
+paste      = "Вставить"
+select-all = "Выделить всё"
+
+[quvyta.duration]
+hours   = "ч"
+minutes = "мин"
+seconds = "с"
+hour-words   = "ч, час, часа, часов"
+minute-words = "м, мин, минута, минуты, минут, минуту"
+second-words = "с, сек, секунда, секунды, секунд, секунду"
+hour-name    = "Часы"
+minute-name  = "Минуты"
+second-name  = "Секунды"
+empty     = "Нечего читать; введите длительность, например 1 ч 30 мин, 90 мин или 2:15"
+character = "«{text}» не может быть частью длительности"
+unit      = "«{text}» не единица времени; используйте ч, мин или с"
+number    = "«{text}» не число"
+no-number = "Перед «{text}» нужно число"
+no-unit   = "После «{text}» нужна единица, например мин"
+repeated  = "{text} указаны дважды"
+clock     = "«{text}» не читается как часы и минуты; введите 2:15 или 2:15:30, минуты и секунды меньше 60"
+too-large = "Больше самой большой длительности, {text}"

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::color::Rgb;
 use crate::event::{Event, KeyKind, MouseButton, MouseKind};
-use crate::geometry::{Rect, Size};
+use crate::geometry::{Rect, Size, clamp_u16};
 use crate::keymap::{Key, KeyChord};
 use crate::motion::Easing;
 use crate::text;
@@ -59,6 +59,10 @@ const BARS_WIDTH: u16 = BARS * BAR + BARS - 1;
 /// followed until it is released or leaves the control.
 ///
 /// Hovered and focused controls show the pillar in their first cell, like buttons.
+///
+/// Where the label and the bars do not fit side by side, as on a narrow screen or in a longer
+/// language, the label wraps over the whole width and the bars go on a line of their own under
+/// it; the control reports the extra rows.
 ///
 /// The bars fill towards the theme's `to` colour unless [`HoldToConfirm::color`] names another
 /// one, preferably a theme token such as `"$danger"` so the control follows the theme.
@@ -221,6 +225,22 @@ impl<Msg: Clone + 'static> HoldToConfirm<Msg> {
         cells::sum([text::width(&self.label), 2, BARS_WIDTH])
     }
 
+    /// The label's lines in content `width` cells wide: one line with the bars at its right
+    /// when both fit, else the label wrapped over the whole width with the bars on a line of
+    /// their own under it.
+    fn label_lines(&self, width: u16) -> Vec<String> {
+        if self.content_width() <= width { vec![self.label.clone()] } else { text::wrap(&self.label, width.max(1)) }
+    }
+
+    /// Rows the content takes in `width` cells: one, or the label's lines and the bars' line.
+    fn content_rows(&self, width: u16) -> u16 {
+        if self.content_width() <= width {
+            1
+        } else {
+            clamp_u16(i32::try_from(self.label_lines(width).len()).unwrap_or(i32::MAX)).saturating_add(1)
+        }
+    }
+
     /// Paints the label and the bars from `(x, y)`.
     fn paint_content(&self, cx: &mut PaintCx<'_>, x: i32, y: i32, width: u16, states: &[State], progress: f32) {
         let style = cx.style("hold", None, states);
@@ -228,10 +248,19 @@ impl<Msg: Clone + 'static> HoldToConfirm<Msg> {
         label_style.bg = None;
         let track = style.color("track").unwrap_or_else(|| cx.color("active"));
         let to = self.target(cx, style.color("to"));
-        let label_budget = width.saturating_sub(BARS_WIDTH + 2);
-        let label = text::truncate(&self.label, label_budget).into_owned();
-        cx.text(x, y, &label, label_style, label_budget);
-        let bars_x = x + i32::from(width.saturating_sub(BARS_WIDTH));
+        let one_line = self.content_width() <= width;
+        let lines = self.label_lines(width);
+        let label_budget = if one_line { width.saturating_sub(BARS_WIDTH + 2) } else { width };
+        for (row, line) in (y..).zip(&lines) {
+            let label = text::truncate(line, label_budget).into_owned();
+            cx.text(x, row, &label, label_style, label_budget);
+        }
+        // Side by side the bars end at the right edge; under the label they start where it does.
+        let (bars_x, y) = if one_line {
+            (x + i32::from(width.saturating_sub(BARS_WIDTH)), y)
+        } else {
+            (x, y + i32::try_from(lines.len()).unwrap_or(0))
+        };
         for bar in 0..BARS {
             // Each bar owns one third of the hold and blends as a whole within it.
             let fill = bar_fill(progress, bar, cx.reduced_motion());
@@ -304,11 +333,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for HoldToConfirm<Msg> {
         }
         let style = cx.env().theme().style("hold", None, &[]);
         let (vertical, horizontal) = style.pair("padding").unwrap_or((0, 2));
-        Size::new(
-            self.content_width().saturating_add(horizontal.saturating_mul(2)),
-            vertical.saturating_mul(2).saturating_add(1),
-        )
-        .min(available)
+        let width = self.content_width().saturating_add(horizontal.saturating_mul(2)).min(available.width);
+        let rows = self.content_rows(width.saturating_sub(horizontal.saturating_mul(2)));
+        Size::new(width, vertical.saturating_mul(2).saturating_add(rows)).min(available)
     }
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
@@ -375,7 +402,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for HoldToConfirm<Msg> {
         let background = card.text().bg.unwrap_or_else(|| cx.color("overlay"));
         let padding = card.padding();
         let width = self.content_width().saturating_add(padding.horizontal()).min(screen.width.saturating_sub(4));
-        let rect = Rect::new(screen.x + 2, screen.y + 1, width, padding.vertical().saturating_add(1));
+        let rows = self.content_rows(width.saturating_sub(padding.horizontal()));
+        let rect = Rect::new(screen.x + 2, screen.y + 1, width, padding.vertical().saturating_add(rows));
         cx.floating(rect, |cx| {
             cx.clear(rect, background);
             let hold = cx.style("hold", None, &[State::Active]);
@@ -748,10 +776,91 @@ mod tests {
     }
 
     #[test]
-    fn a_narrow_control_cuts_the_label_and_keeps_the_bars() {
-        let h = Harness::new(Demo::default(), 20, 2);
+    fn a_narrow_control_keeps_the_whole_label_and_puts_the_bars_under_it() {
+        let h = Harness::new(Demo::default(), 20, 3);
         let theme = h.env().theme();
-        assert!(h.screen().starts_with("  Ho…"), "{}", h.screen());
-        assert_eq!(h.bg(17, 0), theme.color("active"), "the last bar is still drawn");
+        assert!(h.screen().starts_with("  Hold to delete\n"), "{}", h.screen());
+        assert_eq!([h.bg(2, 1), h.bg(10, 1)], [theme.color("active"); 2], "the first and last bar: {}", h.screen());
+    }
+
+    /// A hold control with a long label, in English or German, in a column 40 cells wide.
+    struct Long {
+        german: bool,
+        floating: bool,
+    }
+
+    impl App for Long {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            let label = if self.german { "Alle Einträge endgültig löschen" } else { "Delete every record for good" };
+            ui.column(|ui| {
+                ui.add(HoldToConfirm::new(label).key("ctrl+d").floating(self.floating).on_confirm(())).id("hold");
+                ui.add(crate::widgets::Text::new("after"));
+            });
+        }
+    }
+
+    #[test]
+    fn at_forty_columns_a_long_label_puts_the_bars_under_it() {
+        for (german, code) in [(false, "en"), (true, "de")] {
+            let mut h = Harness::new(Long { german, floating: false }, 40, 6);
+            h.set_locale(code);
+            let screen = h.screen();
+            assert!(!screen.contains('…'), "{code}: {screen}");
+            let label = if german { "Alle Einträge endgültig löschen" } else { "Delete every record for good" };
+            assert!(screen.lines().next().is_some_and(|line| line.trim() == label), "{code}: {screen}");
+            let track = h.env().theme().color("active");
+            assert_eq!([h.bg(2, 1), h.bg(6, 1), h.bg(10, 1)], [track; 3], "the bars under the label: {code}: {screen}");
+            assert!(
+                screen.lines().nth(2).is_some_and(|line| line.starts_with("after")),
+                "the control reports two rows: {screen}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_floating_card_grows_a_row_for_the_bars_under_a_long_label() {
+        let mut h = Harness::new(Long { german: true, floating: true }, 40, 8);
+        h.key(KeyEvent::press("ctrl+d")).advance(Duration::from_millis(30));
+        let screen = h.screen();
+        assert!(!screen.contains('…') && screen.contains("Alle Einträge") && screen.contains("löschen"), "{screen}");
+        let label = screen.lines().position(|line| line.contains("löschen")).unwrap_or_default();
+        let bars = u16::try_from(label + 1).unwrap_or_default();
+        let track = h.env().theme().color("active");
+        assert!((0..40).any(|x| h.bg(x, bars) == track), "the bars on the card's row under the label: {screen}");
+    }
+
+    /// A heading, a bar that fills the rest of the row and a hold control at its end, as a
+    /// progress pane lays them out.
+    struct Heading;
+
+    impl App for Heading {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.column(|ui| {
+                ui.row(|ui| {
+                    ui.add(crate::widgets::Text::new("Installing paru").bold().no_wrap());
+                    ui.add(crate::widgets::ProgressBar::indeterminate()).fill_width();
+                    ui.add(HoldToConfirm::new("Hold to stop").on_confirm(()));
+                })
+                .gap(2)
+                .fill_width();
+                ui.add(crate::widgets::Text::new("after"));
+            });
+        }
+    }
+
+    #[test]
+    fn beside_a_bar_that_fills_the_row_the_control_keeps_one_line() {
+        let h = Harness::new(Heading, 80, 6);
+        let screen = h.screen();
+        assert!(screen.lines().next().is_some_and(|line| line.contains("Hold to stop")), "{screen}");
+        assert!(screen.lines().nth(1).is_some_and(|line| line.starts_with("after")), "the row is one line: {screen}");
     }
 }

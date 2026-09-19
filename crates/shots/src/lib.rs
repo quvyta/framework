@@ -5,8 +5,9 @@
 //! colour, with an optional quiet title; no frame, no border, no shadow.
 //!
 //! Every glyph is an outline from the embedded JetBrains Mono Nerd Font Mono (Regular and Bold;
-//! italics are slanted), so nothing depends on the fonts of the machine: the same scene gives
-//! byte-identical files everywhere. The picture shows only what the test drew, so a scene built
+//! italics are slanted), with Chinese and Japanese from an embedded Noto Sans Mono CJK SC drawn
+//! centred in their two cells, so nothing depends on the fonts of the machine: the same scene
+//! gives byte-identical files everywhere. The picture shows only what the test drew, so a scene built
 //! from fixed sample data can never leak anything personal.
 //!
 //! ```
@@ -57,6 +58,8 @@ use crate::screen::Screen;
 pub struct Shot {
     screen: Screen,
     title: Option<String>,
+    pointer: Option<(u16, u16)>,
+    square: bool,
 }
 
 impl Shot {
@@ -67,7 +70,7 @@ impl Shot {
     /// looks like more of the application.
     #[must_use]
     pub fn of<A: App>(harness: &Harness<A>) -> Self {
-        Self { screen: Screen::capture(harness), title: None }
+        Self { screen: Screen::capture(harness), title: None, pointer: None, square: false }
     }
 
     /// Adds a thin title strip above the grid: `title` centred in the theme's `muted` colour on
@@ -78,11 +81,30 @@ impl Shot {
         self
     }
 
+    /// Draws a mouse pointer on the cell at column `x`, row `y`: a small arrow in the theme's
+    /// text colour with a thin outline of the ground, its tip inside the cell. Recordings of
+    /// mouse use need it, since the terminal itself never draws one. A cell off the grid draws
+    /// nothing.
+    #[must_use]
+    pub fn pointer(mut self, x: u16, y: u16) -> Self {
+        self.pointer = Some((x, y));
+        self
+    }
+
+    /// Fills the rounded corners with the ground, so the picture is an opaque rectangle. Formats
+    /// without partial transparency need it: a GIF or a video would otherwise show the corners
+    /// black instead of the terminal's ground.
+    #[must_use]
+    pub fn square(mut self) -> Self {
+        self.square = true;
+        self
+    }
+
     /// The picture as SVG. It holds glyph outlines instead of text and no external resource, so
     /// it looks the same in every browser, including through `<img>` on GitHub.
     #[must_use]
     pub fn to_svg(&self) -> String {
-        svg::draw(&self.screen, self.title.as_deref()).svg
+        svg::draw(self).svg
     }
 
     /// The picture as PNG, at twice the SVG's size.
@@ -95,11 +117,12 @@ impl Shot {
         png::render(&self.to_svg())
     }
 
-    /// Characters on the screen the embedded font has no glyph for, such as CJK or emoji. They
-    /// are left out of the picture; a README test can assert this is empty.
+    /// Characters on the screen no embedded font has a glyph for, such as emoji, Korean or rare
+    /// ideographs outside GB 2312 and JIS X 0208. They are left out of the picture; a README test
+    /// can assert this is empty.
     #[must_use]
     pub fn missing(&self) -> Vec<char> {
-        svg::draw(&self.screen, self.title.as_deref()).missing.into_iter().collect()
+        svg::draw(self).missing.into_iter().collect()
     }
 
     /// Writes `<path>.svg` and `<path>.png`, creating the folder. `path` names the picture

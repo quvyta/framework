@@ -445,6 +445,15 @@ impl PaintCx<'_> {
         // cell is cheaper than resetting, writing and styling every cell.
         let mut blank = Cell::EMPTY;
         blank.bg = to_color(color, self.env.depth());
+        // Cells inside the rectangle are all replaced; only a wide character crossing its left
+        // or right edge would be cut in half.
+        let area = rect.intersect(self.clip);
+        if !area.is_empty() {
+            for y in area.y..area.bottom() {
+                self.release(area.x, y);
+                self.release(area.right() - 1, y);
+            }
+        }
         self.each_cell(rect, |cell| cell.clone_from(&blank));
     }
 
@@ -474,6 +483,9 @@ impl PaintCx<'_> {
         let drawn = text.len().min(usize::from(max));
         if text.get(..text.len().min(drawn + 1)).is_some_and(text::is_printable_ascii) {
             for index in 0..drawn {
+                if clip.contains(column, y) {
+                    self.release(column, y);
+                }
                 if clip.contains(column, y)
                     && let Some(cell) = self.cell_mut(column, y)
                 {
@@ -491,6 +503,13 @@ impl PaintCx<'_> {
             }
             if column + width > limit {
                 break;
+            }
+            // Every cell of the grapheme is released before any is written, so its own second
+            // half is not mistaken for part of a character it cut.
+            for offset in 0..width {
+                if clip.contains(column + offset, y) {
+                    self.release(column + offset, y);
+                }
             }
             for offset in 0..width {
                 let cx = column + offset;
@@ -597,11 +616,57 @@ impl PaintCx<'_> {
         }
     }
 
+    /// Keeps wide characters whole before a new symbol lands on `(x, y)`.
+    ///
+    /// A terminal draws a double-width character from its first cell across the next one, and the
+    /// buffer holds it as the glyph followed by an empty second half. Replacing only one half, as a
+    /// dialog's pillar or edge drawn over text does, leaves a pair the terminal cannot show: the
+    /// glyph spills over the new symbol, or the rest of the row shifts by a column. So when the
+    /// cell belongs to a wide character that reaches beyond it, every other cell of that
+    /// character becomes a blank in the colours it already had. The cell may lie outside the
+    /// visible area: a layer's edge decides what happens to the character it cuts.
+    fn release(&mut self, x: i32, y: i32) {
+        // The character this cell is the second half of: the nearest non-empty cell to the left.
+        let mut lead = None;
+        for back in 1..=MAX_GLYPH_CELLS {
+            let Some(cell) = self.cell_mut(x - back, y) else { break };
+            let symbol = cell.symbol();
+            if symbol.is_empty() {
+                continue;
+            }
+            let cells = i32::from(text::width(symbol));
+            if cells > back {
+                lead = Some((x - back, cells));
+            }
+            break;
+        }
+        if let Some((start, cells)) = lead {
+            self.blank_cells(start, start + cells, y);
+        }
+        let own = self.cell_mut(x, y).map_or(1, |cell| i32::from(text::width(cell.symbol())));
+        if own > 1 {
+            self.blank_cells(x + 1, x + own, y);
+        }
+    }
+
+    /// Turns the cells from `start` up to `end` on row `y` into spaces, keeping their colours.
+    fn blank_cells(&mut self, start: i32, end: i32, y: i32) {
+        for x in start..end {
+            if let Some(cell) = self.cell_mut(x, y) {
+                cell.set_symbol(" ");
+            }
+        }
+    }
+
     /// The screen cell at `(x, y)`, when it is on screen.
     fn cell_mut(&mut self, x: i32, y: i32) -> Option<&mut Cell> {
         self.buf.cell_mut((u16::try_from(x).ok()?, u16::try_from(y).ok()?))
     }
 }
+
+/// The most cells one grapheme covers on screen; how far to look left for the start of the
+/// character a cell belongs to.
+const MAX_GLYPH_CELLS: i32 = 4;
 
 /// Frame interval while something moves: about 60 frames a second.
 pub(crate) const ANIMATION_FRAME: Duration = Duration::from_millis(16);

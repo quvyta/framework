@@ -43,11 +43,13 @@ Use a task for anything that takes longer than a frame: building an image, runni
 
 Add `.pty(cols, rows)` when the child should keep its progress bar and its colour: programs check for a terminal and go plain when they write to a pipe. The child then sees a terminal of the size you gave, not the real one's, so its progress bar fits the space you are going to draw it in. Standard input stays the application's own and the child keeps the controlling terminal, which is what keeps a warm `sudo` ticket shared; with a pseudo-terminal both streams land on the same line, so every line arrives as `Line::Out`.
 
+When you need what a progress bar says, not only where it ends (`Building [=>  ] 12/46` from `cargo`, a download's percentage from `pacman` or `curl`), run it with `.run_with_overwritten(&cancel, &mut on_line, &mut on_frame)` instead of `.run(..)`. Every frame a `\r` is about to overwrite then reaches `on_frame`, tagged `Line::Out` or `Line::Err` like a line, in the order the child wrote it; `on_line` still gets exactly the lines `run` would give. Colour codes and `ESC [K` stay in the text, so strip them before you parse.
+
 ## Common mistakes
 
 - **Merging the two streams with `2>&1`.** The diagnosis is then lost: many programs keep their standard error empty until something is wrong.
 - **Expecting a progress bar from a pipe.** Without `.pty(..)` the child sees no terminal and prints plain lines; that is the child's choice, not ours.
-- **Waiting for a newline to show progress.** A `\r` overwrites the line being built, so the finished line is what you get, once.
+- **Waiting for a newline to show progress.** A `\r` overwrites the line being built, so with `run` the finished line is what you get, once; ask for the frames with `run_with_overwritten`.
 - **Killing the child and expecting its children to go too.** Only a child started with `.no_stdin()` takes its own children with it; without it only the child itself is killed, and a program that starts its own children can leave them running.
 - **Letting a child share the terminal's input.** Without `.no_stdin()` a child that asks something reads the keys meant for your application, and cancelling it leaves its own children running.
 - **Letting a child without input ask for a `sudo` password.** Its group does not own the terminal, so the system stops it when it reads the password; it waits until cancelled. Warm the ticket first with a handoff of `sudo -v`, or run `sudo -n`.

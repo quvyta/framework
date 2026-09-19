@@ -245,6 +245,12 @@ impl<A: App> Harness<A> {
         self.render()
     }
 
+    /// Sets the region, as `Command::set_region` would.
+    pub fn set_region(&mut self, region: Option<&str>) -> &mut Self {
+        self.engine.env.set_region(region);
+        self.render()
+    }
+
     /// Turns reduced motion on or off.
     pub fn set_reduced_motion(&mut self, reduced: bool) -> &mut Self {
         self.engine.env.set_reduced_motion(reduced);
@@ -274,7 +280,8 @@ impl<A: App> Harness<A> {
         self.render()
     }
 
-    /// The screen as text, one line per row, trailing spaces removed.
+    /// The screen as text, one line per row, trailing spaces removed. A double-width character
+    /// reads as itself, without the cell it covers, so `防火墙` is found as it is written.
     #[must_use]
     pub fn screen(&self) -> String {
         let mut out = String::new();
@@ -295,11 +302,8 @@ impl<A: App> Harness<A> {
         let mut out = format!("<figure><figcaption>{}</figcaption><div class=\"screen\">", escape(caption));
         for y in 0..area.height {
             out.push_str("<div class=\"row\">");
-            for x in 0..area.width {
+            for x in visible_columns(&self.buffer, y) {
                 let cell = &self.buffer[(x, y)];
-                if cell.symbol().is_empty() {
-                    continue;
-                }
                 let modifier = cell.modifier;
                 let weight = if modifier.contains(Modifier::BOLD) { "font-weight:700;" } else { "" };
                 let style = if modifier.contains(Modifier::ITALIC) { "font-style:italic;" } else { "" };
@@ -318,7 +322,8 @@ impl<A: App> Harness<A> {
         out
     }
 
-    /// Screen position of the first occurrence of `text`, in cells.
+    /// Screen position of the first occurrence of `text`, in cells; text after a double-width
+    /// character is found at the column it is drawn in.
     #[must_use]
     pub fn find(&self, text: &str) -> Option<(i32, i32)> {
         (0..self.buffer.area.height).find_map(|y| {
@@ -331,7 +336,7 @@ impl<A: App> Harness<A> {
     fn row(&self, y: u16) -> (String, Vec<u16>) {
         let mut line = String::new();
         let mut columns = Vec::new();
-        for x in 0..self.buffer.area.width {
+        for x in visible_columns(&self.buffer, y) {
             let symbol = self.buffer[(x, y)].symbol();
             columns.extend(std::iter::repeat_n(x, symbol.len()));
             line.push_str(symbol);
@@ -474,6 +479,22 @@ pub fn html_page(fragments: &[String]) -> String {
     )
 }
 
+/// The columns of row `y` a terminal shows a symbol of: every one except those a wide
+/// character before them covers. Such a cell holds nothing or, when ratatui or a painter unaware
+/// of the character drew it, a space; reading it would split `防火墙` into `防 火 墙`.
+fn visible_columns(buffer: &Buffer, y: u16) -> impl Iterator<Item = u16> + '_ {
+    let mut covered = 0u16;
+    (0..buffer.area.width).filter(move |&x| {
+        if covered > 0 {
+            covered -= 1;
+            return false;
+        }
+        let symbol = buffer[(x, y)].symbol();
+        covered = crate::text::width(symbol).saturating_sub(1);
+        !symbol.is_empty()
+    })
+}
+
 fn rgb(color: Color) -> Option<Rgb> {
     match color {
         Color::Rgb(r, g, b) => Some(Rgb::new(r, g, b)),
@@ -594,5 +615,89 @@ mod handoff_tests {
         harness.send(Msg::Authorize).send(Msg::Authorize).send(Msg::Authorize);
         assert_eq!(harness.handoffs().len(), 3);
         assert_eq!(harness.app().outcomes.len(), 3);
+    }
+}
+
+#[cfg(test)]
+mod wide_text_tests {
+    use super::Harness;
+    use crate::runtime::{App, Command};
+    use crate::widget::View;
+    use crate::widgets::{Button, Text};
+
+    /// A Chinese status line and a button with a Chinese label that counts its presses.
+    #[derive(Default)]
+    struct Firewall {
+        presses: u32,
+    }
+
+    impl App for Firewall {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            self.presses += 1;
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(Text::new("状态 防火墙 on"));
+            ui.add(Button::new("启用").on_press(()));
+        }
+    }
+
+    /// The screen as ratatui leaves it when it draws wide text itself: the cell each wide
+    /// character covers holds a space, as does a cell drawn by any painter that knows nothing of
+    /// the character before it.
+    fn with_covered_cells_as_spaces(harness: &mut Harness<Firewall>) {
+        let area = harness.buffer.area;
+        for y in 0..area.height {
+            let mut covered = 0;
+            for x in 0..area.width {
+                let cell = &mut harness.buffer[(x, y)];
+                if covered > 0 {
+                    covered -= 1;
+                    cell.reset();
+                    continue;
+                }
+                covered = crate::text::width(cell.symbol()).saturating_sub(1);
+            }
+        }
+    }
+
+    fn firewall() -> Harness<Firewall> {
+        let mut harness = Harness::new(Firewall::default(), 30, 3);
+        with_covered_cells_as_spaces(&mut harness);
+        harness
+    }
+
+    #[test]
+    fn the_screen_reads_wide_text_without_gaps() {
+        let harness = firewall();
+        let screen = harness.screen();
+        assert!(screen.starts_with("状态 防火墙 on\n"), "{screen}");
+        assert!(screen.contains("防火墙"), "{screen}");
+    }
+
+    #[test]
+    fn find_gives_the_column_a_wide_text_is_drawn_in() {
+        let harness = firewall();
+        assert_eq!(harness.find("防火墙"), Some((5, 0)));
+        assert_eq!(harness.find("on"), Some((12, 0)), "text after wide characters keeps its column");
+        let (x, y) = harness.find("启用").expect("the button label is on screen");
+        assert_eq!(harness.buffer()[(u16::try_from(x).unwrap(), u16::try_from(y).unwrap())].symbol(), "启");
+    }
+
+    #[test]
+    fn click_text_presses_a_wide_label() {
+        let mut harness = firewall();
+        harness.click_text("启用");
+        assert_eq!(harness.app().presses, 1);
+    }
+
+    #[test]
+    fn html_draws_a_wide_character_once() {
+        let harness = firewall();
+        let html = harness.html("wide");
+        let first_row = html.split("<div class=\"row\">").nth(1).expect("a first row");
+        assert_eq!(first_row.matches("<span").count(), 30 - 5, "five characters take two cells each: {first_row}");
+        assert!(first_row.contains(">防</span><span"), "{first_row}");
     }
 }

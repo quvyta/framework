@@ -1,0 +1,188 @@
+# 日本語
+
+[meta]
+name = "日本語"
+code = "ja"
+fallback = "en"
+
+[quvyta.keys]
+quit       = "終了"
+focus-next = "次へ"
+focus-prev = "前へ"
+debug      = "デバッグ"
+toggle-panel = "パネル"
+copy       = "コピー"
+paste      = "貼り付け"
+help       = "キー"
+palette    = "コマンド"
+
+[quvyta.switch]
+on  = "オン"
+off = "オフ"
+
+[quvyta.log]
+below = { other = "下にあと {n} 行" }
+no-match = "一致する行はありません"
+
+[quvyta.file-picker]
+filter = "名前で絞り込む"
+loading = "フォルダーを読み込み中…"
+parent = "親フォルダー"
+empty = "このフォルダーは空です"
+no-match = "絞り込みに一致する項目はありません"
+hidden = "隠しファイル"
+choose-file = "ファイルを選択"
+choose-folder = "フォルダーを選択"
+permission-denied = "このフォルダーを開く権限がありません"
+not-found = "このフォルダーは存在しません"
+not-a-folder = "これはフォルダーではありません"
+unreadable = "このフォルダーを読み込めませんでした"
+
+[quvyta.terminal]
+scrolled = { other = "{n} 行さかのぼり中" }
+exited = "終了コード {code}"
+
+[quvyta.form]
+required = "必須"
+summary  = { other = "{n} 件の項目を確認してください" }
+
+[quvyta.wizard]
+cancel = "キャンセル"
+back   = "戻る"
+next   = "次へ"
+finish = "完了"
+
+[quvyta.copy-value]
+copy   = "コピー"
+copied = "コピーしました"
+
+[quvyta.tasks]
+done      = "完了"
+cancelled = "キャンセル済み"
+cancel    = "キャンセル"
+empty     = "実行中のタスクはありません"
+
+[quvyta.handoff]
+pause = "何かキーを押すと戻ります"
+
+[quvyta.date]
+# 1 is Monday, 7 is Sunday. Japanese calendars start on Sunday.
+first-weekday = "7"
+format = "{year}年{month}{day}日"
+format-short = "{year}年{month}{day}日"
+format-day-month = "{month}{day}日"
+title = "{year}年{month}"
+month-1 = "1月"
+month-2 = "2月"
+month-3 = "3月"
+month-4 = "4月"
+month-5 = "5月"
+month-6 = "6月"
+month-7 = "7月"
+month-8 = "8月"
+month-9 = "9月"
+month-10 = "10月"
+month-11 = "11月"
+month-12 = "12月"
+weekday-1 = "月"
+weekday-2 = "火"
+weekday-3 = "水"
+weekday-4 = "木"
+weekday-5 = "金"
+weekday-6 = "土"
+weekday-7 = "日"
+weekday-long-1 = "月曜日"
+weekday-long-2 = "火曜日"
+weekday-long-3 = "水曜日"
+weekday-long-4 = "木曜日"
+weekday-long-5 = "金曜日"
+weekday-long-6 = "土曜日"
+weekday-long-7 = "日曜日"
+month-short-1 = "1月"
+month-short-2 = "2月"
+month-short-3 = "3月"
+month-short-4 = "4月"
+month-short-5 = "5月"
+month-short-6 = "6月"
+month-short-7 = "7月"
+month-short-8 = "8月"
+month-short-9 = "9月"
+month-short-10 = "10月"
+month-short-11 = "11月"
+month-short-12 = "12月"
+
+[quvyta.time]
+clock = "{hour}:{minute}"
+hour = "{hour}"
+span = "{from}–{to}"
+hours-minutes = "{hours}時間{minutes}分"
+hours = "{hours}時間"
+minutes = "{minutes}分"
+seconds = "{seconds}秒"
+
+[quvyta.timeline]
+empty = "この日は何もありません"
+from-previous-day = "前日から"
+from-earlier = "それ以前から"
+continues-next-day = "翌日に続く"
+running = "進行中"
+open-both = "{start}、{end}"
+
+[quvyta.layer]
+close  = "閉じる"
+switch = "切り替え"
+scroll = "スクロール"
+move   = "移動"
+run    = "実行"
+filter = "入力して絞り込み"
+
+[quvyta.help]
+title  = "キーボードショートカット"
+screen = "この画面"
+app    = "アプリケーション"
+global = "全般"
+empty  = "一致するキーはありません"
+
+[quvyta.palette]
+placeholder = "コマンドを入力"
+recent      = "最近使ったもの"
+all         = "すべてのコマンド"
+empty       = "一致するコマンドはありません"
+
+[quvyta.confirm]
+confirm   = "確認"
+cancel    = "キャンセル"
+type-word = "確認するには {word} と入力してください"
+
+[quvyta.tabs]
+add = "新しいタブ"
+
+[quvyta.tab-rail]
+add = "新しいタブ"
+
+[quvyta.edit]
+cut        = "切り取り"
+copy       = "コピー"
+raw-copy   = "そのままコピー"
+paste      = "貼り付け"
+select-all = "すべて選択"
+
+[quvyta.duration]
+hours   = "時間"
+minutes = "分"
+seconds = "秒"
+hour-words   = "時間, 時"
+minute-words = "分"
+second-words = "秒"
+hour-name    = "時間"
+minute-name  = "分"
+second-name  = "秒"
+empty     = "読み取る内容がありません。1 時間 30 分、90 分、2:15 のように入力してください"
+character = "「{text}」は時間の長さに使えません"
+unit      = "「{text}」は時間の単位ではありません。時間、分、秒を使ってください"
+number    = "「{text}」は数値ではありません"
+no-number = "「{text}」の前に数値が必要です"
+no-unit   = "「{text}」の後に分などの単位が必要です"
+repeated  = "{text}が2回書かれています"
+clock     = "「{text}」は時と分として読めません。2:15 または 2:15:30 のように、分と秒は 60 未満で入力してください"
+too-large = "最長の長さ {text} を超えています"

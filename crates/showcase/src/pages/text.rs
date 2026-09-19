@@ -1,7 +1,8 @@
 //! Text: typography roles, colour tokens, spans, wrapping to the space it gets or a fixed
-//! width, alignment, and opting in to mouse selection.
+//! width, alignment, cutting a path in the middle, and opting in to mouse selection.
 
 use qframe::prelude::*;
+use qframe::text::truncate_middle;
 use qframe::widgets::Select;
 
 use super::{PageMsg, setting, toggle};
@@ -12,6 +13,10 @@ const PAGE: &str = "text";
 
 /// Fixed widths the playground offers for the paragraph, after "auto".
 const WIDTHS: [u16; 4] = [24, 40, 60, 80];
+
+/// The path cut in the middle, and the widths it is shown at.
+const PATH: &str = "~/.config/quvyta/launcher.conf";
+const PATH_WIDTHS: [u16; 4] = [30, 24, 16, 8];
 
 /// Playground settings.
 #[derive(Debug)]
@@ -94,15 +99,40 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     .fill_width();
 
     let align = [Align::Start, Align::Center, Align::End][state.align];
+    // Auto takes the whole width the panel gives and wraps again when the terminal resizes.
+    let width = state.width.map_or(Length::Fill(1), |index| Length::Cells(WIDTHS[index]));
     ui.add_with(Panel::new().title(t!("text.paragraph")), |ui| {
         // region: wrapping
         let mut paragraph = Text::new(t!("text.long")).role("secondary").align(align);
         if !state.wrap {
             paragraph = paragraph.no_wrap();
         }
-        // Auto takes the whole width the panel gives and wraps again when the terminal resizes.
-        let width = state.width.map_or(Length::Fill(1), |index| Length::Cells(WIDTHS[index]));
         ui.add(paragraph).width(width).selectable(state.selectable).id("paragraph");
+        // endregion
+    })
+    .fill_width();
+
+    ui.add_with(Panel::new().title(t!("text.middle")).gap(0), |ui| {
+        // region: middle
+        // The head says which folder tree, the tail which file; the middle is what can go.
+        for max in PATH_WIDTHS {
+            ui.add(Text::rich([Span::new(format!("{max:>2}  ")).role("faint"), Span::new(truncate_middle(PATH, max))]));
+        }
+        // endregion
+    })
+    .fill_width();
+
+    ui.add_with(Panel::new().title(t!("text.scripts")), |ui| {
+        // region: scripts
+        // Nothing to ask for: Chinese and Japanese break between characters, never before `。`
+        // or after `「`, and a no-break space keeps French `?` and `:` with their word.
+        for key in ["text.japanese", "text.chinese", "text.french"] {
+            let mut sample = Text::new(t!(key)).role("secondary").align(align);
+            if !state.wrap {
+                sample = sample.no_wrap();
+            }
+            ui.add(sample).width(width).selectable(state.selectable);
+        }
         // endregion
     })
     .fill_width();
@@ -183,6 +213,41 @@ mod tests {
         let fixed = paragraph_rows(160, Some(Msg::Width(Some(0))));
         assert!(fixed.iter().all(|row| row.chars().count() <= 24), "a fixed width stays: {fixed:?}");
         assert_eq!(fixed, paragraph_rows(110, Some(Msg::Width(Some(0)))), "and ignores the terminal");
+    }
+
+    /// Marks that a line of the sample paragraphs must never start with.
+    const NEVER_FIRST: [&str; 8] = ["。", "、", "，", "）", "」", "ー", "?", ":"];
+
+    #[test]
+    fn other_scripts_wrap_by_their_own_rules_at_every_width() {
+        for (index, cells) in WIDTHS.into_iter().enumerate() {
+            let mut h = Harness::with_env(Showcase::new(), env(), 120, 90);
+            h.set_locale("en").set_glyph_mode(GlyphMode::Unicode);
+            h.send(ShowcaseMsg::Open(PAGE.to_owned()));
+            h.send(send(Msg::Width(Some(index))));
+            h.advance(Duration::from_secs(1));
+            let screen = h.screen();
+            assert!(screen.contains("設定を保存しました"), "the harness reads wide text whole:\n{screen}");
+            assert!(screen.contains("防火墙已启用"), "{screen}");
+            let (x, start) = h.find("設定を").expect("the Japanese sample on screen");
+            let (_, end) = h.find("récupéré").expect("the French sample on screen");
+            let column = u16::try_from(x).expect("a column on screen");
+            let rows = u16::try_from(start).unwrap_or(0)..=u16::try_from(end).unwrap_or(0);
+            for y in rows.clone() {
+                let first = h.buffer()[(column, y)].symbol();
+                assert!(!NEVER_FIRST.contains(&first), "width {cells}: row {y} starts with {first:?}:\n{screen}");
+            }
+            assert!(rows.count() > 3, "the samples wrap at width {cells}");
+        }
+    }
+
+    #[test]
+    fn a_path_is_cut_in_the_middle() {
+        let h = showcase_on(PAGE);
+        let screen = h.screen();
+        assert!(screen.contains(PATH), "{screen}");
+        assert!(screen.contains("~/.config/q…auncher.conf"), "{screen}");
+        assert!(screen.contains("~/.conf…her.conf"), "{screen}");
     }
 
     #[test]

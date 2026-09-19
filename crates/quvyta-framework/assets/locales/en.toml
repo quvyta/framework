@@ -68,6 +68,10 @@ pause = "Press any key to return"
 # 1 is Monday, 7 is Sunday. English calendars in the US start on Sunday.
 first-weekday = "7"
 format = "{month} {day}, {year}"
+# The same date with the short month name, for fields too narrow for the long one.
+format-short = "{month} {day}, {year}"
+# Without the year, for fields too narrow even for the short date.
+format-day-month = "{month} {day}"
 title = "{month} {year}"
 month-1 = "January"
 month-2 = "February"
@@ -109,6 +113,9 @@ month-short-9 = "Sep"
 month-short-10 = "Oct"
 month-short-11 = "Nov"
 month-short-12 = "Dec"
+# A language whose month names change inside a date may add `month-in-date-1` to
+# `month-in-date-12`, the form `format` shows: Russian `января` where the heading says `Январь`.
+# Without them `format` shows the month names above.
 
 [quvyta.time]
 # `hour` and `minute` arrive as two digits on a 24-hour clock.

@@ -38,6 +38,7 @@
 - `.pty(sütun, satır)` — çocuğu boru yerine o boyutta bir sözde terminalde çalıştırır.
 - `.no_stdin()` — çocuk terminal yerine boş bir girdi (`/dev/null`) okur ve Unix'te kendi süreç grubunda çalışır.
 - `.run(&cancel, &mut on_line) -> io::Result<ProcessOutcome>` — çalıştırır ve her satırı teslim eder; çocuk başlatılamazsa ya da sözde terminal açılamazsa hata döner.
+- `.run_with_overwritten(&cancel, &mut on_line, &mut on_overwritten) -> io::Result<ProcessOutcome>` — `run` gibi çalıştırır, ayrıca bir `\r`'nin ezdiği her kareyi akışının etiketini taşıyan bir `Line` olarak `on_overwritten`'a verir.
 - `Line::Out(metin)`, `Line::Err(metin)` — standart çıktı ve standart hata; boru kipinde ayrı tutulur.
 - `ProcessOutcome::Finished { code }` — çocuğu bir sinyal bitirdiyse `code` değeri `None` olur; `ProcessOutcome::Cancelled`.
 
@@ -45,6 +46,7 @@
 
 - Satırlar tek tek, yeni satır karakteri olmadan gelir; son satır sonunda yeni satır olmasa da teslim edilir.
 - Satır başı yeni satır açmak yerine yazılmakta olan satırı ezer, böylece ilerleme çubuğu tek satır kalır; terminalin `\r\n` dizisi ise satırı bitirir.
+- `run_with_overwritten` ile `\r`'den sonraki bayt `\n` değilse kare teslim edilir: `\r\n` ve `\r\r\n` sıradan satır sonu kalır, boş kare atlanır, `\r` ile biten çıktı son karesini de verir. Renk kodları ve `ESC [K` metinde kalır. Kareler boruda da sözde terminalde de gelir; `run` ile atılır, kuyruğa hiç girmez.
 - Boru kipinde iki akış ayrı okunur ve birleştirilmez; sözde terminalde ikisi de aynı satıra düştüğü için yalnız `Line::Out` görünür.
 - `cancel` satırlar arasında sorulur. Doğru döndüğünde çocuk öldürülür, bekleyen çıktı atılır ve sonuç `Cancelled` olur. Unix'te `no_stdin` ile çocuğun bütün süreç grubu öldürülür; başlattığı programlar da biter, kendi grubuna ya da oturumuna geçenler hariç. Onsuz yalnızca çocuğun kendisi öldürülür, çünkü terminali okuyan bir çocuk kendi grubunda yaşayamaz (sistem onu ilk okumasında durdurur).
 - UTF-8 olmayan baytlar kaybolmaz, değiştirme karakterine çevrilir.

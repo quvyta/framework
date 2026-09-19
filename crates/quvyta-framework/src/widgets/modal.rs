@@ -2,6 +2,7 @@
 
 use crate::event::Event;
 use crate::geometry::{Rect, Size};
+use crate::text;
 use crate::widget::{Axis, Container, EventCx, Flex, Length, MeasureCx, Node, PaintCx, Widget};
 
 use super::Button;
@@ -32,8 +33,9 @@ const ACTION_GAP: u16 = 2;
 /// always together, and `close_on_click_outside` adds a click on the dimmed screen.
 /// `dismissable(false)` turns all of them off at once (and hides the mark) while keeping the
 /// message, e.g. while the dialog is busy. `title` and `variant("danger")` mark it, `action` adds
-/// buttons at the bottom right. A faint hint line at the bottom left names Esc and Tab when they
-/// do something.
+/// buttons at the bottom right; on a screen too narrow for them side by side they stand one under
+/// another, in Tab order, and never get cut. A faint hint line at the bottom left names Esc and
+/// Tab when they do something.
 ///
 /// Style keys: `modal` (`bg`, `padding`, `pillar`) with variants such as `modal.danger`,
 /// `modal-title` (`fg`, `bold`), `close-mark`, `layer-backdrop` (`scrim`, `strength` in percent),
@@ -65,7 +67,7 @@ impl<Msg: Clone + 'static> Modal<Msg> {
         }
     }
 
-    /// A bold heading in the first row.
+    /// A bold heading in the first row; a title wider than the dialog wraps onto more rows.
     #[must_use]
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
@@ -111,7 +113,10 @@ impl<Msg: Clone + 'static> Modal<Msg> {
     }
 
     /// Adds a button to the action row at the bottom right, after the ones added before. Put
-    /// the safe action first: the first focusable widget has focus when the dialog opens.
+    /// the safe action first: the first focusable widget has focus when the dialog opens. When
+    /// the buttons do not fit on one row they stand one under another, first added on top, so
+    /// the last one, usually the confirming button, stays last: at the right end of the row, at
+    /// the bottom of the column.
     #[must_use]
     pub fn action(mut self, button: Button<Msg>) -> Self {
         let index = self.parts.len();
@@ -159,10 +164,16 @@ impl<Msg: Clone + 'static> Widget<Msg> for Modal<Msg> {
         let padding = layer::padding(cx, "modal", dismissable);
         let width = self.width.min(screen.width.saturating_sub(2));
         let inner_width = width.saturating_sub(padding.horizontal());
-        let title_rows: u16 = if self.title.is_some() { 2 } else { 0 };
+        // A long title wraps rather than being cut; a blank row always follows it.
+        let title_lines = self.title.as_deref().map_or_else(Vec::new, |title| text::wrap(title, inner_width.max(1)));
+        let title_rows = match title_lines.len() {
+            0 => 0,
+            lines => u16::try_from(lines).unwrap_or(u16::MAX).saturating_add(1),
+        };
         let (body, actions) = self.parts.split_first().expect("a modal always has its body");
         let action_sizes: Vec<Size> =
             actions.iter().map(|action| cx.measure_child(action, Size::new(inner_width, 1))).collect();
+        let placed = ActionRow::place(&action_sizes, inner_width);
         let mut hints = Vec::new();
         if dismissable {
             hints.push(layer::hint(cx, "esc", "close"));
@@ -170,7 +181,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Modal<Msg> {
         if body.count_focusable() + actions.len() > 1 {
             hints.push(layer::hint(cx, "tab", "switch"));
         }
-        let footer_rows: u16 = if actions.is_empty() && hints.is_empty() { 0 } else { 2 };
+        let footer_rows: u16 = if actions.is_empty() && hints.is_empty() { 0 } else { placed.rows.max(1) + 1 };
         let chrome = cells::sum([padding.vertical(), title_rows, footer_rows]);
         let available_body = screen.height.saturating_sub(chrome.saturating_add(2));
         let body_height = cx.measure_child(body, Size::new(inner_width, available_body)).height;
@@ -180,8 +191,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for Modal<Msg> {
         let surface = layer::open(cx, size, SurfacePosition::Center, look);
         let inner = surface.inner;
         cx.with_clip(surface.shown, |cx| {
-            if let Some(title) = &self.title {
-                layer::title(cx, inner.x, inner.y, inner.width, title);
+            for (y, line) in (inner.y..).zip(&title_lines) {
+                layer::title(cx, inner.x, y, inner.width, line);
             }
             let body_rect = Rect::new(
                 inner.x,
@@ -193,18 +204,15 @@ impl<Msg: Clone + 'static> Widget<Msg> for Modal<Msg> {
             if footer_rows == 0 {
                 return;
             }
-            let row = inner.bottom() - 1;
-            let gaps = ACTION_GAP * u16::try_from(actions.len().saturating_sub(1)).unwrap_or(0);
-            let actions_width = action_sizes.iter().map(|size| size.width).sum::<u16>() + gaps;
-            let start = inner.right() - i32::from(actions_width);
-            // Painted left to right so Tab follows the order the user reads.
-            let mut x = start;
-            for (action, size) in actions.iter().zip(&action_sizes) {
-                cx.paint_child(action, Rect::new(x, row, size.width, 1));
-                x += i32::from(size.width + ACTION_GAP);
+            let first_row = inner.bottom() - i32::from(placed.rows.max(1));
+            // Painted in order so Tab follows the order the user reads, whether the buttons
+            // share a row or stand one under another.
+            for (action, rect) in actions.iter().zip(&placed.rects) {
+                let rect = Rect::new(inner.right() - rect.x, first_row + rect.y, rect.width, rect.height);
+                cx.paint_child(action, rect);
             }
-            let hint_width = crate::geometry::clamp_u16(start - i32::from(ACTION_GAP) - inner.x);
-            layer::paint_hints(cx, inner.x, row, hint_width, &hints);
+            let hint_width = crate::geometry::clamp_u16(i32::from(inner.width) - i32::from(placed.last_row_width));
+            layer::paint_hints(cx, inner.x, inner.bottom() - 1, hint_width, &hints);
         });
         layer::finish(cx, &surface);
     }
@@ -228,6 +236,52 @@ impl<Msg: Clone + 'static> Widget<Msg> for Modal<Msg> {
 
     fn children_mut(&mut self) -> &mut [Node<Msg>] {
         &mut self.parts
+    }
+}
+
+/// Where the action buttons go at the bottom of a dialog.
+///
+/// They share one row at the bottom right while they fit. When they do not, they stand one under
+/// another at the bottom right, in the order they were added, which is also the Tab order: the
+/// first added on top and the last added, the confirming button by convention, at the bottom,
+/// the same place it takes at the right end of the single row. Stacked buttons all take the
+/// width of the widest, so they read as one column, with a blank row between two of them so
+/// their tones never merge.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActionRow {
+    /// Rows the buttons take, gaps included.
+    rows: u16,
+    /// One rect per button: `x` counts cells back from the right edge of the content, `y` rows
+    /// down from the first action row.
+    rects: Vec<Rect>,
+    /// Cells the buttons take on the last row, with the gap before them, which the hint line
+    /// keeps clear of.
+    last_row_width: u16,
+}
+
+impl ActionRow {
+    fn place(sizes: &[Size], width: u16) -> Self {
+        if sizes.is_empty() {
+            return Self { rows: 0, rects: Vec::new(), last_row_width: ACTION_GAP };
+        }
+        let count = u16::try_from(sizes.len()).unwrap_or(u16::MAX);
+        let gaps = ACTION_GAP.saturating_mul(count - 1);
+        let one_row = cells::sum(sizes.iter().map(|size| size.width)).saturating_add(gaps);
+        if one_row <= width || sizes.len() == 1 {
+            let mut from_right = i32::from(one_row);
+            let rects = sizes
+                .iter()
+                .map(|size| {
+                    let rect = Rect::new(from_right, 0, size.width, 1);
+                    from_right -= i32::from(size.width.saturating_add(ACTION_GAP));
+                    rect
+                })
+                .collect();
+            return Self { rows: 1, rects, last_row_width: one_row.saturating_add(ACTION_GAP) };
+        }
+        let column = sizes.iter().map(|size| size.width).max().unwrap_or(0).min(width);
+        let rects = (0..count).map(|index| Rect::new(i32::from(column), i32::from(index * 2), column, 1)).collect();
+        Self { rows: count * 2 - 1, rects, last_row_width: column.saturating_add(ACTION_GAP) }
     }
 }
 
@@ -486,5 +540,100 @@ mod tests {
         let mut h = Harness::new(Demo::default(), 50, 16);
         h.set_reduced_motion(true).press("tab").press("enter");
         assert_eq!(h.bg(7, 5), h.env().theme().color("overlay"));
+    }
+
+    /// A dialog with three long actions, which cannot share a row at 40 columns.
+    struct ThreeWays {
+        chosen: Option<&'static str>,
+    }
+
+    impl App for ThreeWays {
+        type Msg = &'static str;
+        fn update(&mut self, msg: &'static str) -> Command<&'static str> {
+            self.chosen = Some(msg);
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, &'static str>) {
+            let modal = Modal::new()
+                .title("Quit?")
+                .on_close("closed")
+                .action(Button::new("Cancel").on_press("cancel"))
+                .action(Button::new("Leave running").on_press("leave"))
+                .action(Button::new("Finish and quit").variant("primary").on_press("finish"));
+            ui.add_with(modal, |ui| {
+                ui.add(Text::new("A session is running."));
+            });
+        }
+    }
+
+    #[test]
+    fn actions_that_do_not_fit_stand_one_under_another_with_the_last_at_the_bottom() {
+        let mut h = Harness::new(ThreeWays { chosen: None }, 40, 20);
+        h.set_reduced_motion(true).advance(Duration::from_millis(1));
+        let screen = h.screen();
+        assert!(!screen.contains('…'), "{screen}");
+        let place = |h: &Harness<ThreeWays>, label: &str| h.find(label).unwrap_or_else(|| panic!("{label}: {screen}"));
+        let (cancel, leave, finish) = (place(&h, "Cancel"), place(&h, "Leave running"), place(&h, "Finish and quit"));
+        assert_eq!((leave.1 - cancel.1, finish.1 - leave.1), (2, 2), "{screen}");
+        assert_eq!((cancel.0, leave.0), (finish.0, finish.0), "one column: {screen}");
+        let lines: Vec<&str> = screen.lines().collect();
+        let last = usize::try_from(finish.1).unwrap_or_default();
+        assert!(lines[last].contains("esc close"), "the hints share the last row: {screen}");
+        h.press("tab").press("tab").press("enter");
+        assert_eq!(h.app().chosen, Some("finish"), "Tab goes down the column");
+        let mut h = Harness::new(ThreeWays { chosen: None }, 40, 20);
+        h.set_reduced_motion(true).advance(Duration::from_millis(1));
+        h.click(leave.0 + 1, leave.1);
+        assert_eq!(h.app().chosen, Some("leave"));
+    }
+
+    #[test]
+    fn stacked_actions_take_the_width_of_the_widest() {
+        let wide = ActionRow::place(&[Size::new(10, 1), Size::new(17, 1)], 40);
+        assert_eq!((wide.rows, wide.rects[0].x, wide.rects[1].x), (1, 29, 17));
+        let narrow = ActionRow::place(&[Size::new(10, 1), Size::new(17, 1), Size::new(19, 1)], 32);
+        assert_eq!(narrow.rows, 5);
+        assert!(narrow.rects.iter().all(|rect| rect.width == 19 && rect.x == 19), "{narrow:?}");
+        assert_eq!(narrow.rects.iter().map(|rect| rect.y).collect::<Vec<_>>(), [0, 2, 4]);
+    }
+
+    #[test]
+    fn a_long_title_wraps_instead_of_being_cut() {
+        struct Long(&'static str);
+        impl App for Long {
+            type Msg = ();
+            fn update(&mut self, (): ()) -> Command<()> {
+                Command::none()
+            }
+            fn view(&self, ui: &mut View<'_, ()>) {
+                let modal = Modal::new().title(self.0).on_close(()).action(Button::new("OK").on_press(()));
+                ui.add_with(modal, |ui| {
+                    ui.add(Text::new("Body"));
+                });
+            }
+        }
+        for (code, title) in [
+            ("en", "Empty the trash for good, with every record in it?"),
+            ("de", "Den Papierkorb endgültig leeren, mit allen Einträgen darin?"),
+        ] {
+            let mut h = Harness::new(Long(title), 40, 16);
+            h.set_locale(code).set_reduced_motion(true).advance(Duration::from_millis(1));
+            let screen = h.screen();
+            assert!(!screen.contains('…'), "{code}: {screen}");
+            let shown: Vec<&str> = screen
+                .lines()
+                .map(|line| line.trim_start_matches(' ').trim_start_matches('▌').trim())
+                .filter(|line| !line.is_empty())
+                .collect();
+            assert!(shown.join(" ").contains(title), "every word of the title, in order: {code}: {screen}");
+            let body = shown.iter().position(|line| *line == "Body").unwrap_or_default();
+            let lines: Vec<&str> = screen.lines().collect();
+            let body_row = lines.iter().position(|line| line.contains("Body")).unwrap_or_default();
+            assert!(body >= 2, "{code}: {screen}");
+            assert!(
+                lines[body_row - 1].trim_start_matches(' ').trim_start_matches('▌').trim().is_empty(),
+                "a blank row after the title: {screen}"
+            );
+        }
     }
 }

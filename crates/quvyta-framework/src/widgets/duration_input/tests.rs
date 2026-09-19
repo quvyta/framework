@@ -24,6 +24,42 @@ fn i18n(code: &str) -> I18n {
 // Parsing.
 
 #[test]
+fn reads_the_unit_words_of_every_built_in_language() {
+    let i18n = i18n("en");
+    let read = |text: &str| parse_duration(text, &i18n);
+    assert_eq!(read("1 Std 30 Min"), Ok(hm(1, 30)));
+    assert_eq!(read("2 Stunden 10 Sekunden"), Ok(hms(2, 0, 10)));
+    assert_eq!(read("1 hora 5 minutos"), Ok(hm(1, 5)));
+    assert_eq!(read("2 heures 5 minutes"), Ok(hm(2, 5)));
+    assert_eq!(read("1 ч 30 мин"), Ok(hm(1, 30)));
+    assert_eq!(read("5 часов 20 секунд"), Ok(hms(5, 0, 20)));
+    assert_eq!(read("1小时30分钟"), Ok(hm(1, 30)));
+    assert_eq!(read("1時間30分"), Ok(hm(1, 30)));
+    assert_eq!(read("45秒"), Ok(Duration::from_secs(45)));
+}
+
+#[test]
+fn every_built_in_language_explains_every_error() {
+    for code in ["de", "es", "fr", "pt-BR", "ru", "zh-Hans", "ja"] {
+        let i18n = i18n(code);
+        for error in [
+            DurationError::Empty,
+            DurationError::Character('/'),
+            DurationError::UnknownUnit("x".to_owned()),
+            DurationError::BadNumber("1.2.3".to_owned()),
+            DurationError::MissingNumber("h".to_owned()),
+            DurationError::MissingUnit("1".to_owned()),
+            DurationError::RepeatedUnit(DurationUnit::Hours),
+            DurationError::BadClock("1:75".to_owned()),
+            DurationError::TooLarge,
+        ] {
+            let message = error.message(&i18n);
+            assert!(!message.contains('⟦') && !message.contains('{'), "{code} {error:?}: {message}");
+        }
+    }
+}
+
+#[test]
 fn reads_numbers_with_units_in_both_languages_whatever_is_active() {
     for active in ["en", "tr"] {
         let i18n = i18n(active);

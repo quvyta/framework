@@ -35,7 +35,7 @@ fn screen(width: u16, cells: Vec<Cell>) -> Screen {
 }
 
 fn shot(screen: Screen) -> Shot {
-    Shot { screen, title: None }
+    Shot { screen, title: None, pointer: None, square: false }
 }
 
 fn count(haystack: &str, needle: &str) -> usize {
@@ -93,14 +93,49 @@ fn bold_and_italic_are_separate_outlines() {
 
 #[test]
 fn wide_characters_take_two_cells() {
-    // The Nerd Font has no CJK: the character is reported, and what follows it still lands two
+    // No embedded font has emoji: the character is reported, and what follows it still lands two
     // cells on.
-    let wide = Cell { width: 2, ..cell("中") };
+    let wide = Cell { width: 2, ..cell("😀") };
     let rest = Cell { symbol: String::new(), width: 0, ..cell(" ") };
     let shot = shot(screen(5, vec![wide, rest, cell("x")]));
     let svg = shot.to_svg();
-    assert_eq!(shot.missing(), vec!['中']);
+    assert_eq!(shot.missing(), vec!['😀']);
     assert!(svg.contains("x=\"34\" y=\"16\""), "x sits in the third cell:\n{svg}");
+}
+
+#[test]
+fn a_cjk_glyph_is_centred_in_its_two_cells() {
+    // Drawn at the Latin size, the glyph is 15 px wide: 1.5 px of room on each side of 18.
+    let wide = Cell { width: 2, ..cell("中") };
+    let rest = Cell { symbol: String::new(), width: 0, ..cell(" ") };
+    let shot = shot(screen(4, vec![wide, rest, cell("x")]));
+    let svg = shot.to_svg();
+    assert!(shot.missing().is_empty(), "{:?}", shot.missing());
+    assert!(svg.contains("x=\"17.5\" y=\"16\""), "centred between 16 and 34:\n{svg}");
+    assert!(svg.contains("x=\"34\" y=\"16\""), "x sits in the third cell:\n{svg}");
+}
+
+struct Line(&'static str);
+
+impl App for Line {
+    type Msg = ();
+    fn update(&mut self, (): ()) -> Command<()> {
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, ()>) {
+        ui.add(Text::new(self.0));
+        ui.add(Text::new("Quvyta 25 min").bold());
+    }
+}
+
+#[test]
+fn japanese_and_chinese_screens_have_every_glyph() {
+    for text in ["今日のセッション", "缓存清理 防火墙", "「集中」は、25分。", "下载中…完成"]
+    {
+        let shot = Shot::of(&Harness::new(Line(text), 24, 2)).title(text);
+        assert!(shot.missing().is_empty(), "{text}: {:?}", shot.missing());
+        assert!(shot.to_png().is_ok());
+    }
 }
 
 #[test]
@@ -187,4 +222,23 @@ fn quadrants_split_the_cell_without_overlap() {
     let area: f32 = tiles.iter().map(|([l, t, r, b], _)| (r - l) * (b - t)).sum();
     assert!((area - 1.0).abs() < f32::EPSILON);
     assert_eq!(tiles.iter().filter(|(_, inked)| *inked).count(), 2);
+}
+
+#[test]
+fn a_pointer_is_drawn_on_its_cell_and_nowhere_off_the_grid() {
+    let plain = shot(screen(4, vec![cell("a")]));
+    let with = plain.clone().pointer(2, 0);
+    let svg = with.to_svg();
+    assert_eq!(count(&svg, "stroke-linejoin"), 1, "{svg}");
+    // Column 2 starts at 16 + 2 * 9; the tip sits a third of the cell in.
+    assert!(svg.contains("translate(37.15 22)"), "{svg}");
+    assert_eq!(plain.clone().pointer(4, 0).to_svg(), plain.to_svg(), "a pointer off the grid draws nothing");
+}
+
+#[test]
+fn a_square_shot_fills_its_corners_with_the_ground() {
+    let rounded = shot(screen(4, vec![cell("a")])).title("t");
+    assert!(rounded.to_svg().contains(" rx=\"10\""), "{}", rounded.to_svg());
+    let square = rounded.square().to_svg();
+    assert!(square.contains(" rx=\"0\"") && !square.contains("A10 10"), "{square}");
 }

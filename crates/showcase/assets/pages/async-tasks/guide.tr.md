@@ -43,11 +43,13 @@ Bir kareden uzun süren her iş için `Task` kullan: imaj derlemek, migration ç
 
 Çocuğun ilerleme çubuğunu ve rengini koruması gerekiyorsa `.pty(sütun, satır)` ekle: programlar terminal denetimi yapar ve boruya yazarken süssüz çıktıya döner. Çocuk böylece gerçek terminalin değil, senin verdiğin boyutta bir terminal görür; ilerleme çubuğu da çizeceğin alana göre kurulur. Standart girdi uygulamanın kendi girdisi kalır ve çocuk kontrol eden terminali korur; sıcak bir `sudo` biletinin paylaşılmasını sağlayan budur. Sözde terminalde iki akış aynı satıra düştüğü için her satır `Line::Out` olarak gelir.
 
+İlerleme çubuğunun yalnızca nerede bittiğini değil ne dediğini de istiyorsan (`cargo`'nun `Building [=>  ] 12/46` satırı, `pacman` ya da `curl` indirmesinin yüzdesi), `.run(..)` yerine `.run_with_overwritten(&cancel, &mut on_line, &mut on_frame)` ile çalıştır. Bir `\r`'nin ezmek üzere olduğu her kare `on_frame`'e gelir; satır gibi `Line::Out` ya da `Line::Err` etiketini taşır ve çocuğun yazdığı sırayla gelir. `on_line` ise `run`'ın vereceği satırların aynısını alır. Renk kodları ve `ESC [K` metinde kalır; ayrıştırmadan önce temizle.
+
 ## Sık yapılan hatalar
 
 - **İki akışı `2>&1` ile birleştirmek.** Tanı böylece kaybolur: birçok program bir şey ters gitmedikçe standart hatayı boş bırakır.
 - **Borudan ilerleme çubuğu beklemek.** `.pty(..)` olmadan çocuk terminal görmez ve süssüz satırlar yazar; bu bizim değil, çocuğun kararıdır.
-- **İlerlemeyi görmek için yeni satır beklemek.** Satır başı yazılmakta olan satırı ezer; eline biten satır, bir kez geçer.
+- **İlerlemeyi görmek için yeni satır beklemek.** Satır başı yazılmakta olan satırı ezer; `run` ile eline biten satır, bir kez geçer. Kareleri `run_with_overwritten` ile iste.
 - **Çocuğu öldürüp çocuklarının da gideceğini sanmak.** Yalnızca `.no_stdin()` ile başlatılan bir çocuk kendi çocuklarını da götürür; onsuz yalnızca çocuğun kendisi öldürülür ve kendi çocuklarını başlatan bir program onları çalışır bırakabilir.
 - **Çocuğun terminal girdisini paylaşması.** `.no_stdin()` olmadan soru soran bir çocuk uygulamana gelen tuşları okur; iptal edildiğinde de kendi çocukları çalışmaya devam eder.
 - **Girdisiz bir çocuğa `sudo` parolası sordurmak.** Onun grubu terminalin sahibi değildir; parolayı okumaya çalıştığında sistem onu durdurur ve iptal edilene kadar bekler. Bileti önce bir `sudo -v` devriyle ısıt ya da `sudo -n` kullan.

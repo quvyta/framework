@@ -1,0 +1,201 @@
+# Español
+
+[meta]
+name = "Español"
+code = "es"
+fallback = "en"
+
+[quvyta.keys]
+quit       = "salir"
+focus-next = "siguiente"
+focus-prev = "anterior"
+debug      = "depurar"
+toggle-panel = "panel"
+copy       = "copiar"
+paste      = "pegar"
+help       = "teclas"
+palette    = "comandos"
+
+[quvyta.switch]
+on  = "SÍ"
+off = "NO"
+
+[quvyta.log]
+below = { one = "{n} línea más abajo", other = "{n} líneas más abajo" }
+no-match = "Ninguna línea coincide"
+
+[quvyta.file-picker]
+filter = "Filtrar por nombre"
+loading = "Leyendo la carpeta…"
+parent = "Carpeta superior"
+empty = "Esta carpeta está vacía"
+no-match = "Nada coincide con el filtro"
+hidden = "Archivos ocultos"
+choose-file = "Elegir archivo"
+choose-folder = "Elegir carpeta"
+permission-denied = "No tienes permiso para abrir esta carpeta"
+not-found = "Esta carpeta no existe"
+not-a-folder = "Esto no es una carpeta"
+unreadable = "No se pudo leer esta carpeta"
+
+[quvyta.terminal]
+scrolled = { one = "{n} línea atrás", other = "{n} líneas atrás" }
+exited = "terminó con {code}"
+
+[quvyta.form]
+required = "obligatorio"
+summary  = { one = "{n} campo necesita atención", other = "{n} campos necesitan atención" }
+
+[quvyta.wizard]
+cancel = "Cancelar"
+back   = "Atrás"
+next   = "Siguiente"
+finish = "Finalizar"
+
+[quvyta.copy-value]
+copy   = "copiar"
+copied = "copiado"
+
+[quvyta.tasks]
+done      = "hecho"
+cancelled = "cancelado"
+cancel    = "Cancelar"
+empty     = "No hay tareas en curso"
+
+[quvyta.handoff]
+pause = "Pulsa cualquier tecla para volver"
+
+[quvyta.date]
+# 1 is Monday, 7 is Sunday.
+first-weekday = "1"
+format = "{day} de {month} de {year}"
+format-short = "{day} {month} {year}"
+format-day-month = "{day} {month}"
+title = "{month} de {year}"
+month-1 = "Enero"
+month-2 = "Febrero"
+month-3 = "Marzo"
+month-4 = "Abril"
+month-5 = "Mayo"
+month-6 = "Junio"
+month-7 = "Julio"
+month-8 = "Agosto"
+month-9 = "Septiembre"
+month-10 = "Octubre"
+month-11 = "Noviembre"
+month-12 = "Diciembre"
+# Inside a date the month is written in lower case: 5 de enero de 2026.
+month-in-date-1 = "enero"
+month-in-date-2 = "febrero"
+month-in-date-3 = "marzo"
+month-in-date-4 = "abril"
+month-in-date-5 = "mayo"
+month-in-date-6 = "junio"
+month-in-date-7 = "julio"
+month-in-date-8 = "agosto"
+month-in-date-9 = "septiembre"
+month-in-date-10 = "octubre"
+month-in-date-11 = "noviembre"
+month-in-date-12 = "diciembre"
+weekday-1 = "Lu"
+weekday-2 = "Ma"
+weekday-3 = "Mi"
+weekday-4 = "Ju"
+weekday-5 = "Vi"
+weekday-6 = "Sá"
+weekday-7 = "Do"
+weekday-long-1 = "Lunes"
+weekday-long-2 = "Martes"
+weekday-long-3 = "Miércoles"
+weekday-long-4 = "Jueves"
+weekday-long-5 = "Viernes"
+weekday-long-6 = "Sábado"
+weekday-long-7 = "Domingo"
+month-short-1 = "Ene"
+month-short-2 = "Feb"
+month-short-3 = "Mar"
+month-short-4 = "Abr"
+month-short-5 = "May"
+month-short-6 = "Jun"
+month-short-7 = "Jul"
+month-short-8 = "Ago"
+month-short-9 = "Sep"
+month-short-10 = "Oct"
+month-short-11 = "Nov"
+month-short-12 = "Dic"
+
+[quvyta.time]
+clock = "{hour}:{minute}"
+hour = "{hour}"
+span = "{from}–{to}"
+hours-minutes = "{hours} h {minutes} min"
+hours = "{hours} h"
+minutes = "{minutes} min"
+seconds = "{seconds} s"
+
+[quvyta.timeline]
+empty = "Nada este día"
+from-previous-day = "del día anterior"
+from-earlier = "de antes"
+continues-next-day = "sigue al día siguiente"
+running = "en curso"
+open-both = "{start}, {end}"
+
+[quvyta.layer]
+close  = "cerrar"
+switch = "cambiar"
+scroll = "desplazar"
+move   = "moverse"
+run    = "ejecutar"
+filter = "Escribe para filtrar"
+
+[quvyta.help]
+title  = "Atajos de teclado"
+screen = "Esta pantalla"
+app    = "Aplicación"
+global = "General"
+empty  = "Ninguna tecla coincide"
+
+[quvyta.palette]
+placeholder = "Escribe un comando"
+recent      = "Recientes"
+all         = "Todos los comandos"
+empty       = "Ningún comando coincide"
+
+[quvyta.confirm]
+confirm   = "Confirmar"
+cancel    = "Cancelar"
+type-word = "Escribe {word} para confirmar"
+
+[quvyta.tabs]
+add = "Nueva pestaña"
+
+[quvyta.tab-rail]
+add = "Nueva pestaña"
+
+[quvyta.edit]
+cut        = "Cortar"
+copy       = "Copiar"
+raw-copy   = "Copiar tal cual"
+paste      = "Pegar"
+select-all = "Seleccionar todo"
+
+[quvyta.duration]
+hours   = "h"
+minutes = "min"
+seconds = "s"
+hour-words   = "hora, horas"
+minute-words = "minuto, minutos"
+second-words = "seg, segundo, segundos"
+hour-name    = "Las horas"
+minute-name  = "Los minutos"
+second-name  = "Los segundos"
+empty     = "No hay nada que leer; escribe una duración como 1 h 30 min, 90 min o 2:15"
+character = "«{text}» no puede formar parte de una duración"
+unit      = "«{text}» no es una unidad de tiempo; usa h, min o s"
+number    = "«{text}» no es un número"
+no-number = "«{text}» necesita un número delante"
+no-unit   = "«{text}» necesita una unidad detrás, como min"
+repeated  = "{text} aparecen dos veces"
+clock     = "«{text}» no son horas y minutos; escribe 2:15 o 2:15:30, con minutos y segundos por debajo de 60"
+too-large = "Más larga que la duración máxima, {text}"

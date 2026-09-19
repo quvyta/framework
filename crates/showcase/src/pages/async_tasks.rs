@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use qframe::prelude::*;
-use qframe::runtime::{Line, Process, ProcessOutcome, Task, TaskEvent, TaskId, TaskOutcome, Tasks};
+use qframe::runtime::{Line, Process, ProcessOutcome, Task, TaskCx, TaskEvent, TaskId, TaskOutcome, Tasks};
 use qframe::widgets::{LogBuffer, LogLevel, LogLine, LogView, TaskList};
 
 use super::{PageMsg, setting, toggle};
@@ -49,6 +49,8 @@ pub struct State {
     stream: Option<TaskId>,
     /// Whether the child runs on a pseudo-terminal instead of pipes.
     terminal: bool,
+    /// Whether the frames a `\r` overwrites are shown as well.
+    frames: bool,
 }
 
 impl Default for State {
@@ -61,6 +63,7 @@ impl Default for State {
             output: LogBuffer::new(OUTPUT_CAPACITY),
             stream: None,
             terminal: false,
+            frames: false,
         }
     }
 }
@@ -82,8 +85,10 @@ pub enum Msg {
     Stream,
     StopStream,
     Streamed(Line),
+    Overwritten(Line),
     StreamEnded(ProcessOutcome),
     Terminal(bool),
+    Frames(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -148,16 +153,29 @@ fn sync_registry(failing: bool) -> Task<AppMsg> {
 /// task kills the child; on a pseudo-terminal the child sees a terminal of the size given here
 /// and keeps its progress and colour. The script asks nothing, so it gets no standard input:
 /// the keys stay the showcase's, and cancelling ends the `sleep` it is waiting on as well.
-fn stream_output(terminal: bool) -> Task<AppMsg> {
+fn stream_output(terminal: bool, frames: bool) -> Task<AppMsg> {
     Task::new("Install packages", move |cx| {
         let process = Process::new("sh").arg("-c").arg(SCRIPT).env("LC_ALL", "C").env("LANG", "C").no_stdin();
         let process = if terminal { process.pty(OUTPUT_SIZE.0, OUTPUT_SIZE.1) } else { process };
-        let outcome = process
-            .run(&|| cx.is_cancelled(), &mut |line| cx.send(send(Msg::Streamed(line))))
-            .map_err(|error| error.to_string())?;
+        let outcome = run_process(process, frames, cx).map_err(|error| error.to_string())?;
         Ok(send(Msg::StreamEnded(outcome)))
     })
     .on_event(|event| send(Msg::Event(event)))
+}
+// endregion
+
+// region: process-frames
+/// Runs the child, cancelled with the task. With `frames` every frame a `\r` overwrites, each
+/// step of the progress line here, arrives as a message of its own instead of being dropped, so a
+/// parser can read the counts in it; the lines themselves stay exactly what `run` delivers.
+fn run_process(process: Process, frames: bool, cx: &TaskCx<AppMsg>) -> std::io::Result<ProcessOutcome> {
+    let cancel = || cx.is_cancelled();
+    let mut on_line = |line| cx.send(send(Msg::Streamed(line)));
+    if frames {
+        process.run_with_overwritten(&cancel, &mut on_line, &mut |frame| cx.send(send(Msg::Overwritten(frame))))
+    } else {
+        process.run(&cancel, &mut on_line)
+    }
 }
 // endregion
 
@@ -197,7 +215,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         }
         // region: process-start
         Msg::Stream => {
-            let task = stream_output(state.terminal);
+            let task = stream_output(state.terminal, state.frames);
             state.stream = Some(task.id());
             state.output.clear();
             return Command::task(task);
@@ -208,6 +226,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                 Line::Err(text) => (LogLevel::Error, text),
             };
             state.output.push(LogLine::new(level, text));
+        }
+        Msg::Overwritten(frame) => {
+            let (Line::Out(text) | Line::Err(text)) = frame;
+            state.output.push(LogLine::new(LogLevel::Trace, text));
         }
         Msg::StopStream => {
             if let Some(id) = state.stream {
@@ -226,6 +248,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::Terminal(on) => {
             log.push(PAGE, "Playground", format!("pseudo-terminal = {on}"));
             state.terminal = on;
+        }
+        Msg::Frames(on) => {
+            log.push(PAGE, "Playground", format!("overwritten frames = {on}"));
+            state.frames = on;
         }
     }
     Command::none()
@@ -298,6 +324,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("async-tasks.terminal"), |ui| {
             ui.add(toggle(state.terminal, |on| send(Msg::Terminal(on)))).id("terminal");
         });
+        setting(ui, t!("async-tasks.frames"), |ui| {
+            ui.add(toggle(state.frames, |on| send(Msg::Frames(on)))).id("frames");
+        });
         setting(ui, t!("async-tasks.cancellable"), |ui| {
             ui.add(toggle(state.cancellable, |on| send(Msg::Cancellable(on)))).id("cancellable");
         });
@@ -356,6 +385,25 @@ mod tests {
         h.click_text("Install packages");
         h.advance(Duration::from_millis(0));
         assert!(h.screen().contains("stdout is a terminal"), "{}", h.screen());
+    }
+
+    #[test]
+    fn overwritten_frames_show_only_when_asked_for() {
+        for terminal in [false, true] {
+            let mut h = showcase_on(PAGE);
+            h.send(send(Msg::Terminal(terminal)));
+            h.click_text("Install packages");
+            h.advance(Duration::from_millis(0));
+            assert!(!h.screen().contains("downloading 50%"), "dropped by default: {}", h.screen());
+            h.send(send(Msg::Frames(true)));
+            // The finished task's row carries the same label as the button, so the message is sent.
+            h.send(send(Msg::Stream));
+            h.advance(Duration::from_millis(0));
+            let screen = h.screen();
+            for frame in ["downloading 25%", "downloading 50%", "downloading 75%", "downloading 100%"] {
+                assert!(screen.contains(frame), "{frame} (terminal {terminal}): {screen}");
+            }
+        }
     }
 
     #[test]

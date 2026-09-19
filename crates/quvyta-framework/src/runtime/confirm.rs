@@ -517,6 +517,8 @@ mod tests {
         Discarded,
         AskTyped(&'static str),
         AskTypedWithAlternative,
+        /// A quit question with three long answers, in English or German.
+        AskQuit(bool),
     }
 
     impl App for Demo {
@@ -571,6 +573,19 @@ mod tests {
                             .on_cancel(Msg::Kept)
                             .alternative("Archive", Msg::Resumed)
                             .require_word("SİL"),
+                    );
+                }
+                Msg::AskQuit(german) => {
+                    let (title, finish, leave) = if german {
+                        ("Beenden?", "Beenden und schließen", "Weiterlaufen lassen")
+                    } else {
+                        ("Quit?", "Finish and quit", "Leave running")
+                    };
+                    return Command::confirm(
+                        Confirm::new(title, Msg::Saved)
+                            .confirm_label(finish)
+                            .on_cancel(Msg::Discarded)
+                            .alternative(leave, Msg::Resumed),
                     );
                 }
                 Msg::Saved => self.log.push("saved"),
@@ -961,5 +976,59 @@ mod tests {
         let mut h = typing("SİL");
         h.set_locale("tr");
         assert!(h.screen().contains("Onaylamak için SİL yaz"), "{}", h.screen());
+    }
+
+    /// The quit question at 40 columns, in English and German, with the labels of its three
+    /// answers in Tab order and the language.
+    fn quitting() -> Vec<(Harness<Demo>, [&'static str; 3])> {
+        [
+            (false, "en", ["Cancel", "Leave running", "Finish and quit"]),
+            (true, "de", ["Abbrechen", "Weiterlaufen lassen", "Beenden und schließen"]),
+        ]
+        .into_iter()
+        .map(|(german, code, labels)| {
+            let mut h = Harness::new(Demo::default(), 40, 20);
+            h.set_locale(code).send(Msg::AskQuit(german)).advance(Duration::from_millis(200));
+            (h, labels)
+        })
+        .collect()
+    }
+
+    #[test]
+    fn at_forty_columns_three_long_answers_stand_one_under_another_in_tab_order() {
+        for (h, labels) in quitting() {
+            let screen = h.screen();
+            assert!(!screen.contains('…'), "{screen}");
+            let rows: Vec<usize> = labels.iter().map(|label| usize::from(cell(&h, label).1)).collect();
+            assert!(rows[0] < rows[1] && rows[1] < rows[2], "one per row, in Tab order: {screen}");
+            let columns: Vec<u16> = labels.iter().map(|label| cell(&h, label).0).collect();
+            assert!(columns.windows(2).all(|pair| pair[0] == pair[1]), "one column: {screen}");
+            let lines: Vec<&str> = screen.lines().collect();
+            assert!(
+                lines[rows[0] + 1].trim_start_matches(' ').trim_start_matches('▌').trim().is_empty(),
+                "a blank row between two buttons: {screen}"
+            );
+            assert!(!screen.contains(['[', ']', '|']), "{screen}");
+        }
+    }
+
+    #[test]
+    fn at_forty_columns_the_keyboard_and_the_mouse_reach_every_stacked_answer() {
+        for (tabs, answer) in [(0, "discarded"), (1, "resumed"), (2, "saved")] {
+            for (mut h, _) in quitting() {
+                for _ in 0..tabs {
+                    h.press("tab");
+                }
+                h.press("enter");
+                assert_eq!(h.app().log, [answer], "{tabs} tabs");
+            }
+        }
+        for (index, answer) in [(0, "discarded"), (1, "resumed"), (2, "saved")] {
+            for (mut h, labels) in quitting() {
+                let (x, y) = cell(&h, labels[index]);
+                h.click(i32::from(x), i32::from(y));
+                assert_eq!(h.app().log, [answer], "{}", labels[index]);
+            }
+        }
     }
 }

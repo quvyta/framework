@@ -69,6 +69,8 @@ pause = "Dönmek için bir tuşa basın"
 # 1 is Monday, 7 is Sunday.
 first-weekday = "1"
 format = "{day} {month} {year}"
+format-short = "{day} {month} {year}"
+format-day-month = "{day} {month}"
 title = "{month} {year}"
 month-1 = "Ocak"
 month-2 = "Şubat"

@@ -292,6 +292,26 @@ mod tests {
     }
 
     #[test]
+    fn a_required_word_too_wide_for_the_label_column_moves_under_the_control() {
+        for code in ["en", "de", "fr", "ru"] {
+            let app = Signup { label_width: Some(8), ..Signup::default() };
+            let mut h = Harness::new(app, 40, 7);
+            h.set_locale(code);
+            let screen = h.screen();
+            let required = h.env().i18n().translate("quvyta.form.required", &[]);
+            assert!(screen.contains(&required) && !screen.contains('…'), "{code}: {screen}");
+            let lines: Vec<&str> = screen.lines().collect();
+            let control = |line: &str| line.find('❯');
+            let image = lines.iter().position(|line| line.starts_with("Image")).unwrap_or_else(|| panic!("{screen}"));
+            assert_eq!(control(lines[0]), control(lines[image]), "the controls stay in one column: {code}: {screen}");
+            if code != "en" {
+                assert!(lines[1].trim_start().starts_with(required.as_str()), "under the control: {code}: {screen}");
+                assert!(lines[2].trim_start().starts_with("Lowercase"), "the hint follows: {code}: {screen}");
+            }
+        }
+    }
+
+    #[test]
     fn summary_lists_problems_above_the_fields() {
         let app = Signup { summary: true, ..Signup::default() };
         let mut h = Harness::new(app, 40, 14);

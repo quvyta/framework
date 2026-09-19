@@ -98,6 +98,8 @@ mod timeline;
 mod toast;
 mod tooltip;
 mod tree;
+#[cfg(test)]
+mod wide_under_layer_tests;
 mod widget_dock;
 mod wizard;
 

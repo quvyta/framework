@@ -30,7 +30,7 @@ impl<Msg> SettingRow<Msg> {
         Self { label: label.into(), description: None, disabled: false, on_activate: None }
     }
 
-    /// One faint line under the label.
+    /// A faint note under the label, wrapped over as many lines as it needs.
     #[must_use]
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
@@ -52,8 +52,67 @@ impl<Msg> SettingRow<Msg> {
         self
     }
 
+    /// Where the label, the description and the control go in a row `width` cells wide whose
+    /// control is `control` cells wide.
+    ///
+    /// The label shares the first line with the control while it fits beside it. When it does
+    /// not, it takes the whole width, wrapping if it must, and the control moves to the line
+    /// under it. The description always wraps over the whole width, so a narrow screen shows all
+    /// of it instead of cutting it.
+    ///
+    /// `squeezed` says the control would be wider than the `control` cells it has beside the
+    /// label; it then goes under the label, where it has the whole row.
+    fn lines(&self, control: u16, squeezed: bool, width: u16) -> RowLines {
+        // The text column keeps one spare cell so the slide never reaches the control or the
+        // right edge.
+        let full = width.saturating_sub(LEAD + CONTROL_GAP + 1).max(1);
+        let beside = full.saturating_sub(control.saturating_add(CONTROL_GAP));
+        let (label, label_width, control_below) = if !squeezed && text::width(&self.label) <= beside {
+            (vec![self.label.clone()], beside, false)
+        } else {
+            (text::wrap(&self.label, full), full, control > 0)
+        };
+        let description = self.description.as_deref().map_or_else(Vec::new, |text| text::wrap(text, full));
+        RowLines { label, description, control_below, full, label_width }
+    }
+}
+
+/// Cells a control on a line of its own may take in a row `width` cells wide: everything after
+/// the pillar's lead and before the gap at the right edge.
+fn control_room(width: u16) -> u16 {
+    width.saturating_sub(LEAD + CONTROL_GAP)
+}
+
+/// The lines of one settings row, from [`SettingRow::lines`].
+struct RowLines {
+    label: Vec<String>,
+    description: Vec<String>,
+    /// Whether the control has its own line under the label.
+    control_below: bool,
+    /// Cells for text across the whole row.
+    full: u16,
+    /// Cells for each line of the label: beside the control, or the whole width.
+    label_width: u16,
+}
+
+impl RowLines {
+    fn label_rows(&self) -> u16 {
+        clamp_u16(i32::try_from(self.label.len()).unwrap_or(i32::MAX)).max(1)
+    }
+
+    /// The line the control sits on, counted from the top of the row.
+    fn control_row(&self) -> u16 {
+        if self.control_below { self.label_rows() } else { 0 }
+    }
+
+    /// The line the description starts on.
+    fn description_row(&self) -> u16 {
+        self.label_rows() + u16::from(self.control_below)
+    }
+
     fn height(&self) -> u16 {
-        1 + u16::from(self.description.is_some())
+        let description = clamp_u16(i32::try_from(self.description.len()).unwrap_or(i32::MAX));
+        self.description_row().saturating_add(description)
     }
 }
 
@@ -97,7 +156,12 @@ impl<Msg: 'static> SettingsRows<'_, Msg> {
 /// pillar; the keyboard's row, while the list has focus, raises it further with a breathing
 /// pillar. A focused list raises only one row: moving the pointer onto a row makes it the
 /// keyboard's row. Only the label slides one cell right; the pillar and the control never move.
-/// The label column keeps one spare cell for that and cuts long labels with `…`.
+/// The label column keeps one spare cell for that.
+///
+/// Nothing is cut on a narrow screen: a description wraps over the whole width of its row, and a
+/// label too long to share its line with the control takes the whole width, wrapping if it must,
+/// while the control moves to the line under it. So does a control that needs more than half the
+/// row, which then has the whole row. A row reports the height it wraps to.
 ///
 /// The list takes focus as one control. ↑/↓ (and Home/End) move between enabled rows; every
 /// other key goes to the selected row's control, so Enter or Space toggles a switch or opens a
@@ -188,10 +252,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                     width = width.max(text::width(title).saturating_add(LEAD));
                 }
                 Entry::Row(row, index) => {
-                    let control = cx.measure_child(&self.controls[*index], Size::new(available.width, 1)).width;
+                    let node = &self.controls[*index];
+                    let control = cx.measure_child(node, Size::new(available.width, 1)).width;
                     let label = text::width(&row.label).max(row.description.as_deref().map_or(0, text::width));
                     width = width.max(cells::sum([LEAD, label, 1, CONTROL_GAP * 2, control]));
-                    height = height.saturating_add(row.height());
+                    // Laid out as paint lays it out, so a narrow row reports the lines it wraps to.
+                    let beside = cx.measure_child(node, Size::new(available.width / 2, 1)).width;
+                    let whole = cx.measure_child(node, Size::new(control_room(available.width), 1)).width;
+                    height = height.saturating_add(row.lines(beside, whole > beside, available.width).height());
                 }
             }
         }
@@ -235,8 +303,15 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                     y += 1;
                 }
                 Entry::Row(row, index) => {
-                    let rect = Rect::new(area.x, y, area.width, row.height());
-                    y += i32::from(row.height());
+                    let node = &self.controls[*index];
+                    // Beside the label a control has half the row; one that wants more goes on a
+                    // line of its own, where it has the whole row.
+                    let beside = cx.measure_child(node, Size::new(area.width / 2, 1)).width;
+                    let whole = cx.measure_child(node, Size::new(control_room(area.width), 1)).width;
+                    let lines = row.lines(beside, whole > beside, area.width);
+                    let control_width = if lines.control_below { whole } else { beside };
+                    let rect = Rect::new(area.x, y, area.width, lines.height());
+                    y += i32::from(lines.height());
                     rows[*index] = rect;
                     let mut states = Vec::new();
                     if row.disabled {
@@ -260,26 +335,24 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                         }
                     }
 
-                    let node = &self.controls[*index];
-                    let control_width = cx.measure_child(node, Size::new(area.width / 2, 1)).width;
                     let control_x = rect.right() - i32::from(CONTROL_GAP + control_width);
-                    let control = Rect::new(control_x, rect.y, control_width, 1);
+                    let control = Rect::new(control_x, rect.y + i32::from(lines.control_row()), control_width, 1);
                     controls[*index] = control;
                     cx.paint_child_unfocusable(node, control);
 
                     let raised = states.contains(&State::Hover) || states.contains(&State::Selected);
                     let shift = u16::from(slide && raised);
-                    let text_x = rect.x + i32::from(LEAD);
-                    // The label column keeps one spare cell so the slide never reaches the control.
-                    let budget = clamp_u16(control_x - i32::from(CONTROL_GAP) - text_x).saturating_sub(1);
-                    let x = text_x + i32::from(shift);
+                    let x = rect.x + i32::from(LEAD + shift);
+                    let label_budget = lines.label_width;
                     let label_style = cx.style("setting-label", None, &states).text();
-                    let label = text::truncate(&row.label, budget).into_owned();
-                    cx.text(x, rect.y, &label, CellStyle { bg: None, ..label_style }, budget);
-                    if let Some(description) = &row.description {
-                        let style = cx.style("setting-description", None, &states).text();
-                        let shown = text::truncate(description, budget).into_owned();
-                        cx.text(x, rect.y + 1, &shown, CellStyle { bg: None, ..style }, budget);
+                    for (line, label) in (rect.y..).zip(&lines.label) {
+                        let label = text::truncate(label, label_budget).into_owned();
+                        cx.text(x, line, &label, CellStyle { bg: None, ..label_style }, label_budget);
+                    }
+                    let style = cx.style("setting-description", None, &states).text();
+                    let first = rect.y + i32::from(lines.description_row());
+                    for (line, description) in (first..).zip(&lines.description) {
+                        cx.text(x, line, description, CellStyle { bg: None, ..style }, lines.full);
                     }
                 }
             }
@@ -415,10 +488,10 @@ mod tests {
 
     #[test]
     fn labels_left_controls_anchored_right_with_headings() {
-        let h = Harness::new(Prefs::default(), 40, 8);
+        let h = Harness::new(Prefs::default(), 40, 10);
         assert_eq!(
             h.screen(),
-            "  APPEARANCE\n  Animations                      \n  Motion in lists\n  Density            Cozy    Compact\n\n  PRIVACY\n  Telemetry\n  Storage used by images and…   2.4 GB\n"
+            "  APPEARANCE\n  Animations                      \n  Motion in lists\n  Density            Cozy    Compact\n\n  PRIVACY\n  Telemetry\n  Storage used by images and volumes\n                                2.4 GB\n\n"
                 .lines()
                 .map(str::trim_end)
                 .collect::<Vec<_>>()
@@ -427,9 +500,122 @@ mod tests {
         );
     }
 
+    /// Rows with long labels and descriptions, in English or German.
+    struct Wordy {
+        german: bool,
+    }
+
+    impl App for Wordy {
+        type Msg = bool;
+        fn update(&mut self, _: bool) -> Command<bool> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, bool>) {
+            let (motion, calm, hour, hour_note) = if self.german {
+                (
+                    "Bewegung",
+                    "Ebenen erscheinen sofort; nichts gleitet oder blendet über.",
+                    "Sitzungen vor dieser Stunde zählen zum Vortag",
+                    "Für Nachteulen, die nach Mitternacht arbeiten.",
+                )
+            } else {
+                (
+                    "Motion",
+                    "Layers appear at once; nothing slides or fades.",
+                    "Sessions before this hour count for the day before",
+                    "For night owls who work past midnight.",
+                )
+            };
+            SettingsList::show(ui, |list| {
+                list.row(SettingRow::new(motion).description(calm), |ui| {
+                    ui.add(Switch::new(true).on_toggle(|on| on));
+                });
+                list.row(SettingRow::new(hour).description(hour_note), |ui| {
+                    ui.add(Segmented::new(["0", "3", "5"]).selected(1).on_select(|_| true));
+                });
+            });
+        }
+    }
+
+    #[test]
+    fn at_forty_columns_descriptions_wrap_and_a_long_label_puts_its_control_below() {
+        for (german, code) in [(false, "en"), (true, "de")] {
+            let mut h = Harness::new(Wordy { german }, 40, 14);
+            h.set_locale(code);
+            let screen = h.screen();
+            assert!(!screen.contains('…'), "{code}: {screen}");
+            let lines: Vec<&str> = screen.lines().collect();
+            // The first label fits beside its switch; the description wraps under it.
+            assert!(lines[1].starts_with("  ") && lines[2].starts_with("  "), "{code}: {screen}");
+            let words: Vec<&str> = lines[1..3].iter().flat_map(|line| line.split_whitespace()).collect();
+            assert!(words.contains(&"nothing") || words.contains(&"nichts"), "{code}: {screen}");
+            // The long label takes its own lines and the control sits under it, at the right.
+            let hour = lines.iter().position(|line| line.contains("Sessions") || line.contains("Sitzungen"));
+            let hour = hour.unwrap_or_else(|| panic!("{code}: {screen}"));
+            let control =
+                lines.iter().position(|line| line.contains(" 0 ")).unwrap_or_else(|| panic!("{code}: {screen}"));
+            assert!(control > hour, "{code}: {screen}");
+            assert!(
+                lines[control].trim_start().starts_with('0'),
+                "the control has the line to itself: {code}: {screen}"
+            );
+            assert!(screen.contains("midnight") || screen.contains("Mitternacht"), "{code}: {screen}");
+        }
+    }
+
+    #[test]
+    fn below_forty_columns_every_row_degrades_to_label_then_control_then_description() {
+        for width in [36, 30, 24, 20] {
+            let h = Harness::new(Prefs::default(), width, 16);
+            let screen = h.screen();
+            let lines: Vec<&str> = screen.lines().collect();
+            // At 20 columns the two options of the segmented control cannot fit even on a line
+            // of their own; that cut is the control's, and every text of the list stays whole.
+            let cut: Vec<&&str> = lines.iter().filter(|line| line.contains('…')).collect();
+            assert!(cut.iter().all(|line| width == 20 && line.contains("Cozy")), "{width}: {screen}");
+            let storage = lines.iter().position(|line| line.contains("Storage")).unwrap_or_else(|| panic!("{screen}"));
+            let size = lines.iter().position(|line| line.contains("2.4 GB")).unwrap_or_else(|| panic!("{screen}"));
+            assert!(size > storage, "the value sits under its label: {width}: {screen}");
+            assert!(!lines[size].contains("Storage") && !lines[size].contains("volumes"), "{width}: {screen}");
+            assert!(screen.contains("Motion in lists") || screen.contains("Motion in"), "{width}: {screen}");
+            let density = lines.iter().position(|line| line.contains("Density")).unwrap_or_else(|| panic!("{screen}"));
+            let cozy = lines.iter().position(|line| line.contains("Cozy")).unwrap_or_else(|| panic!("{screen}"));
+            if cozy != density {
+                assert_eq!(cozy, density + 1, "the control right under its label: {width}: {screen}");
+                assert!(
+                    width == 20 || lines[cozy].contains("Compact"),
+                    "a control on its own line has the whole row: {width}: {screen}"
+                );
+            }
+        }
+        for width in [30, 24, 20] {
+            for (german, code) in [(false, "en"), (true, "de")] {
+                let mut h = Harness::new(Wordy { german }, width, 24);
+                h.set_locale(code);
+                let screen = h.screen();
+                assert!(!screen.contains('…'), "{width} {code}: {screen}");
+                assert!(screen.contains("midnight") || screen.contains("Mitternacht"), "{width} {code}: {screen}");
+                assert!(screen.contains(" 0    3    5") || screen.contains("0    3    5"), "{width} {code}: {screen}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_row_reports_the_height_it_wraps_to() {
+        let row = SettingRow::<()>::new("Sessions before this hour count for the day before")
+            .description("For night owls who work past midnight.");
+        let wide = row.lines(9, false, 100);
+        assert_eq!((wide.height(), wide.control_row(), wide.description_row()), (2, 0, 1));
+        let narrow = row.lines(9, false, 40);
+        assert_eq!((narrow.label.len(), narrow.control_row(), narrow.description_row()), (2, 2, 3));
+        assert_eq!(narrow.height(), 5, "two label lines, the control, two description lines");
+        let squeezed = SettingRow::<()>::new("Density").lines(9, true, 40);
+        assert_eq!((squeezed.control_row(), squeezed.height()), (1, 2), "a squeezed control goes under its label");
+    }
+
     #[test]
     fn keyboard_moves_rows_and_drives_the_selected_control() {
-        let mut h = Harness::new(Prefs { telemetry_locked: true, ..Prefs::default() }, 40, 8);
+        let mut h = Harness::new(Prefs { telemetry_locked: true, ..Prefs::default() }, 40, 10);
         h.press("tab");
         let theme = h.env().theme();
         assert_eq!(h.bg(20, 1), theme.color("active"), "the first row is selected on focus");
@@ -446,13 +632,17 @@ mod tests {
 
     #[test]
     fn the_pointer_carries_the_keyboards_row() {
-        let mut h = Harness::new(Prefs::default(), 40, 8);
+        let mut h = Harness::new(Prefs::default(), 40, 10);
         h.press("tab");
         assert!(h.screen().lines().nth(1).is_some_and(|line| line.starts_with("▌  Animations")));
         h.hover(6, 7);
         let screen = h.screen();
         let raised: Vec<&str> = screen.lines().filter(|line| line.starts_with('▌')).collect();
-        assert_eq!(raised, ["▌  Storage used by images and…  2.4 GB"], "one raised row:\n{screen}");
+        assert_eq!(
+            raised,
+            ["▌  Storage used by images and volumes", "▌                               2.4 GB"],
+            "one raised row, both its lines:\n{screen}"
+        );
         assert_eq!(h.bg(20, 7), h.env().theme().color("active"), "the pointer's row is the keyboard's row");
         assert_ne!(h.bg(20, 1), h.env().theme().color("active"));
         h.press("up");
@@ -463,7 +653,7 @@ mod tests {
 
     #[test]
     fn hover_slides_the_label_but_not_the_control_and_clicks_reach_controls() {
-        let mut h = Harness::new(Prefs::default(), 40, 8);
+        let mut h = Harness::new(Prefs::default(), 40, 10);
         let before = h.find("Cozy");
         h.hover(4, 3);
         assert!(h.screen().lines().nth(3).is_some_and(|line| line.starts_with("▌  Density")));

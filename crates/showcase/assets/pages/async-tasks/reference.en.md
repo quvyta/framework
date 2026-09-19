@@ -38,6 +38,7 @@
 - `.pty(cols, rows)` — runs the child on a pseudo-terminal of that size instead of pipes.
 - `.no_stdin()` — the child reads an empty input (`/dev/null`) instead of the terminal, and on Unix runs in a process group of its own.
 - `.run(&cancel, &mut on_line) -> io::Result<ProcessOutcome>` — runs it, delivering every line; returns an error when the child cannot be started or the pseudo-terminal cannot be opened.
+- `.run_with_overwritten(&cancel, &mut on_line, &mut on_overwritten) -> io::Result<ProcessOutcome>` — runs it like `run` and also hands every frame a `\r` overwrites to `on_overwritten`, as a `Line` tagged with its stream.
 - `Line::Out(text)`, `Line::Err(text)` — standard output and standard error, kept apart with pipes.
 - `ProcessOutcome::Finished { code }` — `code` is `None` when a signal ended the child; `ProcessOutcome::Cancelled`.
 
@@ -45,6 +46,7 @@
 
 - Lines arrive one by one, without their newline, and the last line is delivered even without a trailing newline.
 - A `\r` overwrites the line being built instead of starting a new one, so a progress bar stays one line; a terminal's `\r\n` still ends a line.
+- With `run_with_overwritten` a frame is delivered when the byte after its `\r` is not a `\n`: `\r\n` and `\r\r\n` stay plain line ends, an empty frame is skipped, and output that ends right after a `\r` delivers its last frame. Colour codes and `ESC [K` are left in the text. Frames come through a pipe and a pseudo-terminal alike; with `run` they are dropped and never queued.
 - With pipes the two streams are read separately and never merged; with a pseudo-terminal both land on one line, so only `Line::Out` appears.
 - `cancel` is asked between lines. When it turns true the child is killed, its pending output is dropped and the outcome is `Cancelled`. With `no_stdin` on Unix the child's whole process group is killed, so the programs it started end too, unless they moved to a group or session of their own; without it only the child itself is killed, because a child that reads the terminal cannot live in a group of its own (the system would stop it at its first read).
 - Bytes that are not UTF-8 become the replacement character rather than being dropped.

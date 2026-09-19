@@ -1,5 +1,7 @@
 //! CLDR plural categories for integer counts.
 
+use super::tag::{self, Tag};
+
 /// A plural category, as used in locale files: `{ one = "…", other = "…" }`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PluralCategory {
@@ -40,7 +42,13 @@ impl PluralCategory {
         Self::ALL.into_iter().find(|c| c.name() == name)
     }
 
-    /// The category of count `n` in language `language` (e.g. `"tr"`).
+    /// The category of count `n` in language `language`, a locale code such as `"tr"`,
+    /// `"pt-BR"` or `"zh-Hans"`.
+    ///
+    /// The rule follows the language, whatever region or script the code adds and in any case:
+    /// `pt-BR` counts like `pt`, `zh-Hans` like `zh`, `ru-RU` like `ru`. The one exception is
+    /// European Portuguese (`pt-PT`), which CLDR gives the one/other rule where Brazilian
+    /// Portuguese counts 0 as one.
     ///
     /// Covers the integer rules of the CLDR plural data for East Asian languages (no
     /// plural), French and Portuguese, the East Slavic languages, Polish, Czech and Slovak,
@@ -49,7 +57,12 @@ impl PluralCategory {
     pub fn of(language: &str, n: i64) -> Self {
         let n = n.unsigned_abs();
         let (mod10, mod100) = (n % 10, n % 100);
-        match language {
+        let european_portuguese =
+            Tag::parse(language).is_some_and(|tag| tag.language == "pt" && tag.region() == Some("pt"));
+        if european_portuguese {
+            return if n == 1 { Self::One } else { Self::Other };
+        }
+        match tag::language_of(language).as_str() {
             "ja" | "zh" | "ko" | "vi" | "th" | "id" | "ms" => Self::Other,
             "fr" | "pt" => {
                 if n <= 1 {
@@ -124,5 +137,24 @@ mod tests {
         assert_eq!(PluralCategory::of("ar", 0), Zero);
         assert_eq!(PluralCategory::of("ar", 2), Two);
         assert_eq!(PluralCategory::of("ar", 103), Few);
+    }
+
+    #[test]
+    fn a_regional_or_script_code_counts_like_its_language() {
+        assert_eq!(PluralCategory::of("pt-BR", 0), One);
+        assert_eq!(PluralCategory::of("pt-BR", 2), Other);
+        assert_eq!(PluralCategory::of("zh-Hans", 1), Other);
+        assert_eq!(PluralCategory::of("zh-Hant", 1), Other);
+        assert_eq!(PluralCategory::of("ru-RU", 22), Few);
+        assert_eq!(PluralCategory::of("fr_CA", 1), One);
+        assert_eq!(PluralCategory::of("RU", 5), Many);
+        assert_eq!(PluralCategory::of("de-AT", 1), One);
+    }
+
+    #[test]
+    fn european_portuguese_counts_zero_as_other() {
+        assert_eq!(PluralCategory::of("pt-PT", 0), Other);
+        assert_eq!(PluralCategory::of("pt-PT", 1), One);
+        assert_eq!(PluralCategory::of("pt", 0), One);
     }
 }

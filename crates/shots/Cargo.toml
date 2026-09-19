@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["tui", "terminal", "screenshot", "svg", "png"]
 categories = ["command-line-interface", "development-tools::testing", "rendering"]
 publish = false
-include = ["src/**/*.rs", "fonts/*.ttf", "fonts/OFL.txt", "fonts/README.md", "Cargo.toml", "LICENSE", "README.md"]
+include = ["src/**/*.rs", "fonts/*.ttf", "fonts/*.otf", "fonts/OFL*.txt", "fonts/README.md", "Cargo.toml", "LICENSE", "README.md"]
 
 [lib]
 # Published as quvyta-framework-shots, used in code as `qshots`.
@@ -20,7 +20,7 @@ name = "qshots"
 workspace = true
 
 [dependencies]
-quvyta-framework = { version = "0.1.7", path = "../quvyta-framework" }
+quvyta-framework = { version = "0.1.8", path = "../quvyta-framework" }
 # The harness hands out its screen as a ratatui buffer; reading cell styles needs its types.
 # The framework already depends on this version, so it adds no crate.
 ratatui-core = { version = "0.1.2", features = ["std"] }

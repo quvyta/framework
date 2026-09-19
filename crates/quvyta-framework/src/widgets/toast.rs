@@ -113,8 +113,39 @@ fn text_indent(icon_width: u16) -> u16 {
     icon_width.saturating_add(3)
 }
 
+/// Cells an action button labelled `label` takes: the label with a cell on each side.
+fn action_width(label: &str) -> u16 {
+    text::width(label).saturating_add(2)
+}
+
+/// The title of `toast` on a toast whose content is `inner_width` cells wide: the first line
+/// beside the action and the close mark, the rest wrapped under them to the right edge.
+fn title_lines<Msg>(toast: &Toast<Msg>, inner_width: u16, icon_width: u16) -> Vec<String> {
+    let rest = inner_width.saturating_sub(text_indent(icon_width)).max(1);
+    // One cell of surface before the close mark, and two before an action.
+    let mut first = rest.saturating_sub(close_mark::WIDTH);
+    if let Some((label, _)) = &toast.action {
+        first = first.saturating_sub(action_width(label).saturating_add(2));
+    }
+    let title = toast.title.as_str();
+    let Some(line) = text::wrap_ranges(title, first.max(1)).into_iter().next() else {
+        return vec![String::new()];
+    };
+    let remainder = title[line.end..].trim_start();
+    if remainder.is_empty() {
+        return vec![title.to_owned()];
+    }
+    let mut lines = vec![title[line].trim_end().to_owned()];
+    lines.extend(text::wrap(remainder, rest));
+    lines
+}
+
 /// A notification: a status marker and icon, a title, an optional body and action, and the
 /// shared three-cell close mark at the end of the title row.
+///
+/// A title too long for its row wraps, the lines after the first running under the action and
+/// the close mark to the right edge, so a narrow screen or a longer language never cuts it. The
+/// action and the mark stay on the first row.
 ///
 /// Only a press on the close mark dismisses a toast; a press on the rest of it does nothing unless
 /// [`on_press`](Self::on_press) gives it a message, e.g. to open where the news came from.
@@ -413,10 +444,13 @@ impl<Msg> ToastStack<Msg> {
         // Newest nearest the corner.
         for index in (0..self.entries.len()).rev() {
             let icon_width = text::width(&cx.env().icons().glyph(self.entries[index].toast.kind.icon()));
-            let body_width = width.saturating_sub(padding.horizontal().saturating_add(text_indent(icon_width)));
-            let body_lines =
-                self.entries[index].toast.body.as_deref().map_or(0, |body| text::wrap(body, body_width).len());
-            let height = cells::sum([padding.vertical(), 1, clamp_u16(i32::try_from(body_lines).unwrap_or(0))]);
+            let inner_width = width.saturating_sub(padding.horizontal());
+            let body_width = inner_width.saturating_sub(text_indent(icon_width));
+            let toast = &self.entries[index].toast;
+            let title_lines = title_lines(toast, inner_width, icon_width).len();
+            let body_lines = toast.body.as_deref().map_or(0, |body| text::wrap(body, body_width).len());
+            let lines = clamp_u16(i32::try_from(title_lines + body_lines).unwrap_or(i32::MAX));
+            let height = cells::sum([padding.vertical(), lines]);
             let top = if corner.bottom() { y - i32::from(height) } else { y };
             // The first toast without room waits, and so does every older one, so the stack
             // keeps its order.
@@ -526,7 +560,7 @@ fn paint_entry<Msg>(cx: &mut PaintCx<'_>, entry: &mut Entry<Msg>, rect: Rect, pr
     let mut right = mark_x - 1;
     entry.action_rect = Rect::default();
     if let Some((label, _)) = &entry.toast.action {
-        let label_width = text::width(label).saturating_add(2);
+        let label_width = action_width(label);
         let action = Rect::new(right - i32::from(label_width), inner.y, label_width, 1);
         let target = Rect::new(action.x - slid, action.y, action.width, 1);
         // On a raised toast the button climbs with it, so it stays a step above its surface.
@@ -550,14 +584,19 @@ fn paint_entry<Msg>(cx: &mut PaintCx<'_>, entry: &mut Entry<Msg>, rect: Rect, pr
     }
 
     let title_style = cx.style("toast-title", None, &[]).text();
-    let budget = clamp_u16(right - text_x);
-    let title = text::truncate(&entry.toast.title, budget).into_owned();
-    cx.text(text_x, inner.y, &title, CellStyle { fg: blend(title_style.fg), bg: None, ..title_style }, budget);
+    let title_style = CellStyle { fg: blend(title_style.fg), bg: None, ..title_style };
+    let title = title_lines(&entry.toast, inner.width, icon_width);
+    let body_width = clamp_u16(inner.right() - text_x);
+    for (row, line) in title.iter().enumerate() {
+        let y = inner.y + i32::try_from(row).unwrap_or(0);
+        let budget = if row == 0 { clamp_u16(right - text_x) } else { body_width };
+        cx.text(text_x, y, line, title_style, budget);
+    }
     if let Some(body) = &entry.toast.body {
         let body_style = cx.style("toast-body", None, &[]).text();
-        let body_width = clamp_u16(inner.right() - text_x);
+        let top = inner.y + i32::try_from(title.len()).unwrap_or(1);
         for (row, line) in text::wrap(body, body_width).iter().enumerate() {
-            let y = inner.y + 1 + i32::try_from(row).unwrap_or(0);
+            let y = top + i32::try_from(row).unwrap_or(0);
             cx.text(text_x, y, line, CellStyle { fg: blend(body_style.fg), bg: None, ..body_style }, body_width);
         }
     }
@@ -835,5 +874,73 @@ mod tests {
         let mut h = Harness::new(Demo::default(), 60, 10);
         h.set_reduced_motion(true).send(Msg::Corner).send(Msg::Deployed);
         assert_eq!(h.find("Deployed"), Some((8, 2)));
+    }
+
+    /// Toasts with an action and a long message, in English or German.
+    struct Undoable {
+        german: bool,
+    }
+
+    impl App for Undoable {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            let (message, action) = if self.german {
+                ("Rust: Sitzung in den Papierkorb verschoben", "Rückgängig")
+            } else {
+                ("Rust: session moved to the trash", "Undo")
+            };
+            Command::toast(Toast::success(message).action(action, ()))
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(Text::new("records"));
+        }
+    }
+
+    fn undoable(german: bool) -> Harness<Undoable> {
+        let mut h = Harness::new(Undoable { german }, 40, 12);
+        h.set_locale(if german { "de" } else { "en" }).set_reduced_motion(true).send(());
+        h
+    }
+
+    #[test]
+    fn at_forty_columns_a_long_message_wraps_and_the_action_stays_on_the_first_row() {
+        for german in [false, true] {
+            let h = undoable(german);
+            let screen = h.screen();
+            assert!(!screen.contains('…'), "{screen}");
+            let action = if german { "Rückgängig" } else { "Undo" };
+            let (_, action_row) = h.find(action).unwrap_or_else(|| panic!("{screen}"));
+            let (_, title_row) = h.find("Rust:").unwrap_or_else(|| panic!("{screen}"));
+            assert_eq!(action_row, title_row, "the action is on the first row: {screen}");
+            let second = screen.lines().nth(usize::try_from(title_row + 1).unwrap_or(0)).unwrap_or_default();
+            assert!(second.contains("trash") || second.contains("Papierkorb"), "{screen}");
+            assert!(screen.contains('×'), "{screen}");
+        }
+    }
+
+    #[test]
+    fn a_wrapped_toast_still_keeps_clear_of_a_modal() {
+        struct Covered;
+        impl App for Covered {
+            type Msg = ();
+            fn update(&mut self, (): ()) -> Command<()> {
+                Command::toast(Toast::success("Rust: session moved to the trash").action("Undo", ()))
+            }
+            fn view(&self, ui: &mut View<'_, ()>) {
+                ui.add_with(crate::widgets::Modal::new().title("Open"), |ui| {
+                    ui.add(Text::new("Body"));
+                });
+            }
+        }
+        let mut h = Harness::new(Covered, 40, 12);
+        h.set_reduced_motion(true).send(());
+        let screen = h.screen();
+        let (_, title) = h.find("Open").unwrap_or_else(|| panic!("{screen}"));
+        let (_, body) = h.find("Body").unwrap_or_else(|| panic!("{screen}"));
+        assert!(title < body, "{screen}");
+        if let Some((_, undo)) = h.find("Undo") {
+            let modal_bottom = body + 2;
+            assert!(undo > modal_bottom, "a toast on screen sits below the dialog: {screen}");
+        }
     }
 }

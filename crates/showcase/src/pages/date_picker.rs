@@ -1,14 +1,17 @@
 //! Date picker: choosing a day from a calendar layer.
 
-use qframe::date::Date;
+use qframe::date::{Date, Weekday};
 use qframe::prelude::*;
-use qframe::widgets::DatePicker;
+use qframe::widgets::{DatePicker, Segmented};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
 use crate::log::EventLog;
 
 const PAGE: &str = "date-picker";
+
+/// Regions the playground offers besides the language's own week: Sunday, Monday and Saturday.
+const REGIONS: [&str; 3] = ["US", "GB", "EG"];
 
 /// Chosen dates and the playground.
 #[derive(Debug, Default)]
@@ -25,6 +28,7 @@ pub enum Msg {
     Maintenance(Date),
     Clear,
     Disabled(bool),
+    Region(Option<&'static str>),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -55,8 +59,35 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.disabled = on;
             log.push(PAGE, "Playground", format!("disabled = {on}"));
         }
+        Msg::Region(region) => {
+            log.push(PAGE, "Playground", format!("region = {}", region.unwrap_or("none")));
+            // region: date-region
+            return Command::set_region(region);
+            // endregion
+        }
     }
     Command::none()
+}
+
+/// The playground's choices: the language, the offered regions, and the region the system gave
+/// when it is none of them, so the selection always tells the truth.
+fn region_choices(current: Option<&str>) -> (Vec<Option<&'static str>>, Vec<String>, usize) {
+    let mut regions: Vec<Option<&'static str>> = vec![None];
+    regions.extend(REGIONS.iter().copied().map(Some));
+    let mut names: Vec<String> =
+        regions.iter().map(|r| r.map_or_else(|| t!("date-picker.region-language"), str::to_owned)).collect();
+    let selected = match regions.iter().position(|r| *r == current) {
+        Some(index) => index,
+        None => {
+            names.push(current.unwrap_or_default().to_owned());
+            names.len() - 1
+        }
+    };
+    (regions, names, selected)
+}
+
+fn day_name(day: Weekday) -> String {
+    t!(&format!("date-picker.day-{}", day.number()))
 }
 
 /// The live demo and the playground.
@@ -98,13 +129,27 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         };
         ui.add(Text::new(summary).role("secondary"));
         // endregion
-        ui.spacer().height(Length::Cells(11));
+        // region: date-week
+        let i18n = ui.env().i18n();
+        let day = day_name(i18n.first_weekday());
+        let week = match i18n.region() {
+            Some(region) => t!("date-picker.week-region", day = day, region = region),
+            None => t!("date-picker.week-language", day = day),
+        };
+        ui.add(Text::new(week).role("faint"));
+        // endregion
+        ui.spacer().height(Length::Cells(10));
     })
     .fill_width();
 
     ui.add_with(Panel::new().title(t!("demo.playground")).gap(0), |ui| {
         setting(ui, t!("button.disabled-label"), |ui| {
             ui.add(toggle(state.disabled, |on| send(Msg::Disabled(on)))).id("disabled");
+        });
+        let (regions, names, selected) = region_choices(ui.env().i18n().region());
+        setting(ui, t!("date-picker.region-label"), |ui| {
+            let pick = move |index: usize| send(Msg::Region(regions.get(index).copied().flatten()));
+            ui.add(Segmented::new(names).selected(selected).on_select(pick)).id("region");
         });
         setting(ui, t!("date-picker.clear-label"), |ui| {
             ui.add(Button::new(t!("date-picker.clear")).on_press(send(Msg::Clear))).id("clear");
@@ -143,6 +188,27 @@ mod tests {
         let hovered = row(&h);
         assert_eq!(hovered.chars().nth(usize::try_from(x - 1).unwrap_or(0)), Some('▌'), "{hovered}");
         assert_eq!(hovered.replace('▌', " "), resting.replace('▌', " "), "numbers stay in their columns");
+    }
+
+    #[test]
+    fn a_region_moves_the_first_day_of_an_english_week() {
+        let mut h = showcase_on(PAGE);
+        h.set_reduced_motion(true).set_region(None);
+        assert!(h.screen().contains("Weeks start on Sunday, as the language says."), "{}", h.screen());
+        h.click_text("GB");
+        assert!(h.screen().contains("Weeks start on Monday, as they do in GB."), "{}", h.screen());
+        h.click_text("Choose a date");
+        assert!(h.screen().contains("Mo  Tu  We  Th  Fr  Sa  Su"), "{}", h.screen());
+        h.press("esc").click_text("EG").click_text("Choose a date");
+        assert!(h.screen().contains("Sa  Su  Mo  Tu  We  Th  Fr"), "{}", h.screen());
+    }
+
+    #[test]
+    fn a_system_region_outside_the_offered_ones_is_shown_selected() {
+        let mut h = showcase_on(PAGE);
+        h.set_region(Some("JP"));
+        assert!(h.screen().contains("as they do in JP"), "{}", h.screen());
+        assert!(h.find("JP").is_some());
     }
 
     #[test]

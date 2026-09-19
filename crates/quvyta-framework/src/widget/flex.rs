@@ -126,10 +126,17 @@ impl<Msg: 'static> Widget<Msg> for Flex<Msg> {
             }
             return size;
         }
-        let mut main_total = 0u16;
+        let gaps = self.gaps(layout.gap);
+        let mut main_total = gaps;
         let mut cross_max = 0u16;
-        let mut remaining = main_avail;
-        for (i, child) in self.children.iter().enumerate() {
+        let mut remaining = main_avail.saturating_sub(gaps);
+        let is_fill = |child: &Node<Msg>| matches!(lengths(self.axis, child.layout).0, Length::Fill(_));
+        // Sized children first and filling ones after, with what the others leave, as paint lays
+        // them out: a filling child measured first would take the room of the siblings after it,
+        // and a sibling squeezed to nothing may wrap to many lines and make the row tall.
+        let sized = self.children.iter().filter(|child| !is_fill(child));
+        let filling = self.children.iter().filter(|child| is_fill(child));
+        for (fill, child) in sized.map(|child| (false, child)).chain(filling.map(|child| (true, child))) {
             let (main_len, cross_len) = lengths(self.axis, child.layout);
             let child_avail = join(self.axis, remaining, Self::cross_available(cross_len, cross_avail));
             let measured = split(self.axis, cx.measure_child(child, child_avail));
@@ -141,9 +148,10 @@ impl<Msg: 'static> Widget<Msg> for Flex<Msg> {
                 Length::Cells(cells) => cells.min(cross_avail),
                 Length::Auto | Length::Fill(_) => measured.1,
             };
-            let gap = if i + 1 < self.children.len() { layout.gap } else { 0 };
-            main_total = main_total.saturating_add(main_size).saturating_add(gap);
-            remaining = remaining.saturating_sub(main_size.saturating_add(gap));
+            main_total = main_total.saturating_add(main_size);
+            if !fill {
+                remaining = remaining.saturating_sub(main_size);
+            }
             cross_max = cross_max.max(cross_size);
         }
         join(self.axis, main_total.min(main_avail), cross_max)

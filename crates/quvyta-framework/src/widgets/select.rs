@@ -140,6 +140,13 @@ impl<Msg: 'static> Select<Msg> {
 /// not a list, so its label never slides; the options of the open list do. `label` is the chosen
 /// text; without one the placeholder shows. Shared by every dropdown field, such as [`Select`] and
 /// the date picker.
+/// Cells [`paint_field`] leaves for the text of a field painted at `area`.
+pub(crate) fn field_text_width(cx: &mut PaintCx<'_>, area: Rect, states: &[State]) -> u16 {
+    let padding = cx.style("select", None, states).padding();
+    let chevron = text::width(&cx.env().icons().glyph("chevron-down"));
+    area.inset(padding).width.saturating_sub(chevron + 2)
+}
+
 pub(crate) fn paint_field(cx: &mut PaintCx<'_>, area: Rect, states: &[State], label: Option<&str>, placeholder: &str) {
     let style = cx.style("select", None, states);
     let surface = style.text();

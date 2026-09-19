@@ -838,10 +838,12 @@ mod tests {
         assert!(h.app().pages.storage.self_heal, "{}", h.screen());
         let screen = h.screen();
         assert!(screen.contains("settings.toml:2:1: warning: `color` is not a known setting; removed"), "{screen}");
-        assert!(screen.contains("`language` must be one of en, tr, found \"sjds\"; replaced with \"en\""), "{screen}");
+        assert!(screen.contains("`language` must be one of de, en, es, fr, ja, pt-BR, ru, tr,"), "{screen}");
         assert!(screen.contains("REPAIRED FILE"), "{screen}");
         let log: Vec<String> = h.app().log.recent(PAGE, 20).iter().map(|entry| entry.message.clone()).collect();
         assert!(log.iter().any(|line| line == "`color` is not a known setting; removed"), "{log:?}");
+        let language = "`language` must be one of de, en, es, fr, ja, pt-BR, ru, tr, zh-Hans, found \"sjds\"; replaced with \"en\"";
+        assert!(log.iter().any(|line| line == language), "{log:?}");
         assert!(
             log.iter()
                 .any(|line| line.starts_with("`icons` must be one of") && line.ends_with("replaced with \"auto\""))

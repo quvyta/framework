@@ -10,9 +10,10 @@ use std::fmt::Write as _;
 
 use qframe::color::Rgb;
 
+use crate::Shot;
 use crate::font::{self, GlyphKey};
 use crate::geometry::{CELL_H, CELL_W, MARGIN, RADIUS, TITLE_H, num};
-use crate::screen::{Cell, Screen};
+use crate::screen::Cell;
 
 /// The finished picture and the characters the font could not draw.
 pub(crate) struct Drawing {
@@ -55,18 +56,23 @@ struct Glyphs {
     missing: BTreeSet<char>,
 }
 
+/// The cells a character is drawn in: their top left corner and their width, in pixels.
+#[derive(Clone, Copy)]
+struct Slot {
+    x: f32,
+    y: f32,
+    width: f32,
+}
+
 impl Glyphs {
-    /// Places character `c` with its cell's top left corner at `x`, `y`.
-    fn place(&mut self, c: char, bold: bool, italic: bool, color: Rgb, x: f32, y: f32) {
-        // A bold cell whose character only the regular face has is drawn regular, as terminals do.
-        let key = match (font::glyph(c, bold), font::glyph(c, false)) {
-            (Some(id), _) if bold => GlyphKey { bold: true, italic, id },
-            (_, Some(id)) => GlyphKey { bold: false, italic, id },
-            _ => {
-                self.missing.insert(c);
-                return;
-            }
+    /// Places character `c` centred in `slot`. A glyph narrower than its cells, such as a CJK
+    /// glyph in two, sits in their middle as a terminal draws it.
+    fn place(&mut self, c: char, bold: bool, italic: bool, color: Rgb, slot: Slot) {
+        let Some((key, advance)) = font::glyph(c, bold) else {
+            self.missing.insert(c);
+            return;
         };
+        let key = GlyphKey { italic, ..key };
         let defs = &mut self.defs;
         let id = *self.ids.entry(key).or_insert_with(|| {
             let outline = font::outline(key)?;
@@ -74,7 +80,8 @@ impl Glyphs {
             Some(defs.len() - 1)
         });
         if let Some(id) = id {
-            let _ = write!(self.uses.entry(color), "<use href=\"#g{id}\" x=\"{}\" y=\"{}\"/>", num(x), num(y));
+            let x = slot.x + (slot.width - advance) / 2.0;
+            let _ = write!(self.uses.entry(color), "<use href=\"#g{id}\" x=\"{}\" y=\"{}\"/>", num(x), num(slot.y));
         }
     }
 }
@@ -156,8 +163,18 @@ pub(crate) fn tiles(parts: &[[f32; 4]]) -> Vec<([f32; 4], bool)> {
     tiles
 }
 
-/// Draws `screen`, with a title strip when `title` is given.
-pub(crate) fn draw(screen: &Screen, title: Option<&str>) -> Drawing {
+/// The mouse pointer's outline with its tip at the origin, in picture units: a classic arrow a
+/// little shorter than a cell is tall, so it covers one glyph and never hides a whole word.
+const POINTER: &str = "M0 0V15L3.6 11.6L6.1 17.2L8.4 16.2L5.9 10.7H10.8Z";
+
+/// Where the pointer's tip sits inside its cell, as fractions of the cell: left of the middle
+/// and above it, as the hot spot of a pointer resting on a character looks.
+const POINTER_TIP: (f32, f32) = (0.35, 0.3);
+
+/// Draws `shot`: its screen, with a title strip when it has a title, a mouse pointer on the cell
+/// it names and square corners when asked.
+pub(crate) fn draw(shot: &Shot) -> Drawing {
+    let (screen, title, pointer) = (&shot.screen, shot.title.as_deref(), shot.pointer);
     let palette = screen.palette;
     let top = if title.is_some() { TITLE_H } else { 0.0 };
     let grid_w = f32::from(screen.width) * CELL_W;
@@ -209,9 +226,7 @@ pub(crate) fn draw(screen: &Screen, title: Option<&str>) -> Drawing {
             let px = left + x as f32 * CELL_W;
             let span = f32::from(cell.width) * CELL_W;
             for c in cell.symbol.chars().filter(|c| !c.is_whitespace()) {
-                // A wide character's glyph is one cell wide in this font: centre it in both.
-                let centre = (span - CELL_W) / 2.0;
-                glyphs.place(c, cell.bold, cell.italic, cell.fg, px + centre, py);
+                glyphs.place(c, cell.bold, cell.italic, cell.fg, Slot { x: px, y: py, width: span });
             }
             if cell.underline {
                 overlay.rect(cell.fg, px, py + font::baseline() + 2.0, span, 1.0);
@@ -230,10 +245,11 @@ pub(crate) fn draw(screen: &Screen, title: Option<&str>) -> Drawing {
         let mut x = ((width - cells * CELL_W) / 2.0).round();
         let y = ((TITLE_H - CELL_H) / 2.0).round();
         for c in title.chars() {
+            let span = f32::from(qframe::text::width(&c.to_string())) * CELL_W;
             if !c.is_whitespace() {
-                glyphs.place(c, false, false, palette.muted, x, y);
+                glyphs.place(c, false, false, palette.muted, Slot { x, y, width: span });
             }
-            x += f32::from(qframe::text::width(&c.to_string())) * CELL_W;
+            x += span;
         }
     }
     svg.push_str("<defs>\n");
@@ -241,15 +257,16 @@ pub(crate) fn draw(screen: &Screen, title: Option<&str>) -> Drawing {
         let _ = writeln!(svg, "<path id=\"g{id}\" d=\"{d}\"/>");
     }
     svg.push_str("</defs>\n");
-    let r = num(RADIUS);
+    let radius = if shot.square { 0.0 } else { RADIUS };
+    let r = num(radius);
     let _ = writeln!(svg, "<rect width=\"{w}\" height=\"{h}\" rx=\"{r}\" fill=\"{}\"/>", palette.ground);
     if title.is_some() {
-        // The strip shares the ground's rounded top corners and ends square above the grid.
+        // The strip shares the ground's top corners and ends square above the grid.
         let _ = writeln!(
             svg,
             "<path fill=\"{}\" d=\"M0 {r}A{r} {r} 0 0 1 {r} 0H{}A{r} {r} 0 0 1 {w} {r}V{}H0Z\"/>",
             palette.title_ground,
-            num(width - RADIUS),
+            num(width - radius),
             num(TITLE_H),
         );
     }
@@ -260,6 +277,20 @@ pub(crate) fn draw(screen: &Screen, title: Option<&str>) -> Drawing {
     }
     for (color, uses) in &glyphs.uses.order {
         let _ = writeln!(svg, "<g fill=\"{color}\">{uses}</g>");
+    }
+    if let Some((x, y)) = pointer.filter(|&(x, y)| x < screen.width && y < screen.height) {
+        let tip_x = left + (f32::from(x) + POINTER_TIP.0) * CELL_W;
+        let tip_y = grid_top + (f32::from(y) + POINTER_TIP.1) * CELL_H;
+        // The ground's outline keeps the arrow readable over a background of the text's own tone.
+        let _ = writeln!(
+            svg,
+            "<path transform=\"translate({} {})\" fill=\"{}\" stroke=\"{}\" stroke-width=\"1.2\" \
+             stroke-linejoin=\"round\" d=\"{POINTER}\"/>",
+            num(tip_x),
+            num(tip_y),
+            palette.text,
+            palette.ground,
+        );
     }
     svg.push_str("</svg>\n");
     Drawing { svg, missing: glyphs.missing }

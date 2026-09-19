@@ -20,8 +20,17 @@ pub(crate) const THEMES: [(&str, &str); 4] = [
 pub(crate) const ICON_SETS: [(&str, &str); 1] = [("default", include_str!("../assets/icons/default.toml"))];
 
 /// Built-in locales as `(code, toml)`. `en` is the final fallback.
-pub(crate) const LOCALES: [(&str, &str); 2] =
-    [("en", include_str!("../assets/locales/en.toml")), ("tr", include_str!("../assets/locales/tr.toml"))];
+pub(crate) const LOCALES: [(&str, &str); 9] = [
+    ("en", include_str!("../assets/locales/en.toml")),
+    ("tr", include_str!("../assets/locales/tr.toml")),
+    ("de", include_str!("../assets/locales/de.toml")),
+    ("es", include_str!("../assets/locales/es.toml")),
+    ("fr", include_str!("../assets/locales/fr.toml")),
+    ("pt-BR", include_str!("../assets/locales/pt-BR.toml")),
+    ("ru", include_str!("../assets/locales/ru.toml")),
+    ("zh-Hans", include_str!("../assets/locales/zh-Hans.toml")),
+    ("ja", include_str!("../assets/locales/ja.toml")),
+];
 
 /// The built-in keymap.
 pub(crate) const KEYMAP: &str = include_str!("../assets/keymaps/default.toml");

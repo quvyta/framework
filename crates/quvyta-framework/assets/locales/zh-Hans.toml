@@ -1,0 +1,188 @@
+# 简体中文
+
+[meta]
+name = "简体中文"
+code = "zh-Hans"
+fallback = "en"
+
+[quvyta.keys]
+quit       = "退出"
+focus-next = "下一个"
+focus-prev = "上一个"
+debug      = "调试"
+toggle-panel = "面板"
+copy       = "复制"
+paste      = "粘贴"
+help       = "快捷键"
+palette    = "命令"
+
+[quvyta.switch]
+on  = "开"
+off = "关"
+
+[quvyta.log]
+below = { other = "下方还有 {n} 行" }
+no-match = "没有匹配的行"
+
+[quvyta.file-picker]
+filter = "按名称筛选"
+loading = "正在读取文件夹…"
+parent = "上级文件夹"
+empty = "此文件夹为空"
+no-match = "没有符合筛选条件的项"
+hidden = "隐藏文件"
+choose-file = "选择文件"
+choose-folder = "选择文件夹"
+permission-denied = "没有权限打开此文件夹"
+not-found = "此文件夹不存在"
+not-a-folder = "这不是文件夹"
+unreadable = "无法读取此文件夹"
+
+[quvyta.terminal]
+scrolled = { other = "已向上翻 {n} 行" }
+exited = "已退出，代码 {code}"
+
+[quvyta.form]
+required = "必填"
+summary  = { other = "有 {n} 个字段需要修改" }
+
+[quvyta.wizard]
+cancel = "取消"
+back   = "上一步"
+next   = "下一步"
+finish = "完成"
+
+[quvyta.copy-value]
+copy   = "复制"
+copied = "已复制"
+
+[quvyta.tasks]
+done      = "完成"
+cancelled = "已取消"
+cancel    = "取消"
+empty     = "没有正在运行的任务"
+
+[quvyta.handoff]
+pause = "按任意键返回"
+
+[quvyta.date]
+# 1 is Monday, 7 is Sunday.
+first-weekday = "1"
+format = "{year}年{month}{day}日"
+format-short = "{year}年{month}{day}日"
+format-day-month = "{month}{day}日"
+title = "{year}年{month}"
+month-1 = "1月"
+month-2 = "2月"
+month-3 = "3月"
+month-4 = "4月"
+month-5 = "5月"
+month-6 = "6月"
+month-7 = "7月"
+month-8 = "8月"
+month-9 = "9月"
+month-10 = "10月"
+month-11 = "11月"
+month-12 = "12月"
+weekday-1 = "一"
+weekday-2 = "二"
+weekday-3 = "三"
+weekday-4 = "四"
+weekday-5 = "五"
+weekday-6 = "六"
+weekday-7 = "日"
+weekday-long-1 = "星期一"
+weekday-long-2 = "星期二"
+weekday-long-3 = "星期三"
+weekday-long-4 = "星期四"
+weekday-long-5 = "星期五"
+weekday-long-6 = "星期六"
+weekday-long-7 = "星期日"
+month-short-1 = "1月"
+month-short-2 = "2月"
+month-short-3 = "3月"
+month-short-4 = "4月"
+month-short-5 = "5月"
+month-short-6 = "6月"
+month-short-7 = "7月"
+month-short-8 = "8月"
+month-short-9 = "9月"
+month-short-10 = "10月"
+month-short-11 = "11月"
+month-short-12 = "12月"
+
+[quvyta.time]
+clock = "{hour}:{minute}"
+hour = "{hour}"
+span = "{from}–{to}"
+hours-minutes = "{hours}小时{minutes}分钟"
+hours = "{hours}小时"
+minutes = "{minutes}分钟"
+seconds = "{seconds}秒"
+
+[quvyta.timeline]
+empty = "这一天没有记录"
+from-previous-day = "从前一天开始"
+from-earlier = "更早开始"
+continues-next-day = "持续到第二天"
+running = "进行中"
+open-both = "{start}，{end}"
+
+[quvyta.layer]
+close  = "关闭"
+switch = "切换"
+scroll = "滚动"
+move   = "移动"
+run    = "运行"
+filter = "输入以筛选"
+
+[quvyta.help]
+title  = "键盘快捷键"
+screen = "当前界面"
+app    = "应用"
+global = "通用"
+empty  = "没有匹配的按键"
+
+[quvyta.palette]
+placeholder = "输入命令"
+recent      = "最近使用"
+all         = "所有命令"
+empty       = "没有匹配的命令"
+
+[quvyta.confirm]
+confirm   = "确认"
+cancel    = "取消"
+type-word = "输入 {word} 以确认"
+
+[quvyta.tabs]
+add = "新建标签页"
+
+[quvyta.tab-rail]
+add = "新建标签页"
+
+[quvyta.edit]
+cut        = "剪切"
+copy       = "复制"
+raw-copy   = "原样复制"
+paste      = "粘贴"
+select-all = "全选"
+
+[quvyta.duration]
+hours   = "小时"
+minutes = "分钟"
+seconds = "秒"
+hour-words   = "小时, 时, 钟头"
+minute-words = "分钟, 分"
+second-words = "秒, 秒钟"
+hour-name    = "小时"
+minute-name  = "分钟"
+second-name  = "秒"
+empty     = "没有可读取的内容；请输入时长，例如 1 小时 30 分钟、90 分钟或 2:15"
+character = "“{text}”不能作为时长的一部分"
+unit      = "“{text}”不是时间单位；请使用小时、分钟或秒"
+number    = "“{text}”不是数字"
+no-number = "“{text}”前面需要一个数字"
+no-unit   = "“{text}”后面需要一个单位，例如分钟"
+repeated  = "{text}写了两次"
+clock     = "“{text}”不是小时和分钟；请输入 2:15 或 2:15:30，分钟和秒都要小于 60"
+too-large = "超过了最长时长 {text}"

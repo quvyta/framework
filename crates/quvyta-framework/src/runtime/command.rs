@@ -14,6 +14,7 @@ pub(crate) enum Action<Msg> {
     Focus(String),
     SetTheme(String),
     SetLocale(String),
+    SetRegion(Option<String>),
     SetIconMode(IconMode),
     SetReducedMotion(bool),
     SetPillar(crate::icons::PillarStyle),
@@ -43,6 +44,7 @@ impl<A: Send + 'static> Action<A> {
             Self::Focus(name) => Action::Focus(name),
             Self::SetTheme(id) => Action::SetTheme(id),
             Self::SetLocale(code) => Action::SetLocale(code),
+            Self::SetRegion(region) => Action::SetRegion(region),
             Self::SetIconMode(mode) => Action::SetIconMode(mode),
             Self::SetReducedMotion(reduced) => Action::SetReducedMotion(reduced),
             Self::SetPillar(style) => Action::SetPillar(style),
@@ -110,10 +112,21 @@ impl<Msg: Send + 'static> Command<Msg> {
         Self::single(Action::SetTheme(id.into()))
     }
 
-    /// Switches the language to locale `code`.
+    /// Switches the language to the locale that serves `code`: a locale code such as `tr`, or a
+    /// language tag such as `en-GB`, which also sets the region; see
+    /// [`I18n::select`](crate::i18n::I18n::select). An unknown language changes nothing and is
+    /// reported in the environment's diagnostics.
     #[must_use]
     pub fn set_locale(code: impl Into<String>) -> Self {
         Self::single(Action::SetLocale(code.into()))
+    }
+
+    /// Sets the region whose conventions apply, such as `GB`, or with `None` leaves them to the
+    /// language again; see [`I18n::set_region`](crate::i18n::I18n::set_region). A code that is not
+    /// a region changes nothing and is reported in the environment's diagnostics.
+    #[must_use]
+    pub fn set_region(region: Option<&str>) -> Self {
+        Self::single(Action::SetRegion(region.map(str::to_owned)))
     }
 
     /// Switches between Nerd Font, Unicode, ASCII or detected glyphs.

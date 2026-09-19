@@ -13,6 +13,15 @@
 - `.add_days(n)`, `.add_months(n)` (clamps to the month's last day), `.first_of_month()`, `.start_of_week(Weekday)`.
 - `date::is_leap_year(year)`, `date::days_in_month(year, month)`; `Weekday::ALL`, `.number()`, `Weekday::from_number(n)`, `.days_since(start)` (days forward from `start`, `0..7`).
 
+## First day of the week
+
+- `I18n::first_weekday() -> Weekday` — the region's first day (CLDR) when a region is known, else the language's `quvyta.date.first-weekday`, else Monday. Read it with `ui.env().i18n()` or `cx.env().i18n()`.
+- `I18n::region() -> Option<&str>` — the region, uppercase (`GB`, `419`).
+- `I18n::set_region(Option<&str>) -> bool` — two letters or three digits in either case; `None` clears; `false` for anything else.
+- `I18n::select(tag) -> bool` — activates the locale serving `en-GB` or `pt_BR.UTF-8` and takes its region; a tag without a region keeps the current one.
+- `I18n::detect_region(env) -> Option<String>` — the region of the first of `LC_ALL`, `LC_TIME`, `LANG`; `Env::load` sets it.
+- `Command::set_locale(tag)` goes through `select`; `Command::set_region(Option<&str>)` sets the region alone.
+
 ## Keys
 
 - Closed: `enter`, `space` or `down` opens.
@@ -28,7 +37,7 @@
 ## Locale keys
 
 - `quvyta.date.month-1` … `month-12`, `weekday-1` (Monday) … `weekday-7` (Sunday).
-- `quvyta.date.first-weekday` — `1` Monday to `7` Sunday.
+- `quvyta.date.first-weekday` — `1` Monday to `7` Sunday; used when no region is known.
 - `quvyta.date.format` — the field, with `{day}`, `{month}`, `{year}`; `quvyta.date.title` — the calendar title.
 
 ## Theme keys

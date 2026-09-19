@@ -13,6 +13,15 @@
 - `.add_days(n)`, `.add_months(n)` (ayın son gününe kırpar), `.first_of_month()`, `.start_of_week(Weekday)`.
 - `date::is_leap_year(yıl)`, `date::days_in_month(yıl, ay)`; `Weekday::ALL`, `.number()`, `Weekday::from_number(n)`, `.days_since(başlangıç)` (`başlangıç` gününden ileri doğru gün sayısı, `0..7`).
 
+## Haftanın ilk günü
+
+- `I18n::first_weekday() -> Weekday` — bölge biliniyorsa bölgenin ilk günü (CLDR), bilinmiyorsa dilin `quvyta.date.first-weekday` anahtarı, o da yoksa pazartesi. `ui.env().i18n()` ya da `cx.env().i18n()` ile oku.
+- `I18n::region() -> Option<&str>` — büyük harfle bölge (`GB`, `419`).
+- `I18n::set_region(Option<&str>) -> bool` — büyük ya da küçük harfle iki harf veya üç rakam; `None` temizler; başka her şeye `false`.
+- `I18n::select(etiket) -> bool` — `en-GB` ya da `pt_BR.UTF-8` etiketine hizmet eden dili etkinleştirir ve bölgesini alır; bölgesiz bir etiket mevcut bölgeyi korur.
+- `I18n::detect_region(env) -> Option<String>` — `LC_ALL`, `LC_TIME`, `LANG` içinden ilk dolu olanın bölgesi; `Env::load` bunu ayarlar.
+- `Command::set_locale(etiket)` `select` üzerinden çalışır; `Command::set_region(Option<&str>)` yalnızca bölgeyi değiştirir.
+
 ## Tuşlar
 
 - Kapalı: `enter`, `space` ya da `down` açar.
@@ -28,7 +37,7 @@
 ## Dil anahtarları
 
 - `quvyta.date.month-1` … `month-12`, `weekday-1` (pazartesi) … `weekday-7` (pazar).
-- `quvyta.date.first-weekday` — `1` pazartesi ile `7` pazar arası.
+- `quvyta.date.first-weekday` — `1` pazartesi ile `7` pazar arası; bölge bilinmiyorsa kullanılır.
 - `quvyta.date.format` — `{day}`, `{month}`, `{year}` ile alan metni; `quvyta.date.title` — takvim başlığı.
 
 ## Tema anahtarları

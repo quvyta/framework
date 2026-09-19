@@ -131,6 +131,7 @@ impl Env {
         if let Some(code) = i18n.detect(lookup) {
             i18n.set_active(&code);
         }
+        i18n.set_region(i18n.detect_region(lookup).as_deref());
         if let Some(file) = &dirs.keymap {
             let read = load_keymap(file, &mut env.diagnostics);
             let has_source = dirs.keymap_source.is_some();
@@ -303,10 +304,20 @@ impl Env {
 
     pub(crate) fn set_locale(&mut self, code: &str) {
         let mut i18n = I18n::clone(&self.i18n);
-        if i18n.set_active(code) {
+        if i18n.select(code) {
             self.i18n = Arc::new(i18n);
         } else {
             self.diagnostics.push(Diagnostic::warning(None, format!("unknown locale `{code}`")));
+        }
+    }
+
+    pub(crate) fn set_region(&mut self, region: Option<&str>) {
+        let mut i18n = I18n::clone(&self.i18n);
+        if i18n.set_region(region) {
+            self.i18n = Arc::new(i18n);
+        } else {
+            let region = region.unwrap_or_default();
+            self.diagnostics.push(Diagnostic::warning(None, format!("unknown region `{region}`")));
         }
     }
 

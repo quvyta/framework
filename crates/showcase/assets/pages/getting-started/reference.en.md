@@ -51,7 +51,7 @@
 - `.advance(duration)` — moves the fake clock; animations and flashes follow it, and a termination whose grace is over quits. `.render()` paints again.
 - `.terminate(Termination::Terminate)`, `.terminate(Termination::Hangup)` — simulates a `SIGTERM` or a `SIGHUP`: `terminating` hears it as in a terminal, a second terminate quits, a repeated hangup changes nothing.
 - `.set_theme(id)`, `.set_locale(code)`, `.set_glyph_mode(mode)`, `.set_reduced_motion(bool)`, `.set_system_clipboard(Some(text))` — change the environment.
-- `.screen()`, `.find(text)`, `.fg(x, y)`, `.bg(x, y)`, `.is_bold(x, y)`, `.buffer()`, `.html(caption)` — read what was drawn.
+- `.screen()`, `.find(text)`, `.fg(x, y)`, `.bg(x, y)`, `.is_bold(x, y)`, `.buffer()`, `.html(caption)` — read what was drawn. A double-width character reads once, without the cell it covers: `screen().contains("防火墙")` holds and `find` gives the column it is drawn in.
 - `.app()`, `.env()`, `.is_focused("name")`, `.copied()`, `.clipboard()`, `.quit_requested()` — inspect the application and the runtime.
 
 ## Keys

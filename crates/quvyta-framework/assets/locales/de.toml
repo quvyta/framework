@@ -1,0 +1,188 @@
+# Deutsch
+
+[meta]
+name = "Deutsch"
+code = "de"
+fallback = "en"
+
+[quvyta.keys]
+quit       = "beenden"
+focus-next = "weiter"
+focus-prev = "zurück"
+debug      = "Debug"
+toggle-panel = "Leiste"
+copy       = "kopieren"
+paste      = "einfügen"
+help       = "Tasten"
+palette    = "Befehle"
+
+[quvyta.switch]
+on  = "AN"
+off = "AUS"
+
+[quvyta.log]
+below = { one = "{n} Zeile darunter", other = "{n} Zeilen darunter" }
+no-match = "Keine passenden Zeilen"
+
+[quvyta.file-picker]
+filter = "Nach Namen filtern"
+loading = "Ordner wird gelesen…"
+parent = "Übergeordneter Ordner"
+empty = "Dieser Ordner ist leer"
+no-match = "Nichts passt zum Filter"
+hidden = "Versteckte Dateien"
+choose-file = "Datei wählen"
+choose-folder = "Ordner wählen"
+permission-denied = "Keine Berechtigung, diesen Ordner zu öffnen"
+not-found = "Dieser Ordner existiert nicht"
+not-a-folder = "Das ist kein Ordner"
+unreadable = "Dieser Ordner konnte nicht gelesen werden"
+
+[quvyta.terminal]
+scrolled = { one = "{n} Zeile zurück", other = "{n} Zeilen zurück" }
+exited = "beendet mit {code}"
+
+[quvyta.form]
+required = "erforderlich"
+summary  = { one = "{n} Feld muss korrigiert werden", other = "{n} Felder müssen korrigiert werden" }
+
+[quvyta.wizard]
+cancel = "Abbrechen"
+back   = "Zurück"
+next   = "Weiter"
+finish = "Fertig"
+
+[quvyta.copy-value]
+copy   = "kopieren"
+copied = "kopiert"
+
+[quvyta.tasks]
+done      = "fertig"
+cancelled = "abgebrochen"
+cancel    = "Abbrechen"
+empty     = "Keine laufenden Aufgaben"
+
+[quvyta.handoff]
+pause = "Zum Zurückkehren eine beliebige Taste drücken"
+
+[quvyta.date]
+# 1 is Monday, 7 is Sunday.
+first-weekday = "1"
+format = "{day}. {month} {year}"
+format-short = "{day}. {month} {year}"
+format-day-month = "{day}. {month}"
+title = "{month} {year}"
+month-1 = "Januar"
+month-2 = "Februar"
+month-3 = "März"
+month-4 = "April"
+month-5 = "Mai"
+month-6 = "Juni"
+month-7 = "Juli"
+month-8 = "August"
+month-9 = "September"
+month-10 = "Oktober"
+month-11 = "November"
+month-12 = "Dezember"
+weekday-1 = "Mo"
+weekday-2 = "Di"
+weekday-3 = "Mi"
+weekday-4 = "Do"
+weekday-5 = "Fr"
+weekday-6 = "Sa"
+weekday-7 = "So"
+weekday-long-1 = "Montag"
+weekday-long-2 = "Dienstag"
+weekday-long-3 = "Mittwoch"
+weekday-long-4 = "Donnerstag"
+weekday-long-5 = "Freitag"
+weekday-long-6 = "Samstag"
+weekday-long-7 = "Sonntag"
+month-short-1 = "Jan"
+month-short-2 = "Feb"
+month-short-3 = "Mär"
+month-short-4 = "Apr"
+month-short-5 = "Mai"
+month-short-6 = "Jun"
+month-short-7 = "Jul"
+month-short-8 = "Aug"
+month-short-9 = "Sep"
+month-short-10 = "Okt"
+month-short-11 = "Nov"
+month-short-12 = "Dez"
+
+[quvyta.time]
+clock = "{hour}:{minute}"
+hour = "{hour}"
+span = "{from}–{to}"
+hours-minutes = "{hours} Std. {minutes} Min."
+hours = "{hours} Std."
+minutes = "{minutes} Min."
+seconds = "{seconds} Sek."
+
+[quvyta.timeline]
+empty = "An diesem Tag ist nichts eingetragen"
+from-previous-day = "vom Vortag"
+from-earlier = "von früher"
+continues-next-day = "geht am nächsten Tag weiter"
+running = "läuft"
+open-both = "{start}, {end}"
+
+[quvyta.layer]
+close  = "schließen"
+switch = "wechseln"
+scroll = "blättern"
+move   = "navigieren"
+run    = "ausführen"
+filter = "Zum Filtern tippen"
+
+[quvyta.help]
+title  = "Tastenkürzel"
+screen = "Dieser Bildschirm"
+app    = "Anwendung"
+global = "Allgemein"
+empty  = "Keine passenden Tasten"
+
+[quvyta.palette]
+placeholder = "Befehl eingeben"
+recent      = "Zuletzt verwendet"
+all         = "Alle Befehle"
+empty       = "Keine passenden Befehle"
+
+[quvyta.confirm]
+confirm   = "Bestätigen"
+cancel    = "Abbrechen"
+type-word = "Zum Bestätigen {word} eingeben"
+
+[quvyta.tabs]
+add = "Neuer Tab"
+
+[quvyta.tab-rail]
+add = "Neuer Tab"
+
+[quvyta.edit]
+cut        = "Ausschneiden"
+copy       = "Kopieren"
+raw-copy   = "Unverändert kopieren"
+paste      = "Einfügen"
+select-all = "Alles auswählen"
+
+[quvyta.duration]
+hours   = "Std"
+minutes = "Min"
+seconds = "Sek"
+hour-words   = "std, stunde, stunden"
+minute-words = "minute, minuten"
+second-words = "sek, sekunde, sekunden"
+hour-name    = "Die Stunden"
+minute-name  = "Die Minuten"
+second-name  = "Die Sekunden"
+empty     = "Nichts zu lesen; eine Dauer wie 1 Std 30 Min, 90 Min oder 2:15 eingeben"
+character = "„{text}“ kann nicht Teil einer Zeitdauer sein"
+unit      = "„{text}“ ist keine Zeiteinheit; Std, Min oder Sek verwenden"
+number    = "„{text}“ ist keine Zahl"
+no-number = "Vor „{text}“ fehlt eine Zahl"
+no-unit   = "Nach „{text}“ fehlt eine Einheit, etwa Min"
+repeated  = "{text} sind doppelt angegeben"
+clock     = "„{text}“ sind keine Stunden und Minuten; 2:15 oder 2:15:30 eingeben, Minuten und Sekunden unter 60"
+too-large = "Länger als die längste Dauer, {text}"

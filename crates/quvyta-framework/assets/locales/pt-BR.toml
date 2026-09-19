@@ -1,0 +1,202 @@
+# Português do Brasil
+
+[meta]
+name = "Português (Brasil)"
+code = "pt-BR"
+fallback = "en"
+
+[quvyta.keys]
+quit       = "sair"
+focus-next = "próximo"
+focus-prev = "anterior"
+debug      = "depurar"
+toggle-panel = "painel"
+copy       = "copiar"
+paste      = "colar"
+help       = "teclas"
+palette    = "comandos"
+
+[quvyta.switch]
+on  = "LIG"
+off = "DESL"
+
+[quvyta.log]
+below = { one = "{n} linha abaixo", other = "{n} linhas abaixo" }
+no-match = "Nenhuma linha corresponde"
+
+[quvyta.file-picker]
+filter = "Filtrar por nome"
+loading = "Lendo a pasta…"
+parent = "Pasta superior"
+empty = "Esta pasta está vazia"
+no-match = "Nada corresponde ao filtro"
+hidden = "Arquivos ocultos"
+choose-file = "Escolher arquivo"
+choose-folder = "Escolher pasta"
+permission-denied = "Você não tem permissão para abrir esta pasta"
+not-found = "Esta pasta não existe"
+not-a-folder = "Isto não é uma pasta"
+unreadable = "Não foi possível ler esta pasta"
+
+[quvyta.terminal]
+scrolled = { one = "{n} linha atrás", other = "{n} linhas atrás" }
+exited = "encerrado com {code}"
+
+[quvyta.form]
+required = "obrigatório"
+summary  = { one = "{n} campo precisa de atenção", other = "{n} campos precisam de atenção" }
+
+[quvyta.wizard]
+cancel = "Cancelar"
+back   = "Voltar"
+next   = "Avançar"
+finish = "Concluir"
+
+[quvyta.copy-value]
+copy   = "copiar"
+copied = "copiado"
+
+[quvyta.tasks]
+done      = "concluído"
+cancelled = "cancelado"
+cancel    = "Cancelar"
+empty     = "Nenhuma tarefa em andamento"
+
+[quvyta.handoff]
+pause = "Pressione qualquer tecla para voltar"
+
+[quvyta.date]
+# 1 is Monday, 7 is Sunday. Brazilian calendars start on Sunday.
+first-weekday = "7"
+format = "{day} de {month} de {year}"
+format-short = "{day} {month} {year}"
+format-day-month = "{day} {month}"
+title = "{month} de {year}"
+month-1 = "Janeiro"
+month-2 = "Fevereiro"
+month-3 = "Março"
+month-4 = "Abril"
+month-5 = "Maio"
+month-6 = "Junho"
+month-7 = "Julho"
+month-8 = "Agosto"
+month-9 = "Setembro"
+month-10 = "Outubro"
+month-11 = "Novembro"
+month-12 = "Dezembro"
+# Inside a date the month is written in lower case: 5 de janeiro de 2026.
+month-in-date-1 = "janeiro"
+month-in-date-2 = "fevereiro"
+month-in-date-3 = "março"
+month-in-date-4 = "abril"
+month-in-date-5 = "maio"
+month-in-date-6 = "junho"
+month-in-date-7 = "julho"
+month-in-date-8 = "agosto"
+month-in-date-9 = "setembro"
+month-in-date-10 = "outubro"
+month-in-date-11 = "novembro"
+month-in-date-12 = "dezembro"
+# Brazilian calendars head their columns with one letter each.
+weekday-1 = "S"
+weekday-2 = "T"
+weekday-3 = "Q"
+weekday-4 = "Q"
+weekday-5 = "S"
+weekday-6 = "S"
+weekday-7 = "D"
+weekday-long-1 = "Segunda"
+weekday-long-2 = "Terça"
+weekday-long-3 = "Quarta"
+weekday-long-4 = "Quinta"
+weekday-long-5 = "Sexta"
+weekday-long-6 = "Sábado"
+weekday-long-7 = "Domingo"
+month-short-1 = "Jan"
+month-short-2 = "Fev"
+month-short-3 = "Mar"
+month-short-4 = "Abr"
+month-short-5 = "Mai"
+month-short-6 = "Jun"
+month-short-7 = "Jul"
+month-short-8 = "Ago"
+month-short-9 = "Set"
+month-short-10 = "Out"
+month-short-11 = "Nov"
+month-short-12 = "Dez"
+
+[quvyta.time]
+clock = "{hour}:{minute}"
+hour = "{hour}"
+span = "{from}–{to}"
+hours-minutes = "{hours} h {minutes} min"
+hours = "{hours} h"
+minutes = "{minutes} min"
+seconds = "{seconds} s"
+
+[quvyta.timeline]
+empty = "Nada neste dia"
+from-previous-day = "do dia anterior"
+from-earlier = "de antes"
+continues-next-day = "continua no dia seguinte"
+running = "em andamento"
+open-both = "{start}, {end}"
+
+[quvyta.layer]
+close  = "fechar"
+switch = "alternar"
+scroll = "rolar"
+move   = "navegar"
+run    = "executar"
+filter = "Digite para filtrar"
+
+[quvyta.help]
+title  = "Atalhos de teclado"
+screen = "Esta tela"
+app    = "Aplicativo"
+global = "Geral"
+empty  = "Nenhuma tecla corresponde"
+
+[quvyta.palette]
+placeholder = "Digite um comando"
+recent      = "Recentes"
+all         = "Todos os comandos"
+empty       = "Nenhum comando corresponde"
+
+[quvyta.confirm]
+confirm   = "Confirmar"
+cancel    = "Cancelar"
+type-word = "Digite {word} para confirmar"
+
+[quvyta.tabs]
+add = "Nova aba"
+
+[quvyta.tab-rail]
+add = "Nova aba"
+
+[quvyta.edit]
+cut        = "Recortar"
+copy       = "Copiar"
+raw-copy   = "Copiar como está"
+paste      = "Colar"
+select-all = "Selecionar tudo"
+
+[quvyta.duration]
+hours   = "h"
+minutes = "min"
+seconds = "s"
+hour-words   = "hora, horas"
+minute-words = "minuto, minutos"
+second-words = "seg, segundo, segundos"
+hour-name    = "As horas"
+minute-name  = "Os minutos"
+second-name  = "Os segundos"
+empty     = "Nada para ler; digite uma duração como 1 h 30 min, 90 min ou 2:15"
+character = "“{text}” não pode fazer parte de uma duração"
+unit      = "“{text}” não é uma unidade de tempo; use h, min ou s"
+number    = "“{text}” não é um número"
+no-number = "“{text}” precisa de um número antes"
+no-unit   = "“{text}” precisa de uma unidade depois, como min"
+repeated  = "{text} aparecem duas vezes"
+clock     = "“{text}” não é horas e minutos; digite 2:15 ou 2:15:30, com minutos e segundos abaixo de 60"
+too-large = "Mais longa que a duração máxima, {text}"
