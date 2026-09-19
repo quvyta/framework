@@ -48,6 +48,7 @@ pub mod markdown;
 pub mod menu;
 pub mod modal;
 pub mod motion;
+pub mod nerd_font;
 pub mod number_input;
 pub mod page_transitions;
 pub mod panel;
@@ -60,6 +61,7 @@ pub mod scrollbar_styles;
 pub mod segmented;
 pub mod select;
 pub mod settings_list;
+pub mod shared_preferences;
 pub mod shimmer_text;
 pub mod side_panel;
 pub mod skeleton;
@@ -87,6 +89,7 @@ pub mod toast;
 pub mod tooltip;
 pub mod tree;
 pub mod widget_dock;
+pub mod windows;
 pub mod wizard;
 
 use qframe::prelude::*;
@@ -190,6 +193,7 @@ pub const PAGES: &[PageContent] = &[
     page!("scrollbar-styles", "scrollbar_styles"),
     page!("side-panel", "side_panel"),
     page!("splitter", "splitter"),
+    page!("windows", "windows"),
     page!("widget-dock", "widget_dock"),
     page!("accordion", "accordion"),
     page!("tabs-advanced", "tabs_advanced"),
@@ -216,7 +220,9 @@ pub const PAGES: &[PageContent] = &[
     page!("clipboard", "clipboard"),
     page!("async-tasks", "async_tasks"),
     page!("handoff", "handoff"),
+    page!("nerd-font", "nerd_font"),
     page!("storage", "storage"),
+    page!("shared-preferences", "shared_preferences"),
     page!("folder-watch", "folder_watch"),
     page!("date-time", "date_time"),
     page!("document", "document"),
@@ -280,6 +286,7 @@ pub struct Pages {
     pub scrollbar_styles: scrollbar_styles::State,
     pub side_panel: side_panel::State,
     pub splitter: splitter::State,
+    pub windows: windows::State,
     pub widget_dock: widget_dock::State,
     pub accordion: accordion::State,
     pub tabs_advanced: tabs_advanced::State,
@@ -306,8 +313,10 @@ pub struct Pages {
     pub clipboard: clipboard::State,
     pub async_tasks: async_tasks::State,
     pub handoff: handoff::State,
+    pub nerd_font: nerd_font::State,
     pub storage: storage::State,
     pub folder_watch: folder_watch::State,
+    pub shared_preferences: shared_preferences::State,
     pub date_time: date_time::State,
     pub document: document::State,
     pub page_transitions: page_transitions::State,
@@ -364,6 +373,7 @@ pub enum PageMsg {
     ScrollbarStyles(scrollbar_styles::Msg),
     SidePanel(side_panel::Msg),
     Splitter(splitter::Msg),
+    Windows(windows::Msg),
     WidgetDock(widget_dock::Msg),
     Accordion(accordion::Msg),
     TabsAdvanced(tabs_advanced::Msg),
@@ -390,8 +400,10 @@ pub enum PageMsg {
     Clipboard(clipboard::Msg),
     AsyncTasks(async_tasks::Msg),
     Handoff(handoff::Msg),
+    NerdFont(nerd_font::Msg),
     Storage(storage::Msg),
     FolderWatch(folder_watch::Msg),
+    SharedPreferences(shared_preferences::Msg),
     DateTime(date_time::Msg),
     Document(document::Msg),
     PageTransitions(page_transitions::Msg),
@@ -454,6 +466,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::ScrollbarStyles(m) => scrollbar_styles::update(&mut pages.scrollbar_styles, m, log),
         PageMsg::SidePanel(m) => side_panel::update(&mut pages.side_panel, m, log),
         PageMsg::Splitter(m) => splitter::update(&mut pages.splitter, m, log),
+        PageMsg::Windows(m) => windows::update(&mut pages.windows, m, log),
         PageMsg::WidgetDock(m) => widget_dock::update(&mut pages.widget_dock, m, log),
         PageMsg::Accordion(m) => accordion::update(&mut pages.accordion, m, log),
         PageMsg::TabsAdvanced(m) => tabs_advanced::update(&mut pages.tabs_advanced, m, log),
@@ -480,8 +493,10 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::Clipboard(m) => clipboard::update(&mut pages.clipboard, m, log),
         PageMsg::AsyncTasks(m) => async_tasks::update(&mut pages.async_tasks, m, log),
         PageMsg::Handoff(m) => handoff::update(&mut pages.handoff, m, log),
+        PageMsg::NerdFont(m) => nerd_font::update(&mut pages.nerd_font, m, log),
         PageMsg::Storage(m) => storage::update(&mut pages.storage, m, log),
         PageMsg::FolderWatch(m) => folder_watch::update(&mut pages.folder_watch, m, log),
+        PageMsg::SharedPreferences(m) => shared_preferences::update(&mut pages.shared_preferences, m, log),
         PageMsg::DateTime(m) => date_time::update(&mut pages.date_time, m, log),
         PageMsg::Document(m) => document::update(&mut pages.document, m, log),
         PageMsg::PageTransitions(m) => {
@@ -544,6 +559,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "scrollbar-styles" => scrollbar_styles::view(&pages.scrollbar_styles, ui),
         "side-panel" => side_panel::view(&pages.side_panel, ui),
         "splitter" => splitter::view(&pages.splitter, ui),
+        "windows" => windows::view(&pages.windows, ui),
         "widget-dock" => widget_dock::view(&pages.widget_dock, ui),
         "accordion" => accordion::view(&pages.accordion, ui),
         "tabs-advanced" => tabs_advanced::view(&pages.tabs_advanced, ui),
@@ -570,8 +586,10 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "clipboard" => clipboard::view(&pages.clipboard, ui),
         "async-tasks" => async_tasks::view(&pages.async_tasks, ui),
         "handoff" => handoff::view(&pages.handoff, ui),
+        "nerd-font" => nerd_font::view(&pages.nerd_font, ui),
         "storage" => storage::view(&pages.storage, ui),
         "folder-watch" => folder_watch::view(&pages.folder_watch, ui),
+        "shared-preferences" => shared_preferences::view(&pages.shared_preferences, ui),
         "date-time" => date_time::view(&pages.date_time, ui),
         "document" => document::view(&pages.document, ui),
         "page-transitions" => page_transitions::view(&pages.page_transitions, ui),

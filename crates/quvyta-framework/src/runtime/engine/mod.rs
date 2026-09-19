@@ -405,6 +405,12 @@ impl<A: App> Engine<A> {
 
     /// Offers `event` to each widget in `targets` until one uses it. Returns that widget.
     fn dispatch(&mut self, targets: &[WidgetId], event: &Event, now: Duration) -> Option<WidgetId> {
+        self.dispatch_as(targets, event, now, false)
+    }
+
+    /// Like [`Engine::dispatch`], telling the widgets whether the event is a preview of a press,
+    /// see [`PaintCx::preview_presses`](crate::widget::PaintCx::preview_presses).
+    fn dispatch_as(&mut self, targets: &[WidgetId], event: &Event, now: Duration, preview: bool) -> Option<WidgetId> {
         for id in targets {
             let mut effects = Effects::default();
             let mut messages = Vec::new();
@@ -423,6 +429,7 @@ impl<A: App> Engine<A> {
                     effects: &mut effects,
                     now,
                     persistent: self.frame.scopes.contains_key(id),
+                    preview,
                 };
                 node.event(&mut cx, event)
             };

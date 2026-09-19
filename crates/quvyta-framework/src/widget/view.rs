@@ -5,9 +5,10 @@ use std::time::Duration;
 use super::flex::{Axis, Flex};
 use super::idle::{IdleScope, IdleWatch};
 use super::mapped::Mapped;
+use super::place::Placed;
 use super::{Align, Container, FocusAction, Key, Length, Node, Widget};
 use crate::env::Env;
-use crate::geometry::{Padding, Size};
+use crate::geometry::{Padding, Rect, Size};
 use crate::keymap::Scope;
 
 /// Collects the nodes of one container while an application's `view` runs.
@@ -169,6 +170,56 @@ impl<'a, Msg: 'static> View<'a, Msg> {
     /// Adds a stack: children are drawn on top of each other in the same area, later ones on top.
     pub fn stack(&mut self, build: impl FnOnce(&mut View<'_, Msg>)) -> NodeMut<'_, Msg> {
         self.container(Axis::Stack, build)
+    }
+
+    /// Adds children at `rect`, for a stack whose children sit where the application says, such
+    /// as windows on a desktop.
+    ///
+    /// Inside a [`stack`](Self::stack), `rect` counts from the stack's top left corner, whatever
+    /// the stack's alignment: the children fill it, drawn on top of each other. A rectangle may
+    /// reach past the stack on any side, also to negative coordinates; what lies outside is not
+    /// drawn and takes no pointer. Children added later are drawn on top and get the pointer
+    /// first where they overlap, so the order of the calls is the stacking order. A placed child
+    /// may draw one cell past its right and bottom edges, where a window drops its shadow; that
+    /// cell never takes the pointer.
+    /// Outside a stack only the size of `rect` counts.
+    ///
+    /// Name every placed child whose position in the stack can change, as when a clicked window
+    /// comes to the front: `ui.place(rect, ..).id("htop")`. Its state, and a drag it is in the
+    /// middle of, follow the name.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    ///
+    /// struct Desk;
+    ///
+    /// impl App for Desk {
+    ///     type Msg = ();
+    ///     fn update(&mut self, (): ()) -> Command<()> {
+    ///         Command::none()
+    ///     }
+    ///     fn view(&self, ui: &mut View<'_, ()>) {
+    ///         ui.stack(|ui| {
+    ///             ui.place(Rect::new(2, 1, 6, 1), |ui| {
+    ///                 ui.add(Text::new("below"));
+    ///             })
+    ///             .id("first");
+    ///             ui.place(Rect::new(6, 1, 5, 1), |ui| {
+    ///                 ui.add(Text::new("above"));
+    ///             })
+    ///             .id("second");
+    ///         })
+    ///         .fill();
+    ///     }
+    /// }
+    ///
+    /// let app = Harness::new(Desk, 12, 2);
+    /// assert_eq!(app.screen(), "\n  beloabove\n");
+    /// ```
+    pub fn place(&mut self, rect: Rect, build: impl FnOnce(&mut View<'_, Msg>)) -> NodeMut<'_, Msg> {
+        let mut children = Vec::new();
+        build(&mut self.nested(&mut children));
+        self.add(Placed::new(rect, children)).width(Length::Cells(rect.width)).height(Length::Cells(rect.height))
     }
 
     /// Adds a column that remembers its widgets' state (focus, scroll, cursors) while it is not

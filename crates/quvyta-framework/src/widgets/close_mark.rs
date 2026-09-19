@@ -22,6 +22,12 @@ pub(crate) fn rect(x: i32, y: i32) -> Rect {
 /// Style keys: `close-mark` (`fg`, `bg`, `bold`) with `active` while its surface is raised and
 /// `hover` under the pointer.
 pub(crate) fn paint(cx: &mut PaintCx<'_>, x: i32, y: i32, raised: bool) -> Rect {
+    paint_glyph(cx, x, y, raised, "close")
+}
+
+/// Paints a mark of the same shape and states as the close mark with the icon `key`, such as a
+/// window's minimize mark, so every mark in a title row answers the pointer alike.
+pub(crate) fn paint_glyph(cx: &mut PaintCx<'_>, x: i32, y: i32, raised: bool, key: &str) -> Rect {
     let area = rect(x, y);
     let mut states = Vec::new();
     if raised {
@@ -34,7 +40,7 @@ pub(crate) fn paint(cx: &mut PaintCx<'_>, x: i32, y: i32, raised: bool) -> Rect 
     if let Some(bg) = style.bg {
         cx.fill(area, bg);
     }
-    let glyph = cx.env().icons().glyph("close").into_owned();
+    let glyph = cx.env().icons().glyph(key).into_owned();
     cx.text(x + 1, y, &glyph, CellStyle { bg: None, ..style }, 1);
     area
 }

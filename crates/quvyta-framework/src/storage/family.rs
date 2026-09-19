@@ -200,7 +200,7 @@ impl Family {
 }
 
 /// The settings file name of `id`.
-fn file_name(id: &str) -> String {
+pub(super) fn file_name(id: &str) -> String {
     format!("{id}.{EXTENSION}")
 }
 

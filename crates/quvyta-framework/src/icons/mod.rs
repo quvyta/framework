@@ -21,6 +21,8 @@
 //! replace single animations the way they replace single icons.
 
 mod detect;
+pub mod nerd_font;
+mod sample;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -32,6 +34,7 @@ use toml::de::DeTable;
 use unicode_segmentation::UnicodeSegmentation;
 
 pub use detect::{default_font_dirs, detect_glyph_mode};
+pub use sample::GlyphSample;
 
 use crate::animation::{self, CellAnimation};
 use crate::assets;
@@ -568,6 +571,12 @@ impl Icons {
     #[must_use]
     pub fn frames(&self, key: &str) -> Vec<String> {
         self.glyph(key).graphemes(true).map(str::to_owned).collect()
+    }
+
+    /// Every glyph of `key`, whatever the mode, or `None` when it is not defined.
+    #[must_use]
+    pub fn glyphs(&self, key: &str) -> Option<&IconGlyphs> {
+        self.glyphs.get(key)
     }
 
     /// Whether `key` is defined.

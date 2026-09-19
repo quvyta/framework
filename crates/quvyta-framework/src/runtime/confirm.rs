@@ -318,6 +318,7 @@ impl<Msg> ConfirmLayer<Msg> {
                 effects: &mut *cx.effects,
                 now: cx.now,
                 persistent: cx.persistent,
+                preview: cx.preview,
             };
             part.widget.event(&mut part_cx, event)
         };
@@ -444,6 +445,7 @@ impl<Msg: 'static> Widget<Msg> for ConfirmLayer<Msg> {
                 effects: &mut *cx.effects,
                 now: cx.now,
                 persistent: cx.persistent,
+                preview: cx.preview,
             };
             Widget::<Answer>::event(&dialog, &mut dialog_cx, event)
         };

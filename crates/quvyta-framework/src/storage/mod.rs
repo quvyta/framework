@@ -27,6 +27,8 @@
 //! it, gives each application its `<app>.conf` file and a folder beside it, and
 //! [`Family::adopt`] moves an application's settings there from the folder it used on its own.
 //! [`documents_dir`] and [`Family::workspace_dir`] say where the user's own work goes.
+//! [`Family::preferences`] resolves the language, theme and icons the family's applications share,
+//! and [`Family::set`] changes one of them for every application or for one.
 //!
 //! An application can describe its keys with a [`Schema`]. Loading then checks every key against
 //! it, and with [`Settings::self_heal`] on it repairs the file: unknown keys are removed, invalid
@@ -46,6 +48,7 @@ mod instance_lock;
 mod lock;
 mod machine;
 mod migrate;
+mod preferences;
 mod schema;
 mod value;
 
@@ -64,6 +67,7 @@ pub use instance_lock::InstanceLock;
 pub use lock::{AppLock, holder_pid};
 pub use machine::machine_name;
 pub use migrate::Migration;
+pub use preferences::{Preferences, Resolved, Scope, Shared, Source};
 pub use schema::{Schema, SettingKind};
 pub use value::{Setting, SettingValue};
 
@@ -93,6 +97,9 @@ pub struct Settings {
     repairs: Vec<Diagnostic>,
     schema: Option<Schema>,
     self_heal: bool,
+    /// The family these settings belong to, whose id stands for "follow the shared file" in the
+    /// keys every member shares.
+    family: Option<Family>,
 }
 
 impl Settings {
@@ -133,7 +140,45 @@ impl Settings {
     /// the folder the application used before.
     #[must_use]
     pub fn load_member(family: &Family, app: &str) -> Self {
-        Self::open_or_keep_in_memory(family.app_file(app))
+        Self::open_or_keep_in_memory(family.app_file(app)).member_of(family)
+    }
+
+    /// Marks these settings as those of a member of `family`, for settings loaded with
+    /// [`open`](Self::open) from a folder of the application's choosing;
+    /// [`load_member`](Self::load_member) does it itself.
+    ///
+    /// The family's id (`"quvyta"` for [`Family::QUVYTA`]) is then a valid value of every key
+    /// [`Shared`] names, whatever the [schema](Self::schema) says: it means "use the family's
+    /// shared value", see [`Family::preferences`]. Self-healing keeps it, and
+    /// [`theme`](Self::theme), [`language`](Self::language) and [`icon_mode`](Self::icon_mode)
+    /// give `None` for it, so [`apply`](Self::apply) leaves those keys to the
+    /// [preferences](Preferences). Call it before [`self_heal`](Self::self_heal), which repairs
+    /// the file as soon as it is turned on.
+    ///
+    /// ```
+    /// use qframe::storage::{Family, Schema, Settings};
+    ///
+    /// let text = "theme = \"quvyta\"\nicons = \"quvyta\"\n";
+    /// let settings = Settings::parse_str("code.conf", text)
+    ///     .member_of(&Family::QUVYTA)
+    ///     .schema(Schema::builtin().choice(Settings::THEME, ["monochrome", "nordic"], "monochrome"))
+    ///     .self_heal(true);
+    /// assert!(settings.diagnostics().is_empty());
+    /// assert_eq!(settings.get::<String>(Settings::THEME).as_deref(), Some("quvyta"));
+    /// assert_eq!(settings.theme(), None, "follows the family");
+    /// ```
+    #[must_use]
+    pub fn member_of(mut self, family: &Family) -> Self {
+        self.family = Some(*family);
+        self.review();
+        self
+    }
+
+    /// Whether `value` under `key` means "follow the family's shared value".
+    fn follows_family(&self, key: &str, value: &SettingValue) -> bool {
+        let Some(family) = self.family else { return false };
+        Shared::ALL.iter().any(|shared| shared.key() == key)
+            && matches!(value, SettingValue::Text(text) if text == family.id())
     }
 
     /// The settings at `path`, or settings in memory with the reason when there is no path.
@@ -262,7 +307,11 @@ impl Settings {
                 }
                 continue;
             };
-            let Some(value) = self.value(&key).filter(|value| !rule.accepts(value)) else { continue };
+            let Some(value) =
+                self.value(&key).filter(|value| !rule.accepts(value) && !self.follows_family(&key, value))
+            else {
+                continue;
+            };
             let found = value.literal();
             let expected = rule.describe();
             if heal {
@@ -419,16 +468,23 @@ impl Settings {
         self.values.iter().map(|(key, _)| key.as_str())
     }
 
-    /// The saved theme id.
+    /// The saved theme id; `None` when the file says to follow the family, see
+    /// [`member_of`](Self::member_of).
     #[must_use]
     pub fn theme(&self) -> Option<String> {
-        self.get(Self::THEME)
+        self.own(Self::THEME)
     }
 
-    /// The saved locale code.
+    /// The saved locale code; `None` when the file says to follow the family, see
+    /// [`member_of`](Self::member_of).
     #[must_use]
     pub fn language(&self) -> Option<String> {
-        self.get(Self::LANGUAGE)
+        self.own(Self::LANGUAGE)
+    }
+
+    /// The text under `key` unless it says to follow the family.
+    fn own(&self, key: &str) -> Option<String> {
+        self.value(key).filter(|value| !self.follows_family(key, value)).and_then(String::from_setting)
     }
 
     /// The saved icon mode.

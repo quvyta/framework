@@ -28,7 +28,7 @@ use super::termination::Termination;
 use crate::env::{AssetDirs, Env};
 use crate::event::{Event, KeyEvent, KeyKind, MouseButton, MouseEvent, MouseKind};
 use crate::keymap::{Key, KeyChord, Modifiers};
-use crate::storage::Settings;
+use crate::storage::{Preferences, Settings};
 
 /// How long the loop sleeps when nothing is animating and no background work is running.
 const IDLE_WAIT: Duration = Duration::from_millis(500);
@@ -41,12 +41,13 @@ pub struct Runtime<A: App> {
     dirs: AssetDirs,
     theme: Option<String>,
     settings: Option<Settings>,
+    preferences: Option<Preferences>,
 }
 
 impl<A: App> Runtime<A> {
     /// A runtime for `app` with built-in files only.
     pub fn new(app: A) -> Self {
-        Self { app, dirs: AssetDirs::default(), theme: None, settings: None }
+        Self { app, dirs: AssetDirs::default(), theme: None, settings: None, preferences: None }
     }
 
     /// Loads theme files from `dir`.
@@ -165,6 +166,34 @@ impl<A: App> Runtime<A> {
         self
     }
 
+    /// Starts with the language, theme and icons of the family's shared
+    /// [`Preferences`], as [`Family::preferences`](crate::storage::Family::preferences) resolved
+    /// them for this application. They win over [`Runtime::theme`] and over the same keys in
+    /// [`Runtime::settings`], which keeps the rest: reduced motion, pillar and slide.
+    ///
+    /// ```no_run
+    /// # use qframe::prelude::*;
+    /// # use qframe::i18n::I18n;
+    /// # use qframe::storage::{Family, Settings};
+    /// # struct Hello;
+    /// # impl App for Hello {
+    /// #     type Msg = ();
+    /// #     fn update(&mut self, _: ()) -> Command<()> { Command::none() }
+    /// #     fn view(&self, ui: &mut View<'_, ()>) { ui.add(Text::new("hello")); }
+    /// # }
+    /// # fn main() -> std::io::Result<()> {
+    /// let family = Family::QUVYTA;
+    /// let settings = Settings::load_member(&family, "hello");
+    /// let prefs = family.preferences("hello", &I18n::builtin());
+    /// Runtime::new(Hello).settings(&settings).preferences(&prefs).run()
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn preferences(mut self, preferences: &Preferences) -> Self {
+        self.preferences = Some(preferences.clone());
+        self
+    }
+
     /// Takes over the terminal and runs until the application quits. The terminal is restored
     /// on return and on panic.
     ///
@@ -200,6 +229,9 @@ impl<A: App> Runtime<A> {
         }
         if let Some(settings) = &self.settings {
             env.apply_settings(settings);
+        }
+        if let Some(preferences) = &self.preferences {
+            env.apply_preferences(preferences);
         }
         // Before the terminal is taken, so the modes restored if the process has to be ended by
         // force are the ones the user had.

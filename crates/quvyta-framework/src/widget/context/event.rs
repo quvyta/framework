@@ -43,9 +43,19 @@ pub struct EventCx<'a, Msg> {
     pub(crate) effects: &'a mut Effects,
     pub(crate) now: Duration,
     pub(crate) persistent: bool,
+    /// Whether this is a press shown to a widget before the widgets inside it, see
+    /// [`PaintCx::preview_presses`](super::PaintCx::preview_presses).
+    pub(crate) preview: bool,
 }
 
 impl<Msg> EventCx<'_, Msg> {
+    /// Whether the event is a press shown to this widget before the widgets inside it, because
+    /// it asked with [`PaintCx::preview_presses`](super::PaintCx::preview_presses). Using it
+    /// keeps it from them; leaving it lets it go on as usual, to this widget too.
+    pub(crate) fn is_preview(&self) -> bool {
+        self.preview
+    }
+
     /// The id of the widget handling the event.
     #[must_use]
     pub fn id(&self) -> WidgetId {
@@ -124,6 +134,7 @@ impl<Msg> EventCx<'_, Msg> {
             effects: &mut *self.effects,
             now: self.now,
             persistent: self.persistent,
+            preview: self.preview,
         };
         node.widget.event(&mut child, event)
     }
@@ -194,6 +205,7 @@ impl<Msg> EventCx<'_, Msg> {
                 effects: &mut *self.effects,
                 now: self.now,
                 persistent: self.persistent,
+                preview: self.preview,
             };
             handle(&mut inner)
         };

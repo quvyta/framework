@@ -72,6 +72,13 @@ pub fn default_font_dirs(env: impl Fn(&str) -> Option<String>) -> Vec<PathBuf> {
             dirs.push(Path::new(&windir).join("Fonts"));
         }
     } else {
+        // The user's font folder moves with XDG_DATA_HOME, which only an absolute value sets.
+        if let Some(data) = env("XDG_DATA_HOME").map(PathBuf::from).filter(|path| path.is_absolute()) {
+            let fonts = data.join("fonts");
+            if env("HOME").is_none_or(|home| fonts != Path::new(&home).join(".local/share/fonts")) {
+                dirs.push(fonts);
+            }
+        }
         if let Some(home) = env("HOME") {
             dirs.push(Path::new(&home).join(".local/share/fonts"));
             dirs.push(Path::new(&home).join(".fonts"));
@@ -83,7 +90,7 @@ pub fn default_font_dirs(env: impl Fn(&str) -> Option<String>) -> Vec<PathBuf> {
 }
 
 /// Looks for a font file whose name contains "nerd", at most `depth` directories deep.
-fn contains_nerd_font(dir: &Path, depth: usize) -> bool {
+pub(super) fn contains_nerd_font(dir: &Path, depth: usize) -> bool {
     if depth == 0 {
         return false;
     }
@@ -139,6 +146,20 @@ mod tests {
         assert_eq!(mode, GlyphMode::Nerd);
         let mode = detect_glyph_mode(IconMode::Auto, env(&[UTF8, ("TERM_PROGRAM", "Apple_Terminal")]), &[]);
         assert_eq!(mode, GlyphMode::Unicode);
+    }
+
+    #[test]
+    fn the_font_folder_follows_xdg_data_home_on_linux() {
+        if cfg!(windows) || cfg!(target_os = "macos") {
+            return;
+        }
+        let dirs = default_font_dirs(env(&[("HOME", "/home/ada"), ("XDG_DATA_HOME", "/data/ada")]));
+        assert_eq!(dirs[0], PathBuf::from("/data/ada/fonts"));
+        assert!(dirs.contains(&PathBuf::from("/home/ada/.local/share/fonts")));
+        let dirs = default_font_dirs(env(&[("HOME", "/home/ada"), ("XDG_DATA_HOME", "/home/ada/.local/share")]));
+        assert_eq!(dirs.iter().filter(|dir| dir.ends_with(".local/share/fonts")).count(), 1, "{dirs:?}");
+        let dirs = default_font_dirs(env(&[("HOME", "/home/ada"), ("XDG_DATA_HOME", "relative")]));
+        assert_eq!(dirs[0], PathBuf::from("/home/ada/.local/share/fonts"));
     }
 
     #[test]

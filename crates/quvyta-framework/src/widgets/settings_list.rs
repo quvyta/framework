@@ -14,12 +14,16 @@ use super::row::LEAD;
 /// Cells between the label column and the control, and after the control.
 const CONTROL_GAP: u16 = 2;
 
+/// Cells a [nested](SettingRow::nested) row's text starts further in than its parent's.
+const NEST: u16 = 2;
+
 /// One setting of a [`SettingsList`]: a label, an optional description and the control added
 /// with [`SettingsRows::row`].
 pub struct SettingRow<Msg> {
     label: String,
     description: Option<String>,
     disabled: bool,
+    nested: bool,
     on_activate: Option<Msg>,
 }
 
@@ -27,7 +31,7 @@ impl<Msg> SettingRow<Msg> {
     /// A row labelled `label`.
     #[must_use]
     pub fn new(label: impl Into<String>) -> Self {
-        Self { label: label.into(), description: None, disabled: false, on_activate: None }
+        Self { label: label.into(), description: None, disabled: false, nested: false, on_activate: None }
     }
 
     /// A faint note under the label, wrapped over as many lines as it needs.
@@ -42,6 +46,20 @@ impl<Msg> SettingRow<Msg> {
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
+    }
+
+    /// Marks the row as part of the row above it, such as a choice that qualifies that setting:
+    /// its label and description start two cells further in. The pillar and the control stay
+    /// where every row has them, and the keys reach it as any other row.
+    #[must_use]
+    pub fn nested(mut self, nested: bool) -> Self {
+        self.nested = nested;
+        self
+    }
+
+    /// Cells the row's text starts further in than a top-level row's.
+    fn indent(&self) -> u16 {
+        if self.nested { NEST } else { 0 }
     }
 
     /// Message for Enter or Space on the row when its control does not use the key, or for a
@@ -65,7 +83,7 @@ impl<Msg> SettingRow<Msg> {
     fn lines(&self, control: u16, squeezed: bool, width: u16) -> RowLines {
         // The text column keeps one spare cell so the slide never reaches the control or the
         // right edge.
-        let full = width.saturating_sub(LEAD + CONTROL_GAP + 1).max(1);
+        let full = width.saturating_sub(LEAD + self.indent() + CONTROL_GAP + 1).max(1);
         let beside = full.saturating_sub(control.saturating_add(CONTROL_GAP));
         let (label, label_width, control_below) = if !squeezed && text::width(&self.label) <= beside {
             (vec![self.label.clone()], beside, false)
@@ -132,6 +150,13 @@ pub struct SettingsRows<'a, Msg> {
 }
 
 impl<Msg: 'static> SettingsRows<'_, Msg> {
+    /// The environment the list is drawn in: the active theme, language and icons, for rows that
+    /// show them.
+    #[must_use]
+    pub fn env(&self) -> &crate::env::Env {
+        self.env
+    }
+
     /// Adds a group heading.
     pub fn heading(&mut self, title: impl Into<String>) {
         self.entries.push(Entry::Heading(title.into()));
@@ -263,7 +288,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                     let node = &self.controls[*index];
                     let control = cx.measure_child(node, Size::new(available.width, 1)).width;
                     let label = text::width(&row.label).max(row.description.as_deref().map_or(0, text::width));
-                    width = width.max(cells::sum([LEAD, label, 1, CONTROL_GAP * 2, control]));
+                    width = width.max(cells::sum([LEAD, row.indent(), label, 1, CONTROL_GAP * 2, control]));
                     // Laid out as paint lays it out, so a narrow row reports the lines it wraps to.
                     let beside = cx.measure_child(node, Size::new(available.width / 2, 1)).width;
                     let whole = cx.measure_child(node, Size::new(control_room(available.width), 1)).width;
@@ -350,7 +375,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
 
                     let raised = states.contains(&State::Hover) || states.contains(&State::Selected);
                     let shift = u16::from(slide && raised);
-                    let x = rect.x + i32::from(LEAD + shift);
+                    let x = rect.x + i32::from(LEAD + row.indent() + shift);
                     let label_budget = lines.label_width;
                     let label_style = cx.style("setting-label", None, &states).text();
                     for (line, label) in (rect.y..).zip(&lines.label) {
@@ -745,5 +770,36 @@ mod tests {
         assert_eq!(h.app().density, 1);
         h.click_text("Storage");
         assert_eq!(h.app().opened, 1);
+    }
+
+    struct Nested;
+
+    impl App for Nested {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            SettingsList::show(ui, |list| {
+                list.row(SettingRow::new("Theme"), |ui| {
+                    ui.add(Segmented::new(["Dark", "Light"]).selected(0));
+                });
+                list.row(SettingRow::new("Everywhere").description("In every application").nested(true), |ui| {
+                    ui.add(Switch::new(true));
+                });
+            });
+        }
+    }
+
+    #[test]
+    fn a_nested_row_starts_two_cells_further_in_and_keeps_its_control_in_place() {
+        let mut h = Harness::new(Nested, 40, 4);
+        let (theme_x, _) = h.find("Theme").expect("parent");
+        let (nested_x, _) = h.find("Everywhere").expect("nested");
+        let (description_x, _) = h.find("In every").expect("description");
+        assert_eq!((nested_x, description_x), (theme_x + 2, theme_x + 2), "{}", h.screen());
+        h.resize(20, 6);
+        let (nested_x, _) = h.find("Everywhere").expect("nested, narrow");
+        assert_eq!(nested_x, theme_x + 2, "{}", h.screen());
     }
 }

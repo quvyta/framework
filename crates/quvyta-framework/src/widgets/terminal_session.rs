@@ -1,16 +1,27 @@
 //! A process running in a pseudo-terminal, its output parsed into a screen of cells.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
+use std::time::{Duration, Instant};
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
-/// Lines kept above the screen for scrolling back.
+use super::terminal_notice::{Notices, OscLimit};
+
+/// Lines kept above the screen for scrolling back, unless [`TerminalBuilder::scrollback`] says
+/// otherwise.
 const SCROLLBACK: usize = 5000;
 
+/// The screen a program starts on, rows and columns, unless [`TerminalBuilder::size`] says
+/// otherwise; a [`Terminal`](super::Terminal) widget resizes it to its own size.
+const SIZE: (u16, u16) = (24, 80);
+
 /// Something that changed in a [`TerminalSession`], see [`TerminalWatch::next`].
+///
+/// Only output and the end of the program; [`TerminalWatch::next_change`] also reports what the
+/// program says about itself, as a [`TerminalChange`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalEvent {
     /// New output was parsed; draw again.
@@ -19,11 +30,43 @@ pub enum TerminalEvent {
     Exited(Option<u32>),
 }
 
+/// Something that changed in a [`TerminalSession`], see [`TerminalWatch::next_change`].
+///
+/// Besides output and the end of the program, what the program says about itself through
+/// escape sequences: its title, its folder, the bell and notifications. The notices are
+/// heard in the output that also brings an [`Output`](Self::Output).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TerminalChange {
+    /// New output was parsed; draw again.
+    Output,
+    /// The program set its window title (OSC 0 or 2). Empty when it cleared it.
+    Title(String),
+    /// The program reported its working folder (OSC 7, `file://host/path`), percent-decoded.
+    /// Shells send it when set up to, usually at every prompt.
+    WorkingFolder(PathBuf),
+    /// The program rang the bell (BEL outside an escape sequence). Rings the application has not
+    /// read yet count as one.
+    Bell,
+    /// The program asked for a desktop notification: OSC 9 (`body` only) or OSC 777
+    /// (`notify;title;body`). Unread ones beyond the newest eight are dropped.
+    Notify {
+        /// The title, when the program gave one.
+        title: Option<String>,
+        /// The message.
+        body: String,
+    },
+    /// The process ended with this exit code, or the session was dropped (`None`).
+    Exited(Option<u32>),
+}
+
 /// What the reader thread, the watch and the widget share.
 struct Shared {
-    parser: Mutex<vt100::Parser>,
+    parser: Mutex<vt100::Parser<Notices>>,
     signal: Mutex<Signal>,
     changed: Condvar,
+    /// The shortest time between two reports of output.
+    coalesce: Duration,
 }
 
 #[derive(Default)]
@@ -32,6 +75,10 @@ struct Signal {
     generation: u64,
     /// The generation the watch reported last.
     seen: u64,
+    /// When the watch last reported output.
+    reported: Option<Instant>,
+    /// Notices heard and not reported yet.
+    notices: Notices,
     exited: Option<Option<u32>>,
     /// The size the widget last asked for, applied by the watch off the render path.
     wanted: Option<(u16, u16)>,
@@ -57,6 +104,135 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// How to start a [`TerminalSession`]: program, arguments, folder, environment, first size,
+/// scrollback and how often output is reported. Made by [`TerminalSession::builder`].
+///
+/// Every option is independent and has the default [`TerminalSession::spawn`] uses.
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct TerminalBuilder {
+    program: OsString,
+    args: Vec<OsString>,
+    folder: Option<PathBuf>,
+    env: Vec<(OsString, OsString)>,
+    size: (u16, u16),
+    scrollback: usize,
+    coalesce: Duration,
+}
+
+impl TerminalBuilder {
+    /// Adds arguments after the ones already given. Default: none.
+    pub fn args(mut self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Self {
+        self.args.extend(args.into_iter().map(|arg| arg.as_ref().to_owned()));
+        self
+    }
+
+    /// The folder the program starts in. Default: the user's home folder, which is also used
+    /// when `folder` is not a folder.
+    pub fn folder(mut self, folder: impl AsRef<Path>) -> Self {
+        self.folder = Some(folder.as_ref().to_owned());
+        self
+    }
+
+    /// Sets an environment variable for the program, on top of the application's own
+    /// environment. The program always gets `TERM=xterm-256color` and `COLORTERM=truecolor`;
+    /// setting either here replaces it. A name set twice keeps the last value.
+    pub fn env(mut self, name: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> Self {
+        self.env.push((name.as_ref().to_owned(), value.as_ref().to_owned()));
+        self
+    }
+
+    /// The screen size the program sees when it starts, in columns and rows, so its first
+    /// drawing already fits; give the size the widget will have. A widget showing the session
+    /// resizes it to its own size later. Sizes below 2 count as 2. Default: 80 × 24.
+    pub fn size(mut self, columns: u16, rows: u16) -> Self {
+        self.size = (rows, columns);
+        self
+    }
+
+    /// Lines kept above the screen for scrolling back; `0` keeps none. Each kept line holds its
+    /// cells, so a wide, full screen costs a few kilobytes per line. Default: 5000.
+    pub fn scrollback(mut self, lines: usize) -> Self {
+        self.scrollback = lines;
+        self
+    }
+
+    /// Reports output at most once per `interval`: a program writing fast, such as `yes` or a
+    /// busy log, asks for one frame per interval instead of one per read. Output is never held
+    /// back longer than `interval`. Other changes are not delayed. Default: zero, every read is
+    /// reported as soon as the watch runs.
+    pub fn coalesce(mut self, interval: Duration) -> Self {
+        self.coalesce = interval;
+        self
+    }
+
+    /// Starts the program.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no pseudo-terminal can be opened or the program cannot start.
+    pub fn spawn(self) -> io::Result<TerminalSession> {
+        let size = (self.size.0.max(2), self.size.1.max(2));
+        let pair = native_pty_system().openpty(pty_size(size)).map_err(io::Error::other)?;
+        let mut command = CommandBuilder::new(&self.program);
+        command.args(&self.args);
+        if let Some(folder) = &self.folder {
+            command.cwd(folder);
+        }
+        command.env("TERM", "xterm-256color");
+        command.env("COLORTERM", "truecolor");
+        for (name, value) in &self.env {
+            command.env(name, value);
+        }
+        let mut child = pair.slave.spawn_command(command).map_err(io::Error::other)?;
+        // Without the slave end here, the reader sees end-of-file once the child exits.
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().map_err(io::Error::other)?;
+        let writer = pair.master.take_writer().map_err(io::Error::other)?;
+        let killer = child.clone_killer();
+        let pid = child.process_id();
+
+        let shared = Arc::new(Shared {
+            parser: Mutex::new(vt100::Parser::new_with_callbacks(size.0, size.1, self.scrollback, Notices::default())),
+            signal: Mutex::new(Signal { size, ..Signal::default() }),
+            changed: Condvar::new(),
+            coalesce: self.coalesce,
+        });
+        let thread_shared = Arc::clone(&shared);
+        std::thread::spawn(move || {
+            let mut buffer = [0u8; 8192];
+            let mut limit = OscLimit::default();
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => {
+                        let heard = {
+                            let mut parser = lock(&thread_shared.parser);
+                            limit.feed(&buffer[..count], |run| parser.process(run));
+                            std::mem::take(parser.callbacks_mut())
+                        };
+                        let mut signal = lock(&thread_shared.signal);
+                        // A watch only needs waking for the first unreported chunk: while one is
+                        // pending it is already on its way, or waiting out the coalescing.
+                        let wake = signal.generation == signal.seen || !heard.is_empty();
+                        signal.generation += 1;
+                        signal.notices.merge(heard);
+                        drop(signal);
+                        if wake {
+                            thread_shared.changed.notify_all();
+                        }
+                    }
+                }
+            }
+            let code = child.wait().ok().map(|status| status.exit_code());
+            lock(&thread_shared.signal).exited = Some(code);
+            thread_shared.changed.notify_all();
+        });
+        let process = Process { master: pair.master, writer, killer };
+        Ok(TerminalSession { shared, process: Arc::new(Mutex::new(process)), pid })
+    }
+}
+
 /// A program (usually a shell) running in a pseudo-terminal.
 ///
 /// Output is read on a background thread and parsed into a screen with scrollback; a
@@ -66,10 +242,14 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// The runtime learns about new output through a [`TerminalWatch`]: run
 /// [`TerminalWatch::next`] in a [`Command::perform`](crate::runtime::Command::perform), and
 /// start it again when its message arrives, until it reports [`TerminalEvent::Exited`].
+/// [`TerminalWatch::next_change`] also reports the program's title, folder, bell and
+/// notifications. [`TerminalSession::builder`] sets the environment, the first size, the
+/// scrollback and how often output is reported.
 #[derive(Clone)]
 pub struct TerminalSession {
     shared: Arc<Shared>,
     process: Arc<Mutex<Process>>,
+    pid: Option<u32>,
 }
 
 impl std::fmt::Debug for TerminalSession {
@@ -90,48 +270,40 @@ impl TerminalSession {
     }
 
     /// Starts `program` with `args` in `folder`, on a 24 × 80 screen until a widget shows it.
+    /// The short form of [`TerminalSession::builder`] with every other option at its default.
     ///
     /// # Errors
     ///
     /// Fails when no pseudo-terminal can be opened or the program cannot start.
     pub fn spawn(program: &OsStr, args: &[impl AsRef<OsStr>], folder: &Path) -> io::Result<Self> {
-        let size = (24, 80);
-        let pair = native_pty_system().openpty(pty_size(size)).map_err(io::Error::other)?;
-        let mut command = CommandBuilder::new(program);
-        command.args(args);
-        command.cwd(folder);
-        command.env("TERM", "xterm-256color");
-        command.env("COLORTERM", "truecolor");
-        let mut child = pair.slave.spawn_command(command).map_err(io::Error::other)?;
-        // Without the slave end here, the reader sees end-of-file once the child exits.
-        drop(pair.slave);
-        let mut reader = pair.master.try_clone_reader().map_err(io::Error::other)?;
-        let writer = pair.master.take_writer().map_err(io::Error::other)?;
-        let killer = child.clone_killer();
+        Self::builder(program).args(args).folder(folder).spawn()
+    }
 
-        let shared = Arc::new(Shared {
-            parser: Mutex::new(vt100::Parser::new(size.0, size.1, SCROLLBACK)),
-            signal: Mutex::new(Signal { size, ..Signal::default() }),
-            changed: Condvar::new(),
-        });
-        let thread_shared = Arc::clone(&shared);
-        std::thread::spawn(move || {
-            let mut buffer = [0u8; 8192];
-            loop {
-                match reader.read(&mut buffer) {
-                    Ok(0) | Err(_) => break,
-                    Ok(count) => {
-                        lock(&thread_shared.parser).process(&buffer[..count]);
-                        lock(&thread_shared.signal).generation += 1;
-                        thread_shared.changed.notify_all();
-                    }
-                }
-            }
-            let code = child.wait().ok().map(|status| status.exit_code());
-            lock(&thread_shared.signal).exited = Some(code);
-            thread_shared.changed.notify_all();
-        });
-        Ok(Self { shared, process: Arc::new(Mutex::new(Process { master: pair.master, writer, killer })) })
+    /// Starts describing a session for `program`; finish with [`TerminalBuilder::spawn`].
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use qframe::widgets::TerminalSession;
+    /// let session = TerminalSession::builder("/bin/sh")
+    ///     .args(["-l"])
+    ///     .folder("/tmp")
+    ///     .env("EDITOR", "vi")
+    ///     .size(100, 30)
+    ///     .scrollback(2000)
+    ///     .coalesce(Duration::from_millis(16))
+    ///     .spawn()?;
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    pub fn builder(program: impl AsRef<OsStr>) -> TerminalBuilder {
+        TerminalBuilder {
+            program: program.as_ref().to_owned(),
+            args: Vec::new(),
+            folder: None,
+            env: Vec::new(),
+            size: SIZE,
+            scrollback: SCROLLBACK,
+            coalesce: Duration::ZERO,
+        }
     }
 
     /// A watch that reports output and the end of the program; see [`TerminalWatch::next`].
@@ -156,6 +328,45 @@ impl TerminalSession {
         let _ = lock(&self.process).killer.kill();
     }
 
+    /// The program's process id, `None` when the system did not give one. The program leads
+    /// its own process group, with the same id, which also holds what it started in the
+    /// foreground.
+    #[must_use]
+    pub fn pid(&self) -> Option<u32> {
+        self.pid
+    }
+
+    /// Ends the program politely: SIGHUP to its process group, as when a terminal window
+    /// closes, then SIGKILL if it has not ended within `grace`. Returns at once; the wait runs
+    /// on a background thread and the watch reports the end as usual. Keep the session while the
+    /// grace runs: dropping the last handle ends the program at once. Does nothing once the
+    /// program has ended. Where there are no process groups it is [`kill`](Self::kill).
+    pub fn terminate(&self, grace: Duration) {
+        if self.exit().is_some() {
+            return;
+        }
+        let Some(group) = self.pid.and_then(process_group) else {
+            self.kill();
+            return;
+        };
+        signal_group(group, Hangup::Polite);
+        let shared = Arc::clone(&self.shared);
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + grace;
+            let mut signal = lock(&shared.signal);
+            while signal.exited.is_none() {
+                let now = Instant::now();
+                if now >= deadline {
+                    // Sent under the lock, right after seeing no end recorded: the reader records
+                    // the end as soon as it has collected the process, so the id still names it.
+                    signal_group(group, Hangup::Forced);
+                    return;
+                }
+                signal = shared.changed.wait_timeout(signal, deadline - now).unwrap_or_else(PoisonError::into_inner).0;
+            }
+        });
+    }
+
     /// The exit code once the program ended (`Some(None)` when it could not be read).
     #[must_use]
     pub fn exit(&self) -> Option<Option<u32>> {
@@ -173,9 +384,50 @@ impl TerminalSession {
     }
 
     /// The parsed screen, locked while the guard lives.
-    pub(crate) fn parser(&self) -> MutexGuard<'_, vt100::Parser> {
+    pub(crate) fn parser(&self) -> MutexGuard<'_, vt100::Parser<Notices>> {
         lock(&self.shared.parser)
     }
+}
+
+/// The two signals of [`TerminalSession::terminate`].
+#[derive(Debug, Clone, Copy)]
+enum Hangup {
+    /// SIGHUP: the terminal went away; most programs save and end.
+    Polite,
+    /// SIGKILL: ends the program whatever it does.
+    Forced,
+}
+
+#[cfg(unix)]
+type Group = rustix::process::Pid;
+
+#[cfg(unix)]
+fn process_group(pid: u32) -> Option<Group> {
+    rustix::process::Pid::from_raw(i32::try_from(pid).ok()?)
+}
+
+#[cfg(unix)]
+fn signal_group(group: Group, hangup: Hangup) {
+    use rustix::process::Signal;
+    let signal = match hangup {
+        Hangup::Polite => Signal::HUP,
+        Hangup::Forced => Signal::KILL,
+    };
+    // Fails only when the group is already gone, which is what was wanted.
+    let _ = rustix::process::kill_process_group(group, signal);
+}
+
+#[cfg(not(unix))]
+type Group = std::convert::Infallible;
+
+#[cfg(not(unix))]
+fn process_group(_: u32) -> Option<Group> {
+    None
+}
+
+#[cfg(not(unix))]
+fn signal_group(group: Group, _: Hangup) {
+    match group {}
 }
 
 fn pty_size((rows, cols): (u16, u16)) -> PtySize {
@@ -190,12 +442,46 @@ pub struct TerminalWatch {
     process: Weak<Mutex<Process>>,
 }
 
+/// What [`TerminalWatch::wait`] found.
+enum Found {
+    Event(TerminalEvent),
+    Notice(TerminalChange),
+}
+
 impl TerminalWatch {
     /// Blocks until new output arrives or the program ends. Pending size changes are applied
     /// here. Call it inside [`Command::perform`](crate::runtime::Command::perform), never in
     /// `update` or `view`.
+    ///
+    /// Titles, folders, bells and notifications are not reported here; use
+    /// [`next_change`](Self::next_change) for them.
     #[must_use]
     pub fn next(&self) -> TerminalEvent {
+        loop {
+            if let Found::Event(event) = self.wait(false) {
+                return event;
+            }
+        }
+    }
+
+    /// Blocks until something changes: output, the end of the program, or a title, folder,
+    /// bell or notification from it (see [`TerminalChange`]). Pending size changes are applied
+    /// here. Call it inside [`Command::perform`](crate::runtime::Command::perform), never in
+    /// `update` or `view`, and start it again when its message arrives, until it reports
+    /// [`TerminalChange::Exited`].
+    ///
+    /// Notices come before the output they arrived with, one per call; output follows the
+    /// session's [`coalesce`](TerminalBuilder::coalesce) interval.
+    #[must_use]
+    pub fn next_change(&self) -> TerminalChange {
+        match self.wait(true) {
+            Found::Event(TerminalEvent::Output) => TerminalChange::Output,
+            Found::Event(TerminalEvent::Exited(code)) => TerminalChange::Exited(code),
+            Found::Notice(change) => change,
+        }
+    }
+
+    fn wait(&self, notices: bool) -> Found {
         let mut signal = lock(&self.shared.signal);
         loop {
             if let Some(size) = signal.wanted.take() {
@@ -205,15 +491,27 @@ impl TerminalWatch {
                 signal.size = size;
                 continue;
             }
+            if notices && let Some(change) = signal.notices.pop() {
+                return Found::Notice(change);
+            }
             if signal.generation != signal.seen {
+                let now = Instant::now();
+                if let Some(due) = signal.reported.map(|at| at + self.shared.coalesce)
+                    && due > now
+                {
+                    signal =
+                        self.shared.changed.wait_timeout(signal, due - now).unwrap_or_else(PoisonError::into_inner).0;
+                    continue;
+                }
                 signal.seen = signal.generation;
-                return TerminalEvent::Output;
+                signal.reported = Some(now);
+                return Found::Event(TerminalEvent::Output);
             }
             if let Some(code) = signal.exited {
-                return TerminalEvent::Exited(code);
+                return Found::Event(TerminalEvent::Exited(code));
             }
             if self.process.strong_count() == 0 {
-                return TerminalEvent::Exited(None);
+                return Found::Event(TerminalEvent::Exited(None));
             }
             signal = self.shared.changed.wait(signal).unwrap_or_else(PoisonError::into_inner);
         }
@@ -224,5 +522,166 @@ impl TerminalWatch {
             let _ = lock(&process).master.resize(pty_size(size));
         }
         lock(&self.shared.parser).screen_mut().set_size(size.0.max(2), size.1.max(2));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    /// Generous: the tests run next to many others on a busy machine.
+    const PATIENCE: Duration = Duration::from_secs(20);
+
+    fn sh(script: &str) -> TerminalBuilder {
+        TerminalSession::builder("/bin/sh").args(["-c", script]).folder(Path::new("/"))
+    }
+
+    /// Changes until the program ends, the end included.
+    fn changes_to_exit(session: &TerminalSession) -> Vec<TerminalChange> {
+        let watch = session.watch();
+        let started = Instant::now();
+        let mut changes = Vec::new();
+        loop {
+            let change = watch.next_change();
+            let end = matches!(change, TerminalChange::Exited(_));
+            changes.push(change);
+            if end {
+                return changes;
+            }
+            assert!(started.elapsed() < PATIENCE, "{changes:?}");
+        }
+    }
+
+    fn contents(session: &TerminalSession) -> String {
+        session.parser().screen().contents()
+    }
+
+    #[test]
+    fn environment_variables_reach_the_program() {
+        let session = sh("printf '%s %s' \"$QDESK\" \"$TERM\"").env("QDESK", "1").spawn().expect("pty");
+        changes_to_exit(&session);
+        assert_eq!(contents(&session), "1 xterm-256color");
+        let session = sh("printf '%s' \"$TERM\"").env("TERM", "vt100").spawn().expect("pty");
+        changes_to_exit(&session);
+        assert_eq!(contents(&session), "vt100", "a variable given replaces the default");
+    }
+
+    #[test]
+    fn the_program_starts_on_the_given_size() {
+        let session = sh("stty size").size(100, 30).spawn().expect("pty");
+        changes_to_exit(&session);
+        assert_eq!(contents(&session).trim(), "30 100");
+        assert_eq!(session.parser().screen().size(), (30, 100));
+    }
+
+    #[test]
+    fn scrollback_keeps_the_given_number_of_lines() {
+        let script = "i=0; while [ $i -lt 100 ]; do echo line $i; i=$((i+1)); done";
+        let session = sh(script).scrollback(10).spawn().expect("pty");
+        changes_to_exit(&session);
+        let mut parser = session.parser();
+        parser.screen_mut().set_scrollback(usize::MAX);
+        assert_eq!(parser.screen().scrollback(), 10);
+        let session = sh(script).spawn().expect("pty");
+        changes_to_exit(&session);
+        let mut parser = session.parser();
+        parser.screen_mut().set_scrollback(usize::MAX);
+        assert_eq!(parser.screen().scrollback(), 100 - 23, "the default keeps everything here");
+    }
+
+    #[test]
+    fn titles_folders_bells_and_notifications_are_reported() {
+        let script = "printf '\\033]0;title\\007'; sleep 0.2; \\
+                      printf '\\033]7;file://host/tmp/x%%20y\\033\\\\'; sleep 0.2; \\
+                      printf '\\a'; sleep 0.2; \\
+                      printf '\\033]9;hi\\007'; sleep 0.2; \\
+                      printf '\\033]777;notify;T;B\\007'; sleep 0.2; \\
+                      printf '\\033]2;hal'; sleep 0.2; printf 'f\\007'; exit 3";
+        let session = sh(script).spawn().expect("pty");
+        let changes = changes_to_exit(&session);
+        let notices: Vec<&TerminalChange> =
+            changes.iter().filter(|change| !matches!(change, TerminalChange::Output)).collect();
+        assert_eq!(
+            notices,
+            [
+                &TerminalChange::Title("title".into()),
+                &TerminalChange::WorkingFolder("/tmp/x y".into()),
+                &TerminalChange::Bell,
+                &TerminalChange::Notify { title: None, body: "hi".into() },
+                &TerminalChange::Notify { title: Some("T".into()), body: "B".into() },
+                &TerminalChange::Title("half".into()),
+                &TerminalChange::Exited(Some(3)),
+            ],
+            "{changes:?}"
+        );
+    }
+
+    #[test]
+    fn next_leaves_the_notices_out() {
+        let session = sh("printf '\\033]0;title\\007\\a'; exit 4").spawn().expect("pty");
+        let watch = session.watch();
+        let started = Instant::now();
+        loop {
+            match watch.next() {
+                TerminalEvent::Output => assert!(started.elapsed() < PATIENCE),
+                TerminalEvent::Exited(code) => break assert_eq!(code, Some(4)),
+            }
+        }
+    }
+
+    #[test]
+    fn coalescing_bounds_the_reports_of_a_fast_stream() {
+        let interval = Duration::from_millis(50);
+        let session = sh("yes | head -n 200000; sleep 0.3; printf end").coalesce(interval).spawn().expect("pty");
+        let watch = session.watch();
+        let started = Instant::now();
+        let mut outputs = 0u32;
+        loop {
+            match watch.next_change() {
+                TerminalChange::Output => outputs += 1,
+                TerminalChange::Exited(_) => break,
+                _ => {}
+            }
+            assert!(started.elapsed() < PATIENCE);
+        }
+        let elapsed = started.elapsed();
+        let bound = u32::try_from(elapsed.as_millis() / interval.as_millis()).unwrap_or(u32::MAX) + 2;
+        assert!(outputs <= bound, "{outputs} reports in {elapsed:?}");
+        assert!(outputs >= 2, "the stream and the last word were both reported");
+        assert!(contents(&session).ends_with("end"), "the last bytes were not held back");
+    }
+
+    #[test]
+    fn terminate_hangs_up_and_kills_what_ignores_the_hangup() {
+        let session = sh("echo ready; sleep 100").spawn().expect("pty");
+        assert!(session.pid().is_some());
+        wait_for(&session, "ready");
+        let started = Instant::now();
+        session.terminate(PATIENCE);
+        assert!(started.elapsed() < Duration::from_secs(1), "terminate does not block");
+        assert!(matches!(changes_to_exit(&session).last(), Some(TerminalChange::Exited(_))));
+        assert!(started.elapsed() < PATIENCE, "the hangup ended it before the grace");
+
+        let session = sh("trap '' HUP; echo ready; sleep 100").spawn().expect("pty");
+        wait_for(&session, "ready");
+        let grace = Duration::from_millis(300);
+        let started = Instant::now();
+        session.terminate(grace);
+        assert!(started.elapsed() < grace, "terminate does not block");
+        changes_to_exit(&session);
+        assert!(started.elapsed() >= grace, "it outlived the hangup until the grace ran out");
+        assert!(session.exit().is_some());
+    }
+
+    fn wait_for(session: &TerminalSession, text: &str) {
+        let watch = session.watch();
+        let started = Instant::now();
+        while !contents(session).contains(text) {
+            let _ = watch.next();
+            assert!(started.elapsed() < PATIENCE, "{}", contents(session));
+        }
     }
 }

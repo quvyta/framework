@@ -8,7 +8,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::MeasureCx;
 use super::frame::{FocusRequest, Frame, Interaction, LayerEntry};
-use crate::color::Rgb;
+use crate::color::{ColorDepth, Rgb};
 use crate::env::Env;
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::icons::PILLAR;
@@ -322,6 +322,15 @@ impl PaintCx<'_> {
         self.frame.pointer_moves.push(self.id);
     }
 
+    /// Shows this widget a mouse press inside it before the widgets inside it, for this frame:
+    /// a window takes an alt-drag on its body even from a terminal whose program reads the
+    /// mouse. The press arrives with [`EventCx::is_preview`](super::EventCx::is_preview) set;
+    /// using it keeps it from everything else, otherwise it goes on as usual. Outer widgets
+    /// see it first.
+    pub(crate) fn preview_presses(&mut self) {
+        self.frame.press_previews.push(self.id);
+    }
+
     /// Adds this widget to the keyboard focus order.
     pub fn register_focusable(&mut self) {
         self.frame.focusable.push(self.id);
@@ -415,6 +424,29 @@ impl PaintCx<'_> {
             }
             if let Some(bg) = blend(cell.bg) {
                 cell.bg = bg;
+            }
+        });
+    }
+
+    /// Blends the background of `rect` towards `color` by `amount`, keeping every glyph and its
+    /// colour, e.g. the tone a [`Ghost`](crate::widgets::Ghost) lays over the ground. Cells drawn
+    /// with reduced colour depth cannot be blended, so they take the colour mixed into the theme's
+    /// canvas instead, and text that would no longer read on it is brightened.
+    pub(crate) fn tint_ground(&mut self, rect: Rect, color: Rgb, amount: f32) {
+        let amount = amount.clamp(0.0, 1.0);
+        if amount <= 0.0 {
+            return;
+        }
+        if self.env.depth() != ColorDepth::TrueColor {
+            let ground = self.color("canvas").mix(color, amount);
+            let readable = self.color("text");
+            self.fill_keeping_text_readable(rect, ground, readable);
+            return;
+        }
+        let depth = self.env.depth();
+        self.each_cell(rect, |cell| {
+            if let Color::Rgb(r, g, b) = cell.bg {
+                cell.bg = to_color(Rgb::new(r, g, b).mix(color, amount), depth);
             }
         });
     }
@@ -542,13 +574,19 @@ impl PaintCx<'_> {
 
     /// Paints a child node into `rect`, applying its padding.
     pub fn paint_child<M: 'static>(&mut self, node: &Node<M>, rect: Rect) {
+        self.paint_child_spilling(node, rect, rect);
+    }
+
+    /// Paints a child node into `rect` like [`PaintCx::paint_child`], letting it draw anywhere in
+    /// `visible` (which holds `rect`), e.g. a placed window's shadow just past its edges.
+    pub(crate) fn paint_child_spilling<M: 'static>(&mut self, node: &Node<M>, rect: Rect, visible: Rect) {
         let saved = (self.id, self.layout, self.clip, self.scope);
         self.id = node.id;
         self.layout = node.layout;
         if node.persistent {
             self.scope = Some(node.id);
         }
-        self.clip = saved.2.intersect(rect);
+        self.clip = saved.2.intersect(visible);
         self.frame.rects.insert(node.id, rect);
         self.frame.parents.insert(node.id, saved.0);
         if let Key::Named(name) = &node.key {

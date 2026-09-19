@@ -168,7 +168,19 @@ impl<A: App> Engine<A> {
             if let Some(focusable) = ancestry.iter().find(|id| self.frame.focusable.contains(id)) {
                 self.interaction.focused = Some(*focusable);
             }
-            self.press_target = self.dispatch(&ancestry, &event, now);
+            // Widgets that asked see the press first, outermost first; one that uses it keeps it
+            // from the widgets inside.
+            let previews: Vec<WidgetId> =
+                ancestry.iter().rev().filter(|id| self.frame.press_previews.contains(id)).copied().collect();
+            for id in previews {
+                self.press_target = self.dispatch_as(&[id], &event, now, true);
+                if self.press_target.is_some() {
+                    break;
+                }
+            }
+            if self.press_target.is_none() {
+                self.press_target = self.dispatch(&ancestry, &event, now);
+            }
             used = self.press_target.is_some();
         }
         if !used && button == MouseButton::Left {

@@ -57,4 +57,4 @@ pub use task::{Task, TaskCx, TaskEntry, TaskEvent, TaskId, TaskOutcome, Tasks};
 pub use terminal::Runtime;
 pub use termination::Termination;
 
-pub(crate) use selection::CopyKind;
+pub(crate) use selection::{CopyKind, MULTI_PRESS};

@@ -6,6 +6,7 @@
 - `SettingRow::new(label)` — a one-line row.
 - `.description(text)` — a faint second line under the label.
 - `.disabled(bool)` — greyed out and skipped by the keyboard.
+- `.nested(bool)` — a row that belongs to the row above, such as a choice that qualifies it: its text starts two cells further in; the pillar and the control stay in place.
 - `.on_activate(msg)` — sent on Enter or Space the control does not use, or on a click on the label.
 
 ## Behaviour

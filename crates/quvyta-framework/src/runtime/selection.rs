@@ -34,7 +34,7 @@ use crate::theme::State;
 use crate::widget::{Frame, PaintCx, WidgetId};
 
 /// Presses closer together than this on the same cell count as double and triple presses.
-const MULTI_PRESS: Duration = Duration::from_millis(400);
+pub(crate) const MULTI_PRESS: Duration = Duration::from_millis(400);
 
 /// How much a selection covers around the pressed cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

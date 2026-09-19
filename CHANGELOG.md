@@ -4,6 +4,31 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.10 - 2026-09-20
+
+### Added
+
+- Free placement inside a stack (`View::place`) and a `Window` surface: a title strip with the
+  application's icon, name and a faint subtitle, three-cell minimize, maximize and close marks,
+  a focus pillar, an optional shadow, and moving and resizing reported as `WindowEvent`s
+  (`WindowEdge` says which edge). `Ghost` paints a landing tone for a drag or a snap preview.
+- The embedded terminal can be started with extra environment variables, a first size, a
+  scrollback length and output coalescing (`TerminalSession::builder`), reports the program's
+  title, working folder, bell and notifications (`TerminalWatch::next_change`), and ends politely
+  (`pid`, `terminate`).
+- Shared preferences: the applications of a family share language, theme and icons through one
+  file, each key either its own or followed from the family (`Family::preferences`, `set`,
+  `Resolved`, `Scope`). `widgets::Appearance` draws the settings rows for them, with the
+  "in every application" choice, reduced motion and the pillar.
+- `icons::nerd_font` installs Symbols Nerd Font Mono into the user's own font folder, with a
+  checksum, progress and an honest word about what a terminal still needs; `icons::GlyphSample`
+  shows sample glyphs so the user can judge with their own eyes.
+- `storage::state_dir` and `cache_dir` for a family member as well.
+
+### Changed
+
+- Focus landing on a child taller than its scroll view no longer throws away a revealed line.
+
 ## 0.1.9 - 2026-09-19
 
 ### Added

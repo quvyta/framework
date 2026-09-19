@@ -1,0 +1,27 @@
+## Metotlar
+
+- `Family::preferences(uygulama, &i18n)` — uygulamanın dilini, temasını ve ikonlarını çözer; ortak dosya yoksa algılanan değerlerle oluşturur.
+- `Family::preferences_in(klasör, uygulama, &i18n)` — aynısı, platformun aile klasörü yerine `klasör`de.
+- `Family::set(uygulama, Shared::Theme, "nordic", Scope::Family)` — tek bir ortak anahtarı yazar; `Scope::App` yalnızca uygulamanın dosyasına yazar. `set_in(klasör, …)` başka bir klasörde.
+- `Preferences::language()`, `theme()`, `icons()` — her biri bir `Resolved { value, source }`; tek anahtar için `source(anahtar)`.
+- `Preferences::apply()` — çalışan uygulamayı çözülen değerlere geçiren komutlar.
+- `Preferences::diagnostics()` — ortak dosyanın yeri gösterilen sorunları.
+- `Runtime::preferences(&prefs)` — çözülen değerlerle başlar; `Runtime::settings`'teki aynı anahtarlara üstün gelir.
+- `Settings::member_of(&aile)` — ailenin kimliği ortak anahtarların geçerli bir değeridir ve "burada ayarlanmadı" diye okunur.
+- `Appearance::new(aile, uygulama, prefs)` — satırların durumu; `.in_folder(klasör)` başka yere kaydeder.
+- `Appearance::section(liste, mesaj)` — bir başlık ve satırlar; `rows(liste, mesaj)` başlıksız.
+- `Appearance::update(değişiklik, &mut ayarlar)` — bir `AppearanceChange`'i kaydeder ve onu gösteren komutu döndürür.
+- `SettingRow::nested(true)` — üstteki satıra ait bir satır: metni iki hücre içeriden başlar.
+
+## Dosyalar
+
+- Satırın altındaki kutu işaretli: `quvyta.conf` `theme = "nordic"`, `code.conf` `theme = "quvyta"` alır.
+- Kutu boş: `quvyta.conf` değişmez, `code.conf` `theme = "nordic"` alır.
+
+## Davranış
+
+- Her anahtar için sıra: uygulamanın değeri (ailenin kimliği dışında her şey), ortak dosya, algılama (dil `I18n::detect` ile, tema her zaman `monochrome`, ikonlar `detect_glyph_mode` ile).
+- Uygulamanın dosyasında olmayan anahtar aileyi izler.
+- Ortak dosya kendini izleyemez; içindeki `"quvyta"` bildirilir ve algılanan değer kullanılır.
+- Kaydedilemeyen bir değişiklik yine uygulanır; satırı bir sonraki değişikliğe kadar nedenini söyler.
+- `QUVYTA_REDUCED_MOTION` karar verirken hareketi azalt satırı pasiftir.

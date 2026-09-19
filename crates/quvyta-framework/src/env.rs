@@ -248,7 +248,7 @@ impl Env {
 
     /// Lets `forced` decide reduced motion from now on, whatever is set or saved later; `None`
     /// leaves the decision to settings and commands.
-    fn force_reduced_motion(&mut self, forced: Option<bool>) {
+    pub(crate) fn force_reduced_motion(&mut self, forced: Option<bool>) {
         self.forced_reduced_motion = forced;
         if let Some(reduced) = forced {
             self.reduced_motion = reduced;
@@ -361,6 +361,13 @@ impl Env {
         if let Some(slide) = settings.slide() {
             self.set_slide(slide);
         }
+    }
+
+    /// Switches to the language, theme and icons the family's preferences resolved.
+    pub(crate) fn apply_preferences(&mut self, preferences: &crate::storage::Preferences) {
+        self.set_theme(&preferences.theme().value);
+        self.set_locale(&preferences.language().value);
+        self.set_icon_mode(preferences.icons().value);
     }
 
     fn rebuild_icons(&mut self) {

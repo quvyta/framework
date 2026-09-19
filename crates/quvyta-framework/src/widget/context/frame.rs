@@ -31,6 +31,9 @@ pub(crate) struct Frame {
     /// Widgets that asked for plain pointer moves; see
     /// [`PaintCx::track_pointer_moves`](crate::widget::PaintCx::track_pointer_moves).
     pub(crate) pointer_moves: Vec<WidgetId>,
+    /// Widgets that see a press before the widgets inside them; see
+    /// [`PaintCx::preview_presses`](crate::widget::PaintCx::preview_presses).
+    pub(crate) press_previews: Vec<WidgetId>,
     /// Every layer painted this frame, in paint order (the last one is on top): dismissable
     /// layers such as popovers and modal layers such as dialogs share one stack.
     pub(crate) layers: Vec<LayerEntry>,
@@ -91,6 +94,7 @@ impl Frame {
             selectable,
             decorations,
             pointer_moves,
+            press_previews,
             layers,
             focus_request,
             measures,
@@ -109,6 +113,7 @@ impl Frame {
         selectable.clear();
         decorations.clear();
         pointer_moves.clear();
+        press_previews.clear();
         layers.clear();
         *focus_request = None;
         measures.clear();

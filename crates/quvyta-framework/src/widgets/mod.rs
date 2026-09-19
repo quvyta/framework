@@ -2,6 +2,7 @@
 
 mod accordion;
 mod app_shell;
+mod appearance;
 mod axis;
 mod badge;
 mod bar_chart;
@@ -36,6 +37,7 @@ mod floating_tests;
 mod form;
 mod form_errors;
 mod gauge;
+mod ghost;
 mod heatmap;
 mod help_layer;
 mod highlight;
@@ -91,6 +93,8 @@ mod terminal;
 #[cfg(feature = "pty")]
 mod terminal_mouse;
 #[cfg(feature = "pty")]
+mod terminal_notice;
+#[cfg(feature = "pty")]
 mod terminal_session;
 mod text;
 mod text_area;
@@ -104,10 +108,14 @@ mod tree;
 #[cfg(test)]
 mod wide_under_layer_tests;
 mod widget_dock;
+mod window;
+#[cfg(test)]
+mod window_tests;
 mod wizard;
 
 pub use accordion::Accordion;
 pub use app_shell::AppShell;
+pub use appearance::{Appearance, AppearanceChange};
 pub use axis::Axis;
 pub use badge::Badge;
 pub use bar_chart::{Bar, BarChart, Series};
@@ -131,6 +139,7 @@ pub use file_picker::FilePicker;
 pub use form::{Form, FormFields};
 pub use form_errors::FormErrors;
 pub use gauge::Gauge;
+pub use ghost::Ghost;
 pub use heatmap::Heatmap;
 pub use help_layer::HelpLayer;
 pub use highlight::Language;
@@ -174,7 +183,7 @@ pub use task_list::TaskList;
 #[cfg(feature = "pty")]
 pub use terminal::Terminal;
 #[cfg(feature = "pty")]
-pub use terminal_session::{TerminalEvent, TerminalSession, TerminalWatch};
+pub use terminal_session::{TerminalBuilder, TerminalChange, TerminalEvent, TerminalSession, TerminalWatch};
 pub use text::{Span, Text};
 pub use text_area::TextArea;
 pub use text_input::TextInput;
@@ -188,6 +197,7 @@ pub(crate) use toast::{ToastPress, ToastStack};
 pub use tooltip::Tooltip;
 pub use tree::{Tree, TreeDrop, TreeMove, TreeNode};
 pub use widget_dock::WidgetDock;
+pub use window::{Window, WindowEdge, WindowEvent};
 pub use wizard::Wizard;
 
 /// Builds a message from a chosen index.

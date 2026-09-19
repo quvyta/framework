@@ -6,6 +6,7 @@
 - `SettingRow::new(etiket)` — tek satırlık ayar.
 - `.description(metin)` — etiketin altında silik ikinci satır.
 - `.disabled(bool)` — soluk görünür, klavye atlar.
+- `.nested(bool)` — üstteki satıra ait bir satır, örneğin onu niteleyen bir seçim: metni iki hücre içeriden başlar; çubuk ve kontrol yerinde kalır.
 - `.on_activate(mesaj)` — kontrolün kullanmadığı Enter ya da Boşluk'ta veya etikete tıklanınca gönderilir.
 
 ## Davranış

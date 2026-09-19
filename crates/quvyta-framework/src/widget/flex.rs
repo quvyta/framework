@@ -1,6 +1,7 @@
 //! Rows, columns and stacks.
 
 use super::context::{MeasureCx, PaintCx};
+use super::place::{Placed, with_spill};
 use super::{Align, LayoutProps, Length, Node, Widget};
 use crate::geometry::{Rect, Size, clamp_u16};
 
@@ -121,7 +122,14 @@ impl<Msg: 'static> Widget<Msg> for Flex<Msg> {
         if self.axis == Axis::Stack {
             let mut size = Size::default();
             for child in &self.children {
-                let child_size = cx.measure_child(child, available);
+                // A placed child reaches as far as its rectangle does, from the stack's corner.
+                let child_size = match Placed::of(child) {
+                    Some(rect) => Size::new(
+                        clamp_u16(rect.right().max(0)).min(available.width),
+                        clamp_u16(rect.bottom().max(0)).min(available.height),
+                    ),
+                    None => cx.measure_child(child, available),
+                };
                 size = Size::new(size.width.max(child_size.width), size.height.max(child_size.height));
             }
             return size;
@@ -161,6 +169,11 @@ impl<Msg: 'static> Widget<Msg> for Flex<Msg> {
         let layout = cx.layout();
         if self.axis == Axis::Stack {
             for child in &self.children {
+                if let Some(placed) = Placed::of(child) {
+                    let rect = Rect::new(area.x + placed.x, area.y + placed.y, placed.width, placed.height);
+                    cx.paint_child_spilling(child, rect, with_spill(rect));
+                    continue;
+                }
                 let measured = cx.measure_child(child, area.size());
                 let width = match child.layout.width {
                     Length::Fill(_) => area.width,

@@ -12,5 +12,7 @@ demo      = "1"
 code      = "2"
 guide     = "3"
 reference = "4"
+# Focus the next window of the Windows demo, the way a desktop cycles windows.
+window-cycle = "ctrl+alt+w"
 # Out of the terminal page's shell and back in; the shell never sees it, see the page.
 terminal-focus = "ctrl+alt+space"

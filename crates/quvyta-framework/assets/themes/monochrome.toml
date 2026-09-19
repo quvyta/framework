@@ -1438,6 +1438,44 @@ bg     = "mix($accent, $active, 28%)"
 fg     = "$text"
 pillar = "$accent"
 
+# ---- Windows ----------------------------------------------------------------------------------
+
+# A window is a surface on the canvas: its title strip one step lighter than its body. The focused
+# window climbs one step and carries the accent pillar down its left edge; its name is bright and
+# bold. Unfocused windows sit a step lower with a quieter name. The marks use `close-mark` and the
+# handles `split-handle`. The shadow darkens what lies one cell right of and below a window.
+
+[style.window]
+bg = "$surface"
+
+[style."window:focus"]
+bg     = "$raised"
+pillar = "$accent"
+
+[style.window-title]
+bg = "$raised"
+fg = "$dim"
+
+[style."window-title:focus"]
+bg   = "$active"
+fg   = "$text"
+bold = true
+
+[style.window-subtitle]
+fg = "$muted"
+
+[style."window-subtitle:focus"]
+fg = "$dim"
+
+# The tone a ghost lays over the ground where a window will land: the accent, mixed in by the
+# ratio the application gives.
+[style.ghost]
+bg = "$accent"
+
+[style.window-shadow]
+scrim    = "#000000"
+strength = 45
+
 # ---- Code ------------------------------------------------------------------------------------
 # One accent family for structure, status colours only where they read naturally.
 

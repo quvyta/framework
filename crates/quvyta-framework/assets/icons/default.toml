@@ -48,6 +48,13 @@ line-added       = { nerd = "+", unicode = "+", ascii = "+" }   # the sign of a 
 line-removed     = { nerd = "−", unicode = "−", ascii = "-" }
 search           = { nerd = "\uf002", unicode = "⌕", ascii = "/" }
 
+# ---- Windows
+# The marks at the right end of a window's title, beside `close`. Restoring a maximized window
+# reads as `o`, the original size, in ASCII.
+window-minimize  = { nerd = "\uf2d1", unicode = "−", ascii = "-" }
+window-maximize  = { nerd = "\uf2d0", unicode = "+", ascii = "+" }
+window-restore   = { nerd = "\uf2d2", unicode = "◇", ascii = "o" }
+
 # ---- Scrollbars
 # Blank ASCII glyphs draw coloured cells.
 scroll-thumb     = { nerd = "▐", unicode = "▐", ascii = " " }

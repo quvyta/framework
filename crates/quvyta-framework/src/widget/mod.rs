@@ -13,6 +13,7 @@ mod mapped;
 #[cfg(test)]
 mod mapped_rules;
 mod memory;
+mod place;
 mod view;
 
 use std::any::{Any, type_name};
