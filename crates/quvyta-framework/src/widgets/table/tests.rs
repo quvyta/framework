@@ -1,5 +1,6 @@
 use super::*;
 use crate::color::Rgb;
+use crate::icons::Glyph;
 use crate::icons::GlyphMode;
 use crate::runtime::{App, Command, Harness};
 use crate::widget::{Align, Length, View};
@@ -252,4 +253,86 @@ fn huge_fixed_columns_scroll_instead_of_overflowing() {
     }
     let h = Harness::new(Wide, 30, 3);
     assert!(h.screen().starts_with("  Name"), "{}", h.screen());
+}
+
+const FIREFOX: char = '\u{e745}';
+
+/// Two rows whose names carry a glyph: a literal one and an icon of the set.
+fn icon_demo(name: &str) -> Demo {
+    let rows: Arc<[TableRow]> = vec![
+        TableRow::new([TableCell::new(name).icon(Glyph::literal(FIREFOX), None), TableCell::new("3%")]),
+        TableRow::new([TableCell::new("projects").icon(Glyph::key("folder"), None), TableCell::new("0%")]),
+    ]
+    .into();
+    Demo { rows, ..demo(0) }
+}
+
+/// Where `text` is on screen, as the cell coordinates the colour checks take.
+fn spot(h: &Harness<Demo>, text: &str) -> (u16, u16) {
+    let (x, y) = h.find(text).unwrap_or_else(|| panic!("`{text}` is drawn:\n{}", h.screen()));
+    (u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0))
+}
+
+#[test]
+fn a_cell_glyph_is_muted_and_takes_the_row_text_colour_when_the_row_is_selected() {
+    let mut h = Harness::new(icon_demo("firefox"), 30, 3);
+    h.set_glyph_mode(GlyphMode::Unicode);
+    let muted = h.env().theme().color("muted");
+    let (x, y) = spot(&h, &FIREFOX.to_string());
+    let screen = h.screen();
+    let row = screen.lines().nth(1).unwrap_or_default();
+    assert!(row.starts_with(&format!("  {FIREFOX} firefox ")) && row.ends_with(" 3%"), "{row:?}");
+    assert_eq!(h.fg(x, y), muted, "a glyph is quieter than the name");
+    assert_ne!(h.fg(x + 2, y), muted);
+    let folder = h.env().icons().glyph("folder").into_owned();
+    let (fx, fy) = spot(&h, &folder);
+    assert_eq!((fx, h.fg(fx, fy)), (2, muted));
+    h.press("tab").press("down");
+    assert_eq!(h.app().selected, Some(0));
+    let (x, y) = spot(&h, &FIREFOX.to_string());
+    assert_eq!(h.fg(x, y), h.fg(x + 2, y), "on the selected row the glyph takes the name's colour");
+    assert_ne!(h.fg(x, y), muted);
+    assert_eq!(h.fg(fx, fy), muted, "the other row keeps its quiet glyph");
+}
+
+#[test]
+fn a_narrow_column_cuts_the_text_and_keeps_the_glyph_and_its_space() {
+    for mode in [GlyphMode::Unicode, GlyphMode::Ascii] {
+        let mut h = Harness::new(icon_demo("firefox-developer-edition"), 16, 3);
+        h.set_glyph_mode(mode);
+        let screen = h.screen();
+        let row = screen.lines().nth(1).unwrap_or_default();
+        assert!(row.starts_with(&format!("  {FIREFOX} fir")), "{mode:?}: {row:?}");
+        assert!(row.contains('…'), "{mode:?}: {row:?}");
+        let folder = h.env().icons().glyph("folder").into_owned();
+        let row = screen.lines().nth(2).unwrap_or_default();
+        assert!(row.starts_with(&format!("  {folder} pro")), "{mode:?}: {row:?}");
+    }
+    let mut h = Harness::new(icon_demo("firefox"), 9, 3);
+    h.set_glyph_mode(GlyphMode::Unicode);
+    let row = h.screen().lines().nth(1).unwrap_or_default().to_owned();
+    assert!(row.starts_with(&format!("  {FIREFOX} ")), "even with no room for a letter: {row:?}");
+}
+
+#[test]
+fn a_one_cell_glyph_takes_one_cell_and_one_space_in_a_fitting_column() {
+    /// A fitting column of kinds, whose cell is a glyph and `pkg`, or the same written as text.
+    struct Kinds(bool);
+    impl App for Kinds {
+        type Msg = ();
+        fn update(&mut self, _: ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            let columns = [Column::new("Kind").width(ColumnWidth::Fit), Column::new("Name")];
+            let kind = if self.0 { TableCell::new("pkg").icon(Glyph::literal('▲'), None) } else { "▲ pkg".into() };
+            let rows = vec![TableRow::new([kind, TableCell::new("firefox")])];
+            ui.add(Table::<()>::new(columns, rows)).fill();
+        }
+    }
+    let mut glyph = Harness::new(Kinds(true), 24, 2);
+    glyph.set_glyph_mode(GlyphMode::Unicode);
+    let mut text = Harness::new(Kinds(false), 24, 2);
+    text.set_glyph_mode(GlyphMode::Unicode);
+    assert_eq!(glyph.screen(), text.screen(), "the glyph and its space are two cells, like `▲ `");
 }

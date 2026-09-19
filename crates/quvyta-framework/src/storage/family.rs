@@ -10,12 +10,16 @@
 //!     code/           its other configuration files
 //! ```
 //!
+//! What a member remembers between runs and what it can rebuild sit in the family's folder under
+//! the platform's state and cache folders, one folder per member: `~/.local/state/quvyta/code`,
+//! `~/.cache/quvyta/code`.
+//!
 //! The work the user makes with an application lives in the Documents folder, under the family's
 //! and the application's titles: `~/Documents/Quvyta/Code`.
 
 use std::path::{Path, PathBuf};
 
-use super::dirs::{config_root, env_lookup};
+use super::dirs::{cache_root, config_root, env_lookup, state_root};
 use super::documents::documents_dir;
 use super::migrate::{self, Migration};
 
@@ -104,6 +108,34 @@ impl Family {
         self.config_dir().map(|dir| dir.join(app))
     }
 
+    /// Where application `app` of the family keeps its state, such as the result of its last
+    /// background check: `<state folder>/<family>/<app>`.
+    ///
+    /// - Linux and other Unix systems: `$XDG_STATE_HOME/<id>/<app>` when `XDG_STATE_HOME` is an
+    ///   absolute path, else `$HOME/.local/state/<id>/<app>`.
+    /// - macOS: `$HOME/Library/Application Support/<title>/<app>`.
+    /// - Windows: `%LOCALAPPDATA%\<title>\<app>`.
+    ///
+    /// `None` when there is no home folder, as for [`state_dir`](super::state_dir). Not created.
+    #[must_use]
+    pub fn state_dir(&self, app: &str) -> Option<PathBuf> {
+        self.member_under(state_root(env_lookup), app)
+    }
+
+    /// Where application `app` of the family keeps files it can rebuild at any time:
+    /// `<cache folder>/<family>/<app>`.
+    ///
+    /// - Linux and other Unix systems: `$XDG_CACHE_HOME/<id>/<app>` when `XDG_CACHE_HOME` is an
+    ///   absolute path, else `$HOME/.cache/<id>/<app>`.
+    /// - macOS: `$HOME/Library/Caches/<title>/<app>`.
+    /// - Windows: `%LOCALAPPDATA%\<title>\<app>`.
+    ///
+    /// `None` when there is no home folder, as for [`cache_dir`](super::cache_dir). Not created.
+    #[must_use]
+    pub fn cache_dir(&self, app: &str) -> Option<PathBuf> {
+        self.member_under(cache_root(env_lookup), app)
+    }
+
     /// Where the work the user makes with an application is kept by default:
     /// `<documents>/<family title>/<app_title>`, such as `~/Documents/Quvyta/Code`, in the
     /// [Documents folder](super::documents_dir) under the name the user's desktop gave it.
@@ -149,7 +181,12 @@ impl Family {
         migrate::adopt(legacy_dir, &config_dir.join(file_name(app)), &config_dir.join(app))
     }
 
-    /// The family's folder under the config `root` of this platform.
+    /// The folder of member `app` in the family's folder under `root`.
+    fn member_under(&self, root: Option<PathBuf>, app: &str) -> Option<PathBuf> {
+        self.config_under(root).map(|family| family.join(app))
+    }
+
+    /// The family's folder under the `root` of this platform, config or any other.
     fn config_under(&self, root: Option<PathBuf>) -> Option<PathBuf> {
         // macOS and Windows show these folders by their names, so they are written as names are.
         let name = if cfg!(any(windows, target_os = "macos")) { self.title } else { self.id };
@@ -199,6 +236,45 @@ mod tests {
             let root = config_root(env(&[("APPDATA", r"C:\Users\ada\AppData\Roaming")]));
             let expected = PathBuf::from(r"C:\Users\ada\AppData\Roaming\Quvyta");
             assert_eq!(Family::QUVYTA.config_under(root), Some(expected));
+        }
+    }
+
+    #[test]
+    fn a_member_keeps_its_state_and_cache_under_the_family_folder() {
+        if !cfg!(all(unix, not(target_os = "macos"))) {
+            return;
+        }
+        let family = Family::QUVYTA;
+        let home = env(&[("HOME", "/home/ada")]);
+        assert_eq!(
+            family.member_under(state_root(&home), "packages"),
+            Some(PathBuf::from("/home/ada/.local/state/quvyta/packages"))
+        );
+        assert_eq!(
+            family.member_under(cache_root(&home), "packages"),
+            Some(PathBuf::from("/home/ada/.cache/quvyta/packages"))
+        );
+        let xdg = env(&[("HOME", "/home/ada"), ("XDG_STATE_HOME", "/st"), ("XDG_CACHE_HOME", "/ca")]);
+        assert_eq!(family.member_under(state_root(&xdg), "packages"), Some(PathBuf::from("/st/quvyta/packages")));
+        assert_eq!(family.member_under(cache_root(&xdg), "packages"), Some(PathBuf::from("/ca/quvyta/packages")));
+        let relative = env(&[("HOME", "/home/ada"), ("XDG_CACHE_HOME", "ca")]);
+        assert_eq!(
+            family.member_under(cache_root(&relative), "packages"),
+            Some(PathBuf::from("/home/ada/.cache/quvyta/packages"))
+        );
+        assert_eq!(family.member_under(cache_root(env(&[])), "packages"), None);
+    }
+
+    #[test]
+    fn the_public_state_and_cache_folders_end_in_family_and_member() {
+        let family = Family::QUVYTA;
+        for dir in [family.state_dir("packages"), family.cache_dir("packages")].into_iter().flatten() {
+            assert!(
+                dir.ends_with(Path::new(family.id()).join("packages"))
+                    || dir.ends_with(Path::new(family.title()).join("packages")),
+                "{}",
+                dir.display()
+            );
         }
     }
 

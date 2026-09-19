@@ -4,6 +4,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+use qframe::icons::{Glyph, GlyphMode};
 use qframe::prelude::*;
 use qframe::widgets::{Column, ColumnWidth, Select, SortDirection, Table, TableCell, TableRow};
 
@@ -13,10 +14,12 @@ use crate::log::EventLog;
 
 const PAGE: &str = "table";
 
-/// A running container: name, status, CPU per mille, memory in MiB, image, port.
+/// A running container: name, the Nerd Font glyph of its program, status, CPU per mille, memory
+/// in MiB, image, port.
 #[derive(Debug, Clone, Copy)]
 struct Container {
     name: &'static str,
+    nerd: char,
     status: &'static str,
     cpu: u32,
     memory: u32,
@@ -27,19 +30,76 @@ struct Container {
 const CONTAINERS: [Container; 8] = [
     Container {
         name: "quvyta-api",
+        nerd: '\u{f109b}',
         status: "running",
         cpu: 124,
         memory: 512,
         image: "quvyta/api:2.4",
         port: "8080/tcp",
     },
-    Container { name: "postgres", status: "running", cpu: 38, memory: 1024, image: "postgres:16", port: "5432/tcp" },
-    Container { name: "cache", status: "running", cpu: 9, memory: 256, image: "valkey:8", port: "6379/tcp" },
-    Container { name: "worker-emails", status: "paused", cpu: 0, memory: 96, image: "quvyta/worker:2.4", port: "none" },
-    Container { name: "docs-preview", status: "running", cpu: 21, memory: 128, image: "caddy:2", port: "3000/tcp" },
-    Container { name: "search-index", status: "failed", cpu: 0, memory: 0, image: "meilisearch:1.9", port: "7700/tcp" },
-    Container { name: "nightly-tests", status: "stopped", cpu: 0, memory: 0, image: "quvyta/ci:2.4", port: "none" },
-    Container { name: "metrics", status: "running", cpu: 57, memory: 384, image: "prometheus:3", port: "9090/tcp" },
+    Container {
+        name: "postgres",
+        nerd: '\u{e76e}',
+        status: "running",
+        cpu: 38,
+        memory: 1024,
+        image: "postgres:16",
+        port: "5432/tcp",
+    },
+    Container {
+        name: "cache",
+        nerd: '\u{e76d}',
+        status: "running",
+        cpu: 9,
+        memory: 256,
+        image: "valkey:8",
+        port: "6379/tcp",
+    },
+    Container {
+        name: "worker-emails",
+        nerd: '\u{f01ee}',
+        status: "paused",
+        cpu: 0,
+        memory: 96,
+        image: "quvyta/worker:2.4",
+        port: "none",
+    },
+    Container {
+        name: "docs-preview",
+        nerd: '\u{f059f}',
+        status: "running",
+        cpu: 21,
+        memory: 128,
+        image: "caddy:2",
+        port: "3000/tcp",
+    },
+    Container {
+        name: "search-index",
+        nerd: '\u{f0349}',
+        status: "failed",
+        cpu: 0,
+        memory: 0,
+        image: "meilisearch:1.9",
+        port: "7700/tcp",
+    },
+    Container {
+        name: "nightly-tests",
+        nerd: '\u{f0668}',
+        status: "stopped",
+        cpu: 0,
+        memory: 0,
+        image: "quvyta/ci:2.4",
+        port: "none",
+    },
+    Container {
+        name: "metrics",
+        nerd: '\u{f0238}',
+        status: "running",
+        cpu: 57,
+        memory: 384,
+        image: "prometheus:3",
+        port: "9090/tcp",
+    },
 ];
 
 /// How many builds the long table shows.
@@ -61,6 +121,7 @@ pub struct State {
     multi: bool,
     sortable: bool,
     narrow: bool,
+    icons: bool,
 }
 
 impl Default for State {
@@ -76,6 +137,7 @@ impl Default for State {
             multi: false,
             sortable: true,
             narrow: false,
+            icons: true,
         }
     }
 }
@@ -91,6 +153,7 @@ pub enum Msg {
     Multi(bool),
     Sortable(bool),
     Narrow(bool),
+    Icons(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -175,15 +238,31 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.narrow = on;
             log.push(PAGE, "Playground", format!("narrow = {on}"));
         }
+        Msg::Icons(on) => {
+            state.icons = on;
+            log.push(PAGE, "Playground", format!("icons = {on}"));
+        }
     }
     Command::none()
 }
 
+// region: table-icons
+/// The glyph before a container's name: its program's own glyph where the terminal has a Nerd
+/// Font, and the icon set's project icon in the other glyph modes.
+fn program_glyph(container: &Container, mode: GlyphMode) -> Glyph {
+    if mode == GlyphMode::Nerd { Glyph::literal(container.nerd) } else { Glyph::key("project") }
+}
+// endregion
+
 // region: table-rows
-fn container_rows(containers: &[Container]) -> Vec<TableRow> {
+fn container_rows(containers: &[Container], icons: Option<GlyphMode>) -> Vec<TableRow> {
     containers
         .iter()
         .map(|c| {
+            let mut name = TableCell::new(c.name);
+            if let Some(mode) = icons {
+                name = name.icon(program_glyph(c, mode), None);
+            }
             let tone = match c.status {
                 "running" => "success",
                 "paused" => "warning",
@@ -193,7 +272,7 @@ fn container_rows(containers: &[Container]) -> Vec<TableRow> {
             let status = TableCell::new(t!(&format!("table.status.{}", c.status))).icon("dot", Some(tone));
             let cpu = format!("{}.{}%", c.cpu / 10, c.cpu % 10);
             TableRow::new([
-                TableCell::new(c.name),
+                name,
                 status,
                 TableCell::new(cpu),
                 TableCell::new(format!("{} MiB", c.memory)),
@@ -221,7 +300,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
                     Column::new(t!("table.image")).min(16),
                     Column::new(t!("table.port")).width(ColumnWidth::Fixed(9)),
                 ],
-                container_rows(&state.containers).into(),
+                container_rows(&state.containers, state.icons.then(|| ui.env().glyph_mode())).into(),
             ),
             // endregion
             1 => (
@@ -271,6 +350,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("table.narrow"), |ui| {
             ui.add(toggle(state.narrow, |on| send(Msg::Narrow(on)))).id("narrow");
         });
+        setting(ui, t!("table.icons"), |ui| {
+            ui.add(toggle(state.icons, |on| send(Msg::Icons(on)))).id("icons");
+        });
         slide_setting(ui, PAGE);
         ui.add(Text::new(t!("table.keys")).role("faint"));
     })
@@ -299,8 +381,27 @@ mod tests {
     }
 
     #[test]
+    fn names_carry_a_quiet_glyph_that_stays_when_the_name_is_cut() {
+        let mut h = showcase_on(PAGE);
+        h.set_glyph_mode(GlyphMode::Unicode);
+        let project = h.env().icons().glyph("project").into_owned();
+        let (x, y) = h.find(&format!("{project} postgres")).unwrap_or_else(|| panic!("{}", h.screen()));
+        let cell = |v: i32| u16::try_from(v).unwrap_or(0);
+        assert_eq!(h.fg(cell(x), cell(y)), h.env().theme().color("muted"), "an unselected row's glyph is quiet");
+        h.set_glyph_mode(GlyphMode::Nerd);
+        assert!(h.screen().contains("\u{e76e} postgres"), "the program's own glyph in Nerd mode:\n{}", h.screen());
+        h.set_glyph_mode(GlyphMode::Ascii);
+        let project = h.env().icons().glyph("project").into_owned();
+        h.send(send(Msg::Narrow(true)));
+        assert!(h.screen().contains(&format!("{project} worker-e…")), "{}", h.screen());
+        h.send(send(Msg::Icons(false)));
+        assert!(h.screen().contains("  postgres"), "{}", h.screen());
+    }
+
+    #[test]
     fn check_marks_stay_put_and_the_header_arrows_scroll() {
         let mut h = showcase_on(PAGE);
+        h.send(send(Msg::Icons(false)));
         h.send(send(Msg::Multi(true)));
         let (mark, label) = super::super::mark_and_label(&h, '☐', "postgres");
         assert_eq!(label, mark + 2);

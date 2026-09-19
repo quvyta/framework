@@ -63,6 +63,16 @@ impl<Msg: 'static> Tabs<Msg> {
         rect.right() - i32::from(PAD + close_mark::WIDTH - 1)
     }
 
+    /// The count of tab `index` as it reads, when it has one.
+    pub(super) fn badge_text(&self, index: usize) -> Option<String> {
+        self.badges.get(index).filter(|count| **count > 0).map(|count| super::super::badge::count_label(*count))
+    }
+
+    /// Cells the count of tab `index` takes after its name: a space and the count.
+    pub(super) fn badge_width(&self, index: usize) -> u16 {
+        self.badge_text(index).map_or(0, |text| text::width(&text).saturating_add(1))
+    }
+
     pub(super) fn close_width(&self, index: usize) -> u16 {
         if self.model.closable(index) { CLOSE } else { 0 }
     }
@@ -71,11 +81,18 @@ impl<Msg: 'static> Tabs<Msg> {
     /// resting label moves one cell left into it. The cell is there whether slide is on or not, so
     /// turning slide on or off never changes a tab's width.
     fn fit_width(&self, index: usize) -> u16 {
-        cells::sum([self.number_width(index), text::width(&self.labels[index]), PAD * 2, self.close_width(index), 1])
+        cells::sum([
+            self.number_width(index),
+            text::width(&self.labels[index]),
+            self.badge_width(index),
+            PAD * 2,
+            self.close_width(index),
+            1,
+        ])
     }
 
     fn min_width(&self, index: usize) -> u16 {
-        cells::sum([self.number_width(index), 1, PAD * 2, self.close_width(index)])
+        cells::sum([self.number_width(index), 1, self.badge_width(index), PAD * 2, self.close_width(index)])
     }
 
     /// The room every tab needs to show at all, cut short.

@@ -1,7 +1,7 @@
 ## Methods
 
 - `Form::new()` — labels above controls, one row between fields, no summary.
-- `.label_width(cells)` — labels in a column beside controls while the form is at least `cells + 18` wide.
+- `.label_width(cells)` — labels in a column beside controls while the form is at least `cells + 18` wide. A field whose control asks for more than the room beside the label puts that label above instead.
 - `.gap(rows)` — rows between fields; 1 by default.
 - `.summary(&errors)` — lists every message of `errors` above the fields; hidden while empty.
 - `.show(ui, |form| …)` — adds the form; `form.field(field, |ui| …)` adds a field with its control, `form.ui()` adds anything else.

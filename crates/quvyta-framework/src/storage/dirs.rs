@@ -1,9 +1,14 @@
-//! Where an application keeps its settings and its own data.
+//! Where an application keeps its settings, its own data, its state and its cache.
 //!
 //! Settings and data are two different folders. A theme choice is a setting; a recorded session
 //! is data. On Linux and other Unix systems they are two separate XDG folders, on Windows the
 //! roaming and the local folder, and on macOS the same folder, because macOS has no split
 //! between the two.
+//!
+//! State and cache are two more. State is what an application remembers between runs that is
+//! worth keeping but not worth carrying to another machine: the result of the last background
+//! check, a window's last tab. A cache can be deleted at any time and rebuilt. Each has its own
+//! XDG folder on Linux and other Unix systems, so a user can back up one and clear the other.
 
 use std::path::PathBuf;
 
@@ -43,6 +48,40 @@ pub fn data_dir(app: &str) -> Option<PathBuf> {
     data_root(env_lookup).map(|root| root.join(app))
 }
 
+/// Where application `app` keeps its state: what it remembers between runs that is worth keeping
+/// but does not belong to the user's settings or records, such as the result of its last
+/// background check or the tab it was last on.
+///
+/// - Linux and other Unix systems: `$XDG_STATE_HOME/<app>` when `XDG_STATE_HOME` is an absolute
+///   path, else `$HOME/.local/state/<app>`.
+/// - macOS: `$HOME/Library/Application Support/<app>`, the same folder as the data, since macOS
+///   has no separate state folder.
+/// - Windows: `%LOCALAPPDATA%\<app>`, the local folder, so state stays on the machine it
+///   describes.
+///
+/// `None` when the platform's variables say nothing, and when `HOME` is not an absolute path.
+/// The folder is not created and does not have to exist.
+#[must_use]
+pub fn state_dir(app: &str) -> Option<PathBuf> {
+    state_root(env_lookup).map(|root| root.join(app))
+}
+
+/// Where application `app` keeps its cache: files it can rebuild at any time, which the user or
+/// the system may delete without losing anything.
+///
+/// - Linux and other Unix systems: `$XDG_CACHE_HOME/<app>` when `XDG_CACHE_HOME` is an absolute
+///   path, else `$HOME/.cache/<app>`.
+/// - macOS: `$HOME/Library/Caches/<app>`.
+/// - Windows: `%LOCALAPPDATA%\<app>`, the local folder, so a cache is never copied between
+///   machines by a roaming profile.
+///
+/// `None` when the platform's variables say nothing, and when `HOME` is not an absolute path.
+/// The folder is not created and does not have to exist.
+#[must_use]
+pub fn cache_dir(app: &str) -> Option<PathBuf> {
+    cache_root(env_lookup).map(|root| root.join(app))
+}
+
 /// Reads one environment variable as a path.
 pub(super) fn env_lookup(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).map(PathBuf::from)
@@ -71,6 +110,31 @@ fn data_root(lookup: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
     }
     absolute(non_empty("XDG_DATA_HOME"))
         .or_else(|| absolute(non_empty("HOME")).map(|home| home.join(".local").join("share")))
+}
+
+/// The folder the state of every application lives under, from variables read through `lookup`.
+pub(super) fn state_root(lookup: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    let non_empty = |name: &str| lookup(name).filter(|path| !path.as_os_str().is_empty());
+    if cfg!(windows) {
+        return non_empty("LOCALAPPDATA");
+    }
+    if cfg!(target_os = "macos") {
+        return absolute(non_empty("HOME")).map(|home| home.join("Library").join("Application Support"));
+    }
+    absolute(non_empty("XDG_STATE_HOME"))
+        .or_else(|| absolute(non_empty("HOME")).map(|home| home.join(".local").join("state")))
+}
+
+/// The folder the cache of every application lives under, from variables read through `lookup`.
+pub(super) fn cache_root(lookup: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    let non_empty = |name: &str| lookup(name).filter(|path| !path.as_os_str().is_empty());
+    if cfg!(windows) {
+        return non_empty("LOCALAPPDATA");
+    }
+    if cfg!(target_os = "macos") {
+        return absolute(non_empty("HOME")).map(|home| home.join("Library").join("Caches"));
+    }
+    absolute(non_empty("XDG_CACHE_HOME")).or_else(|| absolute(non_empty("HOME")).map(|home| home.join(".cache")))
 }
 
 /// A variable counts only when it holds an absolute path. The XDG specification says a relative
@@ -151,15 +215,70 @@ mod tests {
     }
 
     #[test]
+    fn state_and_cache_follow_their_xdg_variables_on_unix() {
+        if !cfg!(all(unix, not(target_os = "macos"))) {
+            return;
+        }
+        let home = env(&[("HOME", "/home/ada")]);
+        assert_eq!(state_root(&home), Some(PathBuf::from("/home/ada/.local/state")));
+        assert_eq!(cache_root(&home), Some(PathBuf::from("/home/ada/.cache")));
+
+        let xdg = env(&[("HOME", "/home/ada"), ("XDG_STATE_HOME", "/st"), ("XDG_CACHE_HOME", "/ca")]);
+        assert_eq!(state_root(&xdg), Some(PathBuf::from("/st")));
+        assert_eq!(cache_root(&xdg), Some(PathBuf::from("/ca")));
+
+        // A relative XDG path is invalid and ignored, as for the other two folders.
+        let relative = env(&[("HOME", "/home/ada"), ("XDG_STATE_HOME", "st"), ("XDG_CACHE_HOME", "ca")]);
+        assert_eq!(state_root(&relative), Some(PathBuf::from("/home/ada/.local/state")));
+        assert_eq!(cache_root(&relative), Some(PathBuf::from("/home/ada/.cache")));
+
+        let empty = env(&[("HOME", "/home/ada"), ("XDG_STATE_HOME", ""), ("XDG_CACHE_HOME", "")]);
+        assert_eq!(state_root(&empty), Some(PathBuf::from("/home/ada/.local/state")));
+        assert_eq!(cache_root(&empty), Some(PathBuf::from("/home/ada/.cache")));
+
+        // A relative HOME counts as missing, but an absolute XDG folder stands on its own.
+        let bare = env(&[("HOME", "ada")]);
+        assert_eq!((state_root(&bare), cache_root(&bare)), (None, None));
+        let only_xdg = env(&[("HOME", "ada"), ("XDG_STATE_HOME", "/st"), ("XDG_CACHE_HOME", "/ca")]);
+        assert_eq!(state_root(&only_xdg), Some(PathBuf::from("/st")));
+        assert_eq!(cache_root(&only_xdg), Some(PathBuf::from("/ca")));
+    }
+
+    #[test]
+    fn macos_keeps_state_with_the_data_and_caches_in_library_caches() {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        let home = env(&[("HOME", "/Users/ada")]);
+        assert_eq!(state_root(&home), Some(PathBuf::from("/Users/ada/Library/Application Support")));
+        assert_eq!(cache_root(&home), Some(PathBuf::from("/Users/ada/Library/Caches")));
+    }
+
+    #[test]
+    fn windows_keeps_state_and_cache_local() {
+        if !cfg!(windows) {
+            return;
+        }
+        let both =
+            env(&[("APPDATA", r"C:\Users\ada\AppData\Roaming"), ("LOCALAPPDATA", r"C:\Users\ada\AppData\Local")]);
+        assert_eq!(state_root(&both), Some(PathBuf::from(r"C:\Users\ada\AppData\Local")));
+        assert_eq!(cache_root(&both), Some(PathBuf::from(r"C:\Users\ada\AppData\Local")));
+    }
+
+    #[test]
     fn nothing_in_the_environment_means_no_folder() {
         assert_eq!(config_root(env(&[])), None);
         assert_eq!(data_root(env(&[])), None);
+        assert_eq!(state_root(env(&[])), None);
+        assert_eq!(cache_root(env(&[])), None);
     }
 
     #[test]
     fn the_application_name_is_the_last_segment() {
-        // Whatever the platform, both public functions end in the application's own folder.
-        for dir in [config_dir("qfocus"), data_dir("qfocus")].into_iter().flatten() {
+        // Whatever the platform, every public function end in the application's own folder.
+        for dir in
+            [config_dir("qfocus"), data_dir("qfocus"), state_dir("qfocus"), cache_dir("qfocus")].into_iter().flatten()
+        {
             assert_eq!(dir.file_name().and_then(|name| name.to_str()), Some("qfocus"), "{}", dir.display());
             assert!(dir.is_absolute(), "{}", dir.display());
         }

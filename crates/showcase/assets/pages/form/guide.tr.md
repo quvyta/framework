@@ -18,7 +18,7 @@ Kullanıcı bir şey olmadan önce birlikte denetlenen birkaç değer giriyorsa 
 - **Zorunluluk bir sözcüktür.** Etiketin ardından silik bir "zorunlu" gelir; yıldız konmaz.
 - **Kontrol odaktayken etiketi aydınlanır**; göz, çerçeve olmadan etkin alanı bulur.
 - **Enter ilerletir.** Kendi gönderimi olmayan metin alanında Enter sonraki alana, son alandan da formdan sonraki butona geçer.
-- **Etiket sütunu geri çekilir.** `label_width` ile etiketler yer oldukça kontrolün yanında durur, dar ekranda üstüne taşınır.
+- **Etiket sütunu geri çekilir.** `label_width` ile etiketler yer oldukça kontrolün yanında durur, dar ekranda üstüne taşınır. Etiketinin yanındaki yere sığmayan bir kontrol, örneğin uzun yer tutuculu bir giriş, kendi etiketini üstüne alır ve bütün satırı kullanır; hiçbir şey kesilmez, öteki alanlar sütunda kalır.
 - **`Command::focus` güncellemeler arasında çalışır**; aynı güncellemeyle beliren bir kontrol de odağı alabilir.
 
 ## Sık yapılan hatalar

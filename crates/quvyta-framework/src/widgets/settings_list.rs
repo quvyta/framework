@@ -170,6 +170,10 @@ impl<Msg: 'static> SettingsRows<'_, Msg> {
 /// label selects its row. The application owns every value; the keyboard's row lives in the
 /// runtime.
 ///
+/// One long list can hold a whole settings page inside a [`ScrollView`](crate::widgets::ScrollView):
+/// moving with the keys scrolls just enough to show the new row, and a click never scrolls, so
+/// the row stays under the pointer.
+///
 /// Style keys: `setting-row` (`bg`, `pillar`) with `hover`, `selected`, `focus`, `disabled`;
 /// `setting-label` (`fg`, `bold`) and `setting-description` (`fg`) with the same states;
 /// `settings-heading` (`fg`, `bold`).
@@ -187,6 +191,10 @@ struct SettingsMemory {
     rows: Vec<Rect>,
     /// Where the pointer was in the last frame; moving it carries the keyboard's row.
     pointer: Option<(i32, i32)>,
+    /// The keys moved the selection since the last frame, so a scroll view around a list
+    /// taller than itself shows the new row. A click or the pointer never scrolls: the row is
+    /// already under it.
+    reveal: bool,
 }
 
 impl<Msg: Clone + 'static> SettingsList<Msg> {
@@ -358,8 +366,15 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
             }
         }
         let memory = cx.memory::<SettingsMemory>();
+        let reveal = std::mem::take(&mut memory.reveal)
+            .then(|| memory.selected.and_then(|index| rows.get(index)))
+            .flatten()
+            .copied();
         memory.controls = controls;
         memory.rows = rows;
+        if let Some(row) = reveal {
+            cx.reveal(row);
+        }
     }
 
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
@@ -379,7 +394,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                     None
                 };
                 if let Some(target) = target {
-                    cx.memory::<SettingsMemory>().selected = Some(enabled[target]);
+                    let memory = cx.memory::<SettingsMemory>();
+                    memory.selected = Some(enabled[target]);
+                    memory.reveal = true;
                     return true;
                 }
                 let Some(index) = current else {
@@ -397,7 +414,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                 }
                 if key.is_plain(Key::Home) || key.is_plain(Key::End) {
                     let target = if key.is_plain(Key::Home) { enabled[0] } else { enabled[enabled.len() - 1] };
-                    cx.memory::<SettingsMemory>().selected = Some(target);
+                    let memory = cx.memory::<SettingsMemory>();
+                    memory.selected = Some(target);
+                    memory.reveal = true;
                     return true;
                 }
                 false
@@ -485,6 +504,65 @@ mod tests {
     }
 
     use crate::widgets::Text;
+
+    /// Forty switches in one list, in a scroll view shorter than the list.
+    #[derive(Default)]
+    struct Long {
+        on: Vec<usize>,
+    }
+
+    impl App for Long {
+        type Msg = usize;
+        fn update(&mut self, index: usize) -> Command<usize> {
+            self.on.push(index);
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, usize>) {
+            ui.add_with(crate::widgets::ScrollView::new(), |ui| {
+                SettingsList::show(ui, |list| {
+                    for n in 1..=40 {
+                        list.row(SettingRow::new(format!("Option {n}")), |ui| {
+                            ui.add(Switch::new(self.on.contains(&n)).on_toggle(move |_| n));
+                        });
+                    }
+                })
+                .fill_width();
+            })
+            .fill();
+        }
+    }
+
+    fn row_of(h: &Harness<Long>, n: usize) -> Option<usize> {
+        let label = n.to_string();
+        h.screen().lines().position(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            words.windows(2).any(|pair| pair[0] == "Option" && pair[1] == label)
+        })
+    }
+
+    #[test]
+    fn a_list_taller_than_its_scroll_view_keeps_the_clicked_row_in_place_and_follows_the_keys() {
+        let mut h = Harness::new(Long::default(), 40, 20);
+        h.set_reduced_motion(true);
+        let third = row_of(&h, 3).unwrap_or_else(|| panic!("{}", h.screen()));
+        let (x, y) = h.find("Option 3").unwrap_or_else(|| panic!("{}", h.screen()));
+        h.click(x, y);
+        assert_eq!(row_of(&h, 3), Some(third), "a click does not scroll: {}", h.screen());
+        assert_eq!(row_of(&h, 1), Some(0), "the list stays at its top: {}", h.screen());
+        for _ in 3..25 {
+            h.press("down");
+        }
+        let screen = h.screen();
+        let last = screen
+            .lines()
+            .collect::<Vec<_>>()
+            .iter()
+            .rposition(|line| line.contains("Option"))
+            .unwrap_or_else(|| panic!("{screen}"));
+        assert_eq!(row_of(&h, 25), Some(last), "the selected row is the last one shown: {screen}");
+        h.press("up");
+        assert_eq!(row_of(&h, 25), Some(last), "going back up inside the view does not scroll: {}", h.screen());
+    }
 
     #[test]
     fn labels_left_controls_anchored_right_with_headings() {

@@ -7,7 +7,7 @@
 - `.on_sort(|sütun, yön| mesaj)` — başlık tıklaması ve tuşlarla sıralamayı açar.
 - `.empty_text(metin)` — satır yokken başlığın altında görünür.
 - `Column::new(başlık)`, `.width(ColumnWidth::Fixed(n) | Fit | Fill(ağırlık))`, `.min(hücre)`, `.align(Align)`, `.sortable(bool)`.
-- `TableRow::new(hücreler)`, `.faint(bool)`; `TableCell::new(metin)`, `.icon(anahtar, Some(token))`, `.color(token)`; metinler hücreye dönüşür.
+- `TableRow::new(hücreler)`, `.faint(bool)`; `TableCell::new(metin)`, `.icon(glif, renk)`, `.color(token)`; metinler hücreye dönüşür. `glif` bir ikon anahtarı (`"dot"`, `Glyph::key(..)`) ya da `Glyph::literal(..)` olur; glif, bir boşluk ve metin olarak çizilir. `Some(token)` ile o renkte, `None` ile `muted` çizilir ve satır seçiliyken satırın metin rengini alır. Kesme yalnızca metne uygulanır.
 - `SortDirection::Ascending | Descending`, `.reversed()`.
 
 ## Davranış

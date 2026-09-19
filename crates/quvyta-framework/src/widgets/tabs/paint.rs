@@ -26,7 +26,9 @@ impl<Msg: 'static> Tabs<Msg> {
             cx.pillar(rect.x, rect.y, color);
         }
         let number_style = if self.numbered { cx.style("tab-index", None, states).text() } else { style };
-        self.paint_label(cx, rect, index, position, rest, number_style, style);
+        let badge_style = cx.style("tab-badge", None, states).text();
+        let label = LabelStyles { number: number_style, name: style, badge: CellStyle { bg: None, ..badge_style } };
+        self.paint_label(cx, rect, index, position, rest, label);
         if self.model.closable(index) {
             close_mark::paint(cx, Self::close_x(rect), rect.y, !states.is_empty());
         }
@@ -49,12 +51,13 @@ impl<Msg: 'static> Tabs<Msg> {
         let rect = Rect::new(x, area.y, width, 1);
         let position = order.iter().position(|i| *i == drag.index).unwrap_or(drag.index);
         let ghost = tab_model::paint_ghost_surface(cx, rect);
-        self.paint_label(cx, rect, drag.index, position, 0, ghost, ghost);
+        self.paint_label(cx, rect, drag.index, position, 0, LabelStyles { number: ghost, name: ghost, badge: ghost });
     }
 
-    /// Paints the number (when numbered) and the label of tab `index` at `position` in `rect`,
-    /// `rest` cells left of their natural place, cut to end before the close mark's cells.
-    #[allow(clippy::too_many_arguments)]
+    /// Paints the number (when numbered), the label and the count of tab `index` at `position` in
+    /// `rect`. The number and the label sit `rest` cells left of their natural place; the count
+    /// keeps its place one cell after the label as it sits raised, so it does not slide. The label
+    /// is cut first, so the count and the close mark always keep their cells.
     fn paint_label(
         &self,
         cx: &mut PaintCx<'_>,
@@ -62,18 +65,22 @@ impl<Msg: 'static> Tabs<Msg> {
         index: usize,
         position: usize,
         rest: i32,
-        number_style: CellStyle,
-        style: CellStyle,
+        styles: LabelStyles,
     ) {
-        let end = rect.right() - i32::from(PAD + self.close_width(index)) - rest;
-        let mut x = rect.x + i32::from(PAD) - rest;
+        let end = rect.right() - i32::from(PAD + self.close_width(index));
+        let mut x = rect.x + i32::from(PAD);
         if self.numbered {
             let number = (position + 1).to_string();
-            x += i32::from(cx.text(x, rect.y, &number, number_style, 2)) + 1;
+            x += i32::from(cx.text(x - rest, rect.y, &number, styles.number, 2)) + 1;
         }
-        let budget = clamp_u16(end - x);
+        let badge = self.badge_text(index);
+        let budget = clamp_u16(end - x - i32::from(self.badge_width(index)));
         let label = text::truncate(&self.labels[index], budget).into_owned();
-        cx.text(x, rect.y, &label, style, budget);
+        let drawn = cx.text(x - rest, rect.y, &label, styles.name, budget);
+        if let Some(badge) = badge {
+            let at = x + i32::from(drawn) + 1;
+            cx.text(at, rect.y, &badge, styles.badge, clamp_u16(end - at));
+        }
     }
 
     /// Paints the arrows of an overflowing strip, if it has them. They are small buttons: the
@@ -139,6 +146,14 @@ impl<Msg: 'static> Tabs<Msg> {
         }
         cx.memory::<TabsMemory>().hidden = hidden;
     }
+}
+
+/// The styles of the parts of a tab's label.
+#[derive(Clone, Copy)]
+struct LabelStyles {
+    number: CellStyle,
+    name: CellStyle,
+    badge: CellStyle,
 }
 
 /// Paints a small strip control: its surface from style `key` in `states`, the pillar the style

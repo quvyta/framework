@@ -29,7 +29,10 @@
 ## Klasörler
 
 - `config_dir(app)` — `app` uygulamasının ayarlarının yeri: Linux ve diğer Unix'te mutlak yolsa `$XDG_CONFIG_HOME/<app>`, değilse `HOME` mutlak yolsa `$HOME/.config/<app>`; macOS'ta `$HOME/Library/Application Support/<app>`; Windows'ta dolaşan klasör olan `%APPDATA%\<app>`.
-- `data_dir(app)` — `app` uygulamasının kendi kayıtlarının yeri: Linux ve diğer Unix'te mutlak yolsa `$XDG_DATA_HOME/<app>`, değilse `$HOME/.local/share/<app>`; macOS'ta ayarlarla aynı klasör olan `$HOME/Library/Application Support/<app>`, çünkü macOS bir komut satırı uygulaması için ayrı bir veri klasörü tanımaz; Windows'ta yerel klasör olan `%LOCALAPPDATA%\<app>`, böylece kayıtlar makineler arasında kopyalanmaz. Mutlak yol olmayan bir `HOME`, göreli bir XDG değişkeni gibi ikisinde de yok sayılır; hiçbir şey çalışma klasörünün altına düşmez.
+- `data_dir(app)` — `app` uygulamasının kendi kayıtlarının yeri: Linux ve diğer Unix'te mutlak yolsa `$XDG_DATA_HOME/<app>`, değilse `$HOME/.local/share/<app>`; macOS'ta ayarlarla aynı klasör olan `$HOME/Library/Application Support/<app>`, çünkü macOS bir komut satırı uygulaması için ayrı bir veri klasörü tanımaz; Windows'ta yerel klasör olan `%LOCALAPPDATA%\<app>`, böylece kayıtlar makineler arasında kopyalanmaz.
+- `state_dir(app)` — `app` uygulamasının iki açılış arasında hatırladıklarının yeri, örneğin son arka plan denetimi: Linux ve diğer Unix'te mutlak yolsa `$XDG_STATE_HOME/<app>`, değilse `$HOME/.local/state/<app>`; macOS'ta veriyle aynı klasör olan `$HOME/Library/Application Support/<app>`; Windows'ta `%LOCALAPPDATA%\<app>`.
+- `cache_dir(app)` — `app` uygulamasının her an yeniden kurabileceği dosyaların yeri: Linux ve diğer Unix'te mutlak yolsa `$XDG_CACHE_HOME/<app>`, değilse `$HOME/.cache/<app>`; macOS'ta `$HOME/Library/Caches/<app>`; Windows'ta `%LOCALAPPDATA%\<app>`.
+- Mutlak yol olmayan bir `HOME`, göreli bir XDG değişkeni gibi dördünde de yok sayılır; hiçbir şey çalışma klasörünün altına düşmez.
 - Boş bir değişken tanımsız sayılır; göreli bir `XDG_*` yolu geçersizdir ve yok sayılır.
 - Platformun değişkenleri bir şey söylemiyorsa `None`. `Settings::load` o zaman her şeyi bir uyarı tanısıyla bellekte tutar.
 - Sormak klasörü oluşturmaz, klasörün var olması da gerekmez.
@@ -41,6 +44,8 @@
 - `.shared_file()` — `<config_dir>/<kimlik>.conf`, bütün üyelerin paylaştığı ayarlar.
 - `.app_file(uygulama)` — `<config_dir>/<uygulama>.conf`. Kimliği ailenin kimliğiyle aynı olan bir uygulama ortak dosyayı alır.
 - `.app_dir(uygulama)` — `<config_dir>/<uygulama>`, uygulamanın diğer yapılandırma dosyaları için.
+- `.state_dir(uygulama)` — `<durum klasörü>/<kimlik>/<uygulama>`: Linux ve diğer Unix'te mutlaksa `$XDG_STATE_HOME/<kimlik>/<uygulama>`, değilse `$HOME/.local/state/<kimlik>/<uygulama>`; macOS'ta `$HOME/Library/Application Support/<başlık>/<uygulama>`; Windows'ta `%LOCALAPPDATA%\<başlık>\<uygulama>`.
+- `.cache_dir(uygulama)` — `<önbellek klasörü>/<kimlik>/<uygulama>`: Linux ve diğer Unix'te mutlaksa `$XDG_CACHE_HOME/<kimlik>/<uygulama>`, değilse `$HOME/.cache/<kimlik>/<uygulama>`; macOS'ta `$HOME/Library/Caches/<başlık>/<uygulama>`; Windows'ta `%LOCALAPPDATA%\<başlık>\<uygulama>`.
 - `.workspace_dir(uygulama_başlığı)` — `<documents_dir>/<başlık>/<uygulama_başlığı>`, kullanıcının uygulamayla yaptığı işin yeri.
 - `Settings::load_member(&aile, uygulama)` — `Settings::open(aile.app_file(uygulama))`; ev klasörü yoksa `Settings::load` ile aynı uyarıyla bellekte ayarlar.
 - `Settings::with_diagnostics(tanılar)` — yüklemenin çevresinde bulunan tanıları dosyanın kendi tanılarının önüne koyar; sonraki şema denetimlerinde de kalırlar.

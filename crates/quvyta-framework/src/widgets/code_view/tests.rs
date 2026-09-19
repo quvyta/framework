@@ -1,0 +1,281 @@
+//! Tests for the code view.
+
+use super::*;
+use crate::color::Rgb;
+use crate::runtime::{App, Command, Harness};
+use crate::widget::View;
+use crate::widgets::ScrollView;
+
+struct Demo {
+    copies: u32,
+}
+
+impl App for Demo {
+    type Msg = ();
+    fn update(&mut self, _: ()) -> Command<()> {
+        self.copies += 1;
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, ()>) {
+        let code = "fn main() {\n    println!(\"a fairly long line that wraps\");\n}\n";
+        ui.add(CodeView::new(code, Language::Rust).on_copy(())).fill();
+    }
+}
+
+#[test]
+fn numbers_colours_and_wraps() {
+    let h = Harness::new(Demo { copies: 0 }, 36, 7);
+    let screen = h.screen();
+    assert_eq!(
+        screen,
+        "\n  1  fn main() {\n  2      println!(\"a fairly long l\n       ine that wraps\");\n  3  }\n\n\n"
+    );
+    let keyword = h.env().theme().style("code-token", Some("keyword"), &[]).paint("fg");
+    assert!(keyword.is_some());
+    let (x, y) = h.find("fn").map(|(x, y)| (x as u16, y as u16)).unwrap_or_default();
+    assert_eq!(h.fg(x, y), h.env().theme().color("accent"));
+}
+
+struct Script;
+
+impl App for Script {
+    type Msg = ();
+    fn update(&mut self, (): ()) -> Command<()> {
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, ()>) {
+        ui.add(CodeView::new("cd \"$srcdir\" # in", Language::Shell)).fill();
+    }
+}
+
+#[test]
+fn colours_shell_variables() {
+    let h = Harness::new(Script, 30, 3);
+    let theme = h.env().theme();
+    let at = |text: &str| h.find(text).map(|(x, y)| (x as u16, y as u16)).unwrap_or_default();
+    let (x, y) = at("$srcdir");
+    assert_eq!(h.fg(x, y), theme.style("code-token", Some("variable"), &[]).paint("fg").map(|p| p.at(0.0)));
+    assert_ne!(h.fg(x, y), theme.style("code-token", Some("string"), &[]).paint("fg").map(|p| p.at(0.0)));
+    let (x, y) = at("# in");
+    assert_eq!(h.fg(x, y), theme.style("code-token", Some("comment"), &[]).paint("fg").map(|p| p.at(0.0)));
+}
+
+#[test]
+fn copies_on_c() {
+    let mut h = Harness::new(Demo { copies: 0 }, 40, 6);
+    h.press("tab").press("c");
+    assert_eq!(h.app().copies, 1);
+    assert!(h.copied()[0].starts_with("fn main()"));
+}
+
+/// A code view with every kind of line look, for the tests below.
+struct Review {
+    code: String,
+    marks: Vec<LineMark>,
+    highlights: Vec<(std::ops::RangeInclusive<usize>, LineTone)>,
+}
+
+impl App for Review {
+    type Msg = ();
+    fn update(&mut self, (): ()) -> Command<()> {
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, ()>) {
+        let mut view = CodeView::new(self.code.clone(), Language::Shell).line_marks(self.marks.iter().copied());
+        for (lines, tone) in &self.highlights {
+            view = view.highlight_lines(lines.clone(), *tone);
+        }
+        ui.add(view).fill();
+    }
+}
+
+fn review(marks: Vec<LineMark>, highlights: Vec<(std::ops::RangeInclusive<usize>, LineTone)>) -> Harness<Review> {
+    let code = "same=1\nadded=2\nremoved=3\nlast=4".to_owned();
+    Harness::new(Review { code, marks, highlights }, 40, 6)
+}
+
+fn style_color(h: &Harness<Review>, widget: &str, variant: Option<&str>, key: &str) -> Option<Rgb> {
+    h.env().theme().style(widget, variant, &[]).paint(key).map(|paint| paint.at(0.0))
+}
+
+fn cell(h: &Harness<Review>, text: &str) -> (u16, u16) {
+    let (x, y) = h.find(text).unwrap_or_else(|| panic!("{text:?} on screen:\n{}", h.screen()));
+    (u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0))
+}
+
+#[test]
+fn diff_marks_sign_and_tint_their_lines_in_every_glyph_mode() {
+    use crate::icons::GlyphMode;
+    let mut h = review(vec![LineMark::Unchanged, LineMark::Added, LineMark::Removed], Vec::new());
+    for mode in [GlyphMode::Nerd, GlyphMode::Unicode, GlyphMode::Ascii] {
+        h.set_glyph_mode(mode);
+        let screen = h.screen();
+        for banned in ['[', ']', '(', ')', '{', '}', '|'] {
+            assert!(!screen.contains(banned), "{mode:?}: {screen}");
+        }
+        let added = h.env().icons().glyph("line-added").into_owned();
+        let removed = h.env().icons().glyph("line-removed").into_owned();
+        let lines: Vec<&str> = screen.lines().collect();
+        assert!(
+            lines[1].starts_with("    1  same"),
+            "{mode:?}: an unchanged line keeps the sign column blank: {screen}"
+        );
+        assert!(lines[2].starts_with(&format!("  {added} 2  added")), "{mode:?}: {screen}");
+        assert!(lines[3].starts_with(&format!("  {removed} 3  removed")), "{mode:?}: {screen}");
+        if mode == GlyphMode::Ascii {
+            assert_eq!((added.as_str(), removed.as_str()), ("+", "-"));
+        }
+        let ground = style_color(&h, "code", None, "bg");
+        let (x, y) = cell(&h, "same");
+        assert_eq!(h.bg(x, y), ground, "unchanged lines keep the ground");
+        let (x, y) = cell(&h, "added");
+        assert_eq!(h.bg(x, y), style_color(&h, "code-line", Some("added"), "bg"));
+        assert_eq!(h.bg(0, y), h.bg(x, y), "the tint runs across the whole row");
+        assert_eq!(h.fg(2, y), style_color(&h, "code-line", Some("added"), "fg"), "the sign takes the status colour");
+        let (x, y) = cell(&h, "removed");
+        assert_eq!(h.bg(x, y), style_color(&h, "code-line", Some("removed"), "bg"));
+        assert_ne!(h.bg(x, y), ground);
+    }
+}
+
+#[test]
+fn highlighted_lines_have_their_own_tone_and_sign() {
+    let h = review(Vec::new(), vec![(2..=2, LineTone::Warning), (4..=9, LineTone::Accent)]);
+    let ground = style_color(&h, "code", None, "bg");
+    let selection = style_color(&h, "text-selection", None, "bg");
+    let (x, y) = cell(&h, "added");
+    let warning = h.bg(x, y);
+    assert_eq!(warning, style_color(&h, "code-line", Some("warning"), "bg"));
+    assert_ne!(warning, ground);
+    assert_ne!(warning, selection);
+    let sign = h.env().icons().glyph("warning").into_owned();
+    assert!(h.screen().lines().nth(2).is_some_and(|line| line.starts_with(&format!("  {sign} 2"))), "{}", h.screen());
+    let (x, y) = cell(&h, "last");
+    let accent = h.bg(x, y);
+    assert_eq!(
+        accent,
+        style_color(&h, "code-line", Some("accent"), "bg"),
+        "a range past the end stops at the last line"
+    );
+    assert!(accent != ground && accent != selection && accent != warning);
+    assert_eq!(h.fg(2, y), style_color(&h, "code-line", Some("accent"), "fg"), "the accent tone carries the pillar");
+    let (x, y) = cell(&h, "same");
+    assert_eq!(h.bg(x, y), ground);
+}
+
+#[test]
+fn a_highlight_wins_over_a_diff_mark_and_tints_every_wrapped_row() {
+    let code = "short\nthis line is long enough to wrap onto more rows\nend".to_owned();
+    let marks = vec![LineMark::Unchanged, LineMark::Added];
+    let h = Harness::new(Review { code, marks, highlights: vec![(2..=2, LineTone::Warning)] }, 26, 8);
+    let tone = style_color(&h, "code-line", Some("warning"), "bg");
+    let (_, first) = cell(&h, "this");
+    let rows: Vec<u16> = (first..first + 3).filter(|y| h.bg(20, *y) == tone).collect();
+    assert!(rows.len() >= 2, "every visual row of the line is tinted: {rows:?}\n{}", h.screen());
+    let (_, end) = cell(&h, "end");
+    assert_ne!(h.bg(10, end), tone, "the next line is not");
+}
+
+#[test]
+fn marked_and_highlighted_lines_stay_readable_in_every_theme() {
+    use crate::theme::ThemeRegistry;
+    let registry = ThemeRegistry::builtin();
+    let tokens = [
+        "keyword",
+        "type",
+        "function",
+        "macro",
+        "string",
+        "number",
+        "attribute",
+        "lifetime",
+        "punctuation",
+        "table",
+        "key",
+        "variable",
+        "plain",
+    ];
+    for (id, _) in registry.list() {
+        let theme = registry.resolve(&id).theme.expect("resolves");
+        let color = |widget: &str, variant: Option<&str>, key: &str| {
+            theme.style(widget, variant, &[]).paint(key).map(|paint| paint.at(0.0)).expect("defined")
+        };
+        let ground = color("code", None, "bg");
+        for line in ["added", "removed", "warning", "accent"] {
+            let bg = color("code-line", Some(line), "bg");
+            assert!(bg.perceptual_distance(ground) >= 0.03, "theme {id}: {line} lines stand out from the ground");
+            let sign = color("code-line", Some(line), "fg");
+            assert!(sign.contrast_ratio(bg) >= 3.0, "theme {id}: the {line} sign reads on its line");
+            for token in tokens {
+                let fg = color("code-token", Some(token), "fg");
+                let ratio = fg.contrast_ratio(bg);
+                assert!(ratio >= 4.5, "theme {id}: {token} on a {line} line has contrast {ratio:.2}");
+            }
+            for faint in [color("code-token", Some("comment"), "fg"), color("code-line-number", None, "fg")] {
+                let ratio = faint.contrast_ratio(bg);
+                assert!(ratio >= 2.2, "theme {id}: faint text on a {line} line has contrast {ratio:.2}");
+            }
+        }
+    }
+}
+
+/// Two hundred numbered lines in a scroll view, revealing one of them.
+struct Long {
+    reveal: Option<usize>,
+}
+
+impl App for Long {
+    type Msg = Option<usize>;
+    fn update(&mut self, reveal: Option<usize>) -> Command<Option<usize>> {
+        self.reveal = reveal;
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, Option<usize>>) {
+        let code: Vec<String> = (1..=200).map(|n| format!("echo line-{n}")).collect();
+        ui.add_with(ScrollView::new(), |ui| {
+            let mut view = CodeView::new(code.join("\n"), Language::Shell);
+            if let Some(line) = self.reveal {
+                view = view.reveal(line);
+            }
+            ui.add(view).fill_width();
+        })
+        .fill();
+    }
+}
+
+fn shows(h: &Harness<Long>, line: usize) -> bool {
+    h.screen().lines().any(|row| row.trim_end().ends_with(&format!("line-{line}")))
+}
+
+#[test]
+fn reveal_brings_a_line_into_the_scroll_view_at_once_with_reduced_motion() {
+    let mut h = Harness::new(Long { reveal: None }, 40, 10);
+    h.set_reduced_motion(true);
+    assert!(shows(&h, 1) && !shows(&h, 150));
+    h.send(Some(150));
+    assert!(shows(&h, 150), "{}", h.screen());
+    assert!(shows(&h, 152), "a little context below the line: {}", h.screen());
+    // Focusing the code view, taller than the scroll view, does not throw the line away.
+    h.press("tab");
+    assert!(shows(&h, 150), "{}", h.screen());
+    h.press("tab");
+    assert!(shows(&h, 150), "{}", h.screen());
+    // Revealing happens when the line changes; the user may scroll away from it.
+    h.press("shift+tab").press("home");
+    assert!(shows(&h, 1) && !shows(&h, 150), "{}", h.screen());
+    h.send(Some(20));
+    assert!(shows(&h, 20), "{}", h.screen());
+    h.send(Some(150));
+    assert!(shows(&h, 150), "{}", h.screen());
+}
+
+#[test]
+fn reveal_glides_with_motion() {
+    let mut h = Harness::new(Long { reveal: None }, 40, 10);
+    h.send(Some(150));
+    assert!(!shows(&h, 150), "the view moves over a few frames: {}", h.screen());
+    h.advance(std::time::Duration::from_millis(40));
+    assert!(!shows(&h, 1) && !shows(&h, 150), "on its way: {}", h.screen());
+    h.advance(std::time::Duration::from_secs(1));
+    assert!(shows(&h, 150), "{}", h.screen());
+}

@@ -32,11 +32,15 @@
 //! // In a README test: shot.save("docs/screenshots/hello")?;
 //! ```
 //!
+//! [`Reel`] records a scripted visit of a harness as numbered frames and has ffmpeg join them
+//! into a GIF and an MP4.
+//!
 //! [`Harness`]: qframe::runtime::Harness
 
 mod font;
 mod geometry;
 mod png;
+mod reel;
 mod screen;
 mod svg;
 #[cfg(test)]
@@ -48,6 +52,7 @@ use std::path::{Path, PathBuf};
 
 use qframe::runtime::{App, Harness};
 
+pub use crate::reel::{Recording, Reel};
 use crate::screen::Screen;
 
 /// One screenshot: a copy of a harness screen, ready to draw as SVG or PNG.

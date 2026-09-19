@@ -42,6 +42,9 @@ mod highlight;
 mod hold_to_confirm;
 #[cfg(test)]
 mod huge_text_tests;
+mod icon_button;
+#[cfg(test)]
+mod icon_button_tests;
 mod key_hints;
 mod layer;
 mod legend;
@@ -113,7 +116,7 @@ pub use breadcrumb::Breadcrumb;
 pub use button::Button;
 pub use card_grid::CardGrid;
 pub use checkbox::{Checkbox, CheckboxStyle};
-pub use code_view::CodeView;
+pub use code_view::{CodeView, LineMark, LineTone};
 pub use command_palette::{CommandPalette, PaletteCommand};
 pub use context_item::ContextItem;
 pub use context_menu::ContextMenu;
@@ -132,6 +135,7 @@ pub use heatmap::Heatmap;
 pub use help_layer::HelpLayer;
 pub use highlight::Language;
 pub use hold_to_confirm::HoldToConfirm;
+pub use icon_button::IconButton;
 pub use key_hints::KeyHints;
 pub use legend::Legend;
 pub use list::{ItemKind, List, ListItem};

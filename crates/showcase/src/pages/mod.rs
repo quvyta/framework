@@ -39,6 +39,7 @@ pub mod handoff;
 pub mod heatmap;
 pub mod help_layer;
 pub mod hold_to_confirm;
+pub mod icon_button;
 pub mod key_hints;
 pub mod layout;
 pub mod list;
@@ -147,6 +148,7 @@ pub const PAGES: &[PageContent] = &[
     page!("text", "text"),
     page!("panel", "panel"),
     page!("button", "button"),
+    page!("icon-button", "icon_button"),
     page!("text-input", "text_input"),
     page!("select", "select"),
     page!("list", "list"),
@@ -238,6 +240,7 @@ pub struct Pages {
     pub text: text::State,
     pub panel: panel::State,
     pub button: button::State,
+    pub icon_button: icon_button::State,
     pub text_input: text_input::State,
     pub select: select::State,
     pub list: list::State,
@@ -321,6 +324,7 @@ pub enum PageMsg {
     Text(text::Msg),
     Panel(panel::Msg),
     Button(button::Msg),
+    IconButton(icon_button::Msg),
     TextInput(text_input::Msg),
     Select(select::Msg),
     List(list::Msg),
@@ -406,6 +410,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::Text(m) => text::update(&mut pages.text, m, log),
         PageMsg::Panel(m) => panel::update(&mut pages.panel, m, log),
         PageMsg::Button(m) => button::update(&mut pages.button, m, log),
+        PageMsg::IconButton(m) => icon_button::update(&mut pages.icon_button, m, log),
         PageMsg::TextInput(m) => text_input::update(&mut pages.text_input, m, log),
         PageMsg::Select(m) => select::update(&mut pages.select, m, log),
         PageMsg::List(m) => list::update(&mut pages.list, m, log),
@@ -497,6 +502,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "text" => text::view(&pages.text, ui),
         "panel" => panel::view(&pages.panel, ui),
         "button" => button::view(&pages.button, ui),
+        "icon-button" => icon_button::view(&pages.icon_button, ui),
         "text-input" => text_input::view(&pages.text_input, ui),
         "select" => select::view(&pages.select, ui),
         "list" => list::view(&pages.list, ui),

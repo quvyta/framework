@@ -1,4 +1,4 @@
-//! Tabs: switching views, numbers and overflow.
+//! Tabs: switching views, numbers, a count on a tab and overflow.
 
 use qframe::prelude::*;
 use qframe::widgets::Segmented;
@@ -26,6 +26,9 @@ const FILES: [&str; 10] = [
 /// Widths of the overflow strip the playground offers: narrow, the default and roomy.
 const WIDTHS: [u16; 3] = [24, 48, 72];
 
+/// Counts the playground offers for the Activity tab: none, a few and more than a badge shows.
+const COUNTS: [u32; 3] = [0, 3, 120];
+
 /// Open tabs and playground settings.
 #[derive(Debug)]
 pub struct State {
@@ -33,11 +36,12 @@ pub struct State {
     file: usize,
     numbered: bool,
     width: usize,
+    count: usize,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { view: 0, file: 0, numbered: true, width: 1 }
+        Self { view: 0, file: 0, numbered: true, width: 1, count: 1 }
     }
 }
 
@@ -48,6 +52,7 @@ pub enum Msg {
     File(usize),
     Numbered(bool),
     Width(usize),
+    Count(usize),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -73,6 +78,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.width = index;
             log.push(PAGE, "Playground", format!("strip width = {}", WIDTHS[index]));
         }
+        Msg::Count(index) => {
+            state.count = index;
+            log.push(PAGE, "Playground", format!("activity count = {}", COUNTS[index]));
+        }
     }
     Command::none()
 }
@@ -82,8 +91,12 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     ui.add_with(Panel::new().title(t!("demo.live")), |ui| {
         // region: basic
         let labels = [t!("tabs.overview"), t!("tabs.activity"), t!("tabs.settings")];
-        ui.add(Tabs::new(labels).numbered(state.numbered).active(state.view).on_select(|i| send(Msg::View(i))))
-            .id("views");
+        let tabs = Tabs::new(labels)
+            .numbered(state.numbered)
+            .badge(1, COUNTS[state.count])
+            .active(state.view)
+            .on_select(|i| send(Msg::View(i)));
+        ui.add(tabs).id("views");
         let body = [t!("tabs.overview-text"), t!("tabs.activity-text"), t!("tabs.settings-text")];
         ui.add(Text::new(body[state.view].clone()).role("secondary"));
         // endregion
@@ -109,6 +122,10 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             let names = WIDTHS.map(|width| width.to_string());
             ui.add(Segmented::new(names).selected(state.width).on_select(|i| send(Msg::Width(i)))).id("width");
         });
+        setting(ui, t!("tabs.badge"), |ui| {
+            let names = COUNTS.map(|count| count.to_string());
+            ui.add(Segmented::new(names).selected(state.count).on_select(|i| send(Msg::Count(i)))).id("count");
+        });
     })
     .fill_width();
 }
@@ -125,6 +142,20 @@ mod tests {
         assert_eq!(h.app().pages.tabs.view, 1);
         h.send(send(Msg::File(9)));
         assert!(h.screen().contains("keymap.toml"));
+    }
+
+    #[test]
+    fn the_activity_tab_carries_a_count_that_zero_hides() {
+        let mut h = showcase_on(PAGE);
+        assert!(h.screen().contains("Activity 3") || h.screen().contains("Activity  3"), "{}", h.screen());
+        h.send(send(Msg::Count(2)));
+        assert!(h.screen().contains("99+"), "{}", h.screen());
+        h.send(send(Msg::Count(0)));
+        let screen = h.screen();
+        let row = screen.lines().find(|line| line.contains("Activity")).unwrap_or_default();
+        let after = row.split("Activity").nth(1).unwrap_or_default().trim_start();
+        assert!(after.starts_with("3 Settings"), "nothing between Activity and the next tab: {row}");
+        assert!(screen.contains("activity count = 0"), "{screen}");
     }
 
     #[test]

@@ -2,6 +2,8 @@
 name = "quvyta-framework"
 description = "A Rust framework for building terminal applications"
 repository = "https://github.com/quvyta/framework"
+homepage.workspace = true
+documentation = "https://docs.rs/quvyta-framework"
 readme = "../../README.md"
 keywords = ["tui", "terminal", "cli", "widgets", "framework"]
 categories = ["command-line-interface"]

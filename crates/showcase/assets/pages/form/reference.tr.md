@@ -1,7 +1,7 @@
 ## Metotlar
 
 - `Form::new()` — etiketler kontrollerin üstünde, alanlar arasında bir satır, özet yok.
-- `.label_width(hücre)` — form en az `hücre + 18` genişlikteyken etiketler kontrollerin yanında bir sütunda.
+- `.label_width(hücre)` — form en az `hücre + 18` genişlikteyken etiketler kontrollerin yanında bir sütunda. Kontrolü etiketin yanındaki yerden geniş isteyen alanın etiketi üstüne geçer.
 - `.gap(satır)` — alanlar arasındaki satır; varsayılan 1.
 - `.summary(&errors)` — `errors` içindeki her mesajı alanların üstünde listeler; boşken görünmez.
 - `.show(ui, |form| …)` — formu ekler; `form.field(alan, |ui| …)` kontrolüyle bir alan ekler, `form.ui()` başka her şeyi.

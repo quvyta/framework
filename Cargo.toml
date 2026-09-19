@@ -3,10 +3,11 @@ resolver = "3"
 members = ["crates/quvyta-framework", "crates/showcase", "crates/shots"]
 
 [workspace.package]
-version = "0.1.8"
+version = "0.1.9"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
+homepage = "https://quvyta.com"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -48,8 +48,9 @@ const ICONS: [&str; 20] = [
 /// installed binary carries them and needs nothing beside it on disk.
 const APP_THEME: &str = "[meta]\nname = \"Brand\"\nextends = \"monochrome\"\nicon-set = \"brand\"\n\n\
                          [colors]\naccent = \"#7C9EF5\"\n";
-const APP_ICONS: &str =
-    "[meta]\nname = \"Brand\"\n\n[icons]\nproject = { nerd = \"\\uf1b2\", unicode = \"\u{25c8}\", ascii = \"#\" }\n";
+const APP_ICONS: &str = "[meta]\nname = \"Brand\"\n\n[icons]\n\
+                         project = { nerd = \"\\uf1b2\", unicode = \"\u{25c8}\", ascii = \"#\" }\n\
+                         \"category.internet\" = { nerd = \"\\uf0ac\", unicode = \"\u{25ce}\", ascii = \"@\" }\n";
 const APP_KEYS: &str = "[app]\nsave = \"ctrl+s\"\n";
 
 /// The environment those three texts make, loaded once and with no directory named at all. A
@@ -111,13 +112,21 @@ fn name_of(list: &[(String, String)], id: &str) -> String {
 }
 
 /// What the three texts above became: a theme, an icon set and a key binding an application has
-/// without carrying a single file.
+/// without carrying a single file, and one of the application's own icons.
 fn sources(ui: &mut View<'_, AppMsg>) {
     let env = &*FROM_TEXT;
     let chords: Vec<String> = env.keymap().chords_for(Scope::App, "save").iter().map(ToString::to_string).collect();
+    // region: app-icon
+    // A key the built-in set lacks is drawn in every theme, here the default one, in the glyph
+    // mode this screen uses.
+    let mut icons = env.icons().clone();
+    icons.set_mode(ui.env().glyph_mode());
+    let app_icon = format!("{} category.internet", icons.glyph("category.internet"));
+    // endregion
     let rows = [
         (t!("theme-icons-language.sources-theme"), name_of(&env.themes(), "brand")),
         (t!("theme-icons-language.sources-icons"), name_of(&env.icon_sets(), "brand")),
+        (t!("theme-icons-language.sources-app-icon"), app_icon),
         (t!("theme-icons-language.sources-keys"), chords.join("  ")),
     ];
     for (label, value) in rows {
@@ -342,6 +351,17 @@ mod tests {
         assert!(row("theme").contains("Brand"), "the theme came from text:\n{screen}");
         assert!(row("icon set").contains("Brand"), "the icon set came from text:\n{screen}");
         assert!(row("save key").contains("ctrl+s"), "the keymap came from text:\n{screen}");
+    }
+
+    #[test]
+    fn an_application_icon_from_text_is_drawn_in_the_glyph_mode_in_use() {
+        let mut h = showcase_tall(Showcase::new(), PAGE, 70);
+        for (mode, glyph) in [(GlyphMode::Nerd, "\u{f0ac}"), (GlyphMode::Unicode, "◎"), (GlyphMode::Ascii, "@")] {
+            h.set_glyph_mode(mode);
+            let screen = h.screen();
+            let row = screen.lines().find(|line| line.contains("app icon")).unwrap_or_default();
+            assert!(row.contains(&format!("{glyph} category.internet")), "{mode:?}: {row:?}");
+        }
     }
 
     #[test]

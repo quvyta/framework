@@ -7,6 +7,8 @@
 mod add;
 #[cfg(test)]
 mod add_tests;
+#[cfg(test)]
+mod badge_tests;
 mod paint;
 mod strip;
 #[cfg(test)]
@@ -92,12 +94,15 @@ const ADD: u16 = 3;
 /// - [`context_menu`](Self::context_menu): a right click on a tab opens a menu of actions for
 ///   it at the pointer; the menu key or shift+F10 opens the menu of the open tab. Without it a
 ///   right click does nothing.
+/// - [`badge`](Self::badge): a count right after a tab's name, such as the updates waiting in an
+///   Updates tab. A narrow tab shortens its name and keeps the count.
 /// - [`on_add`](Self::on_add): a `+` button right after the last tab, or at the strip's right end
 ///   while tabs hide, that asks for a new tab. Tab from the tabs reaches it; Enter and Space press
 ///   it; resting on it, or reaching it with the keyboard, shows what it does. A tab dragged onto it
 ///   moves to the end.
 ///
-/// Style keys: `tab` with `hover`, `selected`, `focus`; `tab-index` for numbers; `close-mark`
+/// Style keys: `tab` with `hover`, `selected`, `focus`; `tab-index` for numbers; `tab-badge` with
+/// the same states for counts; `close-mark`
 /// (with `active` on a raised tab, `hover` under the pointer); `tab-arrow` (`bg`, `fg`, `pillar`)
 /// with `hover`, `pressed`, `disabled`; `tab-menu` (`bg`, `fg`, `pillar`) with `hover`, `active`
 /// while its menu is open; `tab-ghost` and `tab-drop` (`bg`) while dragging; `popup-menu`,
@@ -106,6 +111,7 @@ const ADD: u16 = 3;
 /// [`ContextItem`](super::ContextItem) for the context menu.
 pub struct Tabs<Msg> {
     labels: Vec<String>,
+    badges: Vec<u32>,
     numbered: bool,
     width: TabWidth,
     overflow: Overflow,
@@ -140,7 +146,8 @@ impl<Msg: 'static> Tabs<Msg> {
     pub fn new(labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
         let labels: Vec<String> = labels.into_iter().map(Into::into).collect();
         let model = TabModel::new(labels.len());
-        Self { labels, numbered: false, width: TabWidth::Fit, overflow: Overflow::Arrows, on_add: None, model }
+        let badges = vec![0; labels.len()];
+        Self { labels, badges, numbered: false, width: TabWidth::Fit, overflow: Overflow::Arrows, on_add: None, model }
     }
 
     /// The open tab.
@@ -154,6 +161,19 @@ impl<Msg: 'static> Tabs<Msg> {
     #[must_use]
     pub fn numbered(mut self, numbered: bool) -> Self {
         self.numbered = numbered;
+        self
+    }
+
+    /// Shows `count` right after the name of tab `index`, one space after it, in a quieter tone
+    /// than the name, such as the updates waiting in an Updates tab; counts above 99 read `99+`.
+    /// A count of zero shows nothing and takes no room, so the count can be passed as it is. The
+    /// count stays in place while the name slides, and a tab too narrow for both shortens its
+    /// name and keeps the count. An `index` past the last tab is ignored.
+    #[must_use]
+    pub fn badge(mut self, index: usize, count: u32) -> Self {
+        if let Some(badge) = self.badges.get_mut(index) {
+            *badge = count;
+        }
         self
     }
 
@@ -331,7 +351,7 @@ impl<Msg: 'static> Widget<Msg> for Tabs<Msg> {
             return;
         }
         let hidden = cx.memory::<TabsMemory>().hidden.clone();
-        let labels: Vec<String> = hidden.iter().map(|i| self.labels[*i].clone()).collect();
+        let labels = self.menu_labels(&hidden);
         // The strip keeps the open tab in view whenever it has room for a tab at all; a strip with
         // room only for the control lists every tab and checks the open one.
         let current = hidden.iter().position(|i| *i == self.model.active());
@@ -359,7 +379,7 @@ impl<Msg: 'static> Widget<Msg> for Tabs<Msg> {
         let strip = self.strip(area, &identity, offset, &widths);
         if self.overflow == Overflow::Menu && PopupMenu::is_open(cx) {
             let hidden = cx.memory::<TabsMemory>().hidden.clone();
-            let labels: Vec<String> = hidden.iter().map(|i| self.labels[*i].clone()).collect();
+            let labels = self.menu_labels(&hidden);
             match PopupMenu::event(cx, event, &labels) {
                 PopupAction::Chosen(row) => {
                     self.model.open(cx, hidden[row]);
@@ -459,6 +479,18 @@ impl<Msg: 'static> Tabs<Msg> {
     fn presses_beside(event: &Event, menu: Option<Rect>) -> bool {
         matches!(event, Event::Mouse(mouse)
             if matches!(mouse.kind, MouseKind::Down(_)) && !menu.is_some_and(|rect| rect.contains(mouse.x, mouse.y)))
+    }
+
+    /// The entries of the menu of hidden tabs `hidden`: each name, followed by its count when it
+    /// has one, so a count is not lost when its tab hides.
+    fn menu_labels(&self, hidden: &[usize]) -> Vec<String> {
+        hidden
+            .iter()
+            .map(|i| match self.badge_text(*i) {
+                Some(count) => format!("{}  {count}", self.labels[*i]),
+                None => self.labels[*i].clone(),
+            })
+            .collect()
     }
 
     /// Whether `strip` scrolls: it hides tabs and has no menu for them. A strip too narrow for

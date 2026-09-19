@@ -38,6 +38,9 @@ pub(crate) struct Frame {
     pub(crate) focus_request: Option<FocusRequest>,
     /// Sizes measured while painting this frame; see [`MeasureKey`].
     pub(crate) measures: IdMap<MeasureKey, Size>,
+    /// Areas widgets asked to bring into view, with the widget that asked; the nearest scroll
+    /// view around each takes it. See [`PaintCx::reveal`](crate::widget::PaintCx::reveal).
+    pub(crate) reveals: Vec<(WidgetId, Rect)>,
 }
 
 /// A node measured in a frame: its id, its address in the view tree and the space it was
@@ -91,6 +94,7 @@ impl Frame {
             layers,
             focus_request,
             measures,
+            reveals,
         } = self;
         rects.clear();
         parents.clear();
@@ -108,6 +112,7 @@ impl Frame {
         layers.clear();
         *focus_request = None;
         measures.clear();
+        reveals.clear();
     }
 
     /// The topmost widget whose hit area contains the cell.

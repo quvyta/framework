@@ -44,6 +44,8 @@ slider-knob      = { nerd = "◆", unicode = "◆", ascii = " " }
 stepper-minus    = { nerd = "−", unicode = "−", ascii = "-" }
 stepper-plus     = { nerd = "+", unicode = "+", ascii = "+" }
 add              = { nerd = "\uf067", unicode = "+", ascii = "+" }
+line-added       = { nerd = "+", unicode = "+", ascii = "+" }   # the sign of a diff line in a code view
+line-removed     = { nerd = "−", unicode = "−", ascii = "-" }
 search           = { nerd = "\uf002", unicode = "⌕", ascii = "/" }
 
 # ---- Scrollbars

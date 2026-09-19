@@ -16,6 +16,7 @@
 ## Haftanın ilk günü
 
 - `I18n::first_weekday() -> Weekday` — bölge biliniyorsa bölgenin ilk günü (CLDR), bilinmiyorsa dilin `quvyta.date.first-weekday` anahtarı, o da yoksa pazartesi. `ui.env().i18n()` ya da `cx.env().i18n()` ile oku.
+- `qframe::i18n::first_weekday() -> Weekday` — aynı cevap etkin çevirmenden; `Env` olmayan `update`, `init` ve öteki `App` metotları için. Çalışma motorunun dışında pazartesi.
 - `I18n::region() -> Option<&str>` — büyük harfle bölge (`GB`, `419`).
 - `I18n::set_region(Option<&str>) -> bool` — büyük ya da küçük harfle iki harf veya üç rakam; `None` temizler; başka her şeye `false`.
 - `I18n::select(etiket) -> bool` — `en-GB` ya da `pt_BR.UTF-8` etiketine hizmet eden dili etkinleştirir ve bölgesini alır; bölgesiz bir etiket mevcut bölgeyi korur.

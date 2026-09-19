@@ -12,6 +12,11 @@
 //! frames = [{ unicode = "●", ascii = "*" }, { unicode = "·", ascii = "." }]
 //! ```
 //!
+//! An application's own icon sets add their new keys to every set: `category.internet` from an
+//! application's file is drawn whatever set the theme chooses, see [`IconSetRegistry`]. A missing
+//! Nerd Font or Unicode glyph is reported with its file, line and column, and a plainer glyph of
+//! the same icon stands in for it.
+//!
 //! An icon set also holds one-cell animations (see [`crate::animation`]); themes
 //! replace single animations the way they replace single icons.
 
@@ -108,19 +113,29 @@ pub enum GlyphMode {
 const BANNED_ASCII: [char; 6] = ['[', ']', '(', ')', '{', '}'];
 
 /// Reads `{ nerd = "…", unicode = "…", ascii = "…" }`.
-pub(crate) fn parse_glyphs(doc: &Doc<'_>, key: &str, value: &Value<'_>) -> Result<IconGlyphs, Diagnostic> {
+///
+/// A missing column is reported where the icon is, and a plainer glyph stands in for it: the
+/// Unicode glyph for a missing Nerd Font glyph, since a Nerd Font draws Unicode too, and the ASCII
+/// glyph for a missing Unicode one. Nothing plainer can stand in for ASCII, so an icon without its
+/// ASCII glyph is an error and is skipped; the warnings for stand-ins go to `report`.
+pub(crate) fn parse_glyphs(
+    doc: &Doc<'_>,
+    key: &str,
+    value: &Value<'_>,
+    report: &mut Vec<Diagnostic>,
+) -> Result<IconGlyphs, Diagnostic> {
     let table = doc.table(value, &format!("icon `{key}`"))?;
-    let field = |name: &str| -> Result<String, Diagnostic> {
+    let field = |name: &str| -> Result<Option<String>, Diagnostic> {
         let Some(entry) = doc::get(table, name) else {
-            return Err(doc.error(&value.span(), format!("icon `{key}` is missing its `{name}` glyph")));
+            return Ok(None);
         };
         let text = doc.string(entry, &format!("icon `{key}`.{name}"))?;
         if text.is_empty() {
             return Err(doc.error(&entry.span(), format!("icon `{key}`.{name} must not be empty")));
         }
-        Ok(text.to_owned())
+        Ok(Some(text.to_owned()))
     };
-    let glyphs = IconGlyphs { nerd: field("nerd")?, unicode: field("unicode")?, ascii: field("ascii")? };
+    let (nerd, unicode, ascii) = (field("nerd")?, field("unicode")?, field("ascii")?);
     if let Some((unknown, entry)) =
         table.iter().find(|(name, _)| !["nerd", "unicode", "ascii"].contains(&name.get_ref().as_ref()))
     {
@@ -129,16 +144,39 @@ pub(crate) fn parse_glyphs(doc: &Doc<'_>, key: &str, value: &Value<'_>) -> Resul
             format!("icon `{key}` has unknown field `{}`; use nerd, unicode and ascii", unknown.get_ref()),
         ));
     }
-    let ascii_ok = glyphs.ascii.chars().all(|c| c.is_ascii() && !c.is_ascii_control());
+    let Some(ascii) = ascii else {
+        return Err(doc.error(
+            &value.span(),
+            format!("icon `{key}` is missing its `ascii` glyph, which every terminal can draw; the icon is skipped"),
+        ));
+    };
+    let ascii_ok = ascii.chars().all(|c| c.is_ascii() && !c.is_ascii_control());
     if !ascii_ok {
         return Err(doc.error(&value.span(), format!("icon `{key}`.ascii must contain only printable ASCII")));
     }
-    if let Some(bad) = glyphs.ascii.chars().find(|c| BANNED_ASCII.contains(c)) {
+    if let Some(bad) = ascii.chars().find(|c| BANNED_ASCII.contains(c)) {
         return Err(
             doc.error(&value.span(), format!("icon `{key}`.ascii uses `{bad}`; brackets are not allowed as glyphs"))
         );
     }
-    Ok(glyphs)
+    let mut stand_in = |missing: &str, used: &str| {
+        report.push(doc.warning(
+            &value.span(),
+            format!("icon `{key}` is missing its `{missing}` glyph; its `{used}` glyph stands in"),
+        ));
+    };
+    let (unicode, plainer) = match unicode {
+        Some(unicode) => (unicode, "unicode"),
+        None => {
+            stand_in("unicode", "ascii");
+            (ascii.clone(), "ascii")
+        }
+    };
+    let nerd = nerd.unwrap_or_else(|| {
+        stand_in("nerd", plainer);
+        unicode.clone()
+    });
+    Ok(IconGlyphs { nerd, unicode, ascii })
 }
 
 /// The icon drawn at the left of hovered, focused and selected rows, tabs, buttons and cards.
@@ -217,7 +255,8 @@ pub(crate) fn read_icon_table(
         let parsed = if key.get_ref() == PILLAR && value.get_ref().as_str().is_some() {
             parse_pillar(doc, value)
         } else {
-            parse_glyphs(doc, key.get_ref(), value).and_then(|glyphs| legacy_glyphs(doc, key.get_ref(), value, glyphs))
+            parse_glyphs(doc, key.get_ref(), value, report)
+                .and_then(|glyphs| legacy_glyphs(doc, key.get_ref(), value, glyphs))
         };
         match parsed {
             Ok(parsed) => {
@@ -260,10 +299,20 @@ struct IconSetSource {
     animations: BTreeMap<String, Arc<CellAnimation>>,
 }
 
-/// All icon sets known to an application: the built-in ones plus any loaded from disk.
+/// All icon sets known to an application: the built-in ones plus the application's own.
+///
+/// A set is drawn when a theme names it (`[meta] icon-set`). Keys of the application's sets that
+/// the built-in set does not have, such as `category.internet`, are drawn whatever set is chosen:
+/// they sit under the chosen set, so a theme's set or single icon can still restyle them, and a
+/// set added later wins a key two application sets give. A key the built-in set already has, such
+/// as `check`, is a restyling of the framework's own icon, which every widget draws; it applies
+/// only while its set is the chosen one, so an application set never changes the icons of a set
+/// the user picked.
 #[derive(Debug, Clone)]
 pub struct IconSetRegistry {
     sets: BTreeMap<String, IconSetSource>,
+    /// Ids of the sets added after the built-in ones, oldest first.
+    added: Vec<String>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -271,14 +320,18 @@ impl IconSetRegistry {
     /// A registry holding the built-in icon sets.
     #[must_use]
     pub fn builtin() -> Self {
-        let mut registry = Self { sets: BTreeMap::new(), diagnostics: Vec::new() };
+        let mut registry = Self { sets: BTreeMap::new(), added: Vec::new(), diagnostics: Vec::new() };
         for (id, text) in assets::ICON_SETS {
             registry.add_source(id, &format!("{id}.toml"), text);
         }
+        registry.added.clear();
         registry
     }
 
     /// Adds or replaces the icon set `id` from TOML text. Returns whether it was usable.
+    ///
+    /// Its keys the built-in set lacks are drawn in every set from then on; see
+    /// [`IconSetRegistry`] for how it layers with the chosen set.
     pub fn add_source(&mut self, id: &str, file: &str, text: &str) -> bool {
         let doc = Doc::new(file, text);
         let root = match doc.parse() {
@@ -314,6 +367,8 @@ impl IconSetRegistry {
         }
         let animations = animations.into_iter().map(|(name, animation)| (name, Arc::new(animation))).collect();
         self.sets.insert(id.to_owned(), IconSetSource { name, glyphs, animations });
+        self.added.retain(|added| added != id);
+        self.added.push(id.to_owned());
         true
     }
 
@@ -401,10 +456,82 @@ impl IconSetRegistry {
             layer_animations(&mut layered, &set.glyphs, owned(set));
         }
         layer_animations(&mut layered, overrides, animations.clone());
-        let mut glyphs = chosen.or(fallback).map(|set| set.glyphs.clone()).unwrap_or_default();
+        let mut glyphs = self.application_keys();
+        glyphs.extend(chosen.or(fallback).map(|set| set.glyphs.clone()).unwrap_or_default());
         glyphs.extend(overrides.iter().map(|(k, v)| (k.clone(), v.clone())));
         glyphs.retain(|key, _| !animation::LEGACY_ICONS.iter().any(|(icon, _)| icon == key));
         Icons { glyphs, animations: layered, mode }
+    }
+
+    /// The keys the application's sets add to the built-in set, a later set winning a key two of
+    /// them give.
+    fn application_keys(&self) -> BTreeMap<String, IconGlyphs> {
+        let builtin = self.sets.get("default").map(|set| &set.glyphs);
+        let mut keys = BTreeMap::new();
+        for set in self.added.iter().filter_map(|id| self.sets.get(id)) {
+            let new = set.glyphs.iter().filter(|(key, _)| builtin.is_none_or(|builtin| !builtin.contains_key(*key)));
+            keys.extend(new.map(|(key, glyphs)| (key.clone(), glyphs.clone())));
+        }
+        keys
+    }
+}
+
+/// A glyph drawn before a label: an icon of the icon set, which follows the theme and the glyph
+/// mode, or a glyph the application gives as it is, such as a Nerd Font code point it looked up in
+/// its own table.
+///
+/// Text converts into a key, so `cell.icon("folder", None)` reads as before.
+///
+/// ```
+/// use qframe::env::Env;
+/// use qframe::icons::Glyph;
+///
+/// let icons = Env::builtin().icons().clone();
+/// assert_eq!(Glyph::key("check").resolve(&icons), "✓");
+/// assert_eq!(Glyph::literal('\u{e745}').resolve(&icons), "\u{e745}");
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Glyph {
+    /// The icon `key` of the icon set, drawn in the glyph mode in use.
+    Key(String),
+    /// This text, drawn as it is in every glyph mode.
+    Literal(String),
+}
+
+impl Glyph {
+    /// The icon `key` of the icon set, such as `"folder"` or an application's `"category.internet"`.
+    #[must_use]
+    pub fn key(key: impl Into<String>) -> Self {
+        Self::Key(key.into())
+    }
+
+    /// A glyph drawn as it is, such as `'\u{e745}'`. The application answers for the glyph mode: a
+    /// Nerd Font code point only belongs on screen when [`Env::glyph_mode`](crate::env::Env::glyph_mode)
+    /// is [`GlyphMode::Nerd`].
+    #[must_use]
+    pub fn literal(glyph: impl Into<String>) -> Self {
+        Self::Literal(glyph.into())
+    }
+
+    /// The text drawn for this glyph with `icons`.
+    #[must_use]
+    pub fn resolve<'a>(&'a self, icons: &'a Icons) -> Cow<'a, str> {
+        match self {
+            Self::Key(key) => icons.glyph(key),
+            Self::Literal(glyph) => Cow::Borrowed(glyph),
+        }
+    }
+}
+
+impl From<&str> for Glyph {
+    fn from(key: &str) -> Self {
+        Self::key(key)
+    }
+}
+
+impl From<String> for Glyph {
+    fn from(key: String) -> Self {
+        Self::Key(key)
     }
 }
 
@@ -467,111 +594,4 @@ impl Icons {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SET: &str = r#"
-[meta]
-name = "Test"
-
-[icons]
-check = { nerd = "N", unicode = "✓", ascii = "v" }
-spin = { nerd = "ab", unicode = "◐◓", ascii = "-/" }
-bad = { nerd = "x", unicode = "x", ascii = "[x]" }
-half = { nerd = "x" }
-"#;
-
-    fn registry() -> IconSetRegistry {
-        let mut registry = IconSetRegistry::builtin();
-        assert!(registry.add_source("test", "test.toml", SET));
-        registry
-    }
-
-    #[test]
-    fn picks_glyph_for_mode() {
-        let mut icons = registry().icons("test", &BTreeMap::new(), GlyphMode::Nerd);
-        assert_eq!(icons.glyph("check"), "N");
-        icons.set_mode(GlyphMode::Unicode);
-        assert_eq!(icons.glyph("check"), "✓");
-        icons.set_mode(GlyphMode::Ascii);
-        assert_eq!(icons.glyph("check"), "v");
-        assert_eq!(icons.glyph("nope"), "⟦nope⟧");
-    }
-
-    #[test]
-    fn splits_frames_by_grapheme() {
-        let icons = registry().icons("test", &BTreeMap::new(), GlyphMode::Unicode);
-        assert_eq!(icons.frames("spin"), vec!["◐", "◓"]);
-    }
-
-    #[test]
-    fn broken_entries_are_reported_and_skipped() {
-        let registry = registry();
-        let messages: Vec<String> = registry.diagnostics().iter().map(ToString::to_string).collect();
-        assert!(messages.iter().any(|m| m.contains("brackets are not allowed")), "{messages:?}");
-        assert!(messages.iter().any(|m| m.contains("missing its `unicode` glyph")), "{messages:?}");
-        let icons = registry.icons("test", &BTreeMap::new(), GlyphMode::Ascii);
-        assert!(!icons.contains("bad"));
-        assert!(!icons.contains("half"));
-    }
-
-    #[test]
-    fn unknown_sections_and_meta_keys_are_reported_with_their_line() {
-        let mut registry = IconSetRegistry::builtin();
-        let set = "[meta]\nname = 7\nauthor = \"x\"\n[icon]\ncheck = 1\n[icons]\n";
-        assert!(registry.add_source("typo", "typo.toml", set));
-        let lines: Vec<(usize, &str)> = registry
-            .diagnostics()
-            .iter()
-            .map(|d| (d.location.as_ref().map_or(0, |l| l.line), d.message.as_str()))
-            .collect();
-        assert_eq!(lines.len(), 3, "{lines:?}");
-        assert!(lines.iter().any(|(line, m)| *line == 2 && m.contains("meta.name must be a string")), "{lines:?}");
-        assert!(lines.iter().any(|(line, m)| *line == 3 && m.contains("unknown key `meta.author`")), "{lines:?}");
-        assert!(lines.iter().any(|(line, m)| *line == 4 && m.contains("unknown section `icon`")), "{lines:?}");
-        assert_eq!(registry.list().iter().find(|(id, _)| id == "typo").map(|(_, name)| name.as_str()), Some("typo"));
-    }
-
-    #[test]
-    fn pillar_has_a_short_form_thick_thin_or_one_cell() {
-        for (text, glyph) in [("thick", "▌"), ("thin", "▎"), ("▍", "▍")] {
-            let mut registry = IconSetRegistry::builtin();
-            let set = format!("[meta]\nname = \"P\"\n[icons]\npillar = \"{text}\"\n");
-            assert!(registry.add_source("p", "p.toml", &set));
-            let mut icons = registry.icons("p", &BTreeMap::new(), GlyphMode::Unicode);
-            assert_eq!(icons.glyph(PILLAR), glyph);
-            icons.set_mode(GlyphMode::Ascii);
-            assert_eq!(icons.glyph(PILLAR), " ", "ASCII shows the pillar as a coloured cell");
-        }
-        let mut registry = IconSetRegistry::builtin();
-        assert!(registry.add_source("p", "p.toml", "[meta]\nname = \"P\"\n[icons]\npillar = \"wide\"\n"));
-        let messages: Vec<String> = registry.diagnostics().iter().map(ToString::to_string).collect();
-        assert!(messages.iter().any(|m| m.contains("single one-cell character")), "{messages:?}");
-    }
-
-    #[test]
-    fn overrides_replace_single_icons() {
-        let overrides = BTreeMap::from([(
-            "check".to_owned(),
-            IconGlyphs { nerd: "C".to_owned(), unicode: "C".to_owned(), ascii: "C".to_owned() },
-        )]);
-        let icons = registry().icons("test", &overrides, GlyphMode::Nerd);
-        assert_eq!(icons.glyph("check"), "C");
-        assert_eq!(icons.glyph("spin"), "ab");
-    }
-
-    #[test]
-    fn unknown_set_falls_back_to_default() {
-        let icons = IconSetRegistry::builtin().icons("missing", &BTreeMap::new(), GlyphMode::Unicode);
-        assert_eq!(icons.glyph("check"), "✓");
-    }
-
-    #[test]
-    fn icon_mode_names_round_trip() {
-        for mode in IconMode::ALL {
-            assert_eq!(IconMode::from_name(mode.name()), Some(mode));
-        }
-        assert_eq!(IconMode::from_name(" NERD "), Some(IconMode::Nerd));
-        assert_eq!(IconMode::from_name("emoji"), None);
-    }
-}
+mod tests;

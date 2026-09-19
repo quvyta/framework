@@ -387,6 +387,14 @@ impl PaintCx<'_> {
         self.frame.listeners.push((chord, self.id));
     }
 
+    /// Asks the nearest [`ScrollView`](crate::widgets::ScrollView) around this widget to scroll
+    /// just enough to show `rect`, a part of this widget's area, e.g. a line a code view jumps
+    /// to. The view glides there, or jumps when motion is reduced. Ask once when what should
+    /// be shown changes, not every frame, or the user could not scroll away from it.
+    pub fn reveal(&mut self, rect: Rect) {
+        self.frame.reveals.push((self.id, rect));
+    }
+
     /// Blends the text and background colours already drawn in `rect` towards `color` by
     /// `amount` (0 keeps them, 1 replaces them), e.g. to dim the screen behind a dialog. Cells
     /// drawn with reduced colour depth take `color` once `amount` passes one half.

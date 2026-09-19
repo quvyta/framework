@@ -32,7 +32,8 @@ pub struct AssetDirs {
     /// Directory of `*.toml` icon set files.
     pub icons: Option<PathBuf>,
     /// Icon set files given as text, as `(file name, TOML text)`, loaded after `icons` so they
-    /// win. The file stem is the icon set id, as it is in a directory.
+    /// win. The file stem is the icon set id, as it is in a directory. Keys these sets add to the
+    /// built-in set are drawn whatever set the theme chooses.
     pub icon_sources: Vec<(String, String)>,
     /// Directory of `*.toml` locale files.
     pub locales: Option<PathBuf>,
@@ -505,6 +506,25 @@ mod tests {
             Some((crate::keymap::Scope::Global, "quit")),
             "the built-in keymap is still under it"
         );
+    }
+
+    #[test]
+    fn an_application_icon_is_found_in_every_theme_and_follows_the_icon_mode() {
+        let app = "[icons]\n\"category.internet\" = { nerd = \"I\", unicode = \"◎\", ascii = \"@\" }\n";
+        let mut dirs = brand_sources();
+        dirs.icon_sources.push(("app.toml".to_owned(), app.to_owned()));
+        let mut env = Env::load(&dirs).expect("nothing to read from disk");
+        env.set_icon_mode(IconMode::Nerd);
+        assert_eq!(env.icons().glyph("category.internet"), "I");
+        for theme in ["nordic", "amber", "brand"] {
+            env.set_theme(theme);
+            assert_eq!(env.theme().id(), theme);
+            env.set_icon_mode(IconMode::Unicode);
+            assert_eq!(env.icons().glyph("category.internet"), "◎", "{theme}");
+            env.set_icon_mode(IconMode::Ascii);
+            assert_eq!(env.icons().glyph("category.internet"), "@", "{theme}");
+        }
+        assert_eq!(env.icons().glyph("check"), "!", "the brand theme's own set still restyles what it names");
     }
 
     #[test]

@@ -18,7 +18,7 @@ Use a form when the user fills in several values that are checked together befor
 - **Required is a word.** A faint "required" follows the label; nothing is starred.
 - **The label lights up while its control has focus**, so the eye finds the active field without a frame.
 - **Enter moves on.** In a text field without its own submit, Enter goes to the next field, and from the last field to the button after the form.
-- **Label columns fall back.** With `label_width`, labels sit beside controls while there is room and move above them on narrow screens.
+- **Label columns fall back.** With `label_width`, labels sit beside controls while there is room and move above them on narrow screens. A control wider than the room beside its label, such as an input with a long placeholder, puts its own label above and takes the whole row, so nothing is cut; the other fields keep their column.
 - **`Command::focus` works across updates**, so a control that appears with the same update can still take focus.
 
 ## Common mistakes

@@ -455,8 +455,8 @@ fn diagnostic_line(ui: &mut View<'_, AppMsg>, text: String) {
     .gap(1);
 }
 
-/// The two folders a platform gives an application, one for settings and one for its own data,
-/// and the name that keeps one machine's file apart from another's in a folder they share.
+/// The four folders a platform gives an application, for settings, its own data, its state and
+/// its cache, and the name that keeps one machine's file apart from another's in a folder they share.
 fn folders(ui: &mut View<'_, AppMsg>) {
     ui.add_with(Panel::new().title(t!("storage.folders")).gap(0), |ui| {
         ui.add(Text::new(t!("storage.folders-hint")).role("secondary"));
@@ -464,8 +464,16 @@ fn folders(ui: &mut View<'_, AppMsg>) {
         // region: storage-folders
         let config = qframe::storage::config_dir("qfocus");
         let data = qframe::storage::data_dir("qfocus");
+        let state = qframe::storage::state_dir("qfocus");
+        let cache = qframe::storage::cache_dir("qfocus");
         // endregion
-        for (label, dir) in [(t!("storage.config-dir"), config), (t!("storage.data-dir"), data)] {
+        let rows = [
+            (t!("storage.config-dir"), config),
+            (t!("storage.data-dir"), data),
+            (t!("storage.state-dir"), state),
+            (t!("storage.cache-dir"), cache),
+        ];
+        for (label, dir) in rows {
             setting(ui, label, |ui| {
                 let (text, role) = match dir {
                     Some(dir) => (dir.display().to_string(), "body"),
@@ -511,6 +519,8 @@ fn family(ui: &mut View<'_, AppMsg>) {
             (t!("storage.shared-file"), family.shared_file()),
             (t!("storage.app-file"), family.app_file("code")),
             (t!("storage.app-dir"), family.app_dir("code")),
+            (t!("storage.member-state-dir"), family.state_dir("code")),
+            (t!("storage.member-cache-dir"), family.cache_dir("code")),
         ];
         // endregion
         for (label, path) in rows {
@@ -866,7 +876,7 @@ mod tests {
 
     /// The storage page in a terminal tall enough for the broken file and the playground.
     fn tall(showcase: Showcase) -> Harness<Showcase> {
-        crate::tests::showcase_tall(showcase, PAGE, 140)
+        crate::tests::showcase_tall(showcase, PAGE, 150)
     }
 
     #[test]
@@ -895,17 +905,25 @@ mod tests {
     }
 
     #[test]
-    fn both_platform_folders_are_shown() {
+    fn all_four_platform_folders_are_shown() {
         let h = tall(Showcase::new());
         let screen = h.screen();
-        assert!(screen.contains("THE TWO FOLDERS"), "{screen}");
-        for dir in [qframe::storage::config_dir("qfocus"), qframe::storage::data_dir("qfocus")] {
+        assert!(screen.contains("AN APPLICATION'S FOLDERS"), "{screen}");
+        let dirs = [
+            ("Settings", qframe::storage::config_dir("qfocus")),
+            ("Data", qframe::storage::data_dir("qfocus")),
+            ("State", qframe::storage::state_dir("qfocus")),
+            ("Cache", qframe::storage::cache_dir("qfocus")),
+        ];
+        for (label, dir) in dirs {
             // The panel is narrower than a long path, so the last segment is what is checked.
             let shown = match dir {
                 Some(dir) => dir.file_name().expect("the folder ends in the app name").display().to_string(),
                 None => "this platform gives no folder here".to_owned(),
             };
-            assert!(screen.contains(&shown), "{shown} is missing from {screen}");
+            let row = format!(" {label}  ");
+            let on_its_row = screen.lines().any(|line| line.contains(&row) && line.contains(&shown));
+            assert!(on_its_row, "{label} row with {shown} is missing from {screen}");
         }
     }
 
@@ -940,7 +958,12 @@ mod tests {
             family.shared_file(),
             family.app_file("code"),
             family.app_dir("code"),
+            family.state_dir("code"),
+            family.cache_dir("code"),
         ];
+        for label in ["State of code", "Cache of code"] {
+            assert!(screen.contains(label), "{label} row in {screen}");
+        }
         for place in places {
             // The panel is narrower than a long path, so the last segment is what is checked.
             let shown = match place {

@@ -43,6 +43,15 @@ Every icon has three glyphs: `nerd` for Nerd Fonts, `unicode`, and `ascii`. In `
 
 The set answers the meanings an application's main menu shows, so every application in the family draws the same shapes: `project`, `profile`, `settings` and `power`. Nerd Font draws the thing itself; the Unicode column stays inside Geometric Shapes, which terminals and monospace fonts draw as one cell, so no row falls back to another font and overflows.
 
+## Your application's own icons
+
+An application gives its own icons the same way it gives an icon set: `Runtime::icon_source("app.toml", include_str!("../assets/icons/app.toml"))`. Keys the built-in set does not have, such as `category.internet` or `source.aur`, are then drawn by every widget that takes an icon key and by `env.icons().glyph(..)`, whatever set the theme chooses, and switching the glyph mode switches them to their own Nerd, Unicode or ASCII column. The demo's “app icon” row is such a key, drawn in the default theme.
+
+- **Your keys sit under the chosen set.** A theme's set or a theme's single `[icons]` entry can still restyle `category.internet`, the way a user reskins anything else.
+- **The framework's keys stay the theme's.** A key the built-in set already has, such as `check`, is a restyling of an icon every widget draws, so it only applies while a theme names your set (`[meta] icon-set`). An application set never changes the icons of a set the user picked. Give your own meanings their own names, ideally with a prefix.
+- **Two of your sets giving one key:** the one added later wins, as text given later wins over a directory.
+- **A missing column is reported, not fatal.** Without `nerd` the Unicode glyph stands in, since a Nerd Font draws Unicode too; without `unicode` the ASCII glyph does. Both are warnings with the file, line and column. Without `ascii` nothing plainer can stand in, so the icon is skipped with an error, and the screen shows `⟦key⟧` where it would be.
+
 ## Languages
 
 Locale files hold flat keys grouped in sections. `t!("files.count", n = 3)` looks the key up in the active language, then in its `fallback`, then in English. Plural forms are tables such as `{ one = "{n} file", other = "{n} files" }`; the language's own rules pick the form, so Turkish, Russian or Arabic each get theirs. A missing key shows as `⟦files.count⟧` so it is noticed, and `missing_keys` lets a test keep every language complete.

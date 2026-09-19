@@ -12,7 +12,7 @@
 
 - Etiket iki hücre içeriden başlar; kontrol sağ kenardan iki hücre önce biter.
 - Etiket bütçesi: kontrolden iki hücre öncesine kadar olan alan, kayma için bir hücre pay eksik.
-- Odaktayken tuşlar: ↑/↓ etkin satırlar arasında gezer; kontrol kullanmıyorsa Home ve End uçlara atlar; diğer her şey önce seçili satırın kontrolüne gider.
+- Odaktayken tuşlar: ↑/↓ etkin satırlar arasında gezer; kontrol kullanmıyorsa Home ve End uçlara atlar; diğer her şey önce seçili satırın kontrolüne gider. Listeden kısa bir `ScrollView` içinde tuşla gidilen satır görünecek kadar kaydırılır, fazlası değil; tıklamak hiç kaydırmaz.
 - Odak gelince hatırlanan satır, yoksa ilk etkin satır seçilir.
 - Fare satırın kontrolü üzerindeyken de satır aydınlık kalır.
 - Odaktaki liste yalnızca bir satırı yükseltir: fareyi etkin bir satıra götürmek onu klavyenin satırı yapar, oklar oradan devam eder.

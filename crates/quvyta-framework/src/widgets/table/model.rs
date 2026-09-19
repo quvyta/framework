@@ -1,5 +1,6 @@
 //! What a [`Table`](super::Table) shows: its columns, rows and cells.
 
+use crate::icons::Glyph;
 use crate::text;
 use crate::widget::Align;
 
@@ -86,11 +87,11 @@ impl Column {
     }
 }
 
-/// One cell: text, optionally with an icon and a colour.
+/// One cell: text, optionally with a glyph before it and a colour.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TableCell {
     pub(super) text: String,
-    pub(super) icon: Option<String>,
+    pub(super) icon: Option<Glyph>,
     pub(super) icon_color: Option<String>,
     pub(super) color: Option<String>,
 }
@@ -102,10 +103,16 @@ impl TableCell {
         Self { text: text.into(), ..Self::default() }
     }
 
-    /// Icon key drawn before the text, optionally in theme colour `color`.
+    /// A glyph drawn before the text with one space between them: an icon key such as `"dot"`
+    /// or [`Glyph::key`], or a [`Glyph::literal`] the application looked up itself.
+    ///
+    /// With `color` it is drawn in that theme colour, for a glyph that carries meaning such as a
+    /// status dot in `"success"`. Without, it is `muted`, quieter than the text, and takes the
+    /// row's text colour while the row is selected. A narrow column cuts the text with `…` and
+    /// always keeps the glyph and its space.
     #[must_use]
-    pub fn icon(mut self, key: impl Into<String>, color: Option<&str>) -> Self {
-        self.icon = Some(key.into());
+    pub fn icon(mut self, glyph: impl Into<Glyph>, color: Option<&str>) -> Self {
+        self.icon = Some(glyph.into());
         self.icon_color = color.map(str::to_owned);
         self
     }
@@ -117,8 +124,15 @@ impl TableCell {
         self
     }
 
+    /// Cells the text and the glyph with its space take. An icon of the set is one cell, which the
+    /// icon set's rules keep; a literal glyph is measured.
     pub(super) fn width(&self) -> u16 {
-        text::width(&self.text).saturating_add(self.icon.as_ref().map_or(0, |_| 2))
+        let glyph = match &self.icon {
+            None => 0,
+            Some(Glyph::Key(_)) => 2,
+            Some(Glyph::Literal(glyph)) => text::width(glyph).saturating_add(1),
+        };
+        text::width(&self.text).saturating_add(glyph)
     }
 }
 

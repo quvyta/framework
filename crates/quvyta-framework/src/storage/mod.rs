@@ -16,7 +16,8 @@
 //! (`settings.toml.bak`, `code.conf.bak`) before it is first overwritten.
 //!
 //! The module also holds what every application needs around its own files, settings or not:
-//! [`config_dir`] and [`data_dir`] for the two folders a platform gives an application,
+//! [`config_dir`] and [`data_dir`] for the two folders a platform gives an application and
+//! [`state_dir`] and [`cache_dir`] for what it remembers between runs and what it can rebuild,
 //! [`atomic_write`] for writing any file safely, [`AppLock`] for "one instance at a time" and
 //! [`InstanceLock`] for "wake me when the last instance closes",
 //! [`machine_name`] for keeping one file per machine in a folder several machines share, and
@@ -55,7 +56,7 @@ use std::path::{Path, PathBuf};
 use toml::de::{DeTable, DeValue};
 
 pub use atomic::{WriteStep, atomic_write, atomic_write_reporting};
-pub use dirs::{config_dir, data_dir};
+pub use dirs::{cache_dir, config_dir, data_dir, state_dir};
 pub use documents::documents_dir;
 pub use family::Family;
 pub use folder_watch::{FolderChange, FolderChangeKind, FolderChanges, FolderWatch};

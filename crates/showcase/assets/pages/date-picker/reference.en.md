@@ -16,6 +16,7 @@
 ## First day of the week
 
 - `I18n::first_weekday() -> Weekday` — the region's first day (CLDR) when a region is known, else the language's `quvyta.date.first-weekday`, else Monday. Read it with `ui.env().i18n()` or `cx.env().i18n()`.
+- `qframe::i18n::first_weekday() -> Weekday` — the same answer from the active translator, for `update`, `init` and the other `App` methods where there is no `Env`; Monday outside the runtime.
 - `I18n::region() -> Option<&str>` — the region, uppercase (`GB`, `419`).
 - `I18n::set_region(Option<&str>) -> bool` — two letters or three digits in either case; `None` clears; `false` for anything else.
 - `I18n::select(tag) -> bool` — activates the locale serving `en-GB` or `pt_BR.UTF-8` and takes its region; a tag without a region keeps the current one.

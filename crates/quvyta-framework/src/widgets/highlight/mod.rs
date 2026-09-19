@@ -1,4 +1,6 @@
-//! Syntax highlighting for code shown in the terminal: Rust and TOML.
+//! Syntax highlighting for code shown in the terminal: Rust, TOML and shell scripts.
+
+mod shell;
 
 use std::ops::Range;
 
@@ -9,6 +11,8 @@ pub enum Language {
     Rust,
     /// TOML files such as themes and locales.
     Toml,
+    /// Shell scripts in bash syntax, such as a `PKGBUILD` or a package's `.install` file.
+    Shell,
     /// No highlighting.
     Plain,
 }
@@ -20,6 +24,24 @@ impl Language {
         match tag.trim().to_ascii_lowercase().as_str() {
             "rust" | "rs" => Self::Rust,
             "toml" => Self::Toml,
+            "sh" | "bash" | "shell" | "zsh" | "pkgbuild" => Self::Shell,
+            _ => Self::Plain,
+        }
+    }
+
+    /// The language of the file named `name` (a bare name or a path): `.rs` is Rust, `.toml`
+    /// is TOML, `.sh`, `.bash`, `.zsh`, `.install` and a `PKGBUILD` are shell scripts, and
+    /// anything else is plain text.
+    #[must_use]
+    pub fn from_file_name(name: &str) -> Self {
+        let path = std::path::Path::new(name);
+        if path.file_name().is_some_and(|file| file == "PKGBUILD") {
+            return Self::Shell;
+        }
+        match path.extension().and_then(|extension| extension.to_str()) {
+            Some("rs") => Self::Rust,
+            Some("toml") => Self::Toml,
+            Some("sh" | "bash" | "zsh" | "install") => Self::Shell,
             _ => Self::Plain,
         }
     }
@@ -40,6 +62,7 @@ pub(crate) enum Token {
     Punctuation,
     Table,
     Key,
+    Variable,
     Plain,
 }
 
@@ -58,6 +81,7 @@ impl Token {
             Self::Punctuation => "punctuation",
             Self::Table => "table",
             Self::Key => "key",
+            Self::Variable => "variable",
             Self::Plain => "plain",
         }
     }
@@ -74,6 +98,7 @@ pub(crate) fn highlight(code: &str, language: Language) -> Vec<(Range<usize>, To
     let tokens = match language {
         Language::Rust => rust(code),
         Language::Toml => toml(code),
+        Language::Shell => shell::shell(code),
         Language::Plain => vec![(0..code.len(), Token::Plain)],
     };
     fill_gaps(code.len(), tokens)
@@ -374,5 +399,79 @@ mod tests {
         let joined: String = ranges.iter().map(|(r, _)| &code[r.clone()]).collect();
         assert_eq!(joined, code);
         assert!(ranges.iter().any(|(r, t)| &code[r.clone()] == "r#\"raw\"#" && *t == Token::String));
+    }
+
+    #[test]
+    fn shell_tokens() {
+        let code = "# Maintainer: someone\npkgname=hello\npkgrel=1\nbuild() {\n  cd \"$srcdir/${pkgname}-$pkgver\"\n  if [ -f x ]; then echo 'it is $here'; fi\n  local n=$(nproc) # cores\n  cat <<-'EOF' > notes\n\tread $me\n\tEOF\n  echo \\$done \"a\\\"b\"\n}";
+        let tokens = kinds(code, Language::Shell);
+        assert!(tokens.contains(&("# Maintainer: someone", Token::Comment)), "{tokens:?}");
+        assert!(tokens.contains(&("pkgname", Token::Variable)));
+        assert!(tokens.contains(&("1", Token::Number)));
+        assert!(tokens.contains(&("build", Token::Function)));
+        assert!(tokens.contains(&("\"", Token::String)));
+        assert!(tokens.contains(&("$srcdir", Token::Variable)));
+        assert!(tokens.contains(&("${pkgname}", Token::Variable)));
+        assert!(tokens.contains(&("$pkgver", Token::Variable)));
+        assert!(tokens.contains(&("/", Token::String)), "the text between variables stays a string");
+        assert!(tokens.contains(&("if", Token::Keyword)));
+        assert!(tokens.contains(&("then", Token::Keyword)));
+        assert!(tokens.contains(&("fi", Token::Keyword)));
+        assert!(tokens.contains(&("'it is $here'", Token::String)), "single quotes expand nothing");
+        assert!(tokens.contains(&("local", Token::Keyword)));
+        assert!(tokens.contains(&("$(", Token::Variable)));
+        assert!(tokens.contains(&("nproc", Token::Plain)));
+        assert!(tokens.contains(&(")", Token::Variable)));
+        assert!(tokens.contains(&("# cores", Token::Comment)));
+        assert!(tokens.contains(&("'EOF'", Token::String)));
+        assert!(tokens.contains(&("\tread $me\n\tEOF", Token::String)), "the heredoc body runs to its terminator");
+        assert!(!tokens.iter().any(|(text, token)| *text == "$done" && *token == Token::Variable), "an escaped dollar");
+        assert!(tokens.contains(&("\"a\\\"b\"", Token::String)), "an escaped quote stays inside");
+        assert!(tokens.contains(&("}", Token::Punctuation)));
+    }
+
+    #[test]
+    fn shell_details() {
+        let tokens = kinds(
+            "function greet {\n  echo ${#names[@]} $1 $@ x#y\n}\ncase $a in\n  *) exit 2 ;;\nesac",
+            Language::Shell,
+        );
+        assert!(tokens.contains(&("greet", Token::Function)), "{tokens:?}");
+        assert!(tokens.contains(&("function", Token::Keyword)));
+        assert!(tokens.contains(&("${#names[@]}", Token::Variable)));
+        assert!(tokens.contains(&("$1", Token::Variable)));
+        assert!(tokens.contains(&("$@", Token::Variable)));
+        assert!(!tokens.iter().any(|(_, token)| *token == Token::Comment), "a hash inside a word is not a comment");
+        assert!(tokens.contains(&("case", Token::Keyword)));
+        assert!(tokens.contains(&("in", Token::Keyword)));
+        assert!(tokens.contains(&("esac", Token::Keyword)));
+        assert!(tokens.contains(&("2", Token::Number)));
+        let unquoted = kinds("cat <<EOF\nhi $USER\nEOF\necho done", Language::Shell);
+        assert!(unquoted.contains(&("hi $USER\nEOF", Token::String)), "{unquoted:?}");
+        assert!(unquoted.contains(&("done", Token::Keyword)), "code resumes after the terminator");
+        let arithmetic = kinds("n=$((a + 1))", Language::Shell);
+        assert!(arithmetic.contains(&("$(", Token::Variable)), "{arithmetic:?}");
+        assert!(arithmetic.contains(&("(", Token::Punctuation)));
+        assert_eq!(arithmetic.iter().filter(|(text, token)| *text == ")" && *token == Token::Variable).count(), 1);
+    }
+
+    #[test]
+    fn shell_ranges_cover_the_whole_text() {
+        let code = "x=\"unterminated $(echo \"in\") ${a:-b}\ncat <<E\nno end";
+        let joined: String = highlight(code, Language::Shell).iter().map(|(r, _)| &code[r.clone()]).collect();
+        assert_eq!(joined, code);
+    }
+
+    #[test]
+    fn languages_from_tags_and_file_names() {
+        for tag in ["sh", "bash", "shell", "zsh", "PKGBUILD"] {
+            assert_eq!(Language::from_tag(tag), Language::Shell, "{tag}");
+        }
+        assert_eq!(Language::from_file_name("PKGBUILD"), Language::Shell);
+        assert_eq!(Language::from_file_name("aur/hello/hello.install"), Language::Shell);
+        assert_eq!(Language::from_file_name("build.sh"), Language::Shell);
+        assert_eq!(Language::from_file_name("main.rs"), Language::Rust);
+        assert_eq!(Language::from_file_name("Cargo.toml"), Language::Toml);
+        assert_eq!(Language::from_file_name("README"), Language::Plain);
     }
 }

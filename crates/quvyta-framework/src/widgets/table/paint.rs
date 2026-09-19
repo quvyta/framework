@@ -112,37 +112,48 @@ impl<Msg: 'static> Table<Msg> {
             } else {
                 (place.x, place.width)
             };
-            Self::paint_cell(cx, cell, x, rect.y, width, self.columns[place.column].align, text_style);
+            let selected = Some(index) == self.selected;
+            Self::paint_cell(cx, cell, (x, rect.y), width, self.columns[place.column].align, text_style, selected);
         }
     }
 
     /// Paints `cell` at `(x, y)` within `width` cells, aligned by `align`, in the row's text style.
+    /// A glyph and its space always keep their cells; only the text is cut.
     fn paint_cell(
         cx: &mut PaintCx<'_>,
         cell: &TableCell,
-        x: i32,
-        y: i32,
+        (x, y): (i32, i32),
         width: u16,
         align: Align,
         row_style: CellStyle,
+        selected: bool,
     ) {
         let style = match &cell.color {
             Some(token) => CellStyle { fg: Some(cx.color(token)), ..row_style },
             None => row_style,
         };
-        let icon = cell.icon.as_ref().map(|key| row::icon(cx, key, cell.icon_color.as_deref(), style.fg));
-        let icon_width = icon.as_ref().map_or(0, |_| 2);
-        let label = text::truncate(&cell.text, width.saturating_sub(icon_width)).into_owned();
-        let content = icon_width + text::width(&label);
-        let mut left = match align {
+        let icon = cell.icon.as_ref().map(|glyph| {
+            let glyph = glyph.resolve(cx.env().icons()).into_owned();
+            let quiet = if selected { row_style.fg } else { Some(cx.color("muted")) };
+            let fg = cell.icon_color.as_deref().map_or(quiet, |token| Some(cx.color(token)));
+            (glyph, CellStyle { fg, ..CellStyle::default() })
+        });
+        let glyph_width = icon.as_ref().map_or(0, |(glyph, _)| text::width(glyph));
+        let prefix = if icon.is_some() { glyph_width.saturating_add(1) } else { 0 };
+        let budget = width.saturating_sub(prefix);
+        let label = text::truncate(&cell.text, budget).into_owned();
+        let content = prefix.saturating_add(text::width(&label));
+        let left = match align {
             Align::End => x + i32::from(width) - i32::from(content),
             Align::Center => x + i32::from(width.saturating_sub(content) / 2),
             Align::Start => x,
         };
+        // A column narrower than the glyph and its space still starts them at its left edge.
+        let mut left = left.max(x);
         if let Some((glyph, icon_style)) = &icon {
-            cx.text(left, y, glyph, *icon_style, 1);
-            left += 2;
+            cx.text(left, y, glyph, *icon_style, glyph_width);
+            left += i32::from(prefix);
         }
-        cx.text(left, y, &label, style, width.saturating_sub(icon_width));
+        cx.text(left, y, &label, style, budget);
     }
 }

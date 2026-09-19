@@ -334,6 +334,12 @@ Mod: `auto` (terminal, UTF-8 yerel ayarı ve kurulu Nerd Font yazı tipleri alg�
 karakter bir karedir. Genişlikler gerçek hücre genişliğiyle ölçülür; tek hücreden geniş `pillar`
 tanılama üretir ve varsayılan kullanılır. ASCII glifleri köşeli ayraçla şekil taklit etmez.
 
+Uygulamanın kendi setleri (`icon_dir`, `icon_source`) gömülü sette olmayan anahtarlarını her sete
+ekler: `category.internet` tema hangi seti seçerse seçsin, glif kipinin sütunundan çizilir. Bu
+anahtarlar seçili setin ve temanın `[icons]`'unun altında durur; gömülü sette olan bir anahtar
+(`check`) yalnızca bir tema o seti seçtiğinde geçerlidir. Eksik `nerd` ya da `unicode` sütunu
+dosya:satır:sütun uyarısıdır ve daha sade glif yerine geçer; eksik `ascii` ikonu atlatır.
+
 ### 5.3 Dil
 
 ```toml
@@ -523,7 +529,7 @@ Tabs · KeyHints · Markdown · CodeView.
 
 **P1 — Her uygulamanın ihtiyacı:** Motion · Checkbox · Switch · Segmented · RadioGroup · Slider ·
 NumberInput · TextArea · Form + Field · Modal · Onay (`Command::confirm`) · Popover · ContextMenu ·
-Toast · Tooltip · Badge · ProgressBar · Spinner · ShimmerText · Divider · EmptyState · Yardım
+Toast · Tooltip · IconButton · Badge · ProgressBar · Spinner · ShimmerText · Divider · EmptyState · Yardım
 katmanı · Pano.
 
 **P2 — Zengin uygulamalar:** Table · Tree · Splitter · Menu · Breadcrumb · Accordion · Steps ·

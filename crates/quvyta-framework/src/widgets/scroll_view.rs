@@ -1,8 +1,11 @@
 //! Vertical scrolling of any content.
 
+use std::time::Duration;
+
 use crate::event::{Event, MouseButton, MouseKind};
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::keymap::Key;
+use crate::motion::Easing;
 use crate::widget::{Axis, Container, EventCx, Flex, Length, MeasureCx, Node, PaintCx, Widget, WidgetId};
 
 use super::rows::WHEEL_ROWS;
@@ -10,7 +13,9 @@ use super::scrollbar::{self, ScrollMetrics, ScrollbarStyle};
 
 /// Shows content taller than its area and scrolls it with the wheel, the scrollbar or the
 /// keyboard (↑/↓, PgUp/PgDn, Home/End while focused). When focus moves to a widget inside that
-/// is out of view, the view scrolls to it.
+/// is out of view, the view scrolls to it. When a widget inside asks to show a part of itself
+/// with [`PaintCx::reveal`], such as a code view going to a line, the view glides just far
+/// enough to show it, or jumps there when motion is reduced.
 ///
 /// Style keys: `scrollbar` (`style`, `track`, `thumb`) with `hover`, and `scrollbar.<style>`.
 pub struct ScrollView<Msg> {
@@ -24,6 +29,29 @@ struct ScrollMemory {
     content_height: u16,
     revealed: Option<WidgetId>,
     dragging: bool,
+    /// A move towards an area a widget asked to reveal, while it runs.
+    glide: Option<Glide>,
+}
+
+/// A scroll from one offset to another that started at `start`.
+#[derive(Debug, Clone, Copy)]
+struct Glide {
+    from: u16,
+    to: u16,
+    start: Duration,
+}
+
+/// The offset that shows the content rows `top..bottom` in a view `height` rows tall, moving
+/// the least from `offset`: an area already in view, or covering the whole view, stays put.
+fn offset_showing(top: i32, bottom: i32, offset: u16, height: u16) -> u16 {
+    let (start, end) = (i32::from(offset), i32::from(offset) + i32::from(height));
+    if top >= start && bottom <= end || top <= start && bottom >= end {
+        offset
+    } else if top < start || bottom - top > i32::from(height) {
+        clamp_u16(top)
+    } else {
+        clamp_u16(bottom - i32::from(height))
+    }
 }
 
 impl<Msg: 'static> ScrollView<Msg> {
@@ -53,6 +81,54 @@ impl<Msg: 'static> ScrollView<Msg> {
         let memory = cx.memory::<ScrollMemory>();
         let max = memory.content_height.saturating_sub(area.height);
         memory.offset = clamp_u16(offset).min(max);
+        memory.glide = None;
+    }
+
+    /// Moves along a running glide and returns the offset to paint at.
+    fn glide(cx: &mut PaintCx<'_>, offset: u16, max: u16) -> u16 {
+        let Some(glide) = cx.memory::<ScrollMemory>().glide else {
+            return offset;
+        };
+        let duration = cx.env().theme().motion().page;
+        let progress = cx.progress_since(glide.start, duration, Easing::EaseOut);
+        let (from, to) = (f32::from(glide.from), f32::from(glide.to));
+        // The offsets are u16, so the rounded value between them fits.
+        let now = (from + (to - from) * progress).round() as u16;
+        let memory = cx.memory::<ScrollMemory>();
+        memory.offset = now.min(max);
+        if progress >= 1.0 {
+            memory.glide = None;
+        }
+        memory.offset
+    }
+
+    /// Takes the last area a widget inside asked to reveal this frame and scrolls to it.
+    fn take_reveal(cx: &mut PaintCx<'_>, content: Rect, area: Rect, offset: u16) {
+        let id = cx.id();
+        let mut wanted = None;
+        for (asker, rect) in std::mem::take(&mut cx.frame.reveals) {
+            if asker != id && cx.frame.is_within(asker, id) {
+                wanted = Some(rect);
+            } else {
+                cx.frame.reveals.push((asker, rect));
+            }
+        }
+        let Some(rect) = wanted else { return };
+        let top = rect.y - content.y;
+        let max = content.height.saturating_sub(area.height);
+        let target = offset_showing(top, top + i32::from(rect.height), offset, area.height).min(max);
+        let reduced = cx.reduced_motion();
+        let now = cx.now();
+        let memory = cx.memory::<ScrollMemory>();
+        if reduced {
+            memory.offset = target;
+            memory.glide = None;
+        } else {
+            memory.glide = (target != offset).then_some(Glide { from: offset, to: target, start: now });
+        }
+        if target != offset {
+            cx.request_frame_in(Duration::ZERO);
+        }
     }
 }
 
@@ -85,14 +161,17 @@ impl<Msg: 'static> Widget<Msg> for ScrollView<Msg> {
         let overflows = full > area.height;
         let width = if overflows { area.width.saturating_sub(2) } else { area.width };
         let height = if overflows { cx.measure_child(content, Size::new(width, u16::MAX)).height } else { full };
+        let max = height.saturating_sub(area.height);
         let offset = {
             let memory = cx.memory::<ScrollMemory>();
             memory.content_height = height;
-            memory.offset = memory.offset.min(height.saturating_sub(area.height));
+            memory.offset = memory.offset.min(max);
             memory.offset
         };
+        let offset = Self::glide(cx, offset, max);
         let content_rect = Rect::new(area.x, area.y - i32::from(offset), width, height);
         cx.with_clip(area, |cx| cx.paint_child(content, content_rect));
+        Self::take_reveal(cx, content_rect, area, offset);
 
         if let Some(focused) = cx.interaction.focused
             && focused != cx.id()
@@ -103,17 +182,11 @@ impl<Msg: 'static> Widget<Msg> for ScrollView<Msg> {
             let memory = cx.memory::<ScrollMemory>();
             memory.revealed = Some(focused);
             let top = rect.y - content_rect.y;
-            let bottom = top + i32::from(rect.height);
-            let new_offset = if top < i32::from(offset) {
-                clamp_u16(top)
-            } else if bottom > i32::from(offset) + i32::from(area.height) {
-                clamp_u16(bottom - i32::from(area.height))
-            } else {
-                offset
-            };
+            let new_offset = offset_showing(top, top + i32::from(rect.height), offset, area.height);
             if new_offset != offset {
                 memory.offset = new_offset;
-                cx.request_frame_in(std::time::Duration::ZERO);
+                memory.glide = None;
+                cx.request_frame_in(Duration::ZERO);
             }
         }
 

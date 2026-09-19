@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: API documentation
+    url: https://docs.rs/quvyta-framework
+    about: Every public type, with its keys, mouse behaviour and theme style keys.

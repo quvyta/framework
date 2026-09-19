@@ -43,6 +43,15 @@ Her ikonun üç biçimi vardır: Nerd Font için `nerd`, `unicode` ve `ascii`. `
 
 Set, bir uygulamanın ana menüsünün gösterdiği anlamlara da karşılık verir; böylece ailedeki her uygulama aynı şekilleri çizer: `project`, `profile`, `settings` ve `power`. Nerd Font şeyin kendisini çizer; Unicode sütunu, terminallerin ve eşit aralıklı yazı tiplerinin tek hücre olarak çizdiği Geometric Shapes içinde kalır, böylece hiçbir satır başka bir yazı tipine düşüp hücreden taşmaz.
 
+## Uygulamanın kendi ikonları
+
+Uygulama kendi ikonlarını bir ikon setini verdiği gibi verir: `Runtime::icon_source("app.toml", include_str!("../assets/icons/app.toml"))`. Gömülü sette olmayan anahtarlar, örneğin `category.internet` ya da `source.aur`, bundan sonra ikon anahtarı alan her bileşende ve `env.icons().glyph(..)` ile çizilir; tema hangi seti seçerse seçsin. Glif kipi değişince bu ikonlar da kendi Nerd, Unicode ya da ASCII sütununa geçer. Demodaki “uygulama ikonu” satırı böyle bir anahtardır ve varsayılan temada çizilir.
+
+- **Uygulamanın anahtarları seçili setin altında durur.** Bir temanın seti ya da temanın tek bir `[icons]` girdisi `category.internet`'i yine de yeniden biçimlendirebilir; kullanıcı her şeyi değiştirebildiği gibi bunu da değiştirir.
+- **Framework'ün anahtarları temanındır.** Gömülü sette zaten olan bir anahtar, örneğin `check`, her bileşenin çizdiği bir ikonun yeniden biçimidir; yalnızca bir tema setinizi seçtiğinde (`[meta] icon-set`) geçerli olur. Bir uygulama seti, kullanıcının seçtiği setin ikonlarını hiçbir zaman değiştirmez. Kendi anlamlarınıza kendi adlarını verin, tercihen bir önekle.
+- **İki setiniz aynı anahtarı verirse** sonra eklenen kazanır; sonra verilen metnin klasörü ezmesi gibi.
+- **Eksik sütun raporlanır, programı durdurmaz.** `nerd` yoksa Unicode glifi yerine geçer, çünkü Nerd Font Unicode'u da çizer; `unicode` yoksa ASCII glifi geçer. İkisi de dosya, satır ve sütunla verilen birer uyarıdır. `ascii` yoksa yerine geçecek daha sade bir şey olmadığından ikon bir hatayla atlanır ve ekranda onun yerinde `⟦anahtar⟧` görünür.
+
 ## Diller
 
 Dil dosyaları bölümler halinde gruplanmış anahtarları tutar. `t!("files.count", n = 3)` anahtarı önce etkin dilde, sonra onun `fallback` dilinde, en son İngilizcede arar. Çoğul biçimleri `{ one = "{n} file", other = "{n} files" }` gibi tablolardır; biçimi dilin kendi kuralı seçer, böylece Türkçe, Rusça ya da Arapça kendi biçimini alır. Eksik anahtar fark edilsin diye `⟦files.count⟧` olarak görünür; `missing_keys` ile bir test her dili eksiksiz tutar.

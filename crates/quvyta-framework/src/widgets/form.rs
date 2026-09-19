@@ -291,6 +291,41 @@ mod tests {
         assert!(h.screen().starts_with("Name  required\n  ❯\n"), "{}", h.screen());
     }
 
+    struct Note {
+        placeholder: &'static str,
+    }
+
+    impl App for Note {
+        type Msg = Msg;
+        fn update(&mut self, _: Msg) -> Command<Msg> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, Msg>) {
+            Form::new().label_width(16).show(ui, |form| {
+                form.field(Field::new("Project"), |ui| {
+                    ui.add(TextInput::new("").placeholder("qframe").on_change(Msg::Name));
+                });
+                form.field(Field::new("Note"), |ui| {
+                    ui.add(TextInput::new("").placeholder(self.placeholder).on_change(Msg::Image));
+                });
+            });
+        }
+    }
+
+    #[test]
+    fn a_control_wider_than_the_room_beside_its_label_goes_under_it_and_keeps_its_placeholder() {
+        for placeholder in ["A note for this session", "Eine Notiz für diese Sitzung"] {
+            let h = Harness::new(Note { placeholder }, 40, 6);
+            let screen = h.screen();
+            assert!(!screen.contains('…') && screen.contains(placeholder), "{placeholder}: {screen}");
+            let lines: Vec<&str> = screen.lines().collect();
+            assert!(lines[0].starts_with("Project") && lines[0].contains("qframe"), "stays beside: {screen}");
+            let note = lines.iter().position(|line| line.starts_with("Note")).unwrap_or_else(|| panic!("{screen}"));
+            assert_eq!(lines[note].trim_end(), "Note", "the label has its own line: {screen}");
+            assert!(lines[note + 1].contains(placeholder), "the control is right under it: {screen}");
+        }
+    }
+
     #[test]
     fn a_required_word_too_wide_for_the_label_column_moves_under_the_control() {
         for code in ["en", "de", "fr", "ru"] {

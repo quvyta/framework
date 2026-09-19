@@ -15,6 +15,7 @@ Tek tek ve hemen uygulanan tercihler için ayar listesi kullan: tema, animasyonl
 - **Satırlar dokunulana kadar sadedir.** Fare altındaki satır yüzeyini yumuşak bir çubukla yükseltir; klavyenin satırı nefes alan çubukla daha da yükselir. Odaktaki liste hiçbir zaman iki satırı birden yükseltmez: fareyi bir satıra götürmek onu klavyenin satırı yapar.
 - **Yalnızca etiket kayar.** Hover ve seçimde etiket ve açıklama bir hücre sağa geçer; çubuk ve kontrol olduğu yerde kalır. Etiket sütunu bunun için bir hücre pay bırakır, uzun etiketleri `…` ile keser.
 - **Liste tek bir kontrol gibi odak alır.** Tab listeye bir kez gelir, içindeki her anahtara değil. Yukarı ve Aşağı pasif satırları atlayarak etkin satırlar arasında gezer; diğer her tuş seçili satırın kontrolüne gider: Boşluk anahtarı değiştirir, Enter açılır listeyi açar, Sağ ve Sol segment seçicinin seçimini değiştirir.
+- **Tek liste bütün sayfa olabilir.** Uzun bir listeyi `ScrollView` içine koy: tuşlarla gezerken seçili satır görünür kalacak kadar kaydırılır, tıklamak kaydırmaya dokunmaz, basılan satır imlecin altında kalır.
 - **Kullanılmayan tuşlar satırı çalıştırır.** Kontrol Enter ya da Boşluk'u kullanmazsa ve satırın `on_activate` mesajı varsa o mesaj gönderilir.
 - **Fare doğrudan kontrollere gider.** Anahtara tıklamak onu değiştirir; etikete tıklamak satırı seçer, çalıştırılabiliyorsa çalıştırır.
 - **Değerler uygulamanın, klavyenin satırı motorundur.**

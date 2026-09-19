@@ -10,6 +10,11 @@ use super::cells;
 /// Counts above this are shown as `99+`.
 const COUNT_LIMIT: u32 = 99;
 
+/// How a count reads wherever the framework shows one as a badge: the number, or `99+` above 99.
+pub(crate) fn count_label(count: u32) -> String {
+    if count > COUNT_LIMIT { format!("{COUNT_LIMIT}+") } else { count.to_string() }
+}
+
 /// A status pill: a tinted surface with a marker dot and a word, and optionally a count.
 ///
 /// The shape is the tint, one cell of padding on each side, never brackets. Tones come from
@@ -48,7 +53,7 @@ impl Badge {
     }
 
     fn count_text(&self) -> Option<String> {
-        self.count.map(|count| if count > COUNT_LIMIT { format!(" {COUNT_LIMIT}+ ") } else { format!(" {count} ") })
+        self.count.map(|count| format!(" {} ", count_label(count)))
     }
 }
 

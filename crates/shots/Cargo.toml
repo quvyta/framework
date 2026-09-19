@@ -20,7 +20,7 @@ name = "qshots"
 workspace = true
 
 [dependencies]
-quvyta-framework = { version = "0.1.8", path = "../quvyta-framework" }
+quvyta-framework = { version = "0.1.9", path = "../quvyta-framework" }
 # The harness hands out its screen as a ratatui buffer; reading cell styles needs its types.
 # The framework already depends on this version, so it adds no crate.
 ratatui-core = { version = "0.1.2", features = ["std"] }

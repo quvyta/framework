@@ -263,6 +263,27 @@ fg = "$text"
 bg = "$raised"
 fg = "$muted"
 
+# An icon button stands on the ground around it: no surface at rest, and the tone ladder
+# rest < hover < focus < pressed lights all three cells. Focus is a tone of its own, since three
+# cells leave no room for a pillar before the glyph.
+[style.icon-button]
+fg = "$dim"
+
+[style."icon-button:hover"]
+bg = "$active"
+fg = "$text"
+
+[style."icon-button:focus"]
+bg = "mix($accent, $active, 22%)"
+fg = "$text"
+
+[style."icon-button:pressed"]
+bg = "mix($accent, $active, 34%)"
+fg = "$text"
+
+[style."icon-button:disabled"]
+fg = "$muted"
+
 # Hold to confirm: three bars blend one after another, each as a whole, from the track colour
 # to the warning colour. Hover and focus raise the pillar like a button.
 [style.hold]
@@ -571,7 +592,7 @@ bg = "$active"
 pillar = "pulse($accent, $accent-2)"
 
 [style."text-input:invalid"]
-bg = "mix($danger, $surface, 14%)"
+bg = "mix($danger, $surface, 11%)"
 
 # A field that failed validation breathes its pillar in the danger colour while focused.
 [style."text-input:invalid:focus"]
@@ -616,7 +637,7 @@ bg = "$active"
 pillar = "pulse($accent, $accent-2)"
 
 [style."text-area:invalid"]
-bg = "mix($danger, $surface, 14%)"
+bg = "mix($danger, $surface, 11%)"
 
 [style."text-area:invalid:focus"]
 pillar = "pulse($danger, $warning)"
@@ -670,7 +691,7 @@ fg = "$text"
 pillar = "pulse($accent, $accent-2)"
 
 [style."time-input:invalid"]
-bg = "mix($danger, $surface, 14%)"
+bg = "mix($danger, $surface, 11%)"
 
 [style."time-input:disabled"]
 fg = "$muted"
@@ -1081,6 +1102,17 @@ bold = true
 [style."tab-index:selected:focus"]
 fg = "pulse($accent, $accent-2)"
 
+# A count after a tab's name, such as waiting updates: a step quieter than the name in every state.
+[style.tab-badge]
+fg = "$muted"
+
+[style."tab-badge:hover"]
+fg = "$dim"
+
+[style."tab-badge:selected"]
+fg   = "$dim"
+bold = true
+
 # The arrows and the menu control of an overflowing strip are small buttons on one tone
 # ladder, rest < hover < pressed, with the pillar in their first cell. An arrow with nothing more
 # to show sinks to the surface.
@@ -1463,6 +1495,28 @@ bold = true
 
 [style."code-token.key"]
 fg = "$accent-2"
+
+# Marked and highlighted lines: a tint of the line's colour across the row, the colour itself on
+# its sign. Diff lines use their status colours; a highlight is the accent or a warning.
+[style."code-line.added"]
+bg = "mix($success, $surface, 10%)"
+fg = "$success"
+
+[style."code-line.removed"]
+bg = "mix($danger, $surface, 11%)"
+fg = "$danger"
+
+[style."code-line.accent"]
+bg = "mix($accent, $surface, 10%)"
+fg = "$accent"
+
+[style."code-line.warning"]
+bg = "mix($warning, $surface, 11%)"
+fg = "$warning"
+
+# Shell variables and expansions: `$pkgdir`, `${name}`, the `$(` and `)` of a substitution.
+[style."code-token.variable"]
+fg = "$info"
 
 # ---- Markdown --------------------------------------------------------------------------------
 

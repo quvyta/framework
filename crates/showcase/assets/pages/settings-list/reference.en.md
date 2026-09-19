@@ -12,7 +12,7 @@
 
 - The label starts two cells in; the control ends two cells before the right edge.
 - Label budget: the space up to two cells before the control, minus one spare cell for the slide.
-- Keys while focused: ↑/↓ move between enabled rows; Home and End jump when the control does not use them; everything else goes to the selected row's control first.
+- Keys while focused: ↑/↓ move between enabled rows; Home and End jump when the control does not use them; everything else goes to the selected row's control first. In a `ScrollView` shorter than the list, a key move scrolls just enough to show the new row; a click never scrolls.
 - On focus the remembered row, or the first enabled row, is selected.
 - The row stays lit while the pointer is over its control.
 - A focused list raises one row only: moving the pointer onto an enabled row makes it the keyboard's row, and the arrows continue from there.

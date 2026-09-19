@@ -430,6 +430,17 @@ pub fn translate_active(key: &str, args: &[(&str, Arg)]) -> String {
     })
 }
 
+/// The first day of the week of the translator installed by [`scope`], as
+/// [`I18n::first_weekday`] gives it: from the region when one is known, from the language
+/// otherwise. Outside a scope it is Monday.
+///
+/// The runtime installs the translator around `init`, `update` and the other [`App`](crate::runtime::App)
+/// methods, so week arithmetic in `update` agrees with the calendars the view draws.
+#[must_use]
+pub fn first_weekday() -> Weekday {
+    ACTIVE.with(|active| active.borrow().as_ref().map_or(Weekday::Monday, |i18n| i18n.first_weekday()))
+}
+
 /// Translates `key` without arguments with the translator installed by [`scope`], or `None` when
 /// neither the active locale, its fallbacks nor English define it: for keys only some
 /// languages need.
@@ -782,6 +793,18 @@ mod tests {
         assert!(!i18n.select("fi-FI"));
         assert_eq!((i18n.active(), i18n.region()), ("pt-BR", Some("BR")), "no Finnish, nothing changes");
         assert!(!i18n.select(""));
+    }
+
+    #[test]
+    fn the_first_weekday_of_the_active_translator_is_read_without_the_view() {
+        assert_eq!(first_weekday(), Weekday::Monday, "outside a scope");
+        let mut american = I18n::builtin();
+        assert!(american.set_region(Some("US")));
+        assert_eq!(scope(Arc::new(american), first_weekday), Weekday::Sunday);
+        let mut british = I18n::builtin();
+        assert!(british.set_region(Some("GB")));
+        assert_eq!(scope(Arc::new(british), first_weekday), Weekday::Monday);
+        assert_eq!(first_weekday(), Weekday::Monday, "the scope is gone again");
     }
 
     #[test]

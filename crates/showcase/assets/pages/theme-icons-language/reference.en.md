@@ -16,6 +16,8 @@
 ## Icon file
 
 - `[meta] name`, and `[icons]` with `key = { nerd = "…", unicode = "…", ascii = "…" }`.
+- A missing `nerd` glyph is a warning and the `unicode` glyph stands in; a missing `unicode` glyph is a warning and the `ascii` glyph stands in; a missing `ascii` glyph is an error and the icon is skipped. Each names the file, line and column of the icon.
+- An application's sets (from `icon_dir` and `icon_source`): keys the built-in set lacks are drawn in every set, under the chosen set and the theme's `[icons]`, a later set winning a key two of them give; keys the built-in set has apply only while a theme names the set.
 - Built-in keys: `check check-partial close dot dot-outline select-on select-off radio-mark-small pillar bullet mask prompt enter arrow-left arrow-right arrow-up arrow-down chevron-left chevron-right chevron-down switch-rail switch-knob cap-left cap-right slider-rail slider-knob stepper-minus stepper-plus add search scroll-thumb scroll-track scroll-thin scroll-dot scroll-dot-thumb section-open section-closed tree-collapsed tree-expanded edge-left edge-right crumb-separator path-separator folder file inbox success warning error info project profile settings power`. One-cell animations such as the spinner styles live in `[animations.<name>]` tables of the same files; see the Animation studio page.
 
 ## Locale file

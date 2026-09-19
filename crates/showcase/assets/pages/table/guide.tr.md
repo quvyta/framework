@@ -6,7 +6,7 @@ Her satırın insanların karşılaştırdığı aynı birkaç bilgiyi taşıdı
 
 1. Sütunları tarif et: `Column::new(t!("name"))` boş alanı doldurur; `.width(ColumnWidth::Fit)` sütunu en geniş hücresine göre boyutlar; `.width(ColumnWidth::Fixed(9))` sabitler; `.min(12)` dolduran sütunun okunur kalmasını sağlar.
 2. Sayıları `.align(Align::End)` ile sağa hizala; basamaklar alt alta gelir.
-3. Satırları kur: `TableRow::new([ad, durum, cpu])`; bir hücre durum ikonu taşıyabilir: `TableCell::new(kelime).icon("dot", Some("success"))`.
+3. Satırları kur: `TableRow::new([ad, durum, cpu])`; bir hücre durum ikonu taşıyabilir: `TableCell::new(kelime).icon("dot", Some("success"))`; ya da bir adın önünde sessiz bir glif: kendi bulduğunuz bir glif için `TableCell::new(ad).icon(Glyph::literal('\u{e76e}'), None)`, setin bir ikonu için `Glyph::key("project")`.
 4. Satır çoksa durumunda `Arc<[TableRow]>` olarak tut ve klonunu ver; tablo onları hiç kopyalamaz.
 5. Seçimi `.selected(..)` ile göster, `.on_select(..)` ve `.on_activate(..)` ile al.
 6. Sıralama için sütunları `.sortable(true)` yap, `.on_sort(|sütun, yön| ..)` mesajında verini yeniden sırala ve sonucu `.sort(sütun, yön)` ile göster.
@@ -19,6 +19,7 @@ Her satırın insanların karşılaştırdığı aynı birkaç bilgiyi taşıdı
 - **Yalnızca ilk hücre kayar.** Hover edilen ya da seçili satır yükselir, çubuğu gösterir ve görünen ilk hücresini bir hücre sağa kaydırır. Çoklu seçimin işareti ile sağdaki sayılar ve durumlar yerinde kalır; göz gezinirken onları karşılaştırabilir, işaret de hep tıkladığın yerdedir.
 - **Sığmayan sütunlar yana kayar.** En küçük genişlikler sığmazsa ← ve → bütün sütunları kaydırır. Başlığın uçlarındaki oklar o yanda gizli sütun olduğunu söyler; oklar birer düğmedir: tıklamak bir sütun kaydırır, fare üstüne gelince aydınlanırlar.
 - **Satır sayısı sınırsız.** Yalnızca ekrandaki satırlar çizilir; `Fit` genişlikleri her satır kümesi için bir kez ölçülür.
+- **Adın önündeki glif sessizdir.** Renk verilmezse `muted` çizilir, adın bir basamak altında; seçili satırda adın rengini alır. Böylece göz önce adı okur ve anlam hiçbir zaman glifin rengine yüklenmez. Glif, bir boşluk, sonra metin: her glif kipinde aynı düzen. Dar bir sütun yalnızca metni `…` ile keser; glif ve boşluğu hep kalır. Demodaki adlar Nerd kipinde programlarının Nerd Font glifini, öteki kiplerde setin proje ikonunu taşır; deneme alanından kapatılabilir.
 - **Veri senin, sıra senin.** Tablo satırları asla kendisi sıralamaz; sıralama ister ve senin geri verdiğin oku gösterir.
 
 ## Sık yapılan hatalar

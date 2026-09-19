@@ -54,9 +54,9 @@ kind     = "infrastructure"
 priority = "p0"
 status   = "done"
 page     = "theme-icons-language"
-types    = ["Icons", "IconSetRegistry", "IconGlyphs", "IconMode", "GlyphMode", "PillarStyle", "PILLAR", "detect_glyph_mode", "default_font_dirs"]
-notes    = "Every icon has a Nerd Font, a Unicode and an ASCII glyph, and an icon set can be given as text instead of a file. The set also answers the meanings an application's main menu shows — project, profile, settings and power — so every application in the family draws the same shapes; the Unicode column of those four stays inside Geometric Shapes, which terminals draw as one cell, so no row falls back to another font and overflows."
-notes-tr = "Her ikonun bir Nerd Font, bir Unicode ve bir ASCII biçimi vardır; ikon seti dosya yerine metin olarak da verilebilir. Set, bir uygulamanın ana menüsünün gösterdiği anlamlara da karşılık verir — project, profile, settings, power — böylece ailedeki her uygulama aynı şekilleri çizer; bu dördünün Unicode biçimi, terminallerin tek hücre olarak çizdiği Geometric Shapes içinde kalır, böylece hiçbir satır başka bir yazı tipine düşüp taşmaz."
+types    = ["Icons", "IconSetRegistry", "IconGlyphs", "Glyph", "IconMode", "GlyphMode", "PillarStyle", "PILLAR", "detect_glyph_mode", "default_font_dirs"]
+notes    = "Every icon has a Nerd Font, a Unicode and an ASCII glyph, and an icon set can be given as text instead of a file. The set also answers the meanings an application's main menu shows — project, profile, settings and power — so every application in the family draws the same shapes; the Unicode column of those four stays inside Geometric Shapes, which terminals draw as one cell, so no row falls back to another font and overflows. An application's own sets add the keys the built-in set lacks to every set, so category.internet is drawn in any theme and follows the glyph mode; they sit under the chosen set and the theme's [icons], so a user can still restyle them, and a key the built-in set has (check) applies only while a theme names the set, because it restyles an icon every widget draws. A missing nerd or unicode column is a located warning and a plainer glyph stands in; a missing ascii column skips the icon."
+notes-tr = "Her ikonun bir Nerd Font, bir Unicode ve bir ASCII biçimi vardır; ikon seti dosya yerine metin olarak da verilebilir. Set, bir uygulamanın ana menüsünün gösterdiği anlamlara da karşılık verir — project, profile, settings, power — böylece ailedeki her uygulama aynı şekilleri çizer; bu dördünün Unicode biçimi, terminallerin tek hücre olarak çizdiği Geometric Shapes içinde kalır, böylece hiçbir satır başka bir yazı tipine düşüp taşmaz. Uygulamanın kendi setleri gömülü sette olmayan anahtarları her sete ekler; category.internet her temada çizilir ve glif kipine uyar. Bu anahtarlar seçili setin ve temanın [icons]'unun altında durur, kullanıcı onları yine de değiştirebilir; gömülü sette olan bir anahtar (check) yalnızca bir tema o seti seçtiğinde geçerlidir, çünkü her bileşenin çizdiği bir ikonu değiştirir. Eksik nerd ya da unicode sütunu yeri gösterilen bir uyarıdır ve daha sade glif yerine geçer; eksik ascii sütunu ikonu atlatır."
 
 [[item]]
 id       = "i18n-system"
@@ -172,6 +172,18 @@ notes    = "The pillar is always the leftmost cell: ▌ ⏎ Save, never ⏎ ▌ 
 notes-tr = "Vurgu çubuğu her zaman en soldaki hücredir: ▌ ⏎ Kaydet, asla ⏎ ▌ Kaydet. Kısayol parçası çubuk hücresiyle başlar, bu yüzden hover'da hiçbir şey kaymaz."
 
 [[item]]
+id       = "icon-button"
+name     = "Icon button"
+group    = "controls"
+kind     = "widget"
+priority = "p1"
+status   = "done"
+page     = "icon-button"
+types    = ["IconButton"]
+notes    = "A new component, not a Button option: a button is a raised surface with theme padding and a pillar cell before its content, and an icon button has none of them, so making one from the other would take three options that each switch off something every button has. It is a space, one glyph and a space, three cells in every glyph mode, on the ground around it with no surface at rest. The tone ladder rest < hover < focus < pressed lights all three cells; focus is a tone of its own, because three cells leave no room for a pillar before the glyph. tooltip(text) names it after the hover delay and at once from the keyboard, drawn by the same code as Tooltip, because a lone glyph needs words more than any labelled control. The settings icon stays ▤ in Unicode: ⚙ says it better, but many monospace fonts lack it and it has an emoji form some terminals draw two cells wide, so it would overflow the cell; the Nerd Font column carries the cog."
+notes-tr = "Button'un bir seçeneği değil, yeni bir bileşen: buton, temadan gelen iç boşluğu ve içeriğinden önce bir çubuk hücresi olan yükselmiş bir yüzeydir; ikon butonunda bunların hiçbiri yoktur, biri ötekinden ancak her butonda olan bir şeyi kapatan üç ayrı seçenekle yapılabilirdi. Bir boşluk, tek glif ve bir boşluktur; her glif kipinde üç hücre, dururken yüzeysiz, çevresindeki zeminin üstünde. Ton merdiveni dinlenme < hover < odak < basılı üç hücreyi birlikte aydınlatır; odak kendi tonudur, çünkü üç hücrede glifin önüne çubuk sığmaz. tooltip(metin) onu hover gecikmesinden sonra, klavyeyle gelince de hemen adlandırır ve Tooltip'le aynı kodla çizilir; tek başına bir glif, etiketli her kontrolden çok söze ihtiyaç duyar. Ayarlar ikonu Unicode'da ▤ olarak kaldı: ⚙ anlamı daha iyi anlatır ama birçok eşit aralıklı yazı tipinde yoktur ve bazı terminallerin iki hücre çizdiği bir emoji biçimi vardır, hücreden taşar; dişliyi Nerd Font sütunu taşır."
+
+[[item]]
 id       = "text-input"
 name     = "Text input"
 group    = "controls"
@@ -226,8 +238,8 @@ priority = "p0"
 status   = "done"
 page     = "tabs"
 types    = ["Tabs"]
-notes    = "When the strip overflows, three-cell arrow buttons appear at both ends. Hover lights them with the pillar, a press flashes and scrolls by one tab, and an arrow that can go no further sinks into the surface."
-notes-tr = "Şerit taştığında iki uçta üç hücrelik ok düğmeleri belirir. Hover onları çubukla aydınlatır, basış parlayıp bir sekme kaydırır, daha ileri gidemeyen ok zemine iner."
+notes    = "When the strip overflows, three-cell arrow buttons appear at both ends. Hover lights them with the pillar, a press flashes and scrolls by one tab, and an arrow that can go no further sinks into the surface. badge(index, count) puts a count one space after a tab's name, named and toned like the TabRail badge (tab-badge, a step quieter than the name): zero shows nothing and takes no room, so an application passes its count as it is, and above 99 it reads 99+ like a Badge count. The count is part of the tab's width, so a narrow tab cuts its name first and keeps the count; like the rail's badge it stays put while the name slides, and a hidden tab carries its count into the overflow menu."
+notes-tr = "Şerit taştığında iki uçta üç hücrelik ok düğmeleri belirir. Hover onları çubukla aydınlatır, basış parlayıp bir sekme kaydırır, daha ileri gidemeyen ok zemine iner. badge(sıra, sayı) bir sekmenin adından bir boşluk sonra bir sayı koyar; adı ve tonu TabRail rozetiyle aynıdır (tab-badge, addan bir ton sessiz): sıfır hiçbir şey göstermez ve yer tutmaz, böylece uygulama sayısını olduğu gibi verir; 99'un üstü bir Badge sayısı gibi 99+ okunur. Sayı sekmenin genişliğine dahildir, bu yüzden dar bir sekme önce adını kısaltır ve sayıyı korur; raydaki rozet gibi ad kayarken yerinde durur ve gizlenen bir sekme sayısını taşma menüsüne de götürür."
 
 [[item]]
 id       = "key-hints"
@@ -259,9 +271,9 @@ kind     = "widget"
 priority = "p0"
 status   = "done"
 page     = "code-view"
-types    = ["CodeView", "Language"]
-notes    = "The code is selectable by default, but its padding never is. Clean copies leave line numbers out."
-notes-tr = "Kod varsayılan olarak seçilebilir, iç boşluğu ise hiçbir zaman seçilmez. Temiz kopya satır numaralarını almaz."
+types    = ["CodeView", "Language", "LineMark", "LineTone"]
+notes    = "The code is selectable by default, but its padding never is. Clean copies leave line numbers out, and the signs of marked lines. For reviewing a recipe or a diff: Language::Shell colours bash (a PKGBUILD, an .install file; Language::from_file_name picks it), line_marks tints added and removed lines with a + or − sign, highlight_lines tints lines in the accent (with the pillar) or a warning (with its icon), and reveal(line) asks the enclosing scroll view, through PaintCx::reveal, to glide just far enough to show the line with two rows of context, once each time the line changes."
+notes-tr = "Kod varsayılan olarak seçilebilir, iç boşluğu ise hiçbir zaman seçilmez. Temiz kopya satır numaralarını ve işaretli satırların işaretlerini almaz. Tarif ya da fark incelemek için: Language::Shell bash renklendirir (PKGBUILD, .install; Language::from_file_name seçer), line_marks eklenen ve silinen satırları + ya da − işaretiyle tonlar, highlight_lines satırları vurgu tonunda (dikey çubukla) ya da uyarı tonunda (ikonuyla) boyar, reveal(satır) çevreleyen kaydırma alanından PaintCx::reveal ile satırı iki satır bağlamla gösterecek kadar kaymasını ister; satır her değiştiğinde bir kez."
 
 [[item]]
 id       = "checkbox"
@@ -548,8 +560,8 @@ priority = "p2"
 status   = "done"
 page     = "table"
 types    = ["Table", "Column", "ColumnWidth", "SortDirection", "TableCell", "TableRow"]
-notes    = "The check mark stays put while the first cell slides. The arrows in the header scroll hidden columns into view when clicked."
-notes-tr = "İlk hücre kayarken seçim işareti yerinde kalır. Başlıktaki oklar tıklanınca gizli sütunları görünür hale kaydırır."
+notes    = "The check mark stays put while the first cell slides. The arrows in the header scroll hidden columns into view when clicked. A cell's icon is an icon key or a literal Glyph, drawn as the glyph, one space and the text; without a colour it is muted and takes the row's text colour on the selected row, so it stays quieter than the name and never carries meaning by colour. A narrow column cuts only the text; the glyph and its space always stay, in every glyph mode."
+notes-tr = "İlk hücre kayarken seçim işareti yerinde kalır. Başlıktaki oklar tıklanınca gizli sütunları görünür hale kaydırır. Hücrenin ikonu bir ikon anahtarı ya da sabit bir Glyph olur; glif, bir boşluk ve metin olarak çizilir. Renk verilmezse muted çizilir ve seçili satırda satırın metin rengini alır; böylece addan sessiz kalır ve anlamı renkle taşımaz. Dar sütun yalnızca metni keser; glif ve boşluğu her glif kipinde hep kalır."
 
 [[item]]
 id       = "tree"
@@ -757,9 +769,9 @@ kind     = "infrastructure"
 priority = "p0"
 status   = "done"
 page     = "storage"
-types    = ["config_dir", "data_dir"]
-notes    = "Settings and data are two folders, because a recorded session is not a setting: XDG_CONFIG_HOME and XDG_DATA_HOME on Linux and other Unix systems, the roaming and the local AppData on Windows, and on macOS the same Application Support folder for both, since macOS has no split for a command line application. An absolute XDG variable wins, a relative one is invalid and ignored, a HOME that is not absolute counts as missing so nothing lands under the working directory, and None means the platform gives no folder at all, so the application keeps everything in memory. Asking does not create the folder."
-notes-tr = "Ayar ile veri iki ayrı klasördür, çünkü kaydedilmiş bir oturum ayar değildir: Linux ve diğer Unix sistemlerinde XDG_CONFIG_HOME ile XDG_DATA_HOME, Windows'ta dolaşan ve yerel AppData, macOS'ta ise ikisi için aynı Application Support klasörü, çünkü macOS bir komut satırı uygulaması için ayrım yapmaz. Mutlak bir XDG değişkeni kazanır, göreli olan geçersizdir ve yok sayılır, mutlak olmayan bir HOME yok sayılır ve hiçbir şey çalışma klasörünün altına düşmez, None ise platformun hiç klasör vermediğini söyler; uygulama o zaman her şeyi bellekte tutar. Sormak klasörü oluşturmaz."
+types    = ["config_dir", "data_dir", "state_dir", "cache_dir"]
+notes    = "Settings and data are two folders, because a recorded session is not a setting: XDG_CONFIG_HOME and XDG_DATA_HOME on Linux and other Unix systems, the roaming and the local AppData on Windows, and on macOS the same Application Support folder for both, since macOS has no split for a command line application. An absolute XDG variable wins, a relative one is invalid and ignored, a HOME that is not absolute counts as missing so nothing lands under the working directory, and None means the platform gives no folder at all, so the application keeps everything in memory. Asking does not create the folder. state_dir and cache_dir follow the same rules for what an application remembers between runs and what it can rebuild: XDG_STATE_HOME or ~/.local/state and XDG_CACHE_HOME or ~/.cache on Linux, Application Support and Library/Caches on macOS, the local AppData on Windows; Family::state_dir(app) and Family::cache_dir(app) put a member under the family folder in each, such as ~/.cache/quvyta/packages."
+notes-tr = "Ayar ile veri iki ayrı klasördür, çünkü kaydedilmiş bir oturum ayar değildir: Linux ve diğer Unix sistemlerinde XDG_CONFIG_HOME ile XDG_DATA_HOME, Windows'ta dolaşan ve yerel AppData, macOS'ta ise ikisi için aynı Application Support klasörü, çünkü macOS bir komut satırı uygulaması için ayrım yapmaz. Mutlak bir XDG değişkeni kazanır, göreli olan geçersizdir ve yok sayılır, mutlak olmayan bir HOME yok sayılır ve hiçbir şey çalışma klasörünün altına düşmez, None ise platformun hiç klasör vermediğini söyler; uygulama o zaman her şeyi bellekte tutar. Sormak klasörü oluşturmaz. state_dir ve cache_dir, uygulamanın iki açılış arasında hatırladıkları ve yeniden kurabileceği dosyalar için aynı kurallara uyar: Linux'ta XDG_STATE_HOME ya da ~/.local/state ile XDG_CACHE_HOME ya da ~/.cache, macOS'ta Application Support ve Library/Caches, Windows'ta yerel AppData; Family::state_dir(app) ve Family::cache_dir(app) bir üyeyi her birinde ailenin klasörü altına koyar, örneğin ~/.cache/quvyta/packages."
 
 [[item]]
 id       = "atomic-write"

@@ -13,6 +13,10 @@ const LABEL_GAP: u16 = 2;
 /// The narrowest control a field keeps beside its label; below it the label moves above.
 const MIN_CONTROL: u16 = 16;
 
+/// The width a control is measured in to learn how wide it wants to be. One that answers with all
+/// of it fills whatever it is given.
+const UNBOUNDED: u16 = 4096;
+
 /// A labelled control: the label, the control the application adds inside, and under it a
 /// faint hint or, when there is one, the error in the danger colour with a marker.
 ///
@@ -22,7 +26,9 @@ const MIN_CONTROL: u16 = 16;
 ///
 /// Labels sit above the control by default. With [`Field::label_width`] they take a column of
 /// that width beside the control whenever the field is wide enough, and move above it again on
-/// narrow screens. The column is at least as wide as the required word of the active language.
+/// narrow screens. A control that asks for more than the room beside the label (an input with a
+/// long placeholder) puts its label above as well and takes the whole row instead of being cut.
+/// The column is at least as wide as the required word of the active language.
 ///
 /// Style keys: `field-label` (`fg`, `bold`) with states `focus` and `disabled`;
 /// `field-required`, `field-hint` and `field-error` (`fg`). The required word is
@@ -91,8 +97,15 @@ impl<Msg: 'static> Field<Msg> {
     }
 
     /// The label column width when the label fits beside the control in `width` cells.
-    fn beside(&self, width: u16) -> Option<u16> {
-        self.label_width.filter(|label| width >= cells::sum([*label, LABEL_GAP, MIN_CONTROL]))
+    ///
+    /// `natural` is the width the control asks for with no limit. A control wider than the room
+    /// beside the label would be cut there, so its label goes above and it gets the whole row; a
+    /// control that takes whatever it is given stays beside.
+    fn beside(&self, width: u16, natural: u16) -> Option<u16> {
+        self.label_width.filter(|label| {
+            let room = width.saturating_sub(cells::sum([*label, LABEL_GAP]));
+            room >= MIN_CONTROL && (natural <= room || natural >= UNBOUNDED)
+        })
     }
 
     /// Whether the required word, too wide for the label column `column`, goes under the control
@@ -141,7 +154,8 @@ impl<Msg: 'static> Widget<Msg> for Field<Msg> {
         let Some(body) = self.body.first() else {
             return Size::default();
         };
-        if let Some(column) = self.beside(available.width) {
+        let natural = cx.measure_child(body, Size::new(UNBOUNDED, available.height)).width;
+        if let Some(column) = self.beside(available.width, natural) {
             let control_width = available.width - column - LABEL_GAP;
             let control = cx.measure_child(body, Size::new(control_width, available.height));
             let (lines, _) = self.message_lines(control_width, marker);
@@ -170,7 +184,8 @@ impl<Msg: 'static> Widget<Msg> for Field<Msg> {
         let marker = cx.env().icons().glyph("error").into_owned();
         let marker_width = text::width(&marker);
         let required = required_word();
-        let parts = match self.beside(area.width) {
+        let natural = cx.measure_child(body, Size::new(UNBOUNDED, area.height)).width;
+        let parts = match self.beside(area.width, natural) {
             Some(column) => {
                 let control_x = area.x + i32::from(column + LABEL_GAP);
                 let control_width = area.width - column - LABEL_GAP;

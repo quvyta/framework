@@ -77,6 +77,12 @@ impl<A: App> Runtime<A> {
     /// installed program needs no files beside it. `file` names it in diagnostics and its stem
     /// is the icon set id, the way a directory names its files. Text given this way wins over
     /// [`Runtime::icon_dir`].
+    ///
+    /// This is also how an application gives its own icons: keys the built-in set lacks, such as
+    /// `category.internet`, are drawn by every widget that takes an icon key, in whatever set the
+    /// theme chooses and in the glyph mode in use. A key the built-in set has, such as `check`,
+    /// restyles the framework's icon only while a theme names this set; see
+    /// [`IconSetRegistry`](crate::icons::IconSetRegistry).
     #[must_use]
     pub fn icon_source(mut self, file: impl Into<String>, text: impl Into<String>) -> Self {
         self.dirs.icon_sources.push((file.into(), text.into()));
