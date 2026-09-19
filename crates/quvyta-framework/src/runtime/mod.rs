@@ -10,6 +10,8 @@ mod detached;
 #[cfg(test)]
 mod detached_rules;
 mod engine;
+#[cfg(test)]
+mod focus_action_rules;
 #[cfg(unix)]
 mod foreground;
 mod handoff;

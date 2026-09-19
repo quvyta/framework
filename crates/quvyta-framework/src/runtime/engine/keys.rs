@@ -101,7 +101,26 @@ impl<A: App> Engine<A> {
         let Some((scope, action)) = self.env.keymap().action_for(key.chord).map(|(s, a)| (s, a.to_owned())) else {
             return;
         };
+        if let Some(message) = self.focus_answer(scope, &action) {
+            self.update(message);
+            return;
+        }
         self.run_action(scope, &action, self.frame.top_layer().is_none(), now);
+    }
+
+    /// The message the focused widget or one of its ancestors answers a pressed keymap action
+    /// with, innermost first; see [`NodeMut::on_action`](crate::widget::NodeMut::on_action).
+    /// The runtime's own actions are never answered, so they behave the same everywhere.
+    fn focus_answer(&self, scope: Scope, action: &str) -> Option<A::Msg> {
+        if scope == Scope::Global && RUNTIME_ACTIONS.contains(&action) {
+            return None;
+        }
+        let tree = self.tree.as_ref()?;
+        let focused = self.interaction.focused?;
+        self.frame
+            .routed_ancestry(focused)
+            .into_iter()
+            .find_map(|id| tree.find(id).and_then(|node| node.answer_action(scope, action)))
     }
 
     /// Runs a keymap action. Global actions the runtime owns run here; other global actions and

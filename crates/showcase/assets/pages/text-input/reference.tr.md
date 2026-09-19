@@ -8,6 +8,8 @@
 - `.max_length(n)` — en fazla `n` karakter.
 - `.invalid(bool)` — geçersiz görünüm. Varsayılan: `false`.
 - `.disabled(bool)` — salt okunur, odak almaz. Varsayılan: `false`.
+- `.select_on_focus(aralık)` — alan her odak aldığında `aralık` içindeki karakterleri seçer, imleç aralığın sonundadır; metinle sınırlanır. Varsayılan olarak yoktur.
+- `.select_all_on_focus()` — alan her odak aldığında bütün metni seçer.
 
 ## Tuşlar
 
@@ -21,7 +23,7 @@
 
 ## Fare
 
-- Tıklama imleci yerleştirir; sürükleme seçer.
+- Tıklama imleci yerleştirir; sürükleme seçer. `select_on_focus` verilmiş bir alana odağı getiren tıklama imleci yerleştirir, hiçbir şey seçmez.
 - Sağ tık düzenleme menüsünü imlecin yanında açar: Kes, Kopyala, Yapıştır, Tümünü seç. Seçimin içindeyse seçimi korur, başka yerdeyse önce imleci oraya koyar. Kes ve Kopyala seçim ister; Yapıştır sistem panosunda, terminalin panosunda ya da uygulama içindeki bir kopyada metin ister.
 
 ## Tema anahtarları

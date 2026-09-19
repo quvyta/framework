@@ -31,6 +31,7 @@ pub mod example_file_explorer;
 pub mod example_setup_wizard;
 pub mod file_picker;
 pub mod focus_keys;
+pub mod folder_watch;
 pub mod form;
 pub mod gauge;
 pub mod getting_started;
@@ -214,6 +215,7 @@ pub const PAGES: &[PageContent] = &[
     page!("async-tasks", "async_tasks"),
     page!("handoff", "handoff"),
     page!("storage", "storage"),
+    page!("folder-watch", "folder_watch"),
     page!("date-time", "date_time"),
     page!("document", "document"),
     page!("page-transitions", "page_transitions"),
@@ -302,6 +304,7 @@ pub struct Pages {
     pub async_tasks: async_tasks::State,
     pub handoff: handoff::State,
     pub storage: storage::State,
+    pub folder_watch: folder_watch::State,
     pub date_time: date_time::State,
     pub document: document::State,
     pub page_transitions: page_transitions::State,
@@ -384,6 +387,7 @@ pub enum PageMsg {
     AsyncTasks(async_tasks::Msg),
     Handoff(handoff::Msg),
     Storage(storage::Msg),
+    FolderWatch(folder_watch::Msg),
     DateTime(date_time::Msg),
     Document(document::Msg),
     PageTransitions(page_transitions::Msg),
@@ -472,6 +476,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::AsyncTasks(m) => async_tasks::update(&mut pages.async_tasks, m, log),
         PageMsg::Handoff(m) => handoff::update(&mut pages.handoff, m, log),
         PageMsg::Storage(m) => storage::update(&mut pages.storage, m, log),
+        PageMsg::FolderWatch(m) => folder_watch::update(&mut pages.folder_watch, m, log),
         PageMsg::DateTime(m) => date_time::update(&mut pages.date_time, m, log),
         PageMsg::Document(m) => document::update(&mut pages.document, m, log),
         PageMsg::PageTransitions(m) => {
@@ -560,6 +565,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "async-tasks" => async_tasks::view(&pages.async_tasks, ui),
         "handoff" => handoff::view(&pages.handoff, ui),
         "storage" => storage::view(&pages.storage, ui),
+        "folder-watch" => folder_watch::view(&pages.folder_watch, ui),
         "date-time" => date_time::view(&pages.date_time, ui),
         "document" => document::view(&pages.document, ui),
         "page-transitions" => page_transitions::view(&pages.page_transitions, ui),

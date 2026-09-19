@@ -9,6 +9,7 @@ Use a text input for one line of text the user types: names, search terms, paths
 3. Add `.placeholder(t!("..."))` to say what belongs there.
 4. Validate in your code and mark the field: `.invalid(name.len() < 3)`, with a short message below it.
 5. Use `.password(true)` for secrets, `.max_length(n)` for limits and `.on_submit(msg)` to act on Enter.
+6. In a rename dialog, open with the name selected: `.select_on_focus(0..4)` for `main.rs`, counted in characters. Typing then replaces the name and keeps `.rs`; `.select_all_on_focus()` selects everything.
 
 ## How it works
 
@@ -20,6 +21,7 @@ Use a text input for one line of text the user types: names, search terms, paths
 - **Passwords never copy.** In a password field Cut, Copy, Ctrl+C and Ctrl+X do nothing.
 - **The cursor stays solid while typing** and blinks only when you pause, at the theme's `motion.cursor-blink` rate.
 - **Long values scroll** horizontally to keep the cursor in view.
+- **A selection to start with.** With `select_on_focus` the field selects that part of its text each time it gains focus, with the cursor at the part's end. From then on the selection is the user's: typing replaces it, the arrows drop it. A click that brings focus places the cursor where it lands instead, and a range past the text is cut to it.
 - **Outside changes win.** If your application changes the value, the field shows it and puts the cursor at the end.
 
 ## Styling with a theme
@@ -42,4 +44,5 @@ An invalid field tints its surface; it never draws a red frame.
 
 - **Validating on every keystroke with a loud message.** An empty field is not an error yet; show messages once the user typed something.
 - **Keeping the cursor in your state.** The runtime keeps it for you.
+- **Counting the range in bytes.** `select_on_focus` counts characters, so `şğü.txt` selects its name with `0..3`; `str::find` returns bytes, so turn them into a character count first.
 - **Using a text input for choices.** When the answers are known, use a select or a list.

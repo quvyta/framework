@@ -87,6 +87,10 @@
 - Unix'te bu `flock(LOCK_EX | LOCK_NB)`. Bu tür bir kilit sürece değil açık dosyaya aittir, bu yüzden aynı süreç içinde aynı yola yapılan ikinci `acquire` da `None` der.
 - Diğer her platformda, Windows dahil, burada danışma kilidi yoktur: `acquire` `io::ErrorKind::Unsupported` döner ve asla `Ok` olmaz; uygulama sessizce kilitsiz çalışmak yerine kilidi olmadığını öğrenir.
 - `holder_pid(path)` — kilit dosyasına yazılmış süreç kimliği, kilidi tutanı adıyla anan bir mesaj için. Yalnızca tanı metni: süreç kimlikleri yeniden kullanılır, hiçbir karar buna dayanamaz.
+- `InstanceLock::shared(path) -> io::Result<InstanceLock>` — paylaşılan kilit; aynı anda istenen sayıda tutulur. Yalnızca özel kilit tutulurken bekler.
+- `InstanceLock::try_exclusive(path) -> io::Result<Option<InstanceLock>>` — kimse kilit tutmuyorsa özel kilit, tutuyorsa hemen `Ok(None)`.
+- `InstanceLock::wait_exclusive(path) -> io::Result<InstanceLock>` — kimse kilit tutmayana kadar çekirdekte uyur, sonra özel kilidi alır. Kimse tutmuyorsa hemen döner; iptal edilemez, bu yüzden ona kendi iş parçacığını ver.
+- `InstanceLock`, değer bırakılınca ya da süreci nasıl biterse bitsin bitince serbest kalır. Unix'te bunlar exec'te kapanacak biçimde açılmış bir dosya üzerinde `flock(LOCK_SH)`, `flock(LOCK_EX | LOCK_NB)` ve `flock(LOCK_EX)`'tir; `AppLock` gibi açık dosyaya aittir, aynı süreçte aynı yol üzerindeki iki kilit birbiriyle karşılaşır. Başka platformlarda her çağrı `io::ErrorKind::Unsupported` döner.
 
 ## Davranış
 

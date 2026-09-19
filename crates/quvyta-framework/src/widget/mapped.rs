@@ -10,6 +10,7 @@ use super::context::{EventCx, MeasureCx, PaintCx};
 use super::{Flex, LayoutProps, Node, Widget, WidgetId};
 use crate::event::Event;
 use crate::geometry::{Rect, Size};
+use crate::keymap::Scope;
 
 /// A node of the tree the runtime reached by id, whatever message type it was built with.
 pub(crate) trait Reached<Msg> {
@@ -21,6 +22,8 @@ pub(crate) trait Reached<Msg> {
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool;
     /// Paints the widget's overlay.
     fn paint_overlay(&self, cx: &mut PaintCx<'_>, anchor: Rect);
+    /// The message the node answers a keymap action with while focus is inside it.
+    fn answer_action(&self, scope: Scope, action: &str) -> Option<Msg>;
 }
 
 impl<Msg: 'static> Reached<Msg> for &Node<Msg> {
@@ -38,6 +41,10 @@ impl<Msg: 'static> Reached<Msg> for &Node<Msg> {
 
     fn paint_overlay(&self, cx: &mut PaintCx<'_>, anchor: Rect) {
         self.widget.paint_overlay(cx, anchor);
+    }
+
+    fn answer_action(&self, scope: Scope, action: &str) -> Option<Msg> {
+        Node::answer_action(self, scope, action)
     }
 }
 
@@ -66,6 +73,10 @@ impl<Inner, Msg> Reached<Msg> for ReachedThrough<'_, Inner, Msg> {
 
     fn paint_overlay(&self, cx: &mut PaintCx<'_>, anchor: Rect) {
         self.inner.paint_overlay(cx, anchor);
+    }
+
+    fn answer_action(&self, scope: Scope, action: &str) -> Option<Msg> {
+        self.inner.answer_action(scope, action).map(self.map)
     }
 }
 

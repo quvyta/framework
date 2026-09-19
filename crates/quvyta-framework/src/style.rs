@@ -106,6 +106,14 @@ impl WidgetStyle {
         Self { props, phase }
     }
 
+    /// This style without `key`, e.g. a selected row that shares the selection tone but leaves the
+    /// pillar to the row that has the cursor.
+    #[must_use]
+    pub(crate) fn without(mut self, key: &str) -> Self {
+        self.props.remove(key);
+        self
+    }
+
     /// The colour stored under `key` (`fg`, `bg`, `pillar`, `track`, ...).
     #[must_use]
     pub fn color(&self, key: &str) -> Option<Rgb> {

@@ -17,6 +17,7 @@ use super::super::context_menu::{self, ContextMenu};
 use super::super::edge_scroll::{Edge, EdgeScroll, Zone};
 use super::super::rows::RowScroll;
 use super::super::tab_model::{Direction, drop_target};
+use super::drop::{Aim, Spring};
 use super::{Flat, Tree, TreeNode};
 
 /// A move of one node among its siblings that a [reorderable](Tree::reorderable) tree asks for.
@@ -53,13 +54,18 @@ pub(super) struct Arrange<'k> {
     pub(super) order: Option<(usize, usize)>,
 }
 
-/// A pointer press on a row of a reorderable tree that may become a drag.
+/// A pointer press on a row of a reorderable or droppable tree that may become a drag.
 #[derive(Debug, Clone)]
 struct Press {
     key: String,
+    /// The nodes a drag from this press carries: the pressed node, or the selection it is in.
+    keys: Vec<String>,
     start: (i32, i32),
     pointer: (i32, i32),
     dragging: bool,
+    /// Whether the press kept several selected rows that a click without a drag reduces to this
+    /// one.
+    reduce: bool,
 }
 
 /// Pointer state of a reorderable tree, kept in its memory.
@@ -72,7 +78,10 @@ struct TreePointer {
 
 /// A node being dragged, for painting.
 pub(super) struct Drag {
+    /// The pressed node.
     pub(super) key: String,
+    /// Every node the drag carries.
+    pub(super) keys: Vec<String>,
     pub(super) pointer: (i32, i32),
 }
 
@@ -97,7 +106,7 @@ impl<Msg: 'static> Tree<Msg> {
     }
 
     /// Asks to move `key` from sibling position `from` to `to`.
-    fn move_node(&self, cx: &mut EventCx<'_, Msg>, key: &str, parent: Option<&str>, from: usize, to: usize) {
+    pub(super) fn move_node(&self, cx: &mut EventCx<'_, Msg>, key: &str, parent: Option<&str>, from: usize, to: usize) {
         if from != to
             && let Some(message) = &self.on_move
         {
@@ -157,17 +166,23 @@ impl<Msg: 'static> Tree<Msg> {
 
     /// The node being dragged right now, if any.
     pub(super) fn drag(&self, cx: &mut PaintCx<'_>) -> Option<Drag> {
-        self.on_move.as_ref()?;
+        if self.on_move.is_none() && self.dropping.is_none() {
+            return None;
+        }
         let press = cx.memory::<TreePointer>().pressed.clone()?;
-        (press.dragging && self.siblings(&press.key).is_some())
-            .then_some(Drag { key: press.key, pointer: press.pointer })
+        (press.dragging && self.siblings(&press.key).is_some()).then_some(Drag {
+            key: press.key,
+            keys: press.keys,
+            pointer: press.pointer,
+        })
     }
 
-    /// Pointer input of a reorderable tree on row `index` of `flat` (the row under the pointer, if
-    /// any). A press selects the row and holds it; moving a row's height makes it a drag, and the
-    /// release drops it among its siblings. A press and release without a drag opens, closes or
-    /// activates the row like Enter. Returns `None` when the event is not the tree's to take.
-    pub(super) fn reorder_pointer(
+    /// Pointer input of a reorderable or droppable tree on row `index` of `flat` (the row under the
+    /// pointer, if any). A press selects the row and holds it; moving a row's height makes it a
+    /// drag, and the release drops it into the node under the pointer or among its siblings. A
+    /// press and release without a drag opens, closes or activates the row like Enter. Returns
+    /// `None` when the event is not the tree's to take.
+    pub(super) fn drag_pointer(
         &self,
         cx: &mut EventCx<'_, Msg>,
         mouse: &MouseEvent,
@@ -177,10 +192,23 @@ impl<Msg: 'static> Tree<Msg> {
         let at = (mouse.x, mouse.y);
         match mouse.kind {
             MouseKind::Down(MouseButton::Left) => {
-                let row = &flat[index?];
-                self.select(cx, flat, index?);
+                let index = index?;
+                if self.modified_press(cx, flat, index, mouse.mods) {
+                    return Some(true);
+                }
+                let key = flat[index].node.key.clone();
+                // A press on one of several selected rows keeps them all, so they can be dragged
+                // together; a click without a drag reduces them to this row on release.
+                let reduce = self.is_among_many(&key);
+                if reduce {
+                    self.select(cx, flat, index);
+                } else {
+                    self.select_one(cx, flat, index);
+                }
                 cx.capture_pointer();
-                let press = Press { key: row.node.key.clone(), start: at, pointer: at, dragging: false };
+                *cx.memory::<Spring>() = Spring::default();
+                let keys = self.carried(&key);
+                let press = Press { key, keys, start: at, pointer: at, dragging: false, reduce };
                 *cx.memory::<TreePointer>() = TreePointer { pressed: Some(press), edge: EdgeScroll::default() };
                 Some(true)
             }
@@ -188,11 +216,23 @@ impl<Msg: 'static> Tree<Msg> {
                 let memory = cx.memory::<TreePointer>();
                 let press = memory.pressed.as_mut()?;
                 press.pointer = at;
-                if (at.1 - press.start.1).abs() >= 1 {
+                let starts = !press.dragging && (at.1 - press.start.1).abs() >= 1;
+                if starts {
                     press.dragging = true;
                 }
                 let dragging = press.dragging;
+                let keys = press.keys.clone();
+                // Reordering moves one node: dragging one of several selected ones carries it alone.
+                if starts && press.reduce && self.dropping.is_none() {
+                    press.reduce = false;
+                    self.choose(cx, keys.clone());
+                }
                 self.edge_scroll(cx, mouse.y, flat.len(), dragging);
+                if dragging && self.dropping.is_some() {
+                    let offset = cx.memory::<RowScroll>().offset;
+                    let aim = self.aim(&keys, at, Self::rows_area(cx.area(), flat.len()), offset);
+                    self.wake_for_spring(cx, &aim);
+                }
                 Some(true)
             }
             MouseKind::Up(MouseButton::Left) => {
@@ -200,18 +240,34 @@ impl<Msg: 'static> Tree<Msg> {
                 memory.edge = EdgeScroll::default();
                 let press = memory.pressed.take()?;
                 let area = cx.area();
+                *cx.memory::<Spring>() = Spring::default();
                 if press.dragging {
                     let offset = cx.memory::<RowScroll>().offset;
-                    if let Some((from, to)) = self.landing(&press.key, at, Self::rows_area(area, flat.len()), offset) {
-                        let parent = self.siblings(&press.key).and_then(|(parent, _)| parent.map(str::to_owned));
-                        self.move_node(cx, &press.key, parent.as_deref(), from, to);
-                    }
+                    let aim = self.aim(&press.keys, at, Self::rows_area(area, flat.len()), offset);
+                    self.release(cx, press.keys, aim);
                 } else if let Some(row) = flat.iter().position(|row| row.node.key == press.key) {
+                    if press.reduce {
+                        self.select_one(cx, flat, row);
+                    }
                     self.open_or_activate(cx, row, flat[row].node);
                 }
                 Some(true)
             }
             _ => None,
+        }
+    }
+
+    /// Opens the closed node a drag rests on once it has rested long enough, and keeps the pointer
+    /// waking until then, no later than the edge scrolling needs it.
+    fn wake_for_spring(&self, cx: &mut EventCx<'_, Msg>, aim: &Aim) {
+        let now = cx.now();
+        let edge = cx.memory::<TreePointer>().edge.due();
+        match (self.spring(cx, aim), edge) {
+            (Some(wait), Some(due)) => cx.repeat_pointer(wait.min(due.saturating_sub(now))),
+            (Some(wait), None) => cx.repeat_pointer(wait),
+            // The edge scrolling keeps its own wakeups; without it nothing is left to wait for.
+            (None, Some(_)) => {}
+            (None, None) => cx.stop_pointer_repeat(),
         }
     }
 
@@ -305,6 +361,12 @@ impl<Msg: 'static> Tree<Msg> {
                 let Some(row) = row.filter(|_| x < Self::rows_area(area, flat.len()).right()) else {
                     return false;
                 };
+                // The menu of a selected row acts on the whole selection, which the application
+                // knows; outside the selection the row becomes the selection first, so the menu
+                // never acts on rows the user did not mean.
+                if self.is_multi() && !self.is_chosen(&flat[row].node.key) {
+                    self.select_one(cx, flat, row);
+                }
                 self.open_menu(cx, &flat[row].node.key, Rect::new(x, y, 1, 1), false);
                 true
             }

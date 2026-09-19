@@ -1,11 +1,11 @@
-//! Where the tabs, the scroll arrows and the menu control of a [`Tabs`] strip sit.
+//! Where the tabs, the scroll arrows, the menu control and the add button of a [`Tabs`] strip sit.
 
 use crate::geometry::{Rect, clamp_u16};
 use crate::text;
 
 use super::super::cells;
 use super::super::tab_model::TabHit;
-use super::{ARROW, Arrow, CLOSE, FILL_MIN, GAP, Overflow, PAD, TabWidth, Tabs, close_mark};
+use super::{ADD, ARROW, Arrow, CLOSE, FILL_MIN, GAP, Overflow, PAD, TabWidth, Tabs, close_mark};
 
 /// Where everything of a strip sits for one scroll offset.
 #[derive(Debug, Default)]
@@ -16,6 +16,9 @@ pub(super) struct Strip {
     pub(super) arrows: Option<(Rect, Rect)>,
     /// The hidden-tabs control, when the strip overflows with `Overflow::Menu`.
     pub(super) menu: Option<Rect>,
+    /// The add button, when the strip has one: right after the last tab, or at the strip's right
+    /// end while tabs hide.
+    pub(super) add: Option<Rect>,
 }
 
 impl Strip {
@@ -29,6 +32,9 @@ impl Strip {
         }
         if let Some(menu) = self.menu {
             right = menu.x - i32::from(GAP);
+        }
+        if let Some(add) = self.add {
+            right = right.min(add.x - i32::from(GAP));
         }
         Rect::new(left, area.y, clamp_u16(right - left), area.height)
     }
@@ -85,7 +91,7 @@ impl<Msg: 'static> Tabs<Msg> {
             TabWidth::Fixed(cells) => (0..count).map(|i| cells.max(self.min_width(i))).collect(),
             TabWidth::Fill => {
                 let count16 = u16::try_from(count).unwrap_or(u16::MAX).max(1);
-                let room = available.saturating_sub(count16.saturating_sub(1) * GAP);
+                let room = available.saturating_sub(self.add_room()).saturating_sub(count16.saturating_sub(1) * GAP);
                 let (share, extra) = (room / count16, room % count16);
                 (0..count)
                     .map(|i| {
@@ -103,8 +109,21 @@ impl<Msg: 'static> Tabs<Msg> {
         widths.iter().fold(0u16, |sum, w| sum.saturating_add(*w)).saturating_add(count.saturating_sub(1) * GAP)
     }
 
+    /// The cells the add button keeps at the strip's end beside the tabs: the button and the gap
+    /// before it. With no tabs it only needs its own cells.
+    pub(super) fn add_room(&self) -> u16 {
+        match (&self.on_add, self.labels.is_empty()) {
+            (None, _) => 0,
+            (Some(_), true) => ADD,
+            (Some(_), false) => ADD + GAP,
+        }
+    }
+
     /// The strip for tabs shown in `order`, scrolled to position `offset`.
-    pub(super) fn strip(&self, area: Rect, order: &[usize], offset: usize, widths: &[u16]) -> Strip {
+    pub(super) fn strip(&self, whole: Rect, order: &[usize], offset: usize, widths: &[u16]) -> Strip {
+        // The tabs, the arrows and the menu control are laid out as if the add button's room were
+        // not there, so the button never pushes them around and never falls off the strip.
+        let area = Rect::new(whole.x, whole.y, whole.width.saturating_sub(self.add_room()), whole.height);
         let overflows = Self::total_width(widths) > area.width;
         let mut strip = Strip::default();
         let (mut x, mut limit) = (area.x, area.right());
@@ -143,6 +162,16 @@ impl<Msg: 'static> Tabs<Msg> {
             strip.tabs.push((index, Rect::new(x, area.y, width, 1)));
             x += i32::from(width) + i32::from(GAP);
         }
+        if self.on_add.is_some() && whole.width >= ADD {
+            let end = whole.right() - i32::from(ADD);
+            let cut = strip.tabs.last().is_some_and(|(index, rect)| rect.width < widths[*index]);
+            let x = if strip.tabs.len() < order.len() || cut {
+                end
+            } else {
+                strip.tabs.last().map_or(whole.x, |(_, rect)| (rect.right() + i32::from(GAP)).min(end))
+            };
+            strip.add = Some(Rect::new(x, whole.y, ADD, 1));
+        }
         strip
     }
 
@@ -170,6 +199,18 @@ impl<Msg: 'static> Tabs<Msg> {
             offset += 1;
         }
         offset
+    }
+
+    /// Where a dragged tab can land: the tabs of `strip`, and the add button, which stands for the
+    /// end of the strip even when the last tab is scrolled out of view.
+    pub(super) fn drop_slots(&self, strip: &Strip) -> Vec<(usize, Rect)> {
+        let mut slots = strip.tabs.clone();
+        if let Some(add) = strip.add
+            && let Some(last) = self.labels.len().checked_sub(1)
+        {
+            slots.push((last, add));
+        }
+        slots
     }
 
     pub(super) fn identity(&self) -> Vec<usize> {

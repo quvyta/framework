@@ -180,7 +180,7 @@ pub use crate::date::TimeOfDay;
 pub use toast::{Corner, Toast, ToastKind};
 pub(crate) use toast::{ToastPress, ToastStack};
 pub use tooltip::Tooltip;
-pub use tree::{Tree, TreeMove, TreeNode};
+pub use tree::{Tree, TreeDrop, TreeMove, TreeNode};
 pub use widget_dock::WidgetDock;
 pub use wizard::Wizard;
 

@@ -17,8 +17,10 @@
 //!
 //! The module also holds what every application needs around its own files, settings or not:
 //! [`config_dir`] and [`data_dir`] for the two folders a platform gives an application,
-//! [`atomic_write`] for writing any file safely, [`AppLock`] for "one instance at a time", and
-//! [`machine_name`] for keeping one file per machine in a folder several machines share.
+//! [`atomic_write`] for writing any file safely, [`AppLock`] for "one instance at a time" and
+//! [`InstanceLock`] for "wake me when the last instance closes",
+//! [`machine_name`] for keeping one file per machine in a folder several machines share, and
+//! [`FolderWatch`] for hearing about changes in a folder the moment the system sees them.
 //!
 //! Applications made to be used together keep their settings in one folder: a [`Family`] names
 //! it, gives each application its `<app>.conf` file and a folder beside it, and
@@ -36,8 +38,10 @@ mod atomic;
 mod dirs;
 mod documents;
 mod family;
+mod folder_watch;
 #[cfg(test)]
 mod healing_tests;
+mod instance_lock;
 mod lock;
 mod machine;
 mod migrate;
@@ -54,6 +58,8 @@ pub use atomic::{WriteStep, atomic_write, atomic_write_reporting};
 pub use dirs::{config_dir, data_dir};
 pub use documents::documents_dir;
 pub use family::Family;
+pub use folder_watch::{FolderChange, FolderChangeKind, FolderChanges, FolderWatch};
+pub use instance_lock::InstanceLock;
 pub use lock::{AppLock, holder_pid};
 pub use machine::machine_name;
 pub use migrate::Migration;

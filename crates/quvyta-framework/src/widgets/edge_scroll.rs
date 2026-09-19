@@ -61,6 +61,12 @@ pub(crate) struct EdgeScroll {
 }
 
 impl EdgeScroll {
+    /// When the next step is due while the pointer rests on an end, so a view waiting on the
+    /// pointer for another reason can wake it no later than the scrolling needs.
+    pub(crate) fn due(&self) -> Option<Duration> {
+        self.armed.map(|(_, due)| due)
+    }
+
     /// Follows a drag event with the pointer in `zone` (none when it is off both ends). Arriving on
     /// an end starts the wait; a due step calls `step`, which scrolls one item towards the end and
     /// returns what it did, or none when the view is already at that end, which ends the stepping

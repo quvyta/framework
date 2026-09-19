@@ -143,7 +143,7 @@ impl<Msg: 'static> Tabs<Msg> {
 
 /// Paints a small strip control: its surface from style `key` in `states`, the pillar the style
 /// raises in its first cell and `label` after it, cut to `budget` cells.
-fn paint_control(cx: &mut PaintCx<'_>, key: &str, rect: Rect, states: &[State], label: &str, budget: u16) {
+pub(super) fn paint_control(cx: &mut PaintCx<'_>, key: &str, rect: Rect, states: &[State], label: &str, budget: u16) {
     let theme_style = cx.style(key, None, states);
     let style = theme_style.text();
     cx.clear(rect, style.bg.unwrap_or_else(|| cx.color("raised")));

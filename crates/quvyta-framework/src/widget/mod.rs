@@ -32,6 +32,7 @@ use mapped::Mapped;
 
 use crate::event::Event;
 use crate::geometry::{Padding, Rect, Size};
+use crate::keymap::Scope;
 
 /// Something that can be laid out, painted and interacted with.
 ///
@@ -133,7 +134,16 @@ pub struct Node<Msg> {
     pub(crate) persistent: bool,
     /// `Some(true)` makes the node a text selection region, `Some(false)` keeps selection out.
     pub(crate) selectable: Option<bool>,
+    /// Keymap actions the node answers while focus is inside it, see [`NodeMut::on_action`].
+    pub(crate) actions: Vec<FocusAction<Msg>>,
     pub(crate) widget: Box<dyn StoredWidget<Msg>>,
+}
+
+/// A keymap action a node answers with its own message while focus is inside it.
+pub(crate) struct FocusAction<Msg> {
+    pub(crate) scope: Scope,
+    pub(crate) action: String,
+    pub(crate) message: Box<dyn Fn() -> Msg>,
 }
 
 impl<Msg: 'static> Node<Msg> {
@@ -145,6 +155,7 @@ impl<Msg: 'static> Node<Msg> {
             layout: LayoutProps::default(),
             persistent: false,
             selectable: None,
+            actions: Vec::new(),
             widget: Box::new(widget),
         }
     }
@@ -159,6 +170,15 @@ impl<Msg: 'static> Node<Msg> {
     #[must_use]
     pub fn layout(&self) -> LayoutProps {
         self.layout
+    }
+
+    /// The message this node sends for the keymap action `action` of `scope` while focus is
+    /// inside it; see [`NodeMut::on_action`].
+    pub(crate) fn answer_action(&self, scope: Scope, action: &str) -> Option<Msg> {
+        self.actions
+            .iter()
+            .find(|answer| answer.scope == scope && answer.action == action)
+            .map(|answer| (answer.message)())
     }
 
     /// Gives this node and its descendants their ids.

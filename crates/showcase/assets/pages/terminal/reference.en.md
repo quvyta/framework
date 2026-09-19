@@ -2,6 +2,7 @@
 
 - `Terminal::new(&session)` — draws a session; available with the `pty` feature.
 - `.pass_through(scope, action)` — the keys bound to that keymap action skip the program and go on to ancestors, key listeners and `App::action`; call it once per action. The keymap in force when the key arrives decides, so rebinding follows. Keys that type a character (a character or space with at most `shift`) always reach the program. Default: nothing passes but `shift tab` and `ctrl q`.
+- `NodeMut::on_action(scope, action, msg)` on the terminal's node — a passed action sends `msg` while focus is in the terminal and reaches `App::action` elsewhere; the way to toggle focus with one key.
 - `TerminalSession::shell(folder)`, `TerminalSession::spawn(program, args, folder)` — start a program in a pseudo-terminal.
 - `.watch()` — a `TerminalWatch`; `.write(bytes)`, `.kill()`, `.exit()`.
 - `TerminalWatch::next()` — blocks until `TerminalEvent::Output` or `TerminalEvent::Exited(code)`; run it in `Command::perform`.

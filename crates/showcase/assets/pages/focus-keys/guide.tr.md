@@ -25,6 +25,8 @@ search = ["/", "ctrl+f"]
 
 `App::action` bir adı mesaja çevirir. Kullanıcılar tuşları bir dosyayla yeniden bağlayabilir; kodda hiçbir şey değişmez. Aynı tuş bir tablonun iki eylemine bağlanırsa bir uyarı bunu söyler.
 
+Bir eylem, odak ekranın belli bir parçasındayken başka bir anlama da gelebilir. Bir düğüme `.on_action(Scope::App, "switch", Msg::Leave)` eklenirse, odak o düğümde ya da içindeki herhangi bir şeydeyken eylem bu mesajla cevaplanır; odak başka yerdeyken tuş her zamanki gibi `App::action`'a gider. Tuş geldiği andaki odak karar verir; odak Tab ile, tıklamayla ya da `Command::focus` ile gelmiş olabilir, uygulamanın ayrıca bir bayrak tutması gerekmez. Cevap veren en içteki düğüm kazanır; odaklı bileşenin kullandığı tuş (bir alandaki harf) onda kalır; `focus-next` gibi çalışma motorunun kendi eylemleri hiç cevaplanmaz. Böylece tek bir tuş terminalden çıkarır, dışarıdayken yeniden basılınca içeri geri götürür: terminal sayfası bunu `ctrl alt boşluk` ile gösterir.
+
 Uygulamanın kendi bağlamalarının diskte bir dosya olması şart değil. `Runtime::keymap_source(dosya, metin)` TOML metninin kendisini alır; bu metin genelde deponuzdaki kısayol dosyasının `include_str!`'ıdır, böylece kurulan ikili tuşlarını kendi taşır. `CARGO_MANIFEST_DIR`'den kurulan bir yol, ikili başka bir yere kurulunca kırılır. Ayrıca verilen bir `keymap_file` artık zorunlu değildir: okunamadığında metin onun yerine geçer ve sebep, programı durdurmak yerine bir tanılamaya dönüşür. Bozuk bir satır dosya, satır ve sütunuyla bildirilip atlanır; gömülü bağlamalar çalışmaya devam eder.
 
 ## İpucu etiketleri dilden gelir

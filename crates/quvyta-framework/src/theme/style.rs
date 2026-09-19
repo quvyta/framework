@@ -109,6 +109,13 @@ impl StyleProps {
         Arc::make_mut(&mut self.values).insert(key.to_owned(), value);
     }
 
+    /// Drops `key`, as if no rule had set it.
+    pub(crate) fn remove(&mut self, key: &str) {
+        if self.values.contains_key(key) {
+            Arc::make_mut(&mut self.values).remove(key);
+        }
+    }
+
     /// Copies every property of `other` over this one.
     pub(crate) fn overlay(&mut self, other: &Self) {
         if other.values.is_empty() {

@@ -87,6 +87,10 @@
 - On Unix this is `flock(LOCK_EX | LOCK_NB)`. Such a lock belongs to an open file, not to a process, so a second `acquire` on the same path inside one process answers `None` as well.
 - On every other platform, Windows among them, there is no advisory lock here: `acquire` returns `io::ErrorKind::Unsupported` and never `Ok`, so an application is told it has no lock instead of quietly running without one.
 - `holder_pid(path)` — the process id written in the lock file, for a message that names the holder. Diagnostic text only: a process id is reused, so no decision may rest on it.
+- `InstanceLock::shared(path) -> io::Result<InstanceLock>` — a shared lock; any number are held at once. Waits only while an exclusive lock is held.
+- `InstanceLock::try_exclusive(path) -> io::Result<Option<InstanceLock>>` — the exclusive lock when nobody holds a lock, `Ok(None)` at once otherwise.
+- `InstanceLock::wait_exclusive(path) -> io::Result<InstanceLock>` — sleeps in the kernel until nobody holds a lock, then takes the exclusive one. Returns at once when nobody does; it cannot be cancelled, so give it a thread of its own.
+- An `InstanceLock` is released when the value is dropped or its process ends, however it ends. On Unix these are `flock(LOCK_SH)`, `flock(LOCK_EX | LOCK_NB)` and `flock(LOCK_EX)` on a file opened close-on-exec; like `AppLock` they belong to the open file, so two locks on one path in one process meet each other. Elsewhere every call returns `io::ErrorKind::Unsupported`.
 
 ## Behaviour
 

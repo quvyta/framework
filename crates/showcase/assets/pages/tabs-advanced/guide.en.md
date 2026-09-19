@@ -11,6 +11,7 @@ Use these options when tabs stand for things the user opens and closes: files in
 5. Apply both in `update` with one line: `edit.apply(&mut self.tabs, &mut self.active)`. It removes or moves the tab and keeps the open tab pointing at the same one.
 6. Choose a width with `.tab_width(TabWidth::Fixed(16))` or `TabWidth::Fill`, and what happens when tabs do not fit with `.overflow(Overflow::Arrows)` or `Overflow::Menu`.
 7. Add a right-click menu with `.context_menu(|index| items)`: return the `ContextItem`s for tab `index` (Close, Close others, Close to the right, Pin, Duplicate) and handle their messages in `update`.
+8. Offer a new tab with `.on_add(|| Msg::NewTab)`: a `+` stands right after the last tab; push the new tab in `update` and open it.
 
 ## How it works
 
@@ -22,6 +23,7 @@ Use these options when tabs stand for things the user opens and closes: files in
 - **Reordering.** Drag a tab: it floats as a ghost under the pointer and the other tabs make room around a tinted slot where it will land. Releasing sends `from` and `to`. ctrl+shift+← and → move the open tab from the keyboard.
 - **Dragging past what is on screen.** When tabs are hidden, hold the dragged tab on an arrow (or past the end of the strip): the arrow lights up, and after 400 ms the strip scrolls one tab, then one more every 150 ms, a little faster the further past the end you pull. The tinted slot follows the tabs coming into view, so letting go drops the tab exactly where the slot is. Move off the arrow and scrolling stops at once; at the last tab the arrow sinks and nothing more happens. The wait means passing over an arrow on the way to a drop never scrolls. Reduced motion changes nothing here: each step is a jump anyway. `.on_drag_scroll(|first| msg)` tells you about every step; this page logs them.
 - **Right-click menu.** A right click on a tab opens that tab's menu at the pointer and leaves the open tab alone; the menu key or shift+F10 opens the open tab's menu under it. The entries are yours, so the menu can say "Unpin" on a pinned tab and grey out "Close to the right" on the last one. A right click on another tab moves the menu, and one left click beside it closes the menu and does what it pressed. The menu of hidden tabs and the right-click menu never show together. Without the option a right click does nothing.
+- **The add button.** With `on_add` a small `+` button follows the last tab, one gap away, so it moves along as tabs open and close. When the tabs no longer fit it keeps its place at the strip's right end, after the arrows or the menu control, and the tabs and arrows leave room for it; with no tabs it starts the strip, so the empty strip still offers a way to open one. Like the arrows it brightens and raises its pillar under the pointer. Tab moves keyboard focus from the tabs to it, where the pillar breathes; Enter or Space press it, shift+Tab or ← go back to the tabs and the next Tab leaves the strip. Resting on it, or reaching it with the keyboard, shows a short hint below it. A tab dragged onto it moves to the end.
 - **One model.** `TabRail` uses the same options and the same behaviour, laid out vertically.
 
 ## Common mistakes
@@ -29,4 +31,5 @@ Use these options when tabs stand for things the user opens and closes: files in
 - **Changing the list without adjusting the open index.** Use `TabEdit::apply`; closing the open tab should open its neighbour, not jump to the first tab.
 - **Closable tabs for fixed views.** If a tab cannot come back, do not let people close it, or pin it.
 - **Arrows on a strip that always fits.** They only appear when needed; do not reserve space for them.
+- **A `+` button placed beside the strip.** A button in the same row falls off when the tabs overflow, or sits at the far right when the strip fills its row. `on_add` keeps it right after the last tab and on the strip in every case.
 - **A menu that repeats the options.** The right-click menu sends your messages; it does not close or pin by itself. Pinning from the menu means keeping pins in your state and passing them to `.pinned(..)`.

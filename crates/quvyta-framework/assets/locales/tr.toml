@@ -152,6 +152,9 @@ confirm   = "Onayla"
 cancel    = "Vazgeç"
 type-word = "Onaylamak için {word} yaz"
 
+[quvyta.tabs]
+add = "Yeni sekme"
+
 [quvyta.tab-rail]
 add = "Yeni sekme"
 

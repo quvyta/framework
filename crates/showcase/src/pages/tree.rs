@@ -1,11 +1,12 @@
 //! Tree: a project that opens and closes, folders read from disk when they open, a folder with
-//! fifty thousand files, and focus categories that are reordered and managed from a menu.
+//! fifty thousand files, focus categories that are reordered and managed from a menu, and files
+//! selected several at a time and dragged into folders.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use qframe::prelude::*;
-use qframe::widgets::{ContextItem, Select, Tree, TreeMove, TreeNode};
+use qframe::widgets::{ContextItem, Select, Tree, TreeDrop, TreeMove, TreeNode};
 
 use super::{PageMsg, setting, slide_setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -61,6 +62,33 @@ fn categories() -> Vec<Category> {
     ]
 }
 
+/// A file or folder of the moving demo; its name is its key, since names are unique there.
+#[derive(Debug, Clone)]
+pub struct FileItem {
+    name: &'static str,
+    /// `Some` for a folder.
+    children: Option<Vec<FileItem>>,
+}
+
+fn leaf(name: &'static str) -> FileItem {
+    FileItem { name, children: None }
+}
+
+fn folder(name: &'static str, children: Vec<FileItem>) -> FileItem {
+    FileItem { name, children: Some(children) }
+}
+
+fn sample_files() -> Vec<FileItem> {
+    vec![
+        folder("notes", vec![leaf("ideas.md"), leaf("todo.md")]),
+        folder("photos", vec![leaf("beach.png"), leaf("city.png")]),
+        folder("archive", Vec::new()),
+        leaf("budget.csv"),
+        leaf("draft.md"),
+        leaf("report.pdf"),
+    ]
+}
+
 /// A menu action on a category.
 #[derive(Debug, Clone, Copy)]
 pub enum CategoryAction {
@@ -82,6 +110,10 @@ pub struct State {
     categories: Vec<Category>,
     category_open: BTreeSet<String>,
     category_selected: Option<String>,
+    files: Vec<FileItem>,
+    files_open: BTreeSet<String>,
+    files_cursor: Option<String>,
+    files_chosen: Vec<String>,
 }
 
 impl Default for State {
@@ -98,6 +130,10 @@ impl Default for State {
             categories: categories(),
             category_open: ["work".to_owned()].into(),
             category_selected: None,
+            files: sample_files(),
+            files_open: ["notes".to_owned()].into(),
+            files_cursor: None,
+            files_chosen: Vec::new(),
         }
     }
 }
@@ -116,6 +152,10 @@ pub enum Msg {
     CategoryExpand(String, bool),
     CategoryMove(TreeMove),
     CategoryMenu(CategoryAction, String),
+    FilesCursor(String),
+    FilesChoose(Vec<String>),
+    FilesExpand(String, bool),
+    FilesDrop(TreeDrop),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -186,6 +226,23 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             }
         }
         Msg::CategoryMove(step) => move_category(state, &step, log),
+        Msg::FilesCursor(key) => state.files_cursor = Some(key),
+        Msg::FilesChoose(keys) => {
+            log.push(PAGE, "Tree#moving", format!("selected {}", keys.join(", ")));
+            state.files_chosen = keys;
+        }
+        Msg::FilesExpand(key, open) => {
+            if open {
+                state.files_open.insert(key);
+            } else {
+                state.files_open.remove(&key);
+            }
+        }
+        Msg::FilesDrop(drop) => {
+            let into = drop.into.as_deref().unwrap_or("/");
+            log.push(PAGE, "Tree#moving", format!("moved {} into {into}", drop.keys.join(", ")));
+            move_files(&mut state.files, &drop);
+        }
         Msg::CategoryMenu(action, key) => {
             log.push(PAGE, "Tree#categories", format!("menu {action:?} {key}"));
             if let Some(step) = category_action(state, action, &key) {
@@ -205,6 +262,67 @@ fn move_category(state: &mut State, step: &TreeMove, log: &mut EventLog) {
     }
 }
 // endregion
+
+// region: tree-drop
+/// Moves the dropped files into their folder, or to the top level, keeping folders first and
+/// names in order the way a file manager lists them.
+fn move_files(files: &mut Vec<FileItem>, drop: &TreeDrop) {
+    fn take(items: &mut Vec<FileItem>, keys: &[String], out: &mut Vec<FileItem>) {
+        let mut at = 0;
+        while at < items.len() {
+            if keys.iter().any(|key| key == items[at].name) {
+                out.push(items.remove(at));
+                continue;
+            }
+            if let Some(children) = &mut items[at].children {
+                take(children, keys, out);
+            }
+            at += 1;
+        }
+    }
+    fn folder_mut<'a>(items: &'a mut [FileItem], key: &str) -> Option<&'a mut Vec<FileItem>> {
+        items.iter_mut().find_map(|item| {
+            let found = item.name == key;
+            let children = item.children.as_mut()?;
+            if found { Some(children) } else { folder_mut(children, key) }
+        })
+    }
+    let mut moved = Vec::new();
+    take(files, &drop.keys, &mut moved);
+    let target = match drop.into.as_deref() {
+        Some(key) => match folder_mut(files, key) {
+            Some(children) => children,
+            None => files,
+        },
+        None => files,
+    };
+    target.extend(moved);
+    target.sort_by(|a, b| b.children.is_some().cmp(&a.children.is_some()).then_with(|| a.name.cmp(b.name)));
+}
+// endregion
+
+/// The node of a file or folder of the moving demo.
+fn file_node(state: &State, item: &FileItem) -> TreeNode {
+    let node = TreeNode::new(item.name, item.name);
+    match &item.children {
+        Some(children) => node
+            .icon("folder", Some("accent"))
+            .expandable(true)
+            .expanded(state.files_open.contains(item.name))
+            .children(children.iter().map(|child| file_node(state, child))),
+        None => node.icon("file", None),
+    }
+}
+
+/// The names of every folder, the nodes that take drops.
+fn folder_names(items: &[FileItem], out: &mut Vec<String>) {
+    for item in items {
+        if let Some(children) = &item.children {
+            out.push(item.name.to_owned());
+            folder_names(children, out);
+        }
+    }
+}
 
 /// The children of `parent`, or the top-level categories.
 fn siblings_of<'a>(categories: &'a mut Vec<Category>, parent: Option<&str>) -> Option<&'a mut Vec<Category>> {
@@ -378,6 +496,27 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     })
     .fill_width();
 
+    ui.add_with(Panel::new().title(t!("tree.moving")).gap(0), |ui| {
+        ui.add(Text::new(t!("tree.moving-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        // region: tree-multi
+        let mut folders = Vec::new();
+        folder_names(&state.files, &mut folders);
+        let nodes = state.files.iter().map(|item| file_node(state, item));
+        let to_top = TreeDrop { keys: state.files_chosen.clone(), into: None };
+        let tree = Tree::new(nodes)
+            .selected(state.files_cursor.as_deref())
+            .on_select(|key| send(Msg::FilesCursor(key.to_owned())))
+            .on_expand(|key, open| send(Msg::FilesExpand(key.to_owned(), open)))
+            .multi_select(&state.files_chosen, |keys| send(Msg::FilesChoose(keys)))
+            .droppable(|drop| send(Msg::FilesDrop(drop)), move |key| folders.iter().any(|folder| folder == key))
+            // The menu of a selected row acts on the whole selection, which the state holds.
+            .context_menu(move |_| vec![ContextItem::new(t!("tree.to-top"), send(Msg::FilesDrop(to_top.clone())))]);
+        ui.add(tree).width(Length::Fill(1)).height(Length::Cells(11)).id("moving");
+        // endregion
+    })
+    .fill_width();
+
     ui.add_with(Panel::new().title(t!("demo.playground")).gap(0), |ui| {
         setting(ui, t!("tree.contents"), |ui| {
             let names = [t!("tree.project"), t!("tree.many"), t!("tree.nothing")];
@@ -444,6 +583,36 @@ mod tests {
         assert!(h.app().pages.tree.categories[0].children[1].archived);
         let log: Vec<String> = h.app().log.recent(PAGE, 3).iter().map(|entry| entry.message.clone()).collect();
         assert!(log.iter().any(|line| line == "moved work/writing from 2 to 1"), "{log:?}");
+    }
+
+    #[test]
+    fn files_are_selected_together_and_dragged_into_a_folder() {
+        use qframe::event::{Event, MouseButton, MouseEvent, MouseKind};
+        use qframe::keymap::Modifiers;
+        let mut h = crate::tests::showcase_tall(crate::app::Showcase::default(), PAGE, 80);
+        h.set_reduced_motion(true);
+        let (x, y) = h.find("budget.csv").expect("the moving demo");
+        h.click(x, y);
+        let (_, report) = h.find("report.pdf").expect("report");
+        let shift = Modifiers { shift: true, ..Modifiers::default() };
+        let event = |kind| Event::Mouse(MouseEvent { kind, x, y: report, mods: shift });
+        h.events(&[event(MouseKind::Down(MouseButton::Left)), event(MouseKind::Up(MouseButton::Left))]);
+        assert_eq!(h.app().pages.tree.files_chosen, ["budget.csv", "draft.md", "report.pdf"]);
+        let (_, archive) = h.find("archive").expect("archive");
+        h.drag((x, report), (x, archive));
+        let names = |items: &[FileItem]| items.iter().map(|item| item.name).collect::<Vec<_>>();
+        let files = &h.app().pages.tree.files;
+        assert_eq!(names(files), ["notes", "photos", "archive"], "{}", h.screen());
+        assert_eq!(names(files[2].children.as_deref().unwrap_or(&[])), ["budget.csv", "draft.md", "report.pdf"]);
+        // The drop was quick, so archive stayed closed; opening it shows the files, still selected.
+        h.send(send(Msg::FilesExpand("archive".to_owned(), true)));
+        let (_, draft) = h.find("draft.md").expect("the moved files show");
+        crate::tests::right_click(&mut h, x, draft);
+        h.click_text("Move to the top");
+        assert_eq!(
+            names(&h.app().pages.tree.files),
+            ["archive", "notes", "photos", "budget.csv", "draft.md", "report.pdf"]
+        );
     }
 
     #[test]

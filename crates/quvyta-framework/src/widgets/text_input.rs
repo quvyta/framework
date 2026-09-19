@@ -1,5 +1,6 @@
 //! Single-line text entry.
 
+use std::ops::Range;
 use std::time::Duration;
 
 use unicode_segmentation::UnicodeSegmentation;
@@ -38,6 +39,9 @@ pub(crate) struct Edit {
 /// With a selection, ← and → clear it and move one step on from its left or right end. Pasting
 /// inserts text. Clicking places the cursor; dragging selects.
 ///
+/// [`select_on_focus`](Self::select_on_focus) opens the field with part of its text selected,
+/// such as the name without its extension in a rename dialog; typing then replaces just that part.
+///
 /// A right click (or Shift+F10 and the menu key) opens an edit menu with Cut, Copy, Paste and
 /// Select all. A right click inside the selection keeps it; elsewhere it first places the
 /// cursor there. Cut and Copy are disabled without a selection, and always in password fields,
@@ -58,6 +62,7 @@ pub struct TextInput<Msg> {
     on_change: Option<TextMessage<Msg>>,
     on_submit: Option<TextMessage<Msg>>,
     accept: Option<Box<dyn Fn(char) -> bool>>,
+    select_on_focus: Option<Range<usize>>,
 }
 
 #[derive(Debug, Default)]
@@ -67,6 +72,9 @@ struct InputMemory {
     scroll: usize,
     last_edit: Duration,
     dragging: bool,
+    /// Whether the field had focus when last seen, so the focus selection is applied only as it
+    /// gains focus.
+    focused: bool,
 }
 
 impl<Msg: 'static> TextInput<Msg> {
@@ -83,6 +91,7 @@ impl<Msg: 'static> TextInput<Msg> {
             on_change: None,
             on_submit: None,
             accept: None,
+            select_on_focus: None,
         }
     }
 
@@ -135,6 +144,24 @@ impl<Msg: 'static> TextInput<Msg> {
         self
     }
 
+    /// Selects the characters in `range` each time the field gains focus, with the cursor at the
+    /// range's end, e.g. `0..4` to select `main` in `main.rs`. The range counts characters, not
+    /// bytes, and is cut to the text. From then on the selection is the user's: typing replaces
+    /// it, the arrows drop it, and a value changed from outside does not bring it back. A click
+    /// that gives the field focus places the cursor instead.
+    #[must_use]
+    pub fn select_on_focus(mut self, range: Range<usize>) -> Self {
+        self.select_on_focus = Some(range);
+        self
+    }
+
+    /// Selects the whole text each time the field gains focus, like
+    /// [`select_on_focus`](Self::select_on_focus) with a range covering every character.
+    #[must_use]
+    pub fn select_all_on_focus(self) -> Self {
+        self.select_on_focus(0..usize::MAX)
+    }
+
     /// Only characters for which `accept` is true can be typed or pasted.
     pub(crate) fn accept(mut self, accept: impl Fn(char) -> bool + 'static) -> Self {
         self.accept = Some(Box::new(accept));
@@ -154,6 +181,22 @@ impl<Msg: 'static> TextInput<Msg> {
             memory.synced = Some(self.value.clone());
         }
         memory
+    }
+
+    /// Notes whether the field has focus and, as it gains focus, selects the focus range.
+    fn follow_focus(&self, memory: &mut InputMemory, focused: bool) {
+        let gained = focused && !memory.focused;
+        memory.focused = focused;
+        let Some(range) = self.select_on_focus.clone().filter(|_| gained) else {
+            return;
+        };
+        let editor = &mut memory.editor;
+        let text = editor.text();
+        let chars = text.chars().count();
+        let (start, end) = (range.start.min(chars), range.end.min(chars));
+        let (start, end) = (grapheme_at_char(text, start), grapheme_at_char(text, end.max(start)));
+        editor.move_to_grapheme(start, false);
+        editor.move_to_grapheme(end, true);
     }
 
     /// The glyphs drawn for the text: the text itself or a mask.
@@ -176,6 +219,13 @@ impl<Msg: 'static> TextInput<Msg> {
             1,
         )
     }
+}
+
+/// The index of the grapheme that starts at or after character `index` of `text`, so a range
+/// counted in characters never splits a character built from several.
+fn grapheme_at_char(text: &str, index: usize) -> usize {
+    let byte = text.char_indices().nth(index).map_or(text.len(), |(byte, _)| byte);
+    text.grapheme_indices(true).take_while(|(start, _)| *start < byte).count()
 }
 
 /// The grapheme index of byte offset `byte` in `text`.
@@ -225,8 +275,10 @@ impl<Msg: 'static> Widget<Msg> for TextInput<Msg> {
         let mask = cx.env().icons().glyph("mask").into_owned();
         let now = cx.now();
         let blink = cx.env().theme().motion().cursor_blink;
+        let has_focus = cx.is_focused();
         let (glyphs, cursor_index, selection, last_edit) = {
             let memory = self.sync(cx.memory::<InputMemory>());
+            self.follow_focus(memory, has_focus);
             let text = memory.editor.text();
             let cursor_index = grapheme_index(text, memory.editor.cursor());
             let selection =
@@ -451,6 +503,17 @@ impl<Msg: 'static> TextInput<Msg> {
             let padding = cx.env().theme().style("text-input", None, &[]).pair("padding").unwrap_or((0, 1)).1;
             cells::sum([padding, text::width(&cx.env().icons().glyph("prompt")), 1])
         };
+        // A click that brings focus places the cursor itself, so it counts as the focus having
+        // been seen already; any other event applies the focus selection first if no frame has.
+        let has_focus = cx.is_focused();
+        {
+            let memory = self.sync(cx.memory::<InputMemory>());
+            if matches!(event, Event::Mouse(mouse) if matches!(mouse.kind, MouseKind::Down(_))) {
+                memory.focused = has_focus;
+            } else {
+                self.follow_focus(memory, has_focus);
+            }
+        }
         if let Some(edit) = self.menu_event(cx, event, text_left) {
             return edit;
         }
@@ -705,6 +768,118 @@ mod tests {
         right_click(&mut h, 5, 0);
         let theme = h.env().theme();
         assert_eq!((h.fg(8, 1), h.fg(8, 2)), (theme.color("muted"), theme.color("muted")));
+    }
+
+    /// A rename field that opens with part of the name selected.
+    struct Rename {
+        value: String,
+        range: Option<Range<usize>>,
+        all: bool,
+    }
+
+    impl App for Rename {
+        type Msg = String;
+        fn update(&mut self, value: String) -> Command<String> {
+            self.value = value;
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, String>) {
+            let mut input = TextInput::new(&self.value).on_change(|value| value);
+            if let Some(range) = self.range.clone() {
+                input = input.select_on_focus(range);
+            }
+            if self.all {
+                input = input.select_all_on_focus();
+            }
+            ui.add(input).fill_width().id("name");
+        }
+    }
+
+    fn rename(value: &str, range: Option<Range<usize>>) -> Harness<Rename> {
+        Harness::new(Rename { value: value.into(), range, all: false }, 30, 1)
+    }
+
+    #[test]
+    fn typing_replaces_the_part_selected_on_focus() {
+        let mut h = rename("main.rs", Some(0..4));
+        h.press("tab");
+        assert_eq!(h.screen(), "▌ ❯ main.rs\n");
+        let (selected, plain) = (h.bg(4, 0), h.bg(9, 0));
+        assert_ne!(selected, plain, "main is selected");
+        assert_eq!(h.bg(7, 0), selected, "all four letters");
+        h.type_text("x");
+        assert_eq!(h.app().value, "x.rs");
+    }
+
+    #[test]
+    fn the_cursor_stands_at_the_end_of_the_range_and_an_arrow_drops_the_selection() {
+        let mut h = rename("main.rs", Some(0..4));
+        h.press("tab").press("right").type_text("_");
+        assert_eq!(h.app().value, "main._rs", "→ leaves the selection one step on from its end");
+        let mut h = rename("main.rs", Some(0..4));
+        h.press("tab").press("shift+right").type_text("x");
+        assert_eq!(h.app().value, "xrs", "the cursor was at the range's end, so shift+→ grows it");
+    }
+
+    #[test]
+    fn without_a_range_the_field_opens_as_before() {
+        let mut h = rename("main.rs", None);
+        h.press("tab").type_text("x");
+        assert_eq!(h.app().value, "main.rsx");
+    }
+
+    #[test]
+    fn the_range_counts_characters_and_is_cut_to_the_text() {
+        let mut h = rename("şğü.txt", Some(0..3));
+        h.press("tab").type_text("a");
+        assert_eq!(h.app().value, "a.txt", "three Turkish letters are three characters, six bytes");
+        let mut h = rename("çay", Some(1..40));
+        h.press("tab").type_text("ok");
+        assert_eq!(h.app().value, "çok");
+        let mut h = Harness::new(Rename { value: "e\u{301}te".into(), range: Some(0..1), all: false }, 30, 1);
+        h.press("tab").type_text("a");
+        assert_eq!(h.app().value, "ate", "a range never splits an accented letter built from two characters");
+    }
+
+    #[test]
+    fn select_all_on_focus_selects_everything() {
+        let mut h = Harness::new(Rename { value: "draft".into(), range: None, all: true }, 30, 1);
+        h.press("tab").type_text("final");
+        assert_eq!(h.app().value, "final");
+    }
+
+    #[test]
+    fn a_value_changed_from_outside_keeps_the_users_selection() {
+        let mut h = rename("main.rs", Some(0..4));
+        h.press("tab").press("end");
+        h.send("lib.rs".to_owned()).type_text("!");
+        assert_eq!(h.app().value, "lib.rs!", "the new value is not selected again");
+    }
+
+    #[test]
+    fn a_click_that_brings_focus_places_the_cursor() {
+        let mut h = rename("main.rs", Some(0..4));
+        h.click(9, 0).type_text("X");
+        assert_eq!(h.app().value, "main.Xrs", "the cursor lands where clicked, before r");
+    }
+
+    #[test]
+    fn coming_back_selects_the_range_again() {
+        struct Two(String);
+        impl App for Two {
+            type Msg = String;
+            fn update(&mut self, value: String) -> Command<String> {
+                self.0 = value;
+                Command::none()
+            }
+            fn view(&self, ui: &mut View<'_, String>) {
+                ui.add(TextInput::new(&self.0).select_on_focus(0..4).on_change(|value| value)).fill_width();
+                ui.add(TextInput::new("other")).fill_width();
+            }
+        }
+        let mut h = Harness::new(Two("main.rs".into()), 30, 2);
+        h.press("tab").press("end").press("tab").press("shift+tab").type_text("x");
+        assert_eq!(h.app().0, "x.rs");
     }
 
     #[test]

@@ -18,6 +18,7 @@
 
 - `App::action(isim) -> Option<Msg>` — uygulama eylemleri.
 - `Command::focus(isim)` — adlandırılmış bileşene odaklan.
+- `NodeMut::on_action(kapsam, eylem, mesaj)` — odak düğümde ya da içindeyken eylem `App::action`'a gitmez, `mesaj`'ı gönderir. Cevap veren en içteki düğüm kazanır; odaklı bileşenin kullandığı tuşlar ve çalışma motorunun kendi eylemleri (`quit`, `focus-next`, `focus-prev`, `debug`, `copy`, `paste`, `toggle-panel`) hiç cevaplanmaz. Her eylem için bir kez çağrılır.
 - `Keymap::parse`, `.overlay`, `.bind`, `.action_for(tuş)`, `.chords_for(kapsam, eylem)`, `.iter()`, `.conflicts()`.
 - `Scope::Global`, `Scope::App`, `scope.label_key(eylem)`.
 - `KeyChord`, `"ctrl+shift+p"` metnini okur; `.label()` `ctrl shift p` verir.

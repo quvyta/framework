@@ -8,6 +8,8 @@
 - `.max_length(n)` — at most `n` characters.
 - `.invalid(bool)` — invalid look. Default: `false`.
 - `.disabled(bool)` — read-only, not focusable. Default: `false`.
+- `.select_on_focus(range)` — selects the characters in `range` each time the field gains focus, cursor at the range's end; cut to the text. Not set by default.
+- `.select_all_on_focus()` — selects the whole text each time the field gains focus.
 
 ## Keys
 
@@ -21,7 +23,7 @@
 
 ## Mouse
 
-- Click places the cursor; drag selects.
+- Click places the cursor; drag selects. A click that gives focus to a field with `select_on_focus` places the cursor and selects nothing.
 - Right click opens the edit menu at the pointer: Cut, Copy, Paste, Select all. Inside the selection it keeps it; elsewhere it places the cursor first. Cut and Copy need a selection, Paste text on the system clipboard, the terminal's or from a copy inside the application.
 
 ## Theme keys

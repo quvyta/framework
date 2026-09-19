@@ -119,45 +119,8 @@ impl<Msg: 'static> Widget<Msg> for Tooltip<Msg> {
     }
 
     fn paint_overlay(&self, cx: &mut PaintCx<'_>, anchor: Rect) {
-        let style = cx.style("tooltip", None, &[]);
-        let padding = style.padding();
-        let text_style = style.text();
-        let background = text_style.bg.unwrap_or_else(|| cx.color("overlay"));
-        let foreground = text_style.fg.unwrap_or_else(|| cx.color("text"));
-        let screen = cx.clip();
-        let size = Size::new(
-            text::width(&self.text).saturating_add(padding.horizontal()),
-            padding.vertical().saturating_add(1),
-        );
-        let pointer = cx.pointer_anywhere();
-        let covers_pointer = |rect: Rect| pointer.is_some_and(|(x, y)| rect.contains(x, y));
-        let sides = [self.placement, self.placement.opposite(), Placement::Right, Placement::Left];
-        let candidates = sides.map(|side| placement::place(anchor, size, screen, side).0);
-        // Beside the anchor if possible; on a crowded screen over it, but never under the pointer.
-        let Some(rect) = candidates
-            .iter()
-            .find(|rect| !covers_pointer(**rect) && rect.intersect(anchor).is_empty())
-            .or_else(|| candidates.iter().find(|rect| !covers_pointer(**rect)))
-            .copied()
-        else {
-            return;
-        };
-
         let shown_since = cx.memory::<TooltipMemory>().shown_since.unwrap_or_default();
-        let enter = cx.env().theme().motion().enter;
-        let progress = cx.progress_since(shown_since, enter, Easing::EaseOut);
-        let grounds = cx.grounds_around(rect);
-        // The text fades in from the surface as it will show, lifted or not.
-        let lifted = cx.lift_for(rect, &grounds, Some(background));
-        let surface = lifted.map_or(background, |lift| lift.apply(background));
-        cx.clear(rect, background);
-        if let Some(lift) = lifted {
-            cx.lift(rect, lift);
-        }
-        let inner = rect.inset(padding);
-        let shown = text::truncate(&self.text, inner.width).into_owned();
-        let fg = surface.mix(foreground, progress);
-        cx.text(inner.x, inner.y, &shown, CellStyle { fg: Some(fg), bg: None, ..text_style }, inner.width);
+        paint_tip(cx, anchor, &self.text, self.placement, shown_since);
     }
 
     fn children(&self) -> &[Node<Msg>] {
@@ -167,6 +130,47 @@ impl<Msg: 'static> Widget<Msg> for Tooltip<Msg> {
     fn children_mut(&mut self) -> &mut [Node<Msg>] {
         &mut self.body
     }
+}
+
+/// Paints a tooltip saying `text` beside `anchor`, preferably on side `placement`, fading in since
+/// `shown_since`. Widgets that explain a part of themselves (rather than wrapping it in a
+/// [`Tooltip`]) call it from their overlay, so every tip looks and moves the same.
+pub(crate) fn paint_tip(cx: &mut PaintCx<'_>, anchor: Rect, text: &str, placement: Placement, shown_since: Duration) {
+    let style = cx.style("tooltip", None, &[]);
+    let padding = style.padding();
+    let text_style = style.text();
+    let background = text_style.bg.unwrap_or_else(|| cx.color("overlay"));
+    let foreground = text_style.fg.unwrap_or_else(|| cx.color("text"));
+    let screen = cx.clip();
+    let size = Size::new(text::width(text).saturating_add(padding.horizontal()), padding.vertical().saturating_add(1));
+    let pointer = cx.pointer_anywhere();
+    let covers_pointer = |rect: Rect| pointer.is_some_and(|(x, y)| rect.contains(x, y));
+    let sides = [placement, placement.opposite(), Placement::Right, Placement::Left];
+    let candidates = sides.map(|side| placement::place(anchor, size, screen, side).0);
+    // Beside the anchor if possible; on a crowded screen over it, but never under the pointer.
+    let Some(rect) = candidates
+        .iter()
+        .find(|rect| !covers_pointer(**rect) && rect.intersect(anchor).is_empty())
+        .or_else(|| candidates.iter().find(|rect| !covers_pointer(**rect)))
+        .copied()
+    else {
+        return;
+    };
+
+    let enter = cx.env().theme().motion().enter;
+    let progress = cx.progress_since(shown_since, enter, Easing::EaseOut);
+    let grounds = cx.grounds_around(rect);
+    // The text fades in from the surface as it will show, lifted or not.
+    let lifted = cx.lift_for(rect, &grounds, Some(background));
+    let surface = lifted.map_or(background, |lift| lift.apply(background));
+    cx.clear(rect, background);
+    if let Some(lift) = lifted {
+        cx.lift(rect, lift);
+    }
+    let inner = rect.inset(padding);
+    let shown = text::truncate(text, inner.width).into_owned();
+    let fg = surface.mix(foreground, progress);
+    cx.text(inner.x, inner.y, &shown, CellStyle { fg: Some(fg), bg: None, ..text_style }, inner.width);
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@
 
 - `Terminal::new(&oturum)` — bir oturumu çizer; `pty` özelliğiyle gelir.
 - `.pass_through(kapsam, eylem)` — o tuş haritası eylemine bağlı tuşlar programa gitmez; üst bileşenlere, tuş dinleyicilerine ve `App::action`'a ilerler; her eylem için bir kez çağrılır. Tuş geldiği anda geçerli olan tuş haritası karar verir, tuşlar yeniden bağlanınca bu da değişir. Karakter yazan tuşlar (en fazla `shift` ile bir karakter ya da boşluk) her zaman programa ulaşır. Varsayılan: `shift tab` ve `ctrl q` dışında hiçbir şey geçmez.
+- Terminalin düğümünde `NodeMut::on_action(kapsam, eylem, mesaj)` — geçirilen eylem odak terminaldeyken `mesaj`'ı gönderir, başka yerdeyken `App::action`'a gider; odağı tek tuşla aç-kapa yapmanın yolu.
 - `TerminalSession::shell(klasör)`, `TerminalSession::spawn(program, argümanlar, klasör)` — bir programı sözde terminalde başlatır.
 - `.watch()` — bir `TerminalWatch`; `.write(baytlar)`, `.kill()`, `.exit()`.
 - `TerminalWatch::next()` — `TerminalEvent::Output` ya da `TerminalEvent::Exited(kod)` gelene kadar bekler; `Command::perform` içinde çalıştır.

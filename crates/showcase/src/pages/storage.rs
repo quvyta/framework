@@ -2,15 +2,18 @@
 //! appearance choices, located diagnostics for a broken file, self-healing by a schema, and the
 //! rest of what an application needs around its own files: the two platform folders and the
 //! machine's name for files of its own in them, the family's shared settings folder and the
-//! Documents folder, moving old settings into the family, an atomic write step by step, and the
-//! lock that keeps a second instance out.
+//! Documents folder, moving old settings into the family, an atomic write step by step, the lock
+//! that keeps a second instance out, and the shared lock that wakes a waiter when the last
+//! instance closes.
 
 use std::path::{Path, PathBuf};
 
 use qframe::diagnostics::Severity;
 use qframe::env::Env;
 use qframe::prelude::*;
-use qframe::storage::{AppLock, Family, Migration, Schema, SettingKind, Settings, WriteStep, atomic_write_reporting};
+use qframe::storage::{
+    AppLock, Family, InstanceLock, Migration, Schema, SettingKind, Settings, WriteStep, atomic_write_reporting,
+};
 use qframe::widgets::{CodeView, Language, Segmented, Switch, TextInput};
 
 use super::{PageMsg, setting, toggle};
@@ -83,6 +86,12 @@ pub struct State {
     /// The demo lock, held for as long as this value lives.
     lock: Option<AppLock>,
     attempt: Attempt,
+    /// The shared locks of the demo's pretend instances, one per open instance.
+    instances: Vec<InstanceLock>,
+    /// A background wait for the exclusive lock is running.
+    waiting: bool,
+    /// What the last wait for the exclusive lock came to.
+    waited: Option<Result<(), String>>,
     /// What the last move of the demo's old folder into its family reported, or why the demo
     /// could not set the old folder up.
     adopt: Option<Result<Migration, String>>,
@@ -103,6 +112,9 @@ impl State {
             write: None,
             lock: None,
             attempt: Attempt::None,
+            instances: Vec::new(),
+            waiting: false,
+            waited: None,
             adopt: None,
             demo: demo_dir(),
         }
@@ -114,6 +126,7 @@ impl Drop for State {
     /// The folder is this instance's own, named after the process; nothing else is removed.
     fn drop(&mut self) {
         self.lock = None;
+        self.instances.clear();
         if self.demo.is_dir() {
             let _ = std::fs::remove_dir_all(&self.demo);
         }
@@ -202,6 +215,10 @@ pub enum Msg {
     Write,
     Take,
     Release,
+    OpenInstance,
+    CloseInstance,
+    WaitForLast,
+    LastClosed(Result<(), String>),
     Adopt,
 }
 
@@ -253,6 +270,27 @@ fn take_the_lock(path: &Path) -> (Option<AppLock>, Attempt) {
         Ok(None) => (None, Attempt::Busy(qframe::storage::holder_pid(path))),
         Err(error) => (None, Attempt::Failed(error.to_string())),
     }
+    // endregion
+}
+
+/// Opens one pretend instance: a shared lock, held for as long as the instance runs.
+fn open_instance(path: &Path) -> Result<InstanceLock, String> {
+    std::fs::create_dir_all(path.parent().expect("the lock file has a folder")).map_err(|e| e.to_string())?;
+    // region: storage-instance
+    let instance = InstanceLock::shared(path).map_err(|e| e.to_string())?;
+    // endregion
+    Ok(instance)
+}
+
+/// Waits in the background until no instance holds its shared lock, as a service would.
+fn wait_for_last(path: PathBuf) -> Command<AppMsg> {
+    // region: storage-wait-last
+    Command::perform(move || {
+        // Sleeps in the kernel until the last shared lock is released, however its process ended.
+        let result = InstanceLock::wait_exclusive(&path).map_err(|e| e.to_string());
+        // A service would clean up here, then drop the lock so a new instance can start.
+        send(Msg::LastClosed(result.map(drop)))
+    })
     // endregion
 }
 
@@ -336,6 +374,47 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             log.push(PAGE, "AppLock", "dropped the lock");
             state.lock = None;
             state.attempt = Attempt::None;
+            Command::none()
+        }
+        Msg::OpenInstance => {
+            match open_instance(&state.demo.join("instances")) {
+                Ok(instance) => {
+                    state.instances.push(instance);
+                    log.push(PAGE, "InstanceLock::shared", format!("{} instances open", state.instances.len()));
+                }
+                Err(error) => {
+                    log.push(PAGE, "InstanceLock::shared", error.clone());
+                    state.waited = Some(Err(error));
+                }
+            }
+            Command::none()
+        }
+        Msg::CloseInstance => {
+            state.instances.pop();
+            log.push(PAGE, "InstanceLock", format!("{} instances open", state.instances.len()));
+            Command::none()
+        }
+        Msg::WaitForLast => {
+            if state.waiting {
+                return Command::none();
+            }
+            if let Err(error) = std::fs::create_dir_all(&state.demo) {
+                state.waited = Some(Err(error.to_string()));
+                return Command::none();
+            }
+            log.push(PAGE, "InstanceLock::wait_exclusive", "waiting for the last instance");
+            state.waiting = true;
+            state.waited = None;
+            wait_for_last(state.demo.join("instances"))
+        }
+        Msg::LastClosed(result) => {
+            let text = match &result {
+                Ok(()) => "the last instance closed".to_owned(),
+                Err(error) => error.clone(),
+            };
+            log.push(PAGE, "InstanceLock::wait_exclusive", text);
+            state.waiting = false;
+            state.waited = Some(result);
             Command::none()
         }
         Msg::Adopt => {
@@ -574,8 +653,48 @@ fn one_instance(state: &State, ui: &mut View<'_, AppMsg>) {
             ui.add(Text::new(text).color(color)).fill_width();
         })
         .gap(1);
+        instances(state, ui);
     })
     .fill_width();
+}
+
+/// How many pretend instances hold the shared lock, in words.
+fn instances_open(open: usize) -> String {
+    if open == 0 { t!("storage.instances-none") } else { t!("storage.instances-open", n = open) }
+}
+
+/// Instances that share a lock, and a waiter that wakes when the last of them closes.
+fn instances(state: &State, ui: &mut View<'_, AppMsg>) {
+    ui.spacer().height(Length::Cells(1));
+    ui.add(Text::new(t!("storage.instances-hint")).role("secondary"));
+    ui.spacer().height(Length::Cells(1));
+    let open = state.instances.len();
+    ui.row(|ui| {
+        ui.add(Button::new(t!("storage.open-instance")).on_press(send(Msg::OpenInstance))).id("open-instance");
+        ui.add(Button::new(t!("storage.close-instance")).disabled(open == 0).on_press(send(Msg::CloseInstance)))
+            .id("close-instance");
+        ui.add(Button::new(t!("storage.wait-last")).disabled(state.waiting).on_press(send(Msg::WaitForLast)))
+            .id("wait-last");
+    })
+    .gap(2);
+    ui.spacer().height(Length::Cells(1));
+    let (marker, color, text) = {
+        let icons = ui.env().icons();
+        match (&state.waited, state.waiting) {
+            (_, true) => (icons.glyph("info").into_owned(), "accent", t!("storage.waiting-last", n = open)),
+            (Some(Ok(())), false) => (icons.glyph("success").into_owned(), "success", t!("storage.last-closed")),
+            (Some(Err(error)), false) => (icons.glyph("error").into_owned(), "danger", error.clone()),
+            (None, false) => (icons.glyph("info").into_owned(), "muted", instances_open(open)),
+        }
+    };
+    ui.row(|ui| {
+        ui.add(Text::new(marker).color(color).no_wrap());
+        ui.add(Text::new(text).color(color)).fill_width();
+    })
+    .gap(1);
+    if state.waited.is_some() && !state.waiting {
+        ui.add(Text::new(instances_open(open)).role("faint"));
+    }
 }
 
 /// The live demo and the playground.
@@ -919,6 +1038,30 @@ mod tests {
         h.click_text("Take the lock");
         assert!(matches!(h.app().pages.storage.attempt, Attempt::Taken), "the released lock is free again");
         h.send(send(Msg::Release));
+        std::fs::remove_dir_all(&h.app().pages.storage.demo).expect("clean up the demo folder");
+    }
+
+    #[test]
+    fn instances_share_the_lock_and_the_waiter_takes_it_once_none_is_left() {
+        if !cfg!(unix) {
+            return;
+        }
+        let mut h = tall(Showcase::new());
+        assert!(h.screen().contains("No instance is open"), "{}", h.screen());
+        h.click_text("Open an instance");
+        h.click_text("Open an instance");
+        assert_eq!(h.app().pages.storage.instances.len(), 2, "shared locks do not keep each other out");
+        assert!(h.screen().contains("2 instances hold the shared lock"), "{}", h.screen());
+        let path = h.app().pages.storage.demo.join("instances");
+        assert!(InstanceLock::try_exclusive(&path).expect("attempt").is_none(), "the instances keep it out");
+
+        h.click_text("Close an instance");
+        h.click_text("Close an instance");
+        // The harness runs background work inline, so the wait is asked for once nobody is left;
+        // in the terminal it runs on a thread and the buttons above wake it.
+        h.click_text("Wait for the last to close");
+        assert!(matches!(h.app().pages.storage.waited, Some(Ok(()))), "{:?}", h.app().pages.storage.waited);
+        assert!(h.screen().contains("The last instance closed"), "{}", h.screen());
         std::fs::remove_dir_all(&h.app().pages.storage.demo).expect("clean up the demo folder");
     }
 

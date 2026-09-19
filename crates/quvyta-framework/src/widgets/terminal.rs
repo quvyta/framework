@@ -67,6 +67,12 @@ impl Terminal {
     /// e.g. `.pass_through(Scope::Global, "toggle-panel")`; call again for each action. The
     /// keymap in force when the key arrives decides which keys those are, so rebinding follows.
     /// Keys that type a character still go to the program, see [`Terminal`].
+    ///
+    /// To tell a key passed out of the terminal from the same key pressed elsewhere, answer the
+    /// action on the terminal's node with [`NodeMut::on_action`](crate::widget::NodeMut::on_action):
+    /// a focus toggle passes `"focus-toggle"`, answers it with a message that focuses the rest
+    /// of the application, and maps it in [`App::action`](crate::runtime::App::action) to one
+    /// that returns focus with [`Command::focus`](crate::runtime::Command::focus).
     #[must_use]
     pub fn pass_through(mut self, scope: Scope, action: impl Into<String>) -> Self {
         self.pass_through.push((scope, action.into()));
@@ -501,6 +507,60 @@ mod tests {
         h.press("?").type_text("abc");
         wait_for(&session, "3f 61 62 63");
         assert_eq!(h.app().heard.len(), 2, "? typed into the program instead of opening the help");
+        session.kill();
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum ToggleMsg {
+        /// The key came from inside the terminal.
+        Leave,
+        /// The key came from anywhere else.
+        Enter,
+    }
+
+    struct Toggling {
+        session: TerminalSession,
+        heard: Vec<ToggleMsg>,
+    }
+
+    impl App for Toggling {
+        type Msg = ToggleMsg;
+        fn update(&mut self, msg: ToggleMsg) -> Command<ToggleMsg> {
+            let target = if msg == ToggleMsg::Leave { "tabs" } else { "terminal" };
+            self.heard.push(msg);
+            Command::focus(target)
+        }
+        fn view(&self, ui: &mut View<'_, ToggleMsg>) {
+            ui.add(crate::widgets::Button::new("tabs").on_press(ToggleMsg::Enter)).id("tabs");
+            ui.add(Terminal::new(&self.session).pass_through(Scope::App, "focus-toggle"))
+                .fill()
+                .id("terminal")
+                .on_action(Scope::App, "focus-toggle", ToggleMsg::Leave);
+        }
+        fn action(&self, name: &str) -> Option<ToggleMsg> {
+            (name == "focus-toggle").then_some(ToggleMsg::Enter)
+        }
+    }
+
+    #[test]
+    fn one_key_leaves_the_terminal_and_the_same_key_goes_back() {
+        // The program shows, in hex, the first byte it receives.
+        let script = "stty raw -echo; printf 'ready '; head -c 1 | od -An -tx1";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&session, "ready");
+        let mut env = crate::env::Env::builtin();
+        env.keymap_mut().bind(Scope::App, "focus-toggle", &[chord("ctrl+alt+space")]);
+        let mut h = Harness::with_env(Toggling { session: session.clone(), heard: Vec::new() }, env, 40, 5);
+        h.press("tab").press("tab");
+        assert!(h.is_focused("terminal"));
+        h.press("ctrl+alt+space");
+        assert!(h.is_focused("tabs"), "the key left the terminal");
+        h.press("ctrl+alt+space");
+        assert!(h.is_focused("terminal"), "the same key went back in");
+        assert_eq!(h.app().heard, [ToggleMsg::Leave, ToggleMsg::Enter]);
+        h.type_text("a");
+        wait_for(&session, "61");
+        assert!(!session.parser().screen().contents().contains("00"), "the chord never reached the program");
         session.kill();
     }
 

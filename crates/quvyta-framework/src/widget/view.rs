@@ -5,9 +5,10 @@ use std::time::Duration;
 use super::flex::{Axis, Flex};
 use super::idle::{IdleScope, IdleWatch};
 use super::mapped::Mapped;
-use super::{Align, Container, Key, Length, Node, Widget};
+use super::{Align, Container, FocusAction, Key, Length, Node, Widget};
 use crate::env::Env;
 use crate::geometry::{Padding, Size};
+use crate::keymap::Scope;
 
 /// Collects the nodes of one container while an application's `view` runs.
 pub struct View<'a, Msg> {
@@ -322,6 +323,74 @@ impl<'a, Msg> NodeMut<'a, Msg> {
     /// Places children across the main axis of a row or column.
     pub fn align(self, align: Align) -> Self {
         self.node.layout.align = align;
+        self
+    }
+}
+
+impl<Msg: Clone + 'static> NodeMut<'_, Msg> {
+    /// While keyboard focus is on this node or inside it, a key bound to the keymap action
+    /// `action` of `scope` sends `message` instead of reaching [`App::action`](crate::runtime::App::action).
+    ///
+    /// This is how an application tells where a shortcut was pressed. With focus elsewhere the
+    /// same key reaches `App::action` as usual, so one key can mean two things: leave a
+    /// terminal while inside it, go back into it from outside. The focus in force when the key
+    /// arrives decides, however it got there (`tab`, a click, [`Command::focus`](crate::runtime::Command::focus)),
+    /// so nothing has to be tracked in application state.
+    ///
+    /// The innermost node that answers the action wins. The key must first get past the focused
+    /// widgets: a widget that uses it (a text field typing a character) keeps it, and a
+    /// [`Terminal`](crate::widgets::Terminal) lets it out only for actions named with its
+    /// `pass_through`. The actions the runtime owns (`quit`, `focus-next`, `focus-prev`,
+    /// `debug`, `copy`, `paste`, `toggle-panel`) are not answered here. Call once per action.
+    ///
+    /// ```
+    /// use qframe::env::Env;
+    /// use qframe::prelude::*;
+    /// use qframe::widgets::TextInput;
+    ///
+    /// #[derive(Clone, Debug, PartialEq)]
+    /// enum Msg {
+    ///     Leave,
+    ///     Enter,
+    /// }
+    ///
+    /// struct Editor;
+    ///
+    /// impl App for Editor {
+    ///     type Msg = Msg;
+    ///
+    ///     fn update(&mut self, msg: Msg) -> Command<Msg> {
+    ///         match msg {
+    ///             Msg::Leave => Command::focus("files"),
+    ///             Msg::Enter => Command::focus("note"),
+    ///         }
+    ///     }
+    ///
+    ///     fn view(&self, ui: &mut View<'_, Msg>) {
+    ///         ui.add(List::new(["notes.md", "todo.md"].map(ListItem::new))).id("files");
+    ///         ui.add(TextInput::new("")).id("note").on_action(Scope::App, "switch", Msg::Leave);
+    ///     }
+    ///
+    ///     // Reached only while focus is outside the note.
+    ///     fn action(&self, name: &str) -> Option<Msg> {
+    ///         (name == "switch").then_some(Msg::Enter)
+    ///     }
+    /// }
+    ///
+    /// let mut env = Env::builtin();
+    /// env.keymap_mut().bind(Scope::App, "switch", &["alt+s".parse().unwrap()]);
+    /// let mut app = Harness::with_env(Editor, env, 30, 3);
+    /// app.press("alt+s");
+    /// assert!(app.is_focused("note"));
+    /// app.press("alt+s");
+    /// assert!(app.is_focused("files"));
+    /// ```
+    pub fn on_action(self, scope: Scope, action: impl Into<String>, message: Msg) -> Self {
+        self.node.actions.push(FocusAction {
+            scope,
+            action: action.into(),
+            message: Box::new(move || message.clone()),
+        });
         self
     }
 }

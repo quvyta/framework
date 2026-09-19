@@ -1,5 +1,5 @@
-//! Tabs with options: closing, widths, overflow, reordering and a right-click menu, each switched on
-//! on its own.
+//! Tabs with options: closing, widths, overflow, reordering, a right-click menu and an add button,
+//! each switched on on its own.
 
 use qframe::prelude::*;
 use qframe::widgets::{Overflow, Segmented, TabEdit, TabWidth};
@@ -40,6 +40,7 @@ pub struct State {
     overflow: usize,
     reorderable: bool,
     menu: bool,
+    add: bool,
 }
 
 impl Default for State {
@@ -52,6 +53,7 @@ impl Default for State {
             overflow: 0,
             reorderable: false,
             menu: false,
+            add: false,
         }
     }
 }
@@ -69,6 +71,9 @@ pub enum Msg {
     Overflow(usize),
     Reorderable(bool),
     ContextMenu(bool),
+    Add(bool),
+    /// The add button asked for a new tab.
+    NewFile,
     /// A dragged tab scrolled the strip; the first position now in view.
     DragScroll(usize),
 }
@@ -136,6 +141,19 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.menu = on;
             log.push(PAGE, "Playground", format!("context menu = {on}"));
         }
+        Msg::Add(on) => {
+            state.add = on;
+            log.push(PAGE, "Playground", format!("add button = {on}"));
+        }
+        // region: tabs-advanced-new
+        Msg::NewFile => {
+            // The first file that is not open yet, or the README again once every file is.
+            let item = (0..FILES.len()).find(|item| !state.files.iter().any(|tab| tab.item == *item)).unwrap_or(0);
+            state.files.push(OpenTab { item, pinned: false });
+            state.active = state.files.len() - 1;
+            log.push(PAGE, "Tabs#files", format!("new tab: {}", FILES[item].0));
+        }
+        // endregion
         Msg::DragScroll(first) => {
             log.push(PAGE, "Tabs#files", format!("drag scroll: {} first in view", name(state, first)));
         }
@@ -147,9 +165,8 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
 pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     ui.add_with(Panel::new().title(t!("demo.live")), |ui| {
         ui.add(Text::new(t!("tabs-advanced.hint")).role("secondary"));
-        if state.files.is_empty() {
-            ui.add(Text::new(t!("tabs-advanced.empty")).role("faint"));
-        } else {
+        // With the add button on, an empty strip still shows it, above the note that says so.
+        if !state.files.is_empty() || state.add {
             let labels: Vec<&str> = state.files.iter().map(|tab| FILES[tab.item].0).collect();
             // region: tabs-advanced-options
             let mut tabs = Tabs::new(labels)
@@ -173,9 +190,19 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
                 tabs = tabs.context_menu(move |index| tab_menu::items(&files, index, |action| send(Msg::Menu(action))));
             }
             // endregion
+            // region: tabs-advanced-add
+            if state.add {
+                tabs = tabs.on_add(|| send(Msg::NewFile));
+            }
+            // endregion
             ui.add(tabs).width(Length::Cells(72)).id("files");
-            let (name, lines) = FILES[state.files[state.active.min(state.files.len() - 1)].item];
-            ui.add(Text::new(t!("tabs-advanced.file", name = name, n = lines)).role("faint"));
+            if let Some(open) = state.files.get(state.active.min(state.files.len().saturating_sub(1))) {
+                let (name, lines) = FILES[open.item];
+                ui.add(Text::new(t!("tabs-advanced.file", name = name, n = lines)).role("faint"));
+            }
+        }
+        if state.files.is_empty() {
+            ui.add(Text::new(t!("tabs-advanced.empty")).role("faint"));
         }
         ui.add(Button::new(t!("tabs-advanced.reopen")).on_press(send(Msg::Reopen))).id("reopen");
     })
@@ -202,6 +229,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         });
         setting(ui, t!("tabs-advanced.context-menu"), |ui| {
             ui.add(toggle(state.menu, |on| send(Msg::ContextMenu(on)))).id("context-menu");
+        });
+        setting(ui, t!("tabs-advanced.add"), |ui| {
+            ui.add(toggle(state.add, |on| send(Msg::Add(on)))).id("add");
         });
         ui.add(Text::new(t!("tabs-advanced.keys")).role("faint"));
     })
@@ -293,6 +323,36 @@ mod tests {
         assert!(!line(&h, y).contains("README.md"), "the strip stays scrolled:\n{}", h.screen());
         let moved = h.app().pages.tabs_advanced.files.iter().position(|tab| tab.item == 2).expect("app.rs");
         assert!(moved > 2, "app.rs landed further right, at {moved}");
+    }
+
+    #[test]
+    fn the_add_button_opens_the_next_file_right_after_the_last_tab() {
+        let mut h = showcase_on(PAGE);
+        let (_, y) = h.find("README.md").expect("the strip");
+        assert!(!line(&h, y).contains('+'), "no add button until it is turned on");
+        h.send(send(Msg::Add(true)));
+        for index in 0..FILES.len() {
+            h.send(send(Msg::Edit(TabEdit::Close(0))));
+            assert_eq!(h.app().pages.tabs_advanced.files.len(), FILES.len() - index - 1);
+        }
+        assert!(h.screen().contains("Every file is closed"), "{}", h.screen());
+        let strip = line(&h, y);
+        let plus = column(&strip, '+');
+        let logged = |h: &qframe::runtime::Harness<crate::app::Showcase>, message: &str| {
+            h.app().log.recent(PAGE, 20).iter().any(|entry| entry.message == message)
+        };
+        h.click(plus, y);
+        assert!(logged(&h, "new tab: README.md"), "the button starts the empty strip:\n{}", h.screen());
+        h.click(column(&line(&h, y), '+'), y);
+        assert!(logged(&h, "new tab: main.rs"), "{}", h.screen());
+        let strip = line(&h, y);
+        let end = strip.find("main.rs").map(|byte| strip[..byte].chars().count() + "main.rs".len()).expect("main.rs");
+        assert!(
+            column(&strip, '+') - i32::try_from(end).expect("on screen") <= 8,
+            "right after the last tab: {strip:?}"
+        );
+        h.click_text("main.rs").press("tab").press("enter");
+        assert_eq!(h.app().pages.tabs_advanced.files.len(), 3, "Tab reaches it from the tabs, Enter presses it");
     }
 
     #[test]

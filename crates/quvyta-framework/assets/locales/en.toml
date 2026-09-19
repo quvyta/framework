@@ -154,6 +154,9 @@ confirm   = "Confirm"
 cancel    = "Cancel"
 type-word = "Type {word} to confirm"
 
+[quvyta.tabs]
+add = "New tab"
+
 [quvyta.tab-rail]
 add = "New tab"
 

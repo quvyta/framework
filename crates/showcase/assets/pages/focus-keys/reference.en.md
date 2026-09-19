@@ -18,6 +18,7 @@
 
 - `App::action(name) -> Option<Msg>` — application actions.
 - `Command::focus(name)` — focus a named widget.
+- `NodeMut::on_action(scope, action, msg)` — while focus is on the node or inside it, the action sends `msg` instead of reaching `App::action`. The innermost answering node wins; keys the focused widget uses and the runtime's own actions (`quit`, `focus-next`, `focus-prev`, `debug`, `copy`, `paste`, `toggle-panel`) are never answered. Call once per action.
 - `Keymap::parse`, `.overlay`, `.bind`, `.action_for(chord)`, `.chords_for(scope, action)`, `.iter()`, `.conflicts()`.
 - `Scope::Global`, `Scope::App`, `scope.label_key(action)`.
 - `KeyChord` parses `"ctrl+shift+p"`; `.label()` gives `ctrl shift p`.

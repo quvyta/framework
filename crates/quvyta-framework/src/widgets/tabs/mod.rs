@@ -4,6 +4,9 @@
 //! shared behaviour of every tab view (opening, closing, reordering) is in
 //! [`tab_model`](super::tab_model).
 
+mod add;
+#[cfg(test)]
+mod add_tests;
 mod paint;
 mod strip;
 #[cfg(test)]
@@ -64,6 +67,8 @@ const CLOSE: u16 = 1 + close_mark::WIDTH - 1;
 const FILL_MIN: u16 = 12;
 /// Width of a scroll arrow: a space, the chevron and a space.
 const ARROW: u16 = 3;
+/// Width of the add button: a space, the `+` and a space, like an arrow.
+const ADD: u16 = 3;
 
 /// A row of tabs. The open tab is a raised surface; tabs are never boxed or bracketed.
 ///
@@ -87,18 +92,24 @@ const ARROW: u16 = 3;
 /// - [`context_menu`](Self::context_menu): a right click on a tab opens a menu of actions for
 ///   it at the pointer; the menu key or shift+F10 opens the menu of the open tab. Without it a
 ///   right click does nothing.
+/// - [`on_add`](Self::on_add): a `+` button right after the last tab, or at the strip's right end
+///   while tabs hide, that asks for a new tab. Tab from the tabs reaches it; Enter and Space press
+///   it; resting on it, or reaching it with the keyboard, shows what it does. A tab dragged onto it
+///   moves to the end.
 ///
 /// Style keys: `tab` with `hover`, `selected`, `focus`; `tab-index` for numbers; `close-mark`
 /// (with `active` on a raised tab, `hover` under the pointer); `tab-arrow` (`bg`, `fg`, `pillar`)
 /// with `hover`, `pressed`, `disabled`; `tab-menu` (`bg`, `fg`, `pillar`) with `hover`, `active`
 /// while its menu is open; `tab-ghost` and `tab-drop` (`bg`) while dragging; `popup-menu`,
-/// `popup-item`, `popup-check` for the menu of hidden tabs; the keys of
+/// `popup-item`, `popup-check` for the menu of hidden tabs; `tab-add` (`bg`, `fg`, `pillar`) with
+/// `hover`, `focus`, `pressed` and `tooltip` for its hint; the keys of
 /// [`ContextItem`](super::ContextItem) for the context menu.
 pub struct Tabs<Msg> {
     labels: Vec<String>,
     numbered: bool,
     width: TabWidth,
     overflow: Overflow,
+    on_add: Option<Box<dyn Fn() -> Msg>>,
     model: TabModel<Msg>,
 }
 
@@ -109,6 +120,15 @@ struct TabsMemory {
     hidden: Vec<usize>,
     /// The arrow last pressed (by click or key) and when, for its flash.
     pressed: Option<(Arrow, Duration)>,
+    /// Whether keyboard focus inside the strip is on the add button rather than the tabs.
+    on_add: bool,
+    /// When the add button was last pressed, for its flash.
+    add_pressed: Option<Duration>,
+    /// Since when the pointer rests on the add button, and since when its hint shows.
+    add_hovered_since: Option<Duration>,
+    add_hint_since: Option<Duration>,
+    /// The add button while its hint shows, for the overlay.
+    add_hint: Option<Rect>,
 }
 
 /// One of the two scroll arrows, named by the end of the strip it scrolls towards.
@@ -120,7 +140,7 @@ impl<Msg: 'static> Tabs<Msg> {
     pub fn new(labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
         let labels: Vec<String> = labels.into_iter().map(Into::into).collect();
         let model = TabModel::new(labels.len());
-        Self { labels, numbered: false, width: TabWidth::Fit, overflow: Overflow::Arrows, model }
+        Self { labels, numbered: false, width: TabWidth::Fit, overflow: Overflow::Arrows, on_add: None, model }
     }
 
     /// The open tab.
@@ -190,6 +210,16 @@ impl<Msg: 'static> Tabs<Msg> {
         self
     }
 
+    /// Adds a `+` button that sends `message` when pressed, e.g. to open a new tab. It stands one
+    /// gap after the last tab; while tabs hide it keeps its place at the strip's right end, after
+    /// the arrows or the menu control, and with no tabs it starts the strip. Tab moves keyboard
+    /// focus from the tabs to it; Enter and Space press it.
+    #[must_use]
+    pub fn on_add(mut self, message: impl Fn() -> Msg + 'static) -> Self {
+        self.on_add = Some(Box::new(message));
+        self
+    }
+
     /// Gives every tab a context menu: `items(index)` builds the entries for tab `index`, such as
     /// Close, Close others or Pin. A right click on a tab opens its menu at the pointer; the menu
     /// key or shift+F10 opens the menu of the open tab below it, scrolling the tab into view first.
@@ -205,17 +235,23 @@ impl<Msg: 'static> Widget<Msg> for Tabs<Msg> {
     fn measure(&self, _cx: &mut MeasureCx<'_>, available: Size) -> Size {
         let width = match self.width {
             TabWidth::Fill => available.width,
-            TabWidth::Fit | TabWidth::Fixed(_) => Self::total_width(&self.widths(available.width)),
+            TabWidth::Fit | TabWidth::Fixed(_) => {
+                Self::total_width(&self.widths(available.width)).saturating_add(self.add_room())
+            }
         };
         Size::new(width, 1).min(available)
     }
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
         cx.register_hit(area);
+        let on_add = self.add_focus_paint(cx);
         if self.labels.is_empty() {
+            let strip = self.strip(area, &[], 0, &[]);
+            let pointer = cx.pointer();
+            self.paint_add(cx, area, &strip, pointer, on_add);
             return;
         }
-        let focused = cx.is_focus_visible();
+        let focused = cx.is_focus_visible() && !on_add;
         let pointer = cx.pointer();
         let widths = self.widths(area.width);
         let active = self.model.active();
@@ -241,7 +277,8 @@ impl<Msg: 'static> Widget<Msg> for Tabs<Msg> {
         };
 
         let resting = self.strip(area, &identity, offset, &widths);
-        let target = drag.map(|d| (d.index, drop_target(&resting.tabs, d.index, d.pointer, Direction::Across)));
+        let slots = self.drop_slots(&resting);
+        let target = drag.map(|d| (d.index, drop_target(&slots, d.index, d.pointer, Direction::Across)));
         let order = preview_order(self.labels.len(), target);
         let strip = if target.is_some() { self.strip(area, &order, offset, &widths) } else { resting };
 
@@ -278,6 +315,7 @@ impl<Msg: 'static> Widget<Msg> for Tabs<Msg> {
             Overflow::Arrows => self.paint_arrows(cx, &strip, offset, control_pointer, held),
             Overflow::Menu => self.paint_menu_control(cx, &strip, control_pointer),
         }
+        self.paint_add(cx, area, &strip, control_pointer, on_add);
 
         if let Some(drag) = drag {
             self.paint_ghost(cx, area, &strip, drag, widths[drag.index], &order);
@@ -286,6 +324,10 @@ impl<Msg: 'static> Widget<Msg> for Tabs<Msg> {
 
     fn paint_overlay(&self, cx: &mut PaintCx<'_>, anchor: Rect) {
         if self.model.paint_menu(cx, anchor) {
+            return;
+        }
+        if !PopupMenu::is_open_paint(cx) {
+            self.paint_add_hint(cx);
             return;
         }
         let hidden = cx.memory::<TabsMemory>().hidden.clone();
@@ -297,10 +339,10 @@ impl<Msg: 'static> Widget<Msg> for Tabs<Msg> {
     }
 
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
-        if self.labels.is_empty() {
-            return false;
-        }
         let area = cx.area();
+        if self.labels.is_empty() {
+            return self.add_event(cx, event, &self.strip(area, &[], 0, &[]));
+        }
         let widths = self.widths(area.width);
         let identity = self.identity();
         let mut offset = cx.memory::<TabsMemory>().offset;
@@ -337,6 +379,9 @@ impl<Msg: 'static> Widget<Msg> for Tabs<Msg> {
         };
         let open_tab = strip.tabs.iter().find(|(index, _)| *index == self.model.active()).map(|(_, rect)| *rect);
         if self.model.menu_event(cx, event, hit, open_tab) {
+            return true;
+        }
+        if self.add_event(cx, event, &strip) {
             return true;
         }
         match event {
@@ -391,7 +436,7 @@ impl<Msg: 'static> Widget<Msg> for Tabs<Msg> {
                     }
                     return true;
                 }
-                let used = self.model.pointer(cx, mouse, hit, &strip.tabs, Direction::Across);
+                let used = self.model.pointer(cx, mouse, hit, &self.drop_slots(&strip), Direction::Across);
                 if mouse.kind == MouseKind::Drag(MouseButton::Left) {
                     let zone = self.drag_zone(area, &strip, mouse.x);
                     self.model.edge_scroll(cx, zone, |cx, arrow| {
@@ -405,7 +450,7 @@ impl<Msg: 'static> Widget<Msg> for Tabs<Msg> {
     }
 
     fn focusable(&self) -> bool {
-        !self.labels.is_empty()
+        !self.labels.is_empty() || self.on_add.is_some()
     }
 }
 
@@ -446,7 +491,7 @@ impl<Msg: 'static> Tabs<Msg> {
     /// scroll arrow, or past the strip's edge when it has no room for arrows. Only the column counts,
     /// so a pointer that strays off the strip's line while dragging still scrolls.
     fn drag_zone(&self, area: Rect, strip: &Strip, x: i32) -> Option<Zone> {
-        if !self.scrolls(strip) {
+        if !self.scrolls(strip) || strip.add.is_some_and(|add| x >= add.x) {
             return None;
         }
         let (back_end, forward_start) =

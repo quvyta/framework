@@ -9,6 +9,7 @@ Kullanıcının yazdığı tek satırlık metin için metin kutusu kullan: isiml
 3. Oraya ne yazılacağını söylemek için `.placeholder(t!("..."))` ekle.
 4. Kodunda doğrula ve alanı işaretle: `.invalid(name.len() < 3)`, altına kısa bir mesajla.
 5. Gizli bilgiler için `.password(true)`, sınırlar için `.max_length(n)`, Enter'da işlem için `.on_submit(msg)` kullan.
+6. Yeniden adlandırma penceresinde alanı ad seçili açılsın: `main.rs` için `.select_on_focus(0..4)`, karakterle sayılır. Yazmaya başlayınca ad değişir, `.rs` kalır; `.select_all_on_focus()` hepsini seçer.
 
 ## Nasıl çalışır
 
@@ -20,6 +21,7 @@ Kullanıcının yazdığı tek satırlık metin için metin kutusu kullan: isiml
 - **Parola kopyalanmaz.** Parola alanında Kes, Kopyala, Ctrl+C ve Ctrl+X hiçbir şey yapmaz.
 - **Yazarken imleç sabit kalır**, yalnızca durduğunda temanın `motion.cursor-blink` hızında yanıp söner.
 - **Uzun değerler** imleci görünür tutmak için yatayda kayar.
+- **Başlangıçta bir seçim.** `select_on_focus` ile alan her odak aldığında metnin o kısmını seçer, imleç o kısmın sonundadır. Bundan sonra seçim kullanıcınındır: yazmak onu değiştirir, oklar bırakır. Odağı getiren bir tıklama ise imleci tıklanan yere koyar; metnin dışına taşan aralık metinle sınırlanır.
 - **Dışarıdan değişiklik kazanır.** Uygulaman değeri değiştirirse alan onu gösterir ve imleci sona koyar.
 
 ## Temayla özelleştirme
@@ -40,6 +42,7 @@ Geçersiz alan yüzeyini renklendirir; asla kırmızı bir çerçeve çizmez.
 
 ## Sık yapılan hatalar
 
+- **Aralığı bayt olarak saymak.** `select_on_focus` karakter sayar; `şğü.txt` adını `0..3` ile seçer. `str::find` bayt döndürür, önce karakter sayısına çevir.
 - **Her tuşta yüksek sesli doğrulama.** Boş alan henüz hata değildir; mesajları kullanıcı bir şey yazdıktan sonra göster.
 - **İmleci kendi durumunda tutmak.** Motor bunu senin için tutar.
 - **Seçimler için metin kutusu.** Cevaplar belliyse açılır liste ya da liste kullan.

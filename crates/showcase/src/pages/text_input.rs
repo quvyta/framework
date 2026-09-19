@@ -1,4 +1,5 @@
-//! Text input: editing, validation, passwords, limits and submitting.
+//! Text input: editing, validation, passwords, limits, submitting and a rename field that opens
+//! with the name selected.
 
 use qframe::prelude::*;
 use qframe::widgets::TextInput;
@@ -13,13 +14,27 @@ const PAGE: &str = "text-input";
 const CODE_LIMIT: usize = 8;
 
 /// Field values and playground settings.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct State {
     name: String,
     password: String,
     code: String,
+    file: String,
     disabled: bool,
     submitted: Option<String>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            password: String::new(),
+            code: String::new(),
+            file: "quarterly-report.md".to_owned(),
+            disabled: false,
+            submitted: None,
+        }
+    }
 }
 
 /// Demo messages.
@@ -28,6 +43,7 @@ pub enum Msg {
     Name(String),
     Password(String),
     Code(String),
+    File(String),
     Submit(String),
     Disabled(bool),
 }
@@ -35,6 +51,17 @@ pub enum Msg {
 fn send(message: Msg) -> AppMsg {
     AppMsg::Page(PageMsg::TextInput(message))
 }
+
+// region: rename-range
+/// The characters of `file` before its extension, so a rename starts on the name. A name with no
+/// extension, or one that only starts with a dot such as `.bashrc`, is selected whole.
+fn name_part(file: &str) -> std::ops::Range<usize> {
+    match file.rfind('.') {
+        Some(dot) if dot > 0 => 0..file[..dot].chars().count(),
+        _ => 0..file.chars().count(),
+    }
+}
+// endregion
 
 // region: validation
 /// A project name needs at least three characters; an empty field is not an error yet.
@@ -58,6 +85,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::Code(value) => {
             log.push(PAGE, "TextInput#code", format!("changed {value:?}"));
             state.code = value;
+        }
+        Msg::File(value) => {
+            log.push(PAGE, "TextInput#rename", format!("changed {value:?}"));
+            state.file = value;
         }
         Msg::Submit(value) => {
             log.push(PAGE, "TextInput#name", format!("submitted {value:?}"));
@@ -116,6 +147,18 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         )
         .width(Length::Cells(20))
         .id("code");
+        // endregion
+        ui.spacer().height(Length::Cells(1));
+        ui.add(Text::new(t!("text-input.rename")).role("secondary"));
+        // region: rename
+        ui.add(
+            TextInput::new(&state.file)
+                .select_on_focus(name_part(&state.file))
+                .disabled(state.disabled)
+                .on_change(|value| send(Msg::File(value))),
+        )
+        .width(Length::Cells(40))
+        .id("rename");
         // endregion
         if let Some(submitted) = &state.submitted {
             ui.spacer().height(Length::Cells(1));
@@ -176,5 +219,15 @@ mod tests {
         h.click_text("QVT-2026");
         h.type_text("ABCDEFGHIJ");
         assert_eq!(h.app().pages.text_input.code, "ABCDEFGH");
+    }
+
+    #[test]
+    fn the_rename_field_opens_with_the_name_selected() {
+        let mut h = showcase_on(PAGE);
+        h.click_text("QVT-2026").press("tab").type_text("summary");
+        assert_eq!(h.app().pages.text_input.file, "summary.md", "Tab into the field selects the name only");
+        assert_eq!(name_part("şğü.txt"), 0..3, "characters, not bytes");
+        assert_eq!(name_part(".bashrc"), 0..7);
+        assert_eq!(name_part("Makefile"), 0..8);
     }
 }

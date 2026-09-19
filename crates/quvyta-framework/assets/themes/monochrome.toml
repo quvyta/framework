@@ -1116,6 +1116,27 @@ bg     = "$active"
 fg     = "$accent"
 pillar = "$accent"
 
+# The add button after the tabs climbs the button ladder, rest < hover < focus < pressed, with
+# the pillar in its first cell; keyboard focus breathes it like a focused button.
+[style.tab-add]
+bg = "$raised"
+fg = "$dim"
+
+[style."tab-add:hover"]
+bg     = "$active"
+fg     = "$text"
+pillar = "mix($accent, $active, 45%)"
+
+[style."tab-add:focus"]
+bg     = "$active"
+fg     = "$text"
+pillar = "pulse($accent, $accent-2)"
+
+[style."tab-add:pressed"]
+bg     = "mix($accent, $active, 16%)"
+fg     = "$text"
+pillar = "$accent"
+
 [style.tab-ghost]
 bg   = "mix($accent, $active, 30%)"
 fg   = "$text"
@@ -1123,6 +1144,13 @@ bold = true
 
 [style.tab-drop]
 bg = "mix($accent, $surface, 14%)"
+
+# The node a dragged selection would drop into, such as a folder in a file tree: the accent tone,
+# the one highlight of the drag.
+[style.tree-drop]
+bg   = "mix($accent, $surface, 40%)"
+fg   = "$text"
+bold = true
 
 [style.rail-tab]
 fg = "$dim"

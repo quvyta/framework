@@ -13,10 +13,16 @@ use super::row::{self, LEAD};
 use super::rows::{self, RowScroll, Step};
 use super::{ContextItem, SpinnerStyle, tab_model};
 
+mod drop;
 mod edit;
+#[cfg(test)]
+mod multi_tests;
+mod select;
 #[cfg(test)]
 mod tests;
 
+pub use drop::TreeDrop;
+use drop::{Aim, Dropping};
 use edit::Arrange;
 pub use edit::TreeMove;
 
@@ -128,6 +134,9 @@ struct RowFlags {
     focused: bool,
     pressed: bool,
     spinning: bool,
+    /// Whether the row keeps its pillar: every touched row of a plain tree, only the cursor's
+    /// (or the hovered) row among several selected ones.
+    pillar: bool,
 }
 
 /// Delayed loading spinners of the nodes on their way, by node key, kept in runtime memory.
@@ -142,6 +151,9 @@ type ExpandMessage<Msg> = Box<dyn Fn(&str, bool) -> Msg>;
 
 /// Builds a message from a move among siblings.
 type MoveMessage<Msg> = Box<dyn Fn(TreeMove) -> Msg>;
+
+/// Builds a message from a whole new selection.
+type SelectionMessage<Msg> = Box<dyn Fn(Vec<String>) -> Msg>;
 
 /// Builds the context menu entries of a node from its key.
 type MenuItems<Msg> = Box<dyn Fn(&str) -> Vec<ContextItem<Msg>>>;
@@ -165,24 +177,33 @@ type MenuItems<Msg> = Box<dyn Fn(&str) -> Vec<ContextItem<Msg>>>;
 /// and activates a leaf; Space activates. A click selects a row and opens, closes or activates
 /// it like Enter; a click on the chevron only opens or closes.
 ///
-/// Two capabilities are off until asked for:
+/// Four capabilities are off until asked for:
 ///
+/// - [`multi_select`](Self::multi_select): several nodes are selected at once with Ctrl+click,
+///   Shift+click, Shift+arrows and Space; they share the selection tone while only the cursor's
+///   row carries the pillar and slides.
 /// - [`reorderable`](Self::reorderable): drag a node to move it among its siblings; the siblings
 ///   make room, a ghost row follows the pointer and a tinted slot shows where it lands, while the
 ///   dragged node's own children fold away. Ctrl+Shift+↑/↓ moves the selected node one place. A
 ///   node keeps its parent: moving under another parent is the application's own action, offered
 ///   in the context menu. Held on the top or bottom row, or past them, a drag scrolls the tree one
-///   row after 400 ms and then every 150 ms. With reordering on, a click opens, closes or
+///   row after 400 ms and then every 150 ms. With reordering or dropping on, a click opens, closes or
 ///   activates on release, so pressing a row to drag it does not open it.
+/// - [`droppable`](Self::droppable): drag the selection into a node that takes it, such as a
+///   folder; the target takes the accent tone, a refused one stays faint, and a closed one opens
+///   when the drag rests on it.
 /// - [`context_menu`](Self::context_menu): a right click on a row opens a menu of actions for that
 ///   node at the pointer and keeps the row raised while it is open; the menu key or Shift+F10
-///   opens the menu of the selected node below its row. Without it a right click does nothing.
+///   opens the menu of the selected node below its row. With several nodes selected, the menu of
+///   a selected row is for the whole selection, and a right click outside it first makes that
+///   row the selection. Without it a right click does nothing.
 ///
 /// Style keys: rows use `list-item` (`hover`, `selected`, `focus`, `pressed`), `list-item.faint`,
 /// `list-detail` and `list-header` (empty text) like [`List`](super::List); `tree-chevron`
 /// (`fg`) with `hover` and `selected`; `spinner` for loading nodes; `scrollbar`. Icons:
 /// `tree-collapsed`, `tree-expanded`, `spinner`. A drag uses `tab-drop` for the landing slot and
-/// `tab-ghost` for the row following the pointer, like the tabs; the menu uses the keys of
+/// `tab-ghost` for the row following the pointer, like the tabs; a drop target uses `tree-drop`
+/// (`bg`, `fg`, `bold`) and a refused one `list-item.faint`; the menu uses the keys of
 /// [`ContextItem`].
 pub struct Tree<Msg> {
     roots: Vec<TreeNode>,
@@ -193,6 +214,9 @@ pub struct Tree<Msg> {
     on_expand: Option<ExpandMessage<Msg>>,
     on_move: Option<MoveMessage<Msg>>,
     menu: Option<MenuItems<Msg>>,
+    chosen: Vec<String>,
+    on_choose: Option<SelectionMessage<Msg>>,
+    dropping: Option<Dropping<Msg>>,
 }
 
 impl<Msg: 'static> Tree<Msg> {
@@ -208,6 +232,9 @@ impl<Msg: 'static> Tree<Msg> {
             on_expand: None,
             on_move: None,
             menu: None,
+            chosen: Vec::new(),
+            on_choose: None,
+            dropping: None,
         }
     }
 
@@ -215,6 +242,23 @@ impl<Msg: 'static> Tree<Msg> {
     #[must_use]
     pub fn selected(mut self, key: Option<&str>) -> Self {
         self.selected = key.map(str::to_owned);
+        self
+    }
+
+    /// Lets several nodes be selected at once: `selected` holds their keys and `message(keys)`
+    /// asks the application to make `keys` the whole new selection.
+    ///
+    /// The node given to [`selected`](Self::selected) stays the cursor: the row the keys move
+    /// from, the only one with the pillar, while every selected row takes the selection tone.
+    /// Ctrl+click adds a row or takes it out and Shift+click selects the rows from the last plain
+    /// or Ctrl click to this one; Shift with ↑/↓, PgUp/PgDn or Home/End extends that range, Space
+    /// adds or takes out the cursor's row (instead of activating it) and Esc reduces several
+    /// selected nodes to the cursor's. A plain click or arrow selects that one row. Moving nodes
+    /// with the keys is the application's own cut and paste; the tree reports the selection.
+    #[must_use]
+    pub fn multi_select(mut self, selected: &[String], message: impl Fn(Vec<String>) -> Msg + 'static) -> Self {
+        self.chosen = selected.to_vec();
+        self.on_choose = Some(Box::new(message));
         self
     }
 
@@ -251,6 +295,29 @@ impl<Msg: 'static> Tree<Msg> {
     #[must_use]
     pub fn reorderable(mut self, message: impl Fn(TreeMove) -> Msg + 'static) -> Self {
         self.on_move = Some(Box::new(message));
+        self
+    }
+
+    /// Lets dragged nodes drop into other nodes, such as files into a folder: `accepts(key)` tells
+    /// whether the node with `key` takes drops (its folders, usually) and `message(TreeDrop)` asks
+    /// the application to move the nodes.
+    ///
+    /// A drag carries the pressed node, or the whole [selection](Self::multi_select) when it is
+    /// pressed on a selected row. The node under the pointer takes the accent tone when it can
+    /// take them; the dragged nodes themselves, their descendants and the node they are all in
+    /// already stay faint and refuse the drop. A closed node the drag rests on opens after a short
+    /// wait, so a drop reaches nodes inside it; the free space below the last row is the top level.
+    ///
+    /// With [`reorderable`](Self::reorderable) as well, a row that takes drops takes the node in
+    /// and any other row is a place among the dragged node's siblings, as without this option; a
+    /// drag of several nodes only drops. Ctrl+Shift+↑/↓ still reorders next to such rows.
+    #[must_use]
+    pub fn droppable(
+        mut self,
+        message: impl Fn(TreeDrop) -> Msg + 'static,
+        accepts: impl Fn(&str) -> bool + 'static,
+    ) -> Self {
+        self.dropping = Some(Dropping::new(message, accepts));
         self
     }
 
@@ -362,6 +429,19 @@ impl<Msg: 'static> Tree<Msg> {
         spinning
     }
 
+    /// Paints `row` as what a drag aims at, when it is: in `tree-drop` when it takes the drop,
+    /// faint and flat when it refuses it. True when painted.
+    fn paint_target(cx: &mut PaintCx<'_>, rect: Rect, row: &Flat<'_>, aim: &Aim) -> bool {
+        let (widget, variant) = match aim {
+            Aim::Into(Some(key)) if *key == row.node.key => ("tree-drop", None),
+            Aim::Refused(key) if *key == row.node.key => ("list-item", Some("faint")),
+            _ => return false,
+        };
+        let style = cx.style(widget, variant, &[]);
+        Self::paint_node(cx, rect, row, (&style, &[]), false, false);
+        true
+    }
+
     /// Where the chevron of a row at `depth` starts, before any slide.
     fn chevron_x(area: Rect, depth: u16) -> i32 {
         area.x + i32::from(LEAD) + i32::from(depth.saturating_mul(INDENT))
@@ -371,7 +451,10 @@ impl<Msg: 'static> Tree<Msg> {
         let flashed = cx.memory::<RowScroll>().flashed == Some(index);
         let states = rows::row_states(flags.hovered, flags.selected, flags.focused, flags.pressed && flashed);
         let style = cx.style("list-item", row.node.faint.then_some("faint"), &states);
-        let slide = rows::slide(cx, &states) > 0;
+        // Rows selected beside the cursor share its tone but neither its pillar nor its slide, so
+        // one row still reads as the place the keys move from.
+        let slide = flags.pillar && rows::slide(cx, &states) > 0;
+        let style = if flags.pillar { style } else { style.without("pillar") };
         Self::paint_node(cx, rect, row, (&style, &states), flags.spinning, slide);
     }
 
@@ -457,17 +540,21 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
         if menu_node.is_some() {
             cx.request_overlay(area);
         }
-        let flat = match &drag {
-            Some(drag) => {
-                let offset = cx.memory::<RowScroll>().offset;
-                let rows = Self::rows_area(area, self.flatten().len());
-                let order = self.landing(&drag.key, drag.pointer, rows, offset);
+        let aim = drag.as_ref().map(|drag| {
+            let offset = cx.memory::<RowScroll>().offset;
+            self.aim(&drag.keys, drag.pointer, Self::rows_area(area, self.flatten().len()), offset)
+        });
+        let flat = match (&drag, &aim) {
+            (Some(drag), Some(Aim::Reorder(order))) => {
                 let parent = self.siblings(&drag.key).and_then(|(parent, _)| parent);
-                let arrange = Arrange { key: &drag.key, parent, order };
-                self.flatten_with(Some(&arrange))
+                self.flatten_with(Some(&Arrange { key: &drag.key, parent, order: *order }))
             }
-            None => self.flatten(),
+            (Some(drag), _) => self.drag_layout(&drag.keys),
+            (None, _) => self.flatten(),
         };
+        // Only a reordering drag leaves a slot where the node was and a ghost under the pointer;
+        // dropping into a node keeps the rows still and lights the target instead.
+        let slot = drag.as_ref().filter(|drag| self.reorders(&drag.keys)).map(|drag| drag.key.as_str());
         let focused = cx.is_focused();
         let pressed = cx.is_pressed();
         let selected = self.selected_index(&flat);
@@ -479,22 +566,46 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
         for (row, index) in (offset..flat.len()).take(visible).enumerate() {
             let rect = Rect::new(area.x, area.y + i32::try_from(row).unwrap_or(0), width, 1);
             let key = flat[index].node.key.as_str();
-            if drag.as_ref().is_some_and(|drag| drag.key == key) {
+            if slot == Some(key) {
                 tab_model::paint_drop_slot(cx, rect);
                 continue;
             }
-            let hovered = pointer.is_some_and(|(x, y)| rect.contains(x, y)) || menu_node.as_deref() == Some(key);
+            if let Some(aim) = &aim
+                && Self::paint_target(cx, rect, &flat[index], aim)
+            {
+                continue;
+            }
+            let touched = pointer.is_some_and(|(x, y)| rect.contains(x, y)) || menu_node.as_deref() == Some(key);
+            let cursor = selected == Some(index);
+            let chosen = self.is_chosen(key);
+            // A cursor outside the selection of a multi-select tree is raised like a hovered row,
+            // so the keys still show where they start.
+            let hovered = touched || (cursor && !chosen);
             let flags = RowFlags {
                 hovered,
-                selected: selected == Some(index),
-                focused,
+                selected: chosen,
+                focused: focused && cursor,
                 pressed,
                 spinning: spinning.contains(&index),
+                pillar: cursor || hovered || !self.is_multi(),
             };
             self.paint_row(cx, rect, index, &flat[index], flags);
         }
+        if aim == Some(Aim::Into(None)) {
+            // The top level takes the drop: the free rows below the last one light up.
+            let used = i32::try_from(flat.len().saturating_sub(offset)).unwrap_or(i32::MAX);
+            let top = area.y.saturating_add(used);
+            if top < area.bottom() {
+                let free = Rect::new(area.x, top, width, clamp_u16(area.bottom() - top));
+                let bg = cx.style("tree-drop", None, &[]).text().bg;
+                if let Some(bg) = bg {
+                    cx.fill(free, bg);
+                }
+            }
+        }
         // The dragged node follows the pointer as a ghost row, kept inside the tree.
         if let Some(drag) = &drag
+            && matches!(aim, Some(Aim::Reorder(_)))
             && let Some(row) = flat.iter().find(|row| row.node.key == drag.key)
             && !area.is_empty()
         {
@@ -521,14 +632,14 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
         let current = self.selected_index(&flat);
         match event {
             Event::Key(key) => {
-                if self.move_key(cx, key) {
+                if self.move_key(cx, key) || self.selection_key(cx, key, &flat) {
                     return true;
                 }
                 if let Some(step) = Step::from_key(key) {
                     let Some(target) = step.apply(current, flat.len(), usize::from(area.height)) else {
                         return false;
                     };
-                    self.select(cx, &flat, target);
+                    self.select_one(cx, &flat, target);
                     return true;
                 }
                 let Some(index) = current else { return false };
@@ -538,7 +649,7 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
                         return self.expand(cx, row.node, true);
                     }
                     if !row.node.children.is_empty() {
-                        self.select(cx, &flat, index + 1);
+                        self.select_one(cx, &flat, index + 1);
                         return true;
                     }
                     return false;
@@ -548,7 +659,7 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
                         return self.expand(cx, row.node, false);
                     }
                     return row.parent.is_some_and(|parent| {
-                        self.select(cx, &flat, parent);
+                        self.select_one(cx, &flat, parent);
                         true
                     });
                 }
@@ -571,9 +682,9 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
                     let chevron = Self::chevron_x(area, row.depth);
                     row.node.expandable && (chevron..=chevron + 1).contains(&mouse.x)
                 });
-                if self.on_move.is_some()
+                if (self.on_move.is_some() || self.dropping.is_some())
                     && !on_chevron
-                    && let Some(used) = self.reorder_pointer(cx, mouse, &flat, index)
+                    && let Some(used) = self.drag_pointer(cx, mouse, &flat, index)
                 {
                     return used;
                 }
@@ -587,7 +698,10 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
                 if on_chevron {
                     return self.expand(cx, row.node, !row.node.expanded);
                 }
-                self.select(cx, &flat, index);
+                if self.modified_press(cx, &flat, index, mouse.mods) {
+                    return true;
+                }
+                self.select_one(cx, &flat, index);
                 self.open_or_activate(cx, index, row.node);
                 true
             }
