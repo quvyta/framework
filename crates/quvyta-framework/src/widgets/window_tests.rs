@@ -518,7 +518,9 @@ mod with_a_terminal {
             ]
         );
         h.click(20, 9);
-        wait(&session, |screen| screen.contents().contains("^[[<0;"));
+        // A click is two sequences, the press and the release; waiting for the first alone would
+        // count before the second arrived.
+        wait(&session, |screen| screen.contents().matches("^[[<").count() >= 2);
         let contents = session.parser().screen().contents();
         assert_eq!(contents.matches("^[[<").count(), 2, "only the plain click reached the program: {contents}");
         assert_eq!(h.app().heard.clone().len(), 4, "the focused window's body click is the program's alone");

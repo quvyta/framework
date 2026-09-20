@@ -3,6 +3,7 @@
 - `Family::preferences(app, &i18n)` — resolves language, theme and icons of `app`; creates the shared file with the detected values when it is missing.
 - `Family::preferences_in(folder, app, &i18n)` — the same in `folder` instead of the platform's family folder.
 - `Family::set(app, Shared::Theme, "nordic", Scope::Family)` — writes one shared key; `Scope::App` writes the application's file only. `set_in(folder, …)` in another folder.
+- `Family::follow(app, Shared::Theme)` — puts `app` back on the family's value: `<app>.conf` alone takes `theme = "quvyta"`, the shared file is untouched. `follow_in(folder, …)` in another folder.
 - `Preferences::language()`, `theme()`, `icons()` — a `Resolved { value, source }` each; `source(key)` for one key.
 - `Preferences::apply()` — the commands that switch a running application to the resolved values.
 - `Preferences::diagnostics()` — located problems of the shared file.
@@ -17,11 +18,13 @@
 
 - Box under the row checked: `quvyta.conf` takes `theme = "nordic"`, `code.conf` takes `theme = "quvyta"`.
 - Box cleared: `quvyta.conf` is unchanged, `code.conf` takes `theme = "nordic"`.
+- `follow`: `quvyta.conf` is unchanged and not even read, `code.conf` takes `theme = "quvyta"`; a missing file is created holding only that key.
 
 ## Behaviour
 
 - Order per key: the application's value (anything but the family's id), the shared file, detection (the language by `I18n::detect`, the theme always `monochrome`, the icons by `detect_glyph_mode`).
 - A key missing from the application's file follows the family.
 - The shared file cannot follow itself; `"quvyta"` in it is reported and the detected value is used.
+- `follow` on a key that already follows the family changes nothing and is not an error; on a file that cannot be read it fails with `InvalidData` and leaves the file as it was.
 - A change that cannot be saved is still applied, and its row says why until the next change.
 - The reduced motion row is disabled while `QUVYTA_REDUCED_MOTION` decides.

@@ -1,5 +1,6 @@
 //! A process running in a pseudo-terminal, its output parsed into a screen of cells.
 
+use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -17,6 +18,21 @@ const SCROLLBACK: usize = 5000;
 /// The screen a program starts on, rows and columns, unless [`TerminalBuilder::size`] says
 /// otherwise; a [`Terminal`](super::Terminal) widget resizes it to its own size.
 const SIZE: (u16, u16) = (24, 80);
+
+/// Tells a program that what follows was pasted, not typed, when it turned bracketed paste on.
+const PASTE_START: &str = "\x1b[200~";
+
+/// Tells the program the pasted text ends here.
+const PASTE_END: &str = "\x1b[201~";
+
+/// The text of a paste without the two markers, so nothing inside it can end the paste early or
+/// start a second one. Borrows the text when it holds neither.
+fn without_markers(text: &str) -> Cow<'_, str> {
+    if !text.contains(PASTE_START) && !text.contains(PASTE_END) {
+        return Cow::Borrowed(text);
+    }
+    Cow::Owned(text.replace(PASTE_START, "").replace(PASTE_END, ""))
+}
 
 /// Something that changed in a [`TerminalSession`], see [`TerminalWatch::next`].
 ///
@@ -67,6 +83,19 @@ struct Shared {
     changed: Condvar,
     /// The shortest time between two reports of output.
     coalesce: Duration,
+    /// When the program last wrote and when it was last written to. Its own lock: the reader
+    /// thread marks output without waiting for a watch, and the times are read while drawing.
+    quiet: Mutex<Quiet>,
+}
+
+/// When the two sides of a session last said something; see [`TerminalSession::last_output`] and
+/// [`TerminalSession::last_input`].
+#[derive(Debug, Clone, Copy)]
+struct Quiet {
+    /// When the reader thread last took bytes from the program.
+    output: Instant,
+    /// When keys were last written to the program by the person at the keyboard.
+    input: Instant,
 }
 
 #[derive(Default)]
@@ -192,11 +221,13 @@ impl TerminalBuilder {
         let killer = child.clone_killer();
         let pid = child.process_id();
 
+        let started = Instant::now();
         let shared = Arc::new(Shared {
             parser: Mutex::new(vt100::Parser::new_with_callbacks(size.0, size.1, self.scrollback, Notices::default())),
             signal: Mutex::new(Signal { size, ..Signal::default() }),
             changed: Condvar::new(),
             coalesce: self.coalesce,
+            quiet: Mutex::new(Quiet { output: started, input: started }),
         });
         let thread_shared = Arc::clone(&shared);
         std::thread::spawn(move || {
@@ -206,6 +237,9 @@ impl TerminalBuilder {
                 match reader.read(&mut buffer) {
                     Ok(0) | Err(_) => break,
                     Ok(count) => {
+                        // Marked where the bytes arrive, before they are parsed: what a caller
+                        // asks is when the program last wrote, not when a frame was drawn.
+                        lock(&thread_shared.quiet).output = Instant::now();
                         let heard = {
                             let mut parser = lock(&thread_shared.parser);
                             limit.feed(&buffer[..count], |run| parser.process(run));
@@ -312,12 +346,92 @@ impl TerminalSession {
         TerminalWatch { shared: Arc::clone(&self.shared), process: Arc::downgrade(&self.process) }
     }
 
-    /// Sends bytes to the program as if typed.
+    /// Sends bytes to the program as if typed, which is also what
+    /// [`last_input`](Self::last_input) reports: this is the path a keystroke takes, so anything
+    /// sent here counts as the person's input. To write on the application's own behalf without
+    /// being mistaken for the person, use [`paste`](Self::paste).
     ///
     /// # Errors
     ///
-    /// Fails when the program no longer reads its input.
+    /// Fails when the program no longer reads its input: once its end is known the write is
+    /// refused, because a pseudo-terminal keeps taking bytes that nobody will ever read.
     pub fn write(&self, bytes: &[u8]) -> io::Result<()> {
+        self.send(bytes)?;
+        lock(&self.shared.quiet).input = Instant::now();
+        Ok(())
+    }
+
+    /// Sends `text` as a paste: wrapped in the bracketed-paste markers when the program turned
+    /// that mode on, and as plain text when it did not. A program that asked for the markers then
+    /// knows the text was pasted and does not read its line breaks as Enter, so a whole message
+    /// arrives as one piece instead of as several half-finished lines.
+    ///
+    /// The markers are removed from `text` first, both of them: a `\x1b[201~` inside it would end
+    /// the paste early and leave the rest to be read as keys, and a `\x1b[200~` would start a
+    /// second paste inside the first. This matters when the text comes from somewhere else, such
+    /// as another program's output or a message from another part of the system.
+    ///
+    /// A paste is the application writing, not the person typing, so it does not move
+    /// [`last_input`](Self::last_input). A person pasting into a
+    /// [`Terminal`](super::Terminal) widget does move it: the person is at the keyboard there.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the program no longer reads its input, as [`write`](Self::write) does.
+    pub fn paste(&self, text: &str) -> io::Result<()> {
+        let bracketed = lock(&self.shared.parser).screen().bracketed_paste();
+        let text = without_markers(text);
+        let mut bytes = Vec::with_capacity(text.len() + PASTE_START.len() + PASTE_END.len());
+        if bracketed {
+            bytes.extend_from_slice(PASTE_START.as_bytes());
+        }
+        bytes.extend_from_slice(text.as_bytes());
+        if bracketed {
+            bytes.extend_from_slice(PASTE_END.as_bytes());
+        }
+        self.send(&bytes)
+    }
+
+    /// When the program last wrote anything, or when the session started if it has written
+    /// nothing yet. The reading thread marks the moment its bytes arrive, so this is the
+    /// program's own pace and has nothing to do with drawing.
+    ///
+    /// An application waits on it before writing to a program on its own: a program in the middle
+    /// of answering is a program whose input is not being read yet, and text sent then lands
+    /// inside whatever it is doing.
+    #[must_use]
+    pub fn last_output(&self) -> Instant {
+        lock(&self.shared.quiet).output
+    }
+
+    /// When keys were last written to the program by the person at the keyboard, or when the
+    /// session started if none have been. [`write`](Self::write) and every key a
+    /// [`Terminal`](super::Terminal) widget sends move it; [`paste`](Self::paste) does not,
+    /// because that is the application writing.
+    ///
+    /// Together with [`last_output`](Self::last_output) it answers the only question worth asking
+    /// before writing into a terminal somebody is using: has the program been quiet *and* has the
+    /// person been quiet. Writing while the person is mid-sentence cuts the sentence in half.
+    #[must_use]
+    pub fn last_input(&self) -> Instant {
+        lock(&self.shared.quiet).input
+    }
+
+    /// The person pasted into a [`Terminal`](super::Terminal) widget: the paste of
+    /// [`paste`](Self::paste), counted as the person's input because a person made it.
+    pub(crate) fn paste_typed(&self, text: &str) -> io::Result<()> {
+        self.paste(text)?;
+        lock(&self.shared.quiet).input = Instant::now();
+        Ok(())
+    }
+
+    /// Writes to the program without saying who asked for it.
+    fn send(&self, bytes: &[u8]) -> io::Result<()> {
+        if self.exit().is_some() {
+            // The pseudo-terminal still takes bytes after the program is gone and nobody ever
+            // reads them, so the answer has to come from the recorded end instead.
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "the program has ended"));
+        }
         let mut process = lock(&self.process);
         process.writer.write_all(bytes)?;
         process.writer.flush()
@@ -796,6 +910,120 @@ mod tests {
                 None => panic!("the end was not reported within the bound"),
             }
         }
+    }
+
+    /// A program that shows what it is given as it arrives, with escape sequences visible: the
+    /// terminal echoes nothing and hands over every byte instead of whole lines, so a paste shows
+    /// up whether or not it ends with a line break. `ready` marks the setup as done.
+    const SHOWS_INPUT: &str = "stty -echo -icanon min 1 time 0; printf ready; cat -v";
+
+    /// The same, after asking for bracketed paste, so the marks are expected around a paste.
+    const SHOWS_INPUT_BRACKETED: &str = "stty -echo -icanon min 1 time 0; printf '\\033[?2004hready'; cat -v";
+
+    /// Waits until the screen holds `text`, without hanging on a program that never writes it.
+    fn expect_screen(session: &TerminalSession, text: &str) {
+        let watch = session.watch();
+        let started = Instant::now();
+        while !contents(session).contains(text) {
+            assert!(started.elapsed() < PATIENCE, "{text:?} never arrived: {:?}", contents(session));
+            let _ = watch.next_change_within(BOUND);
+        }
+    }
+
+    /// Waits until the program has said nothing for a while, so a later "it stayed the same"
+    /// reads a real silence and not a report that has not arrived yet.
+    fn expect_silence(session: &TerminalSession) {
+        let watch = session.watch();
+        let started = Instant::now();
+        while watch.next_change_within(BOUND).is_some() {
+            assert!(started.elapsed() < PATIENCE, "the program never fell silent: {:?}", contents(session));
+        }
+    }
+
+    #[test]
+    fn a_paste_reaches_a_program_that_asked_for_the_marks_in_one_piece() {
+        let session = sh(SHOWS_INPUT_BRACKETED).spawn().expect("pty");
+        expect_screen(&session, "ready");
+        assert!(session.parser().screen().bracketed_paste(), "the program turned the mode on");
+        session.paste("first line\nsecond line").expect("paste");
+        expect_screen(&session, "^[[201~");
+        let shown = contents(&session);
+        assert_eq!(shown.matches("^[[200~").count(), 1, "one paste, one start mark: {shown:?}");
+        assert_eq!(shown.matches("^[[201~").count(), 1, "one paste, one end mark: {shown:?}");
+        assert!(shown.contains("^[[200~first line"), "{shown:?}");
+        assert!(shown.contains("second line^[[201~"), "{shown:?}");
+        session.kill();
+    }
+
+    #[test]
+    fn a_paste_goes_plain_to_a_program_that_did_not_ask_for_the_marks() {
+        let session = sh(SHOWS_INPUT).spawn().expect("pty");
+        expect_screen(&session, "ready");
+        assert!(!session.parser().screen().bracketed_paste());
+        session.paste("bare text").expect("paste");
+        expect_screen(&session, "bare text");
+        let shown = contents(&session);
+        assert!(!shown.contains("^["), "no marks were sent: {shown:?}");
+        session.kill();
+    }
+
+    #[test]
+    fn the_paste_marks_inside_the_text_are_left_out() {
+        let session = sh(SHOWS_INPUT_BRACKETED).spawn().expect("pty");
+        expect_screen(&session, "ready");
+        // An end mark would leave the paste early and have "b" read as keys; a start mark would
+        // open a second paste inside the first.
+        session.paste("a\x1b[201~b\x1b[200~c").expect("paste");
+        expect_screen(&session, "^[[201~");
+        let shown = contents(&session);
+        assert!(shown.contains("^[[200~abc^[[201~"), "{shown:?}");
+        assert_eq!(shown.matches("^[[201~").count(), 1, "{shown:?}");
+        assert_eq!(shown.matches("^[[200~").count(), 1, "{shown:?}");
+        session.kill();
+    }
+
+    #[test]
+    fn last_output_follows_the_program_and_stands_still_while_it_is_quiet() {
+        let before = Instant::now();
+        let session = sh("printf ready; read line; printf 'got it'").spawn().expect("pty");
+        assert!(session.last_output() >= before, "it starts at the session's start");
+        expect_screen(&session, "ready");
+        expect_silence(&session);
+        let wrote = session.last_output();
+        assert!(wrote > before, "the program's first words moved it");
+        expect_silence(&session);
+        assert_eq!(session.last_output(), wrote, "a program waiting for a line does not move it");
+        session.write(b"now\n").expect("write");
+        expect_screen(&session, "got it");
+        assert!(session.last_output() > wrote, "the answer moved it");
+    }
+
+    #[test]
+    fn last_input_hears_the_keys_and_not_the_applications_own_paste() {
+        let before = Instant::now();
+        let session = sh(SHOWS_INPUT).spawn().expect("pty");
+        let start = session.last_input();
+        assert!(start >= before, "it starts at the session's start");
+        expect_screen(&session, "ready");
+        session.paste("pasted").expect("paste");
+        expect_screen(&session, "pasted");
+        assert_eq!(session.last_input(), start, "the application pasting is not the person typing");
+        session.write(b"typed").expect("write");
+        expect_screen(&session, "typed");
+        let typed = session.last_input();
+        assert!(typed > start, "a key written to the program moved it");
+        session.paste(" and more").expect("paste");
+        expect_screen(&session, "and more");
+        assert_eq!(session.last_input(), typed, "a paste after a key still does not count");
+        session.kill();
+    }
+
+    #[test]
+    fn a_paste_into_a_program_that_ended_is_an_error() {
+        let session = sh("printf bye").spawn().expect("pty");
+        changes_to_exit(&session);
+        assert!(session.paste("too late").is_err(), "the program no longer reads its input");
+        assert!(session.write(b"too late").is_err(), "and so is writing to it");
     }
 
     fn wait_for(session: &TerminalSession, text: &str) {

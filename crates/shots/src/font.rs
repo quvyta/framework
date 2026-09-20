@@ -11,6 +11,9 @@ use crate::geometry::{CELL_H, CELL_W, num};
 static REGULAR_DATA: &[u8] = include_bytes!("../fonts/JetBrainsMonoNerdFontMono-Regular.ttf");
 /// JetBrains Mono Nerd Font Mono, Bold.
 static BOLD_DATA: &[u8] = include_bytes!("../fonts/JetBrainsMonoNerdFontMono-Bold.ttf");
+/// JuliaMono, Regular, cut down to the symbols the icon sets and texts use, which JetBrains Mono
+/// has no glyph for; how it was cut is in `fonts/README.md`.
+static SYMBOLS_DATA: &[u8] = include_bytes!("../fonts/JuliaMono-Regular-subset.ttf");
 /// Noto Sans Mono CJK SC, Regular, cut down to the kana, CJK punctuation, full-width forms and
 /// the ideographs of GB 2312 and JIS X 0208; how it was cut is in `fonts/README.md`.
 static CJK_DATA: &[u8] = include_bytes!("../fonts/NotoSansMonoCJKsc-Regular-subset.otf");
@@ -19,6 +22,7 @@ static CJK_DATA: &[u8] = include_bytes!("../fonts/NotoSansMonoCJKsc-Regular-subs
 /// reported missing instead of the program stopping.
 static REGULAR: LazyLock<Option<Face<'static>>> = LazyLock::new(|| Face::parse(REGULAR_DATA, 0).ok());
 static BOLD: LazyLock<Option<Face<'static>>> = LazyLock::new(|| Face::parse(BOLD_DATA, 0).ok());
+static SYMBOLS: LazyLock<Option<Face<'static>>> = LazyLock::new(|| Face::parse(SYMBOLS_DATA, 0).ok());
 static CJK: LazyLock<Option<Face<'static>>> = LazyLock::new(|| Face::parse(CJK_DATA, 0).ok());
 
 /// Which embedded face a glyph comes from.
@@ -26,6 +30,10 @@ static CJK: LazyLock<Option<Face<'static>>> = LazyLock::new(|| Face::parse(CJK_D
 pub(crate) enum Source {
     Regular,
     Bold,
+    /// The fallback for the symbols JetBrains Mono has no glyph for, such as the search and
+    /// settings icons of the Unicode icon set. Like the CJK face it has no bold, and its advance
+    /// is the same share of the em as JetBrains Mono's, so a symbol is one cell wide.
+    Symbols,
     /// The fallback for Chinese and Japanese, which JetBrains Mono does not cover. It has no bold:
     /// a bold cell draws it regular, as a terminal without a bold CJK font does.
     Cjk,
@@ -42,20 +50,35 @@ pub(crate) struct GlyphKey {
     pub id: u16,
 }
 
-fn face(source: Source) -> Option<&'static Face<'static>> {
+/// The file a face was read from, named as the coverage list names its section.
+#[cfg(test)]
+pub(crate) fn file_name(source: Source) -> &'static str {
+    match source {
+        Source::Regular => "JetBrainsMonoNerdFontMono-Regular.ttf",
+        Source::Bold => "JetBrainsMonoNerdFontMono-Bold.ttf",
+        Source::Symbols => "JuliaMono-Regular-subset.ttf",
+        Source::Cjk => "NotoSansMonoCJKsc-Regular-subset.otf",
+    }
+}
+
+pub(crate) fn face(source: Source) -> Option<&'static Face<'static>> {
     match source {
         Source::Regular => REGULAR.as_ref(),
         Source::Bold => BOLD.as_ref(),
+        Source::Symbols => SYMBOLS.as_ref(),
         Source::Cjk => CJK.as_ref(),
     }
 }
 
 /// The glyph of `c`, upright, and its advance in pixels. A bold cell whose character only the
-/// regular face has is drawn regular, as terminals do, and a character JetBrains Mono lacks
-/// comes from the CJK face.
+/// regular face has is drawn regular, as terminals do, and a character JetBrains Mono lacks comes
+/// from the symbols face and then from the CJK one, in the order a terminal tries its fallbacks.
 pub(crate) fn glyph(c: char, bold: bool) -> Option<(GlyphKey, f32)> {
-    let sources: &[Source] =
-        if bold { &[Source::Bold, Source::Regular, Source::Cjk] } else { &[Source::Regular, Source::Cjk] };
+    let sources: &[Source] = if bold {
+        &[Source::Bold, Source::Regular, Source::Symbols, Source::Cjk]
+    } else {
+        &[Source::Regular, Source::Symbols, Source::Cjk]
+    };
     sources.iter().find_map(|&source| {
         let face = face(source)?;
         let id = face.glyph_index(c)?;
@@ -172,6 +195,17 @@ mod tests {
             }
         }
         assert_eq!(glyph('a', false).map(|(key, _)| key.source), Some(Source::Regular), "Latin stays JetBrains Mono");
+    }
+
+    #[test]
+    fn symbols_come_from_the_symbols_face_and_are_one_cell_wide() {
+        for c in ['⌕', '▤', '☑', '✔', '❖', 'ℹ', '◐', '\u{202f}'] {
+            for bold in [false, true] {
+                let (key, advance) = glyph(c, bold).unwrap_or_else(|| panic!("{c} has a glyph"));
+                assert_eq!(key.source, Source::Symbols, "{c}");
+                assert!((advance - CELL_W).abs() < 0.01, "{c} is {advance} px wide");
+            }
+        }
     }
 
     #[test]

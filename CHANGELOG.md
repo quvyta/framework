@@ -4,6 +4,46 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.12 - 2026-09-20
+
+### Added
+
+- A shared file manager: a folder as a tree with every file operation on it (`FileManager`,
+  `FileManagerState`, `FileManagerMsg`). It reads folders in the background, never while drawing,
+  paints only the rows on screen, and leaves what opening a file means to the application
+  (`on_open`). `confined()` keeps operations inside the root and refuses a path through a symbolic
+  link; `following(true)` follows the folders on screen with a `FolderWatch`. The application adds
+  its own items to a row's menu with `menu_items`, and a terminal with `on_open_terminal`.
+- Handing a terminal program text of your own: `TerminalSession::paste(text)` sends it as a paste,
+  between the bracketed-paste marks when the program turned that mode on and plain when it did
+  not, so a message with line breaks arrives in one piece instead of as several half-finished
+  lines. Both marks are removed from the text, so text from elsewhere cannot end the paste early
+  and have its rest read as keys. The `Terminal` widget sends a person's paste through the same
+  call.
+- Knowing whether this is a good moment to write: `TerminalSession::last_output()` is when the
+  program last wrote anything, marked by the reading thread as the bytes arrive, and
+  `last_input()` is when keys were last written to it. An application waits until both the program
+  and the person have been quiet. A `paste` is the application writing and does not count as the
+  person's input; a person pasting into the widget does.
+- The file manager also copies, moves an entry to the desktop trash (and asks plainly when there
+  is no trash to take it), shows or hides hidden entries, marks a row with a sign and a tone for
+  the application's own meaning (`row_mark`), and runs a long copy in the background with its
+  progress and a way to stop it.
+- The screenshots crate draws the symbols the framework itself shows: a third embedded font, cut
+  to the characters the family uses. What the fonts cover is now fixed by a test, and another
+  test asserts that every character the locales, icon sets, themes and keymaps can put on screen
+  can be drawn.
+- `Family::follow(app, key)` and `Family::follow_in(folder, app, key)` put one application back on
+  the family's shared language, theme or icons. Only that application's file is written and the
+  shared file is neither read nor written, so a settings page listing every member of the family
+  can hand one member back to the shared value without changing what the whole family draws with.
+
+### Changed
+
+- `TerminalSession::write` (and the new `paste`) now fail once the program's end is known, as they
+  always documented. A pseudo-terminal keeps taking bytes after the program is gone and nobody
+  ever reads them, so the write used to answer `Ok(())` and the text vanished.
+
 ## 0.1.11 - 2026-09-20
 
 ### Added

@@ -534,7 +534,7 @@ katmanı · Pano.
 
 **P2 — Zengin uygulamalar:** Table · Tree · Splitter · Menu · Breadcrumb · Accordion · Steps ·
 Wizard · SettingsList · CommandPalette · HoldToConfirm · Gelişmiş sekmeler (kapatma, genişlik,
-taşma, sıralama) · LogView · Skeleton · FilePicker (dosya ya da klasör) · Ayar saklama · Sayfa
+taşma, sıralama) · LogView · Skeleton · FilePicker (dosya ya da klasör) · FileManager (klasör ağacı ve dosya işlemleri) · Ayar saklama · Sayfa
 geçişleri · Fareyle metin seçme · Kaydırma çubuğu stilleri · TabRail · WidgetDock · SidePanel.
 Örnek uygulamalar: Kurulum sihirbazı, Dosya gezgini.
 

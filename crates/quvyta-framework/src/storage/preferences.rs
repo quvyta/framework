@@ -21,14 +21,15 @@
 //!    missing from the application's file;
 //! 3. the value detected on this machine, when the shared file does not hold one either.
 //!
-//! [`Family::set`] changes one key for the whole family or for one application.
+//! [`Family::set`] changes one key for the whole family or for one application, and
+//! [`Family::follow`] puts one application back on the family's value without touching it.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use super::{Family, SettingValue, Settings, atomic_write};
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{Diagnostic, Severity};
 use crate::i18n::I18n;
 use crate::icons::{GlyphMode, IconMode, default_font_dirs, detect_glyph_mode};
 use crate::runtime::Command;
@@ -374,6 +375,65 @@ impl Family {
             }
             Scope::App => rewrite(&app_file, key.key(), SettingValue::Text(value), Some(self)),
         }
+    }
+
+    /// Puts application `app` back on the family's value of `key`: its own file says the family's
+    /// id and the [shared file](Self::shared_file) is neither read nor written, so the next
+    /// resolution answers the shared value with [`Source::Family`] and no other application
+    /// changes. The one way back from a value of an application's own, for the settings screen
+    /// that lists every member of the family: "follow the shared setting" on one member's cell
+    /// must not change what the whole family draws with.
+    ///
+    /// The file is read from disk right before it is written and only `key` changes in it, as
+    /// [`set`](Self::set) does, with the family's folder held by an advisory lock on Unix. A
+    /// missing file is created holding that one key. A key that already follows the family is
+    /// left alone, file and all. Comments do not survive a change, as with [`Settings::save`].
+    /// The running application is not switched; use [`Preferences::apply`] for that.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind [`io::ErrorKind::NotFound`] when there is no home folder, of kind
+    /// [`io::ErrorKind::InvalidData`] when the application's file cannot be read as settings,
+    /// and any error from writing. A file that could not be read is left exactly as it was.
+    pub fn follow(&self, app: &str, key: Shared) -> io::Result<()> {
+        match self.config_dir() {
+            Some(dir) => self.follow_in(&dir, app, key),
+            None => Err(io::Error::new(io::ErrorKind::NotFound, "no config directory found")),
+        }
+    }
+
+    /// [`follow`](Self::follow) with `config_dir` as the family's folder instead of this
+    /// platform's, for a test or a demo that must leave the user's own files alone.
+    ///
+    /// ```
+    /// use qframe::storage::{Family, Shared};
+    ///
+    /// # let folder = std::env::temp_dir().join(format!("quvyta-follow-doc-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&folder).expect("folder");
+    /// std::fs::write(folder.join("code.conf"), "theme = \"amber\"\n").expect("the file");
+    /// Family::QUVYTA.follow_in(&folder, "code", Shared::Theme).expect("follow");
+    /// assert_eq!(std::fs::read_to_string(folder.join("code.conf")).expect("read"), "theme = \"quvyta\"\n");
+    /// assert!(!folder.join("quvyta.conf").exists(), "the shared file is left alone");
+    /// # std::fs::remove_dir_all(&folder).ok();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// As [`follow`](Self::follow), except that there is always a folder.
+    pub fn follow_in(&self, config_dir: &Path, app: &str, key: Shared) -> io::Result<()> {
+        fs::create_dir_all(config_dir)?;
+        let _held = hold_folder(config_dir)?;
+        let path = config_dir.join(super::family::file_name(app));
+        let mut settings = Settings::open(&path).member_of(self);
+        if let Some(problem) = settings.diagnostics().iter().find(|problem| problem.severity == Severity::Error) {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, problem.to_string()));
+        }
+        let value = SettingValue::Text(self.id().to_owned());
+        if settings.value(key.key()) == Some(&value) && path.exists() {
+            return Ok(());
+        }
+        settings.store(key.key(), value);
+        settings.save()
     }
 
     /// Changes `key` in application `app`'s own file in `config_dir` to `value`, the way

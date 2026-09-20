@@ -5,7 +5,10 @@
 - Terminalin düğümünde `NodeMut::on_action(kapsam, eylem, mesaj)` — geçirilen eylem odak terminaldeyken `mesaj`'ı gönderir, başka yerdeyken `App::action`'a gider; odağı tek tuşla aç-kapa yapmanın yolu.
 - `TerminalSession::shell(klasör)`, `TerminalSession::spawn(program, argümanlar, klasör)` — bir programı sözde terminalde başlatır.
 - `TerminalSession::builder(program)` — bir `TerminalBuilder`: `.args(argümanlar)`, `.folder(klasör)` (varsayılan: ev klasörü), `.env(ad, değer)`, `.size(sütun, satır)` (varsayılan 80 × 24), `.scrollback(satır)` (varsayılan 5000), `.coalesce(aralık)` (varsayılan sıfır), sonra `.spawn()`. `spawn` bu varsayılanlarla kurulan builder'dır.
-- `.watch()` — bir `TerminalWatch`; `.write(baytlar)`, `.kill()`, `.exit()`.
+- `.watch()` — bir `TerminalWatch`; `.write(baytlar)`, `.kill()`, `.exit()`. `write` kişinin girdisi sayılır, çünkü bir tuş vuruşunun geçtiği yol odur; programın bittiği bilindikten sonra hata verir.
+- `.paste(metin)` — `metin`'i yapıştırma olarak gönderir: program köşeli yapıştırmayı açtıysa `\x1b[200~` ile `\x1b[201~` arasında, açmadıysa düz. İki işaret de `metin`'den önce çıkarılır. Programın bittiği bilindikten sonra hata verir. `last_input`'u ilerletmez: bu, uygulamanın yazmasıdır. `Terminal` bileşeni kişinin yapıştırmasını da aynı çağrıyla gönderir; o `last_input`'u ilerletir.
+- `.last_output()` — bir `Instant`: programın en son ne zaman bir şey yazdığı; okuyan iş parçacığı baytlar geldiği anda işaretler. Hiç yazmamışsa oturumun başlangıcı.
+- `.last_input()` — bir `Instant`: programa en son ne zaman tuş yazıldığı (`write` ile ya da bileşenle). Hiç yazılmamışsa oturumun başlangıcı. Kimsenin istemediği bir metni yazmadan önce `last_output` ile birlikte sor.
 - `.pid()` — programın süreç kimliği; süreç grubunun kimliği de odur.
 - `.terminate(süre)` — süreç grubuna SIGHUP, `süre` dolduğunda hâlâ çalışıyorsa SIGKILL; hemen döner. Süre boyunca oturumu elinde tut: son tutamağı bırakmak programı hemen bitirir.
 - `TerminalWatch::next()` — `TerminalEvent::Output` ya da `TerminalEvent::Exited(kod)` gelene kadar bekler; `Command::perform` içinde çalıştır.
@@ -16,7 +19,8 @@
 
 - Odaktayken tuşlar xterm gibi kodlanır: kontrol harfleri, kaçış öneki olarak `alt`, değiştirici kodlarıyla normal ya da uygulama modunda oklar, işlev tuşları; `shift tab` hariç (odağı taşır).
 - `ctrl q` uygulamaya bırakılır.
-- Program o modu açtıysa yapıştırmalar köşeli yapıştırma işaretleriyle sarılır.
+- Program o modu açtıysa yapıştırmalar köşeli yapıştırma işaretleriyle sarılır; bunu `paste` yapar ve bileşen kişinin yapıştırması için de onu kullanır. Metnin içindeki `\x1b[200~` ya da `\x1b[201~` çıkarılır; böylece başka yerden gelen bir metin yapıştırmayı erken bitirip gerisini tuş gibi okutamaz.
+- Programın bittiği kaydedildikten sonra `write` ve `paste` reddedilir: sözde terminal program gittikten sonra da baytları alır ve onları kimse okumaz.
 - Tekerlek geri kaydırma sınırına kadar (varsayılan 5000 satır) geri kaydırır ya da alternatif ekranda üç ok tuşu gönderir.
 - Program fare bildirimini açtığında (9, 1000, 1002 ve 1003 modları; varsayılan, UTF-8 ya da SGR kodlamasıyla) basmalar, bırakmalar, sürüklemeler, gezinmeler ve tekerlek (64 ve 65 düğmeleri) xterm'in gönderdiği gibi, terminalin köşesinden sayılan hücrelerle gönderilir. Programın aldığı bir basma, imleci bırakılana kadar tutar; kenarı aşan sürükleme en yakın hücreyi bildirir. `shift` ile basma ya da tekerlek bunun yerine seçer ve geri kaydırır.
 - İmleç, program gizlemedikçe canlı ekranda `terminal-cursor` ile çizilir.

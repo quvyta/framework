@@ -5,7 +5,10 @@
 - `NodeMut::on_action(scope, action, msg)` on the terminal's node — a passed action sends `msg` while focus is in the terminal and reaches `App::action` elsewhere; the way to toggle focus with one key.
 - `TerminalSession::shell(folder)`, `TerminalSession::spawn(program, args, folder)` — start a program in a pseudo-terminal.
 - `TerminalSession::builder(program)` — a `TerminalBuilder`: `.args(args)`, `.folder(folder)` (default: the home folder), `.env(name, value)`, `.size(columns, rows)` (default 80 × 24), `.scrollback(lines)` (default 5000), `.coalesce(interval)` (default zero), then `.spawn()`. `spawn` is the builder with these defaults.
-- `.watch()` — a `TerminalWatch`; `.write(bytes)`, `.kill()`, `.exit()`.
+- `.watch()` — a `TerminalWatch`; `.write(bytes)`, `.kill()`, `.exit()`. `write` counts as the person's input, because that is the path a keystroke takes; it fails once the program's end is known.
+- `.paste(text)` — sends `text` as a paste: between `\x1b[200~` and `\x1b[201~` when the program turned bracketed paste on, plain when it did not. Both markers are removed from `text` first. Fails once the program's end is known. Does not move `last_input`: this is the application writing. The `Terminal` widget sends a person's paste through the same call, and that one does move `last_input`.
+- `.last_output()` — an `Instant`: when the program last wrote anything, marked by the reading thread as the bytes arrive, or the session's start when it has written nothing.
+- `.last_input()` — an `Instant`: when keys were last written to the program, by `write` or by the widget, or the session's start when none have been. Ask it together with `last_output` before writing text nobody asked for.
 - `.pid()` — the program's process id, which is also its process group.
 - `.terminate(grace)` — SIGHUP to the process group, SIGKILL after `grace` if it is still running; returns at once. Keep the session while the grace runs: dropping the last handle ends the program at once.
 - `TerminalWatch::next()` — blocks until `TerminalEvent::Output` or `TerminalEvent::Exited(code)`; run it in `Command::perform`.
@@ -16,7 +19,8 @@
 
 - Keys while focused are encoded like xterm: control letters, `alt` as an escape prefix, arrows in normal or application mode with modifier codes, function keys, `shift tab` excepted (it moves focus).
 - `ctrl q` is left to the application.
-- Pastes are wrapped in bracketed-paste markers when the program turned that mode on.
+- Pastes are wrapped in bracketed-paste markers when the program turned that mode on, by `paste`, which the widget uses for a person's paste as well. A `\x1b[200~` or `\x1b[201~` inside the text is left out, so text from elsewhere cannot end the paste early and have its rest read as keys.
+- `write` and `paste` are refused once the program's end has been recorded: a pseudo-terminal keeps taking bytes after the program is gone and nobody ever reads them.
 - The wheel scrolls back up to the scrollback (5000 lines by default), or sends three arrow keys on the alternate screen.
 - When the program turns on mouse reporting (modes 9, 1000, 1002 and 1003, in the default, UTF-8 or SGR encoding), presses, releases, drags, moves and the wheel (buttons 64 and 65) are sent as xterm sends them, in cells counted from the terminal's corner. A press the program takes keeps the pointer until the release; a drag past the edge reports the nearest cell. `shift` with a press or the wheel selects and scrolls back instead.
 - The cursor is drawn with `terminal-cursor` on the live screen unless the program hides it.

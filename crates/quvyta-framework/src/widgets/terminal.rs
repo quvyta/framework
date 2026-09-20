@@ -328,17 +328,10 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
                 true
             }
             Event::Paste(text) => {
-                let bracketed = self.session.parser().screen().bracketed_paste();
-                let mut bytes = Vec::new();
-                if bracketed {
-                    bytes.extend_from_slice(b"\x1b[200~");
-                }
-                bytes.extend_from_slice(text.as_bytes());
-                if bracketed {
-                    bytes.extend_from_slice(b"\x1b[201~");
-                }
                 cx.memory::<TerminalMemory>().scrollback = 0;
-                let _ = self.session.write(&bytes);
+                // The session decides how a paste is sent, so an application pasting into a
+                // program and a person pasting into this widget take exactly the same path.
+                let _ = self.session.paste_typed(text);
                 true
             }
             Event::Mouse(mouse) if let Some(used) = terminal_mouse::event(&self.session, cx, mouse) => {
@@ -507,6 +500,30 @@ mod tests {
         h.press("?").type_text("abc");
         wait_for(&session, "3f 61 62 63");
         assert_eq!(h.app().heard.len(), 2, "? typed into the program instead of opening the help");
+        session.kill();
+    }
+
+    #[test]
+    fn a_person_pasting_is_bracketed_and_counts_as_their_own_input() {
+        // Shows what it is given as it arrives, escapes visible, after asking for the marks.
+        let script = "stty -echo -icanon min 1 time 0; printf '\\033[?2004hready'; cat -v";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&session, "ready");
+        let app = Passing { session: session.clone(), open: false, heard: Vec::new() };
+        let mut h = Harness::new(app, 40, 4);
+        for _ in 0..4 {
+            if h.is_focused("terminal") {
+                break;
+            }
+            h.press("tab");
+        }
+        assert!(h.is_focused("terminal"));
+        let before = session.last_input();
+        h.paste("one\ntwo");
+        wait_for(&session, "^[[201~");
+        let shown = session.parser().screen().contents();
+        assert!(shown.contains("^[[200~one"), "{shown:?}");
+        assert!(session.last_input() > before, "the person is at the keyboard here, unlike an application's paste");
         session.kill();
     }
 

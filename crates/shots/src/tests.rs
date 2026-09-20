@@ -250,6 +250,75 @@ fn a_square_shot_fills_its_corners_with_the_ground() {
     assert!(square.contains(" rx=\"0\"") && !square.contains("A10 10"), "{square}");
 }
 
+/// The first screen of every application in the family: the setup wizard's appearance step, whose
+/// icon samples are the glyphs an application's README wants a picture of.
+mod wizard {
+    use std::path::{Path, PathBuf};
+
+    use qframe::i18n::I18n;
+    use qframe::icons::nerd_font::Install;
+    use qframe::prelude::*;
+    use qframe::storage::{Family, Settings};
+    use qframe::widgets::{Setup, SetupMsg, SetupWizard};
+
+    use crate::Shot;
+
+    /// An application on its first start, with one step of its own after the framework's.
+    struct FirstStart {
+        setup: Setup<SetupMsg>,
+        settings: Settings,
+    }
+
+    impl FirstStart {
+        /// Everything this application reads or writes is inside `folder`, the user's own settings
+        /// and font folders included: the wizard never sees them.
+        fn new(folder: &Path) -> Self {
+            let setup = Setup::new_in(folder, Family::QUVYTA, "code", &I18n::builtin(), |msg| msg)
+                .install(Install::new().target(folder.join("fonts")).register(false))
+                .font_dirs(vec![folder.join("fonts")]);
+            Self { setup, settings: Settings::open(folder.join("code.conf")).member_of(&Family::QUVYTA) }
+        }
+    }
+
+    impl App for FirstStart {
+        type Msg = SetupMsg;
+
+        fn update(&mut self, msg: SetupMsg) -> Command<SetupMsg> {
+            self.setup.update(msg, &mut self.settings)
+        }
+
+        fn view(&self, ui: &mut View<'_, SetupMsg>) {
+            SetupWizard::new(&self.setup)
+                .step("Containers", |ui| {
+                    ui.add(Text::new("podman"));
+                })
+                .show(ui);
+        }
+    }
+
+    /// A folder of this test's own, empty to begin with.
+    fn folder() -> PathBuf {
+        let path = std::env::temp_dir().join(format!("quvyta-shots-wizard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        path
+    }
+
+    #[test]
+    fn the_appearance_step_draws_with_nothing_missing() {
+        let folder = folder();
+        let harness = Harness::new(FirstStart::new(&folder), 72, 30);
+        let screen = harness.screen();
+        // The samples are what the step is for, so the check is worth nothing if they are gone.
+        for sample in ['⌕', '▤', '■', '✓'] {
+            assert!(screen.contains(sample), "the appearance step no longer shows {sample}:\n{screen}");
+        }
+        let shot = Shot::of(&harness).title("first start");
+        assert!(shot.missing().is_empty(), "the appearance step cannot be drawn: {:?}", shot.missing());
+        assert!(shot.to_png().is_ok());
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+}
+
 mod card {
     use qframe::runtime::Harness;
 

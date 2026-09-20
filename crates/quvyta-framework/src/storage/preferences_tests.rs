@@ -146,6 +146,55 @@ fn scope_app_writes_only_the_applications_file() {
 }
 
 #[test]
+fn follow_puts_the_application_back_on_the_family_without_touching_the_shared_file() {
+    let dir = folder("follow-back");
+    let shared = "# written by hand\nlanguage = \"tr\"\ntheme = \"nordic\"\nicons = \"nerd\"\n";
+    write(&dir, "quvyta.conf", shared);
+    write(&dir, "code.conf", "theme = \"amber\"\nengine = \"podman\"\n");
+    Family::QUVYTA.follow_in(&dir, "code", Shared::Theme).expect("follow");
+    assert_eq!(read(&dir, "quvyta.conf"), shared, "the shared file is neither read nor written");
+    assert_eq!(read(&dir, "code.conf"), "theme = \"quvyta\"\nengine = \"podman\"\n", "other keys stay");
+    assert_eq!(resolve(&dir, "code").theme(), &text("nordic", Source::Family));
+    fs::remove_dir_all(&dir).expect("clean");
+}
+
+#[test]
+fn follow_creates_a_missing_file_with_only_that_key() {
+    let dir = folder("follow-missing").join("quvyta");
+    Family::QUVYTA.follow_in(&dir, "tools", Shared::Language).expect("follow");
+    assert_eq!(read(&dir, "tools.conf"), "language = \"quvyta\"\n");
+    assert!(!dir.join("quvyta.conf").exists(), "the shared file is not created either");
+    fs::remove_dir_all(dir.parent().expect("parent")).expect("clean");
+}
+
+#[test]
+fn following_twice_changes_nothing() {
+    let dir = folder("follow-twice");
+    write(&dir, "code.conf", "icons = \"ascii\"\n");
+    let family = Family::QUVYTA;
+    family.follow_in(&dir, "code", Shared::Icons).expect("first");
+    let after_first = read(&dir, "code.conf");
+    family.follow_in(&dir, "code", Shared::Icons).expect("second, a key that already follows");
+    assert_eq!(read(&dir, "code.conf"), after_first);
+    assert_eq!(after_first, "icons = \"quvyta\"\n");
+    assert!(!dir.join("code.conf.bak").exists(), "nothing was rewritten");
+    fs::remove_dir_all(&dir).expect("clean");
+}
+
+#[test]
+fn follow_refuses_a_broken_file_and_leaves_it_as_it_was() {
+    let dir = folder("follow-broken");
+    let broken = "theme = \nengine = \"podman\"\n";
+    write(&dir, "code.conf", broken);
+    let error = Family::QUVYTA.follow_in(&dir, "code", Shared::Theme).expect_err("broken");
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert!(error.to_string().contains("code.conf:1:"), "{error}");
+    assert_eq!(read(&dir, "code.conf"), broken, "untouched");
+    assert!(!dir.join("code.conf.bak").exists(), "no backup either");
+    fs::remove_dir_all(&dir).expect("clean");
+}
+
+#[test]
 fn two_writers_keep_both_changes() {
     let dir = folder("two-writers");
     let first = resolve(&dir, "code");

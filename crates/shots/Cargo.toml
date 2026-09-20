@@ -12,7 +12,7 @@ categories = ["command-line-interface", "development-tools::testing", "rendering
 publish = false
 # Anchored with a leading slash: an unanchored pattern such as "README.md" also matches the same
 # name in every subfolder, which is how a file from another folder can end up in a published crate.
-include = ["/src/**/*.rs", "/fonts/*.ttf", "/fonts/*.otf", "/fonts/OFL*.txt", "/fonts/README.md", "/Cargo.toml", "/LICENSE", "/README.md"]
+include = ["/src/**/*.rs", "/fonts/*.ttf", "/fonts/*.otf", "/fonts/OFL*.txt", "/fonts/README.md", "/fonts/coverage.txt", "/Cargo.toml", "/LICENSE", "/README.md"]
 
 [lib]
 # Published as quvyta-framework-shots, used in code as `qshots`.
@@ -22,7 +22,7 @@ name = "qshots"
 workspace = true
 
 [dependencies]
-quvyta-framework = { version = "0.1.11", path = "../quvyta-framework" }
+quvyta-framework = { version = "0.1.12", path = "../quvyta-framework" }
 # The harness hands out its screen as a ratatui buffer; reading cell styles needs its types.
 # The framework already depends on this version, so it adds no crate.
 ratatui-core = { version = "0.1.2", features = ["std"] }

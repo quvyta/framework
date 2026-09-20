@@ -29,6 +29,7 @@ pub mod empty_state;
 pub mod example_dashboard;
 pub mod example_file_explorer;
 pub mod example_setup_wizard;
+pub mod file_manager;
 pub mod file_picker;
 pub mod focus_keys;
 pub mod folder_watch;
@@ -211,6 +212,7 @@ pub const PAGES: &[PageContent] = &[
     page!("card-grid", "card_grid"),
     page!("log-view", "log_view"),
     page!("file-picker", "file_picker"),
+    page!("file-manager", "file_manager"),
     page!("example-file-explorer", "example_file_explorer"),
     page!("terminal", "terminal"),
     page!("form", "form"),
@@ -305,6 +307,7 @@ pub struct Pages {
     pub card_grid: card_grid::State,
     pub log_view: log_view::State,
     pub file_picker: file_picker::State,
+    pub file_manager: file_manager::State,
     pub example_file_explorer: example_file_explorer::State,
     pub terminal: terminal::State,
     pub form: form::State,
@@ -393,6 +396,7 @@ pub enum PageMsg {
     CardGrid(card_grid::Msg),
     LogView(log_view::Msg),
     FilePicker(file_picker::Msg),
+    FileManager(file_manager::Msg),
     ExampleFileExplorer(example_file_explorer::Msg),
     Terminal(terminal::Msg),
     Form(form::Msg),
@@ -487,6 +491,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::CardGrid(m) => card_grid::update(&mut pages.card_grid, m, log),
         PageMsg::LogView(m) => log_view::update(&mut pages.log_view, m, log),
         PageMsg::FilePicker(m) => file_picker::update(&mut pages.file_picker, m, log),
+        PageMsg::FileManager(m) => file_manager::update(&mut pages.file_manager, m, log),
         PageMsg::ExampleFileExplorer(m) => example_file_explorer::update(&mut pages.example_file_explorer, m, log),
         PageMsg::Terminal(m) => terminal::update(&mut pages.terminal, m, log),
         PageMsg::Form(m) => form::update(&mut pages.form, m, log),
@@ -582,6 +587,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "log-view" => log_view::view(&pages.log_view, ui),
         "file-picker" => file_picker::view(&pages.file_picker, ui),
         "example-file-explorer" => example_file_explorer::view(&pages.example_file_explorer, ui),
+        "file-manager" => file_manager::view(&pages.file_manager, ui),
         "terminal" => terminal::view(&pages.terminal, ui),
         "form" => form::view(&pages.form, ui),
         "steps" => steps::view(&pages.steps, ui),

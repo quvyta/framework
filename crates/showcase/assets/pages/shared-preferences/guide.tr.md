@@ -13,6 +13,7 @@ Quvyta ailesinin her uygulaması, kullanıcı birinde başka bir şey seçmediys
 ## Nasıl çalışır
 
 - **Her anahtar kendi başına.** Dil, tema ve ikonlar için: uygulamanın dosyası bir değer söylüyorsa o, yoksa `quvyta.conf`, o da yoksa makinenin önerdiği. Eksik anahtar da `"quvyta"` değeri de "aileyi izle" demektir.
+- **Aileye dönüş, tek başına.** `Family::follow(uygulama, anahtar)` o uygulamanın dosyasına ailenin kimliğini yazar, başka bir şey yapmaz: ortak dosya ne okunur ne yazılır; bir üye, bütün ailenin çizdiği değeri değiştirmeden yeniden izlemeye döner. `Family::set(.., Scope::Family)` ortak değeri de yazar; bu, uygulamanın kendi ayar sayfasında istediğin şeydir, başka bir üyenin satırında değil.
 - **Ortak satırın altındaki kutu kapsamdır.** İşaretliyse değişiklik `quvyta.conf`'a gider, uygulamanın dosyası `"quvyta"` der; aileyi izleyen her uygulama onunla değişir. Boşsa değişiklik uygulamanın kendi dosyasında kalır. Kendi değerini seçmiş bir uygulama başka bir uygulamadan asla değişmez.
 - **İki yazan da değişikliğini korur.** Her dosya yazılmadan hemen önce okunur ve yalnızca değişen anahtar yazılır; Unix'te klasör bu sırada bir danışma kilidiyle tutulur.
 - **Bozuk satır hiçbir şeyi durdurmaz.** O anahtar algılanan değere düşer; nedeni dosya, satır ve sütunuyla `Preferences::diagnostics` içindedir.
@@ -23,4 +24,5 @@ Quvyta ailesinin her uygulaması, kullanıcı birinde başka bir şey seçmediys
 
 - **`language`'ı sabit bir listeyle tanımlayıp kendini onarmayı açmak.** `self_heal`'den önce `Settings::member_of(&Family::QUVYTA)` çağır ya da `load_member` ile yükle; böylece `"quvyta"` korunur.
 - **Bütün ayar dosyasını eski bir kopyadan kaydetmek.** Bellekteki ayarlarını `Appearance::update`'e ver; değişikliği onlar da alır.
+- **Başka bir uygulamayı izler yapmak için `Scope::Family` kullanmak.** O, `quvyta.conf`'u verdiğin değerle yeniden yazar; her üyeyi listeleyen bir ayar tablosu böylece ailenin temasını bir üyenin satırından değiştirir. Orada `follow` kullan.
 - **Testlerde kullanıcının gerçek dosyalarına yazmak.** Geçici bir klasörle `preferences_in`, `set_in` ve `Appearance::in_folder` kullan.

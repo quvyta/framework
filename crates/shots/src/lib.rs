@@ -5,10 +5,11 @@
 //! colour, with an optional quiet title; no frame, no border, no shadow.
 //!
 //! Every glyph is an outline from the embedded JetBrains Mono Nerd Font Mono (Regular and Bold;
-//! italics are slanted), with Chinese and Japanese from an embedded Noto Sans Mono CJK SC drawn
-//! centred in their two cells, so nothing depends on the fonts of the machine: the same scene
-//! gives byte-identical files everywhere. The picture shows only what the test drew, so a scene built
-//! from fixed sample data can never leak anything personal.
+//! italics are slanted), with the symbols it lacks from an embedded cut of JuliaMono, and Chinese
+//! and Japanese from an embedded Noto Sans Mono CJK SC drawn centred in their two cells, so
+//! nothing depends on the fonts of the machine: the same scene gives byte-identical files
+//! everywhere. The picture shows only what the test drew, so a scene built from fixed sample data
+//! can never leak anything personal.
 //!
 //! ```
 //! use qframe::prelude::*;
@@ -41,6 +42,8 @@
 //! [`Harness`]: qframe::runtime::Harness
 
 mod card;
+#[cfg(test)]
+mod coverage;
 mod font;
 mod geometry;
 mod png;
@@ -129,7 +132,7 @@ impl Shot {
 
     /// Characters on the screen no embedded font has a glyph for, such as emoji, Korean or rare
     /// ideographs outside GB 2312 and JIS X 0208. They are left out of the picture; a README test
-    /// can assert this is empty.
+    /// can assert this is empty. What the fonts do cover is listed in `fonts/coverage.txt`.
     #[must_use]
     pub fn missing(&self) -> Vec<char> {
         svg::draw(self).missing.into_iter().collect()

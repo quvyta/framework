@@ -2,7 +2,7 @@
 //! title, folder, bell and notifications it reports.
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use qframe::prelude::*;
 use qframe::widgets::{Badge, Segmented, Terminal, TerminalChange, TerminalSession};
@@ -22,6 +22,10 @@ const DEFAULT_SCROLLBACK: usize = 2;
 /// Seconds the shell has to end after a hangup before it is killed.
 const GRACE: Duration = Duration::from_secs(2);
 
+/// How long both the shell and the person have to have been quiet before a line is delivered.
+/// Short enough to try out by hand; a real application waits a second or two.
+const QUIET: Duration = Duration::from_millis(600);
+
 /// The running shell, if any, what it last reported and the last start error.
 #[derive(Debug)]
 pub struct State {
@@ -36,6 +40,20 @@ pub struct State {
     notification: Option<String>,
     /// Index into [`SCROLLBACKS`].
     scrollback: usize,
+    /// What the last attempt to deliver a line found.
+    delivery: Option<Delivery>,
+}
+
+/// What the page found when it last tried to hand the shell a line: how long each side had been
+/// quiet, and whether the line went in.
+#[derive(Debug, Clone, Copy)]
+pub struct Delivery {
+    /// How long the shell had written nothing.
+    program: Duration,
+    /// How long no key had been typed into it.
+    person: Duration,
+    /// Whether the line was pasted, or held back because one side had just spoken.
+    pasted: bool,
 }
 
 impl Default for State {
@@ -50,6 +68,7 @@ impl Default for State {
             bells: 0,
             notification: None,
             scrollback: DEFAULT_SCROLLBACK,
+            delivery: None,
         }
     }
 }
@@ -61,6 +80,8 @@ pub enum Msg {
     Stop,
     Changed(u64, TerminalChange),
     Scrollback(usize),
+    /// Hand the shell a line, if both it and the person have been quiet.
+    Deliver,
     /// `terminal-focus` pressed inside the shell.
     Leave,
     /// `terminal-focus` pressed anywhere else on the page.
@@ -119,6 +140,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                 state.folder = None;
                 state.bells = 0;
                 state.notification = None;
+                state.delivery = None;
                 let command = watch(&session, state.run);
                 state.session = Some(session);
                 log.push(PAGE, "Terminal#shell", "started");
@@ -168,6 +190,28 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                 log.push(PAGE, "Terminal#shell", "stopped");
             }
         }
+        // region: terminal-deliver
+        Msg::Deliver => {
+            if let Some(session) = &state.session {
+                // The two quiet times, read at the moment of the decision: a program in the
+                // middle of answering is not reading its input, and a person in the middle of a
+                // sentence would have it cut in half.
+                let now = Instant::now();
+                let program = now.saturating_duration_since(session.last_output());
+                let person = now.saturating_duration_since(session.last_input());
+                let pasted = program >= QUIET && person >= QUIET;
+                if pasted {
+                    // As if the person had pasted it: one piece, and the line breaks in it are
+                    // not read as Enter.
+                    if let Err(error) = session.paste(&t!("terminal.line")) {
+                        state.error = Some(error.to_string());
+                    }
+                }
+                state.delivery = Some(Delivery { program, person, pasted });
+                log.push(PAGE, "TerminalSession#paste", if pasted { "delivered" } else { "held back" });
+            }
+        }
+        // endregion
         Msg::Scrollback(index) => {
             state.scrollback = index;
             log.push(PAGE, "Playground", format!("scrollback = {}", SCROLLBACKS[index]));
@@ -202,6 +246,32 @@ fn strip(state: &State, ui: &mut View<'_, AppMsg>) {
 }
 // endregion
 
+// region: terminal-quiet
+/// Seconds with one decimal, the pace a quiet time is read at.
+fn seconds(span: Duration) -> String {
+    format!("{:.1}", span.as_secs_f64())
+}
+
+/// What the last delivery found: how long each side had been quiet and what was decided. The two
+/// times come from `last_output` and `last_input`, and they are read when the decision is made,
+/// not while drawing.
+fn quiet(state: &State, ui: &mut View<'_, AppMsg>) {
+    let Some(delivery) = state.delivery else {
+        ui.add(Text::new(t!("terminal.deliver-idle")).role("faint").no_wrap());
+        return;
+    };
+    let times = t!("terminal.deliver-times", program = seconds(delivery.program), person = seconds(delivery.person));
+    ui.row(|ui| {
+        ui.add(Text::new(times).role("secondary").no_wrap());
+        let (label, variant) =
+            if delivery.pasted { (t!("terminal.delivered"), "success") } else { (t!("terminal.held-back"), "warning") };
+        ui.add(Badge::new(label).variant(variant));
+    })
+    .gap(2)
+    .fill_width();
+}
+// endregion
+
 /// The live demo and the playground.
 pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     ui.add_with(Panel::new().title(t!("demo.live")).gap(1), |ui| {
@@ -210,12 +280,14 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             let label = if state.session.is_some() { t!("terminal.restart") } else { t!("terminal.start") };
             ui.add(Button::new(label).variant("primary").on_press(send(Msg::Start))).id("start");
             ui.add(Button::new(t!("terminal.stop")).disabled(!running).on_press(send(Msg::Stop))).id("stop");
+            ui.add(Button::new(t!("terminal.deliver")).disabled(!running).on_press(send(Msg::Deliver))).id("deliver");
             ui.add(Text::new(t!("terminal.focus-hint")).role("faint").no_wrap());
         })
         .gap(2)
         .fill_width();
         if state.session.is_some() {
             strip(state, ui);
+            quiet(state, ui);
         }
         // region: terminal-view
         match &state.session {
@@ -250,6 +322,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         });
         ui.add(Text::new(t!("terminal.scrollback-hint")).role("faint"));
         ui.add(Text::new(t!("terminal.notices-hint")).role("faint"));
+        ui.add(Text::new(t!("terminal.deliver-hint")).role("faint"));
     })
     .fill_width();
 }
@@ -323,6 +396,39 @@ mod tests {
         for shown in ["from the shell", "/tmp/a b", "Build: done", "bell"] {
             assert!(screen.contains(shown), "{shown} missing: {screen}");
         }
+    }
+
+    #[test]
+    fn a_line_is_delivered_only_once_the_shell_and_the_person_are_both_quiet() {
+        let session =
+            TerminalSession::spawn("/bin/cat".as_ref(), &[] as &[&str], &super::super::home_folder()).expect("pty");
+        let mut showcase = Showcase::new();
+        showcase.pages.terminal.session = Some(session.clone());
+        let mut h = showcase_tall(showcase, PAGE, 60);
+
+        // A key just written: the person is in the middle of something, so nothing is handed over.
+        session.write(b"x").expect("write");
+        h.send(send(Msg::Deliver));
+        let held = h.app().pages.terminal.delivery.expect("a decision was made");
+        assert!(!held.pasted, "{held:?}");
+        assert!(held.person < QUIET, "{held:?}");
+        assert!(h.screen().contains("held back"), "{}", h.screen());
+
+        // Wait for the quiet instead of sleeping: a bounded wait answering None says the program
+        // has written nothing for that long, and nothing has been typed since the key above.
+        let watch = session.watch();
+        let started = std::time::Instant::now();
+        while watch.next_change_within(QUIET).is_some() {
+            assert!(started.elapsed() < Duration::from_secs(20), "the program never fell silent");
+        }
+        h.send(send(Msg::Deliver));
+        let sent = h.app().pages.terminal.delivery.expect("a decision was made");
+        assert!(sent.pasted, "{sent:?}");
+        assert!(sent.program >= QUIET && sent.person >= QUIET, "{sent:?}");
+        assert!(h.screen().contains("delivered"), "{}", h.screen());
+        let heard: Vec<&str> = h.app().log.recent(PAGE, 2).iter().map(|entry| entry.message.as_str()).collect();
+        assert_eq!(heard, ["held back", "delivered"]);
+        session.kill();
     }
 
     #[test]

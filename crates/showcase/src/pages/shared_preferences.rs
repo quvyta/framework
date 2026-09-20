@@ -109,19 +109,20 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::OtherOwnTheme(own) => {
             let demo = state.demo();
             let family = Family::QUVYTA;
+            // region: shared-preferences-follow
             let written = if own {
                 family.set_in(&demo.folder, OTHER, Shared::Theme, OWN_THEME, Scope::App)
             } else {
-                // Following again writes the family's current theme through the family, which
-                // leaves the shared file as it is and puts the family's id in focus.conf.
-                let theme = shared_theme(&demo.folder).unwrap_or_else(|| "monochrome".to_owned());
-                family.set_in(&demo.folder, OTHER, Shared::Theme, &theme, Scope::Family)
+                // Back to the family: only focus.conf is written, so the theme the whole family
+                // draws with stays exactly as it is.
+                family.follow_in(&demo.folder, OTHER, Shared::Theme)
             };
+            // endregion
             let outcome = match written {
                 Ok(()) => format!("{OTHER} keeps its own theme = {own}"),
                 Err(error) => error.to_string(),
             };
-            log.push(PAGE, "Family::set_in", outcome);
+            log.push(PAGE, if own { "Family::set_in" } else { "Family::follow_in" }, outcome);
             Command::none()
         }
         Msg::StartOver => {
@@ -132,11 +133,6 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             Command::none()
         }
     }
-}
-
-/// The theme the shared file holds, if it holds one.
-fn shared_theme(folder: &Path) -> Option<String> {
-    Settings::open(folder.join("quvyta.conf")).theme()
 }
 
 /// What `app` resolves in `folder`, as one line per preference.
@@ -246,8 +242,15 @@ mod tests {
         assert_eq!(resolved(&folder, OTHER).theme().value, "nordic", "focus follows the family now");
         h.send(send(Msg::OtherOwnTheme(true)));
         assert_eq!(resolved(&folder, OTHER).theme().value, OWN_THEME);
+        let shared = std::fs::read_to_string(folder.join("quvyta.conf")).expect("quvyta.conf");
         h.send(send(Msg::OtherOwnTheme(false)));
+        assert_eq!(resolved(&folder, OTHER).theme().source, Source::Family, "focus follows again");
         assert_eq!(resolved(&folder, OTHER).theme().value, "nordic");
+        assert_eq!(
+            std::fs::read_to_string(folder.join("quvyta.conf")).expect("quvyta.conf"),
+            shared,
+            "following again leaves the family's own theme alone"
+        );
     }
 
     #[test]
