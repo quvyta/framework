@@ -10,6 +10,7 @@
 - `.terminate(süre)` — süreç grubuna SIGHUP, `süre` dolduğunda hâlâ çalışıyorsa SIGKILL; hemen döner. Süre boyunca oturumu elinde tut: son tutamağı bırakmak programı hemen bitirir.
 - `TerminalWatch::next()` — `TerminalEvent::Output` ya da `TerminalEvent::Exited(kod)` gelene kadar bekler; `Command::perform` içinde çalıştır.
 - `TerminalWatch::next_change()` — bir `TerminalChange` gelene kadar bekler: `Output`, `Title(metin)`, `WorkingFolder(yol)`, `Bell`, `Notify { title, body }` ya da `Exited(kod)`. Enum genişletilebilir (non-exhaustive).
+- `TerminalWatch::next_change_within(süre)` — aynı bekleme, sınırlı: `Some(değişiklik)` ya da `süre` içinde bildirilecek bir şey olmadıysa `None`. Testler için: testler `Command::perform`'u olduğu yerde çalıştırır, sessiz bir programı sınırsız beklemekten hiç dönmez. Sonrasında oturum kullanılmaya devam eder. Çalışan uygulama `next_change`'i kullanmayı sürdürür.
 
 ## Davranış
 
@@ -24,6 +25,7 @@
 - Bildirimler: OSC 0 ve 2 başlığı, OSC 7 `file://makine/yol` klasörü koyar (yüzde kodlaması çözülür, makine adına bakılmaz), kaçış dizisi dışındaki BEL zili çalar, OSC 9 `metin` ve OSC 777 `notify;başlık;metin` bildirimdir; sayıyla başlayan OSC 9 (ConEmu'nun ilerleme göstergesi gibi) bildirim sayılmaz. Okumalar arasında bölünen diziler bütün olarak duyulur. Okunmamış başlık ve klasörün en yenisi kalır, okunmamış ziller bir sayılır, en fazla sekiz bildirim bekler. Bildirimler, birlikte geldikleri çıktıdan önce gelir.
 - 4096 bayttan uzun bir OSC dizisi orada kesilir; dizisini hiç bitirmeyen bir program belleği büyütemez.
 - `.coalesce(aralık)` ile çıktı en fazla aralıkta bir bildirilir ve geldikten sonra bir aralıktan fazla bekletilmez; bildirimler ve bitiş bekletilmez.
+- `next_change_within(süre)` süre içinde döner, program bir şey söylemediyse `None` verir ve bekleyen boyut değişikliklerini sınırsız beklemeler gibi uygular. `.coalesce(aralık)` varken aralıktan kısa bir sınır, çıktı gelmiş olsa da `None` verebilir: aralık yine beklenir.
 - Ekran bir metin seçim bölgesidir; geri kaydırma ve çıkış notları temiz kopya için süstür. Seçim varken `ctrl c` programa gitmez, seçimi kopyalar.
 
 ## Tema anahtarları

@@ -494,5 +494,17 @@ mod readme_shots {
         save(&palette, "command-palette");
         save(&scene("example-setup-wizard", "iris", 120, 36), "setup-wizard");
         save(&scene("markdown", "monochrome", 120, 40), "markdown");
+        social();
+    }
+
+    /// The card a repository shows when its link is shared. A compact scene: on a card the
+    /// screenshot is a third of the width, so a wide one turns to texture.
+    fn social() {
+        let card = qshots::Card::new(qshots::Shot::of(&scene("example-dashboard", "iris", 84, 36)))
+            .name("qframe")
+            .promise("Terminal applications in Rust, where shape comes from colour, not from box characters.");
+        assert!(card.missing().is_empty(), "social: the font lacks {:?}", card.missing());
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/screenshots/social");
+        card.save(path).expect("the screenshots folder is writable");
     }
 }

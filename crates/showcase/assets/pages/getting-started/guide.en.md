@@ -65,6 +65,23 @@ fn terminating(&self, _cause: Termination) -> Option<Msg> {
 }
 ```
 
+## How often frames are drawn
+
+Frames are not drawn on a clock: the runtime draws when something changed, and waits on the keyboard the rest of the time. `App::frame_limit` sets a ceiling on how many it draws a second, because "something changed" can happen faster than anyone can read — an embedded terminal pouring out lines, background work reporting again and again.
+
+The default draws 60 frames a second at the machine and 20 over a remote connection. `Env::remote` tells the two apart: it is true when `SSH_CONNECTION` or `SSH_TTY` is set and not empty, so a session an SSH server started is recognised without the application asking anything. Over a network every frame is a whole screen sent down the link, and a program writing without pause would spend the connection on frames nobody can tell apart.
+
+```rust
+fn frame_limit(&self) -> FrameLimit {
+    // 60 at the machine, 10 over a slow link.
+    FrameLimit::per_second(60).remote(10)
+}
+```
+
+The limit never delays an answer to input. A frame that follows a key, a click, the pointer moving or a paste is drawn at once, however low the limit is: the echo of a typed character is what a person judges the whole program by. Only frames the application's own work causes are merged, and a held frame is drawn as soon as the gap is over, so the limit costs no latency of its own. `FrameLimit::none()` draws every frame that is wanted; `FrameLimit::per_second(n)` uses one number on every connection.
+
+An application reads `Env::remote` for its own decisions too: fewer animations, smaller pictures, a plainer first screen on a slow link.
+
 ## Testing without a terminal
 
 `Harness` runs the same application against an in-memory screen with a fake clock. Press keys, type, click on text and read the screen back as plain lines:

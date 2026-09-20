@@ -240,3 +240,10 @@ pillar             = "Barre d’accent"
 pillar-thick       = "Épaisse"
 pillar-thin        = "Fine"
 not-saved          = "Appliqué, mais non enregistré : {reason}"
+
+# The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
+[quvyta.setup]
+sample-hint = "Choisissez le jeu dont les icônes apparaissent comme des formes sur votre écran."
+install     = "Installer la police"
+defaults    = "Commencer avec les valeurs par défaut"
+not-saved   = "Vos choix n'ont pas pu être enregistrés : {reason}"

@@ -41,6 +41,8 @@ Tema yüklenirken framework yazı ile zeminler arasındaki kontrastı ve vurgu i
 
 Her ikonun üç biçimi vardır: Nerd Font için `nerd`, `unicode` ve `ascii`. `auto` modunda framework terminale ve kurulu yazı tiplerine bakarak seçer; kullanıcı bir mod seçebilir, `QUVYTA_ICONS=ascii` ise bir modu zorlar. ASCII biçimleri şekil taklit etmek için asla parantez kullanmaz.
 
+Bazı adlar tek bir bileşenin işareti değil, ortak bir anlamdır; ailedeki her uygulama onlar için aynı şekli çizer: ana menü için `project`, `profile`, `settings`, `power`; pencere başlığı için `window-minimize`, `window-maximize`, `window-restore`; başlatıcının girdileri grupladığı program türleri için `category-system`, `category-development`, `category-network`, `category-office`, `category-media`, `category-files`; ve Quvyta'nın kendi `❖` işareti için `family`. Bunların Unicode biçimi, terminallerin ve eşit aralıklı yazı tiplerinin tek hücre olarak çizdiği Geometric Shapes içinde kalır; böylece dock'taki bir sıra ya da üç hücrelik bir başlık işareti, başka bir yazı tipine düşen bir glifle aralanmaz. `family` tek istisnadır, çünkü o işaretin kendisidir. İkonu olmayan bir başlatıcı girdisi kategorisinin ikonunu kullanır.
+
 Set, bir uygulamanın ana menüsünün gösterdiği anlamlara da karşılık verir; böylece ailedeki her uygulama aynı şekilleri çizer: `project`, `profile`, `settings` ve `power`. Nerd Font şeyin kendisini çizer; Unicode sütunu, terminallerin ve eşit aralıklı yazı tiplerinin tek hücre olarak çizdiği Geometric Shapes içinde kalır, böylece hiçbir satır başka bir yazı tipine düşüp hücreden taşmaz.
 
 ## Uygulamanın kendi ikonları

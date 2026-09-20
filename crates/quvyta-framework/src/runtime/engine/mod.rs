@@ -6,6 +6,7 @@
 mod clipboard;
 mod ending;
 mod focus;
+mod frames;
 mod idle;
 mod keys;
 mod pointer;
@@ -18,7 +19,8 @@ use std::time::{Duration, Instant};
 use ratatui_core::buffer::Buffer;
 
 use self::clipboard::ClipboardRead;
-use self::idle::Idle;
+use self::frames::Pacing;
+use self::idle::{Idle, is_input};
 use self::pointer::PointerRepeat;
 
 use super::app::App;
@@ -150,6 +152,8 @@ pub(crate) struct Engine<A: App> {
     clock: Duration,
     /// When the user last did something, and the silences the view watches.
     idle: Idle<A::Msg>,
+    /// When the latest frame was drawn, and whether the next one answers input.
+    pacing: Pacing,
     /// Whether [`App::init`] ran; it runs at the start of the first frame.
     started: bool,
     /// The screen size last reported through [`App::resized`].
@@ -207,6 +211,7 @@ impl<A: App> Engine<A> {
             clipboard_reads: Vec::new(),
             terminal_query: false,
             clock: Duration::ZERO,
+            pacing: Pacing::default(),
             idle: Idle::default(),
             started: false,
             screen: None,
@@ -305,6 +310,7 @@ impl<A: App> Engine<A> {
         self.settle_openers();
         self.settle_interaction();
         self.apply_focus_request();
+        self.frame_drawn(now);
         self.stats.frames += 1;
         self.stats.paint_time = started.elapsed();
         if let Some(text) = selection_copy.filter(|text| !text.is_empty()) {
@@ -388,6 +394,10 @@ impl<A: App> Engine<A> {
     pub(crate) fn handle(&mut self, event: Event, now: Duration) {
         self.clock = now;
         self.note_input(&event, now);
+        // The answer to what the user just did is drawn at once, whatever the frame limit is.
+        if is_input(&event) {
+            self.frame_is_urgent();
+        }
         match &event {
             Event::Key(_) => self.interaction.focus_by_pointer = false,
             Event::Mouse(mouse) if matches!(mouse.kind, MouseKind::Down(_)) => {

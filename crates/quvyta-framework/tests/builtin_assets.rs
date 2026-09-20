@@ -42,13 +42,29 @@ fn default_icon_set_is_valid_in_every_mode() {
 /// family application would have a menu with icons on only some of its rows.
 const MENU_ICONS: [&str; 4] = ["project", "profile", "settings", "power"];
 
+/// A launcher's categories, the entries without an icon of their own, the family's mark and the
+/// marks on a window's title. Each is drawn in a strip of counted cells — a dock, a menu row, a
+/// three-cell title mark — so a glyph two cells wide would push the strip apart.
+const LAUNCHER_ICONS: [&str; 10] = [
+    "category-system",
+    "category-development",
+    "category-network",
+    "category-office",
+    "category-media",
+    "category-files",
+    "family",
+    "window-minimize",
+    "window-maximize",
+    "window-restore",
+];
+
 #[test]
 fn every_icon_set_answers_the_application_menu_in_every_mode_with_one_cell() {
     let registry = IconSetRegistry::builtin();
     for (id, _) in registry.list() {
         for mode in [GlyphMode::Nerd, GlyphMode::Unicode, GlyphMode::Ascii] {
             let icons = registry.icons(&id, &BTreeMap::new(), mode);
-            for name in MENU_ICONS {
+            for name in MENU_ICONS.into_iter().chain(LAUNCHER_ICONS) {
                 let glyph = icons.glyph(name);
                 assert!(icons.keys().any(|key| key == name), "set {id} has no {name}");
                 assert_eq!(qframe::text::width(&glyph), 1, "{name} is one cell in {mode:?} of set {id}: {glyph:?}");

@@ -10,6 +10,7 @@
 - `.terminate(grace)` — SIGHUP to the process group, SIGKILL after `grace` if it is still running; returns at once. Keep the session while the grace runs: dropping the last handle ends the program at once.
 - `TerminalWatch::next()` — blocks until `TerminalEvent::Output` or `TerminalEvent::Exited(code)`; run it in `Command::perform`.
 - `TerminalWatch::next_change()` — blocks until a `TerminalChange`: `Output`, `Title(text)`, `WorkingFolder(path)`, `Bell`, `Notify { title, body }` or `Exited(code)`. The enum is non-exhaustive.
+- `TerminalWatch::next_change_within(bound)` — the same wait with a bound: `Some(change)`, or `None` when nothing was reported within `bound`. For tests, which run a `Command::perform` on the spot and would never return from an unbounded wait on a silent program; the session stays usable afterwards. A running application keeps using `next_change`.
 
 ## Behaviour
 
@@ -24,6 +25,7 @@
 - Notices: OSC 0 and 2 set the title, OSC 7 `file://host/path` the folder (percent-decoded, host not checked), BEL outside an escape sequence rings the bell, OSC 9 `body` and OSC 777 `notify;title;body` are notifications; OSC 9 starting with a number (ConEmu's progress and the like) is not. Sequences split across reads are heard whole. Unread titles and folders keep the newest, unread bells count as one, at most eight notifications wait. Notices come before the output they arrived with.
 - An OSC string longer than 4096 bytes is cut there, so a program that never ends one cannot grow memory.
 - With `.coalesce(interval)`, output is reported at most once per interval and never later than an interval after it arrived; notices and the end are not delayed.
+- `next_change_within(bound)` comes back within the bound, answers `None` when the program said nothing, and applies pending size changes like the unbounded waits. With `.coalesce(interval)` a bound shorter than the interval can answer `None` although output has arrived, because the interval is still waited out.
 - The screen is a text selection region; the scrolled-back and exited notes are decoration for clean copies. While a selection exists, `ctrl c` copies it instead of reaching the program.
 
 ## Theme keys

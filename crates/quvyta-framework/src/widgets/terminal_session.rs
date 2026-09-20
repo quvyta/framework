@@ -437,6 +437,8 @@ fn pty_size((rows, cols): (u16, u16)) -> PtySize {
 /// Waits for changes of a [`TerminalSession`] on a background thread.
 ///
 /// It holds no strong handle to the program, so dropping the session still ends it.
+/// [`next_change_within`](Self::next_change_within) is the same wait with a bound, for tests that
+/// must not hang on a program that says nothing.
 pub struct TerminalWatch {
     shared: Arc<Shared>,
     process: Weak<Mutex<Process>>,
@@ -446,6 +448,16 @@ pub struct TerminalWatch {
 enum Found {
     Event(TerminalEvent),
     Notice(TerminalChange),
+}
+
+impl Found {
+    fn into_change(self) -> TerminalChange {
+        match self {
+            Found::Event(TerminalEvent::Output) => TerminalChange::Output,
+            Found::Event(TerminalEvent::Exited(code)) => TerminalChange::Exited(code),
+            Found::Notice(change) => change,
+        }
+    }
 }
 
 impl TerminalWatch {
@@ -458,7 +470,8 @@ impl TerminalWatch {
     #[must_use]
     pub fn next(&self) -> TerminalEvent {
         loop {
-            if let Found::Event(event) = self.wait(false) {
+            // Without a deadline the wait always finds something; a notice is not an event.
+            if let Some(Found::Event(event)) = self.wait(false, None) {
                 return event;
             }
         }
@@ -474,14 +487,36 @@ impl TerminalWatch {
     /// session's [`coalesce`](TerminalBuilder::coalesce) interval.
     #[must_use]
     pub fn next_change(&self) -> TerminalChange {
-        match self.wait(true) {
-            Found::Event(TerminalEvent::Output) => TerminalChange::Output,
-            Found::Event(TerminalEvent::Exited(code)) => TerminalChange::Exited(code),
-            Found::Notice(change) => change,
+        loop {
+            // Without a deadline the wait always finds something.
+            if let Some(found) = self.wait(true, None) {
+                return found.into_change();
+            }
         }
     }
 
-    fn wait(&self, notices: bool) -> Found {
+    /// Waits for a change as [`next_change`](Self::next_change) does, but gives up after
+    /// `bound` and answers `None` when nothing was reported in that time.
+    ///
+    /// Made for tests: a screen test drives a
+    /// [`Command::perform`](crate::runtime::Command::perform) on the spot, so watching a live but
+    /// silent program with `next_change` would never come back. A test asks for a change within a
+    /// generous bound instead, and `None` says the program had nothing to say. The session stays
+    /// usable: ask again, or write to the program and ask again. A running application has a
+    /// thread for its watch and keeps using `next_change`.
+    ///
+    /// Pending size changes are applied here as well. When the session
+    /// [coalesces](TerminalBuilder::coalesce), output pending inside the interval is still held
+    /// back, so a bound shorter than the interval can answer `None` although output has arrived.
+    #[must_use]
+    pub fn next_change_within(&self, bound: Duration) -> Option<TerminalChange> {
+        // A bound so far off that the clock cannot name it is the unbounded wait.
+        let deadline = Instant::now().checked_add(bound);
+        Some(self.wait(true, deadline)?.into_change())
+    }
+
+    /// Waits for the next change, `None` once `deadline` has passed with nothing to report.
+    fn wait(&self, notices: bool, deadline: Option<Instant>) -> Option<Found> {
         let mut signal = lock(&self.shared.signal);
         loop {
             if let Some(size) = signal.wanted.take() {
@@ -492,29 +527,52 @@ impl TerminalWatch {
                 continue;
             }
             if notices && let Some(change) = signal.notices.pop() {
-                return Found::Notice(change);
+                return Some(Found::Notice(change));
             }
             if signal.generation != signal.seen {
                 let now = Instant::now();
                 if let Some(due) = signal.reported.map(|at| at + self.shared.coalesce)
                     && due > now
                 {
-                    signal =
-                        self.shared.changed.wait_timeout(signal, due - now).unwrap_or_else(PoisonError::into_inner).0;
+                    signal = self.hold(signal, Some(due), deadline)?;
                     continue;
                 }
                 signal.seen = signal.generation;
                 signal.reported = Some(now);
-                return Found::Event(TerminalEvent::Output);
+                return Some(Found::Event(TerminalEvent::Output));
             }
             if let Some(code) = signal.exited {
-                return Found::Event(TerminalEvent::Exited(code));
+                return Some(Found::Event(TerminalEvent::Exited(code)));
             }
             if self.process.strong_count() == 0 {
-                return Found::Event(TerminalEvent::Exited(None));
+                return Some(Found::Event(TerminalEvent::Exited(None)));
             }
-            signal = self.shared.changed.wait(signal).unwrap_or_else(PoisonError::into_inner);
+            signal = self.hold(signal, None, deadline)?;
         }
+    }
+
+    /// Waits on the session's condition variable until something changes, until `until` when a
+    /// coalescing interval is being waited out, and until `deadline` when the caller gave one,
+    /// whichever comes first. `None` once the deadline has passed.
+    fn hold<'a>(
+        &self,
+        signal: MutexGuard<'a, Signal>,
+        until: Option<Instant>,
+        deadline: Option<Instant>,
+    ) -> Option<MutexGuard<'a, Signal>> {
+        let wake = match (until, deadline) {
+            (Some(until), Some(deadline)) => Some(until.min(deadline)),
+            (until, deadline) => until.or(deadline),
+        };
+        let Some(wake) = wake else {
+            return Some(self.shared.changed.wait(signal).unwrap_or_else(PoisonError::into_inner));
+        };
+        let now = Instant::now();
+        if deadline.is_some_and(|deadline| now >= deadline) {
+            return None;
+        }
+        let rest = wake.saturating_duration_since(now);
+        Some(self.shared.changed.wait_timeout(signal, rest).unwrap_or_else(PoisonError::into_inner).0)
     }
 
     fn resize(&self, size: (u16, u16)) {
@@ -674,6 +732,70 @@ mod tests {
         changes_to_exit(&session);
         assert!(started.elapsed() >= grace, "it outlived the hangup until the grace ran out");
         assert!(session.exit().is_some());
+    }
+
+    /// A bound short enough to keep the test quick, long enough not to matter.
+    const BOUND: Duration = Duration::from_millis(300);
+
+    /// How much longer than the bound a busy machine may take to come back.
+    const SLACK: Duration = Duration::from_secs(5);
+
+    #[test]
+    fn a_bounded_wait_gives_up_on_a_live_but_silent_program_and_leaves_it_usable() {
+        // Live and silent: it waits for a line of input and says nothing until it gets one.
+        let session = sh("printf ready; read line; printf 'got %s' \"$line\"; exit 6").spawn().expect("pty");
+        wait_for(&session, "ready");
+        let watch = session.watch();
+        // Three times over, so giving up is not a one-off and nothing is left behind.
+        for round in 1..=3 {
+            let started = Instant::now();
+            let change = watch.next_change_within(BOUND);
+            let elapsed = started.elapsed();
+            assert_eq!(change, None, "round {round}");
+            assert!(elapsed >= BOUND, "round {round} came back early: {elapsed:?}");
+            assert!(elapsed < BOUND + SLACK, "round {round} overshot the bound: {elapsed:?}");
+        }
+        assert!(session.exit().is_none(), "the program is still running");
+
+        session.write(b"now\n").expect("write");
+        let started = Instant::now();
+        let mut seen = Vec::new();
+        loop {
+            let change = watch.next_change_within(PATIENCE).expect("the program answered");
+            let end = matches!(change, TerminalChange::Exited(_));
+            seen.push(change);
+            if end {
+                break;
+            }
+            assert!(started.elapsed() < PATIENCE, "{seen:?}");
+        }
+        assert!(seen.contains(&TerminalChange::Output), "{seen:?}");
+        assert_eq!(seen.last(), Some(&TerminalChange::Exited(Some(6))), "{seen:?}");
+        assert!(contents(&session).contains("got now"), "{}", contents(&session));
+    }
+
+    #[test]
+    fn a_bounded_wait_returns_output_well_inside_the_bound() {
+        let session = sh("sleep 0.2; printf hello; sleep 100").spawn().expect("pty");
+        let watch = session.watch();
+        let started = Instant::now();
+        assert_eq!(watch.next_change_within(PATIENCE), Some(TerminalChange::Output));
+        assert!(started.elapsed() < PATIENCE / 4, "it waited out the bound: {:?}", started.elapsed());
+        session.kill();
+    }
+
+    #[test]
+    fn a_bounded_wait_still_reports_the_end_of_the_program() {
+        let session = sh("printf bye; exit 9").spawn().expect("pty");
+        let watch = session.watch();
+        let started = Instant::now();
+        loop {
+            match watch.next_change_within(PATIENCE) {
+                Some(TerminalChange::Exited(code)) => break assert_eq!(code, Some(9)),
+                Some(_) => assert!(started.elapsed() < PATIENCE),
+                None => panic!("the end was not reported within the bound"),
+            }
+        }
     }
 
     fn wait_for(session: &TerminalSession, text: &str) {

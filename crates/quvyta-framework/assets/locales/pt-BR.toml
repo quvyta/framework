@@ -240,3 +240,10 @@ pillar             = "Barra de destaque"
 pillar-thick       = "Grossa"
 pillar-thin        = "Fina"
 not-saved          = "Aplicado, mas não salvo: {reason}"
+
+# The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
+[quvyta.setup]
+sample-hint = "Escolha o conjunto cujos ícones aparecem como formas na sua tela."
+install     = "Instalar a fonte"
+defaults    = "Começar com os padrões"
+not-saved   = "Não foi possível salvar suas escolhas: {reason}"

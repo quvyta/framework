@@ -3,7 +3,7 @@
 use qframe::icons::{IconMode, PillarStyle};
 use qframe::keymap::Scope;
 use qframe::prelude::*;
-use qframe::runtime::{ClipboardEvent, Termination};
+use qframe::runtime::{ClipboardEvent, FrameLimit, Termination};
 use qframe::storage::Settings;
 use qframe::widgets::{CodeView, Language, Markdown, PageTransition, ScrollView, TextInput};
 
@@ -402,6 +402,10 @@ impl App for Showcase {
 
     fn terminating(&self, cause: Termination) -> Option<Msg> {
         pages::getting_started::terminating(cause)
+    }
+
+    fn frame_limit(&self) -> FrameLimit {
+        pages::getting_started::frame_limit(&self.pages.getting_started)
     }
 
     fn update(&mut self, msg: Msg) -> Command<Msg> {

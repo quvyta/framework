@@ -11,9 +11,8 @@ root="$(cd "$here/../.." && pwd)"
 
 export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-3}"
-# Release: rasterising a few hundred full frames is slow unoptimised. A frame folder left from an
-# earlier run would keep frames the new list no longer names.
-rm -rf "$root/target/showcase-reel"
+# Release: rasterising a few hundred full frames is slow unoptimised. The recorder empties its
+# frame folder itself, so nothing of an earlier run is left behind.
 (cd "$root" && cargo test --release -p quvyta-framework-showcase --lib \
     tests::reel::reel -- --ignored --exact --nocapture)
 

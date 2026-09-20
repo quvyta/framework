@@ -237,3 +237,10 @@ pillar             = "Pillar"
 pillar-thick       = "Thick"
 pillar-thin        = "Thin"
 not-saved          = "Applied, but not saved: {reason}"
+
+# The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
+[quvyta.setup]
+sample-hint = "Choose the set whose icons read as shapes on your screen."
+install     = "Install the font"
+defaults    = "Start with the defaults"
+not-saved   = "Your choices could not be saved: {reason}"

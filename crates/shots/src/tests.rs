@@ -12,7 +12,14 @@ const ACCENT: Rgb = Rgb::new(0x81, 0x8c, 0xf8);
 const RAISED: Rgb = Rgb::new(0x20, 0x23, 0x36);
 
 fn palette() -> Palette {
-    Palette { ground: CANVAS, text: TEXT, muted: Rgb::new(0x67, 0x6b, 0xa6), title_ground: RAISED }
+    Palette {
+        canvas: CANVAS,
+        accent: ACCENT,
+        ground: CANVAS,
+        text: TEXT,
+        muted: Rgb::new(0x67, 0x6b, 0xa6),
+        title_ground: RAISED,
+    }
 }
 
 fn cell(symbol: &str) -> Cell {
@@ -241,4 +248,108 @@ fn a_square_shot_fills_its_corners_with_the_ground() {
     assert!(rounded.to_svg().contains(" rx=\"10\""), "{}", rounded.to_svg());
     let square = rounded.square().to_svg();
     assert!(square.contains(" rx=\"0\"") && !square.contains("A10 10"), "{square}");
+}
+
+mod card {
+    use qframe::runtime::Harness;
+
+    use crate::{Card, Shot};
+
+    use super::{Scene, screen, shot};
+
+    fn card() -> Card {
+        Card::new(Shot::of(&Harness::new(Scene, 80, 24)))
+            .name("qtools")
+            .promise("Every tool you keep reaching for, in one window.")
+    }
+
+    fn png_size(png: &[u8]) -> (u32, u32) {
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+        let at = |i: usize| u32::from_be_bytes([png[i], png[i + 1], png[i + 2], png[i + 3]]);
+        (at(16), at(20))
+    }
+
+    #[test]
+    fn the_card_is_exactly_the_size_it_was_asked_for() {
+        assert_eq!(png_size(&card().to_png().expect("renders")), (1280, 640));
+        assert_eq!(png_size(&card().size(1200, 600).to_png().expect("renders")), (1200, 600));
+    }
+
+    #[test]
+    fn the_same_card_twice_gives_the_same_bytes() {
+        assert_eq!(card().to_svg().expect("draws"), card().to_svg().expect("draws"));
+        assert_eq!(card().to_png().expect("renders"), card().to_png().expect("renders"));
+    }
+
+    #[test]
+    fn the_ground_is_the_themes_canvas_and_nothing_is_transparent() {
+        let svg = card().to_svg().expect("draws");
+        let canvas = Shot::of(&Harness::new(Scene, 80, 24)).screen.palette.canvas;
+        assert!(svg.contains(&format!("<rect width=\"640\" height=\"320\" fill=\"{canvas}\"/>")), "{svg}");
+        // A rounded corner would let the card's ground show through the screenshot's own.
+        assert!(!svg.contains("rx=\"10\""), "the screenshot has square corners:\n{svg}");
+        for banned in ["opacity", "<image", "<script", "<text", "href=\"http"] {
+            assert!(!svg.contains(banned), "`{banned}` in:\n{svg}");
+        }
+    }
+
+    #[test]
+    fn the_missing_list_holds_the_glyphs_of_the_text_and_of_the_screen() {
+        let missing = card().name("q😀").promise("done 🚀").missing();
+        assert_eq!(missing, vec!['😀', '🚀']);
+        // Turkish and Chinese are drawn, not reported, so a card in either is never blank.
+        assert!(card().name("qodak").promise("Her aracın tek pencerede; işini görür.").missing().is_empty());
+        assert!(card().name("qtools").promise("每一个工具，都在一个窗口里。").missing().is_empty());
+    }
+
+    #[test]
+    fn a_long_sentence_wraps_instead_of_overflowing() {
+        let long = "Every tool you keep reaching for, in one window, with the same keys everywhere \
+                    and nothing to set up first.";
+        let svg = card().promise(long).to_svg().expect("wraps");
+        // One group per drawn line: the name and the lines of the sentence.
+        let lines = svg.matches("<g fill=").count() - 1;
+        assert!(lines >= 5, "the sentence wrapped into {lines} lines:\n{svg}");
+        // Every line starts inside the card and the last one ends above its bottom.
+        for line in svg.lines().filter(|line| line.contains("scale(1)")) {
+            let y: f32 =
+                line.split("translate(48 ").nth(1).and_then(|rest| rest.split(')').next()).unwrap().parse().unwrap();
+            assert!((40.0..=280.0 - 20.0).contains(&y), "a line sits at {y}:\n{svg}");
+        }
+    }
+
+    #[test]
+    fn text_with_no_room_left_says_what_did_not_fit() {
+        let word = "Uncopyrightable".repeat(4);
+        let error = card().promise(&word).to_svg().expect_err("no room");
+        assert!(error.to_string().contains(&word) && error.to_string().contains("text column"), "{error}");
+        let error = card().name("quvyta-framework-showcase").to_svg().expect_err("no room");
+        assert!(error.to_string().contains("shorten the name"), "{error}");
+        let flood = "one more word ".repeat(20);
+        let error = card().promise(&flood).to_svg().expect_err("no room");
+        assert!(error.to_string().contains("shorten the sentence"), "{error}");
+        let odd = card().size(1281, 640).to_svg().expect_err("odd size");
+        assert!(odd.to_string().contains("even"), "{odd}");
+    }
+
+    #[test]
+    fn the_screenshot_keeps_its_shape_and_stays_inside_the_card() {
+        let svg = card().to_svg().expect("draws");
+        let placed = svg.lines().find(|line| line.starts_with("<g transform=")).expect("the shot is placed");
+        let scale: f32 =
+            placed.split("scale(").nth(1).and_then(|rest| rest.split(')').next()).unwrap().parse().unwrap();
+        let body = crate::svg::body(&Shot::of(&Harness::new(Scene, 80, 24)).square());
+        // The screenshot is held against the right edge and keeps the card's own margins.
+        let x: f32 =
+            placed.split("translate(").nth(1).and_then(|rest| rest.split(' ').next()).unwrap().parse().unwrap();
+        assert!((x + body.width * scale - (640.0 - 48.0)).abs() < 0.01, "{placed}");
+        assert!(body.height * scale <= 240.0, "{placed}");
+    }
+
+    #[test]
+    fn a_card_without_a_name_or_a_sentence_is_still_a_card() {
+        let bare = Card::new(shot(screen(4, vec![])));
+        assert_eq!(png_size(&bare.to_png().expect("renders")), (1280, 640));
+        assert!(!bare.to_svg().expect("draws").contains("<g fill="), "nothing but the screenshot is drawn");
+    }
 }

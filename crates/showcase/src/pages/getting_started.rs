@@ -3,7 +3,8 @@
 //! focus, the size in `update`, a quit that asks first and an end the system asks for.
 
 use qframe::prelude::*;
-use qframe::runtime::Termination;
+use qframe::runtime::{FrameLimit, Termination};
+use qframe::widgets::Segmented;
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -21,6 +22,8 @@ pub struct State {
     size: Size,
     /// Whether quitting asks first.
     ask_before_quit: bool,
+    /// The pace the showcase draws at, as the playground set it.
+    pace: Pace,
 }
 
 /// Everything that can happen in the demo. The folder screen's messages ride inside `Folder`.
@@ -34,7 +37,81 @@ pub enum Msg {
     AskBeforeQuit(bool),
     QuitAsked,
     Terminating(Termination),
+    Pace(Pace),
     Quit,
+}
+// endregion
+
+// region: pace
+/// The frame limits the playground offers. `Slow` is far below anything a screen needs, so the
+/// held-back frames can be seen; typing stays instant at any of them.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Pace {
+    /// 60 frames a second at this machine, 20 over a remote connection.
+    #[default]
+    Family,
+    /// Four frames a second on any connection.
+    Slow,
+    /// Every frame that is wanted.
+    Unlimited,
+}
+
+impl Pace {
+    /// In the order the playground shows them.
+    const ALL: [Self; 3] = [Self::Family, Self::Slow, Self::Unlimited];
+
+    /// The limit itself.
+    fn limit(self) -> FrameLimit {
+        match self {
+            Self::Family => FrameLimit::default(),
+            Self::Slow => FrameLimit::per_second(4),
+            Self::Unlimited => FrameLimit::none(),
+        }
+    }
+
+    /// The stem of its label key.
+    fn key(self) -> &'static str {
+        match self {
+            Self::Family => "family",
+            Self::Slow => "slow",
+            Self::Unlimited => "unlimited",
+        }
+    }
+}
+
+/// Asked before every frame: how many frames a second the runtime may draw. The showcase answers
+/// with the playground's choice, so the pace changes while it runs.
+pub fn frame_limit(state: &State) -> FrameLimit {
+    state.pace.limit()
+}
+
+/// What the limit means here: the connection the environment detected and the number of frames a
+/// second it allows on it.
+fn pace(state: &State, ui: &mut View<'_, AppMsg>) {
+    let remote = ui.env().remote();
+    let frames = state.pace.limit().frames_per_second(remote);
+    let pace = state.pace;
+    ui.add_with(Panel::new().title(t!("getting-started.pace")).gap(0), |ui| {
+        setting(ui, t!("getting-started.connection"), |ui| {
+            let key = if remote { "getting-started.connection-remote" } else { "getting-started.connection-local" };
+            ui.add(Text::new(t!(key)).role("title").no_wrap()).id("connection");
+        });
+        setting(ui, t!("getting-started.frames"), |ui| {
+            let text = match frames {
+                Some(frames) => t!("getting-started.frames-value", n = frames),
+                None => t!("getting-started.frames-none"),
+            };
+            ui.add(Text::new(text).role("title").no_wrap()).id("frames");
+        });
+        setting(ui, t!("getting-started.limit"), |ui| {
+            let names = Pace::ALL.map(|pace| t!(&format!("getting-started.pace-{}", pace.key())));
+            let chosen = Pace::ALL.iter().position(|option| *option == pace).unwrap_or(0);
+            ui.add(Segmented::new(names).selected(chosen).on_select(|i| send(Msg::Pace(Pace::ALL[i])))).id("pace");
+        });
+        ui.add(Text::new(t!("getting-started.pace-hint")).role("faint"));
+        ui.add(Text::new(t!("getting-started.pace-input-hint")).role("faint"));
+    })
+    .fill_width();
 }
 // endregion
 
@@ -136,6 +213,11 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             log.push(PAGE, "App::resized", format!("{} × {}", size.width, size.height));
             return Command::none();
         }
+        Msg::Pace(pace) => {
+            state.pace = pace;
+            log.push(PAGE, "App::frame_limit", format!("{pace:?}"));
+            return Command::none();
+        }
         Msg::AskBeforeQuit(on) => {
             state.ask_before_quit = on;
             log.push(PAGE, "Playground", format!("ask before quitting = {on}"));
@@ -211,6 +293,8 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         ui.add(Text::new(t!("getting-started.terminating-hint")).role("faint"));
     })
     .fill_width();
+
+    pace(state, ui);
 }
 // endregion
 
@@ -221,7 +305,8 @@ mod tests {
 
     #[test]
     fn counts_and_runs_background_work() {
-        let mut h = showcase_on(PAGE);
+        // The event log sits below the pace panel, past the rows of the default test terminal.
+        let mut h = crate::tests::showcase_tall(crate::app::Showcase::new(), PAGE, 60);
         h.click_text("+").click_text("+").click_text("−");
         assert_eq!(h.app().pages.getting_started.count, 1);
         h.click_text("Count entries");
@@ -277,6 +362,25 @@ mod tests {
         assert!(h.screen().contains("App::terminating"), "the event log shows it: {}", h.screen());
         h.terminate(Termination::Terminate);
         assert!(h.quit_requested(), "a second signal is not swallowed");
+    }
+
+    #[test]
+    fn the_playground_changes_the_pace_the_showcase_itself_draws_at() {
+        use qframe::runtime::App as _;
+
+        let mut h = showcase_on(PAGE);
+        assert_eq!(h.app().frame_limit().frames_per_second(false), Some(60), "the family default");
+        assert_eq!(h.app().frame_limit().frames_per_second(true), Some(20), "over a remote connection");
+        assert!(h.screen().contains("At this machine"), "the test environment is never remote: {}", h.screen());
+        assert!(h.screen().contains("60 a second"), "{}", h.screen());
+
+        h.click_text("Four a second");
+        assert_eq!(h.app().frame_limit().frames_per_second(false), Some(4));
+        assert!(h.screen().contains("4 a second"), "{}", h.screen());
+
+        h.click_text("No limit");
+        assert_eq!(h.app().frame_limit().frames_per_second(false), None);
+        assert!(h.screen().contains("Every frame that is wanted"), "{}", h.screen());
     }
 
     #[test]

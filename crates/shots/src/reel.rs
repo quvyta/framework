@@ -10,6 +10,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use qframe::event::{Event, MouseButton, MouseEvent, MouseKind};
+use qframe::keymap::Modifiers;
 use qframe::runtime::{App, Harness};
 
 use crate::Shot;
@@ -46,8 +48,10 @@ type Check = Box<dyn FnMut(&str)>;
 /// `0000.png`, `0001.png` and so on in the folder given to [`Reel::new`].
 ///
 /// A mouse pointer is drawn once [`Reel::pointer_at`] placed one; [`Reel::glide`] and the clicks
-/// move it cell by cell. For steps the recorder has no word for, [`Reel::harness_mut`] reaches
-/// the harness, and [`Reel::hold`] then records what follows.
+/// move it cell by cell, with [`Reel::right_click`] and [`Reel::click_with`] for the presses a
+/// plain click cannot make. For steps the recorder has no word for, [`Reel::harness_mut`] reaches
+/// the harness, and [`Reel::hold`] then records what follows. An application with a clock of its
+/// own moves it along inside [`Reel::hold_with`]; [`Reel::skip`] lets time pass off camera.
 ///
 /// ```no_run
 /// # use qframe::prelude::*;
@@ -101,14 +105,25 @@ impl<A: App> fmt::Debug for Reel<A> {
 }
 
 impl<A: App> Reel<A> {
-    /// A recorder of `harness` that writes its frames into `dir`, made on the first frame.
+    /// A recorder of `harness` that writes its frames into `dir`, emptied if it is already there
+    /// so no frame of an earlier run is left beside the new ones.
     ///
     /// Nothing is drawn yet; set the harness up (size, theme, the first screen) before or
     /// through [`Reel::harness_mut`].
+    ///
+    /// # Panics
+    ///
+    /// Panics, saying which folder and why, when `dir` cannot be emptied. Give it a folder of
+    /// its own, under `target/` by habit: everything in it is deleted.
     pub fn new(harness: Harness<A>, dir: impl Into<PathBuf>) -> Self {
+        let dir = dir.into();
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)
+                .unwrap_or_else(|error| panic!("the frame folder {} cannot be emptied: {error}", dir.display()));
+        }
         Self {
             harness,
-            dir: dir.into(),
+            dir,
             title: None,
             pointer: None,
             check: None,
@@ -196,13 +211,40 @@ impl<A: App> Reel<A> {
 
     /// Lets `duration` pass on the fake clock, a frame every 50 ms, so animations play.
     pub fn hold(&mut self, duration: Duration) -> &mut Self {
+        self.hold_with(duration, |_, _| {})
+    }
+
+    /// [`Reel::hold`] for an application that keeps a clock of its own: `tick` is called with the
+    /// harness and the 50 ms just passed, right after the fake clock moved and before the frame
+    /// is drawn, so the application's own time moves along with the recording's.
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use qframe::prelude::*;
+    /// # enum Msg { Tick(Duration) }
+    /// # fn example<A: App<Msg = Msg>>(reel: &mut qshots::Reel<A>) {
+    /// reel.hold_with(Duration::from_secs(3), |harness, step| {
+    ///     harness.send(Msg::Tick(step));
+    /// });
+    /// # }
+    /// ```
+    pub fn hold_with(&mut self, duration: Duration, mut tick: impl FnMut(&mut Harness<A>, Duration)) -> &mut Self {
         let mut left = duration;
         while !left.is_zero() {
             let step = left.min(STEP);
             self.harness.advance(step);
+            tick(&mut self.harness, step);
             self.capture(step);
             left -= step;
         }
+        self
+    }
+
+    /// Lets `duration` pass on the fake clock off camera: animations settle and timers fire, but
+    /// no frame is drawn and the recording does not grow, so the picture cuts straight to what
+    /// follows.
+    pub fn skip(&mut self, duration: Duration) -> &mut Self {
+        self.harness.advance(duration);
         self
     }
 
@@ -253,10 +295,37 @@ impl<A: App> Reel<A> {
 
     /// Glides to the cell `at`, settles for a moment and clicks it with the left button.
     pub fn click(&mut self, at: (i32, i32)) -> &mut Self {
+        self.click_with(MouseButton::Left, Modifiers::default(), at)
+    }
+
+    /// [`Reel::click`] with another button and held modifiers: a `ctrl` click that adds to a
+    /// selection, a middle click that closes a tab. The pointer glides there and settles the
+    /// same way, so only the press differs.
+    ///
+    /// ```no_run
+    /// # use qframe::event::MouseButton;
+    /// # use qframe::keymap::Modifiers;
+    /// # use qframe::prelude::*;
+    /// # fn example<A: App>(reel: &mut qshots::Reel<A>) {
+    /// let ctrl = Modifiers { ctrl: true, ..Modifiers::default() };
+    /// reel.click_with(MouseButton::Left, ctrl, (12, 7));
+    /// # }
+    /// ```
+    pub fn click_with(&mut self, button: MouseButton, mods: Modifiers, at: (i32, i32)) -> &mut Self {
         self.glide(at);
         self.hold(SETTLE);
-        self.harness.click(at.0, at.1);
+        // The press and the release are told one after the other, each drawn, as the harness's
+        // own click does: a widget hears the release with what the press changed.
+        for kind in [MouseKind::Down(button), MouseKind::Up(button)] {
+            self.harness.events(&[Event::Mouse(MouseEvent { kind, x: at.0, y: at.1, mods })]);
+        }
         self
+    }
+
+    /// Glides to the cell `at`, settles for a moment and clicks it with the right button, the
+    /// way a context menu is asked for.
+    pub fn right_click(&mut self, at: (i32, i32)) -> &mut Self {
+        self.click_with(MouseButton::Right, Modifiers::default(), at)
     }
 
     /// Clicks the first occurrence of `text` on screen, resting a cell inside the word, which
@@ -269,6 +338,25 @@ impl<A: App> Reel<A> {
         self.click_on_below(text, 0)
     }
 
+    /// [`Reel::click_on`] with another button and held modifiers, as [`Reel::click_with`] does.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `text` is not on screen.
+    pub fn click_on_with(&mut self, button: MouseButton, mods: Modifiers, text: &str) -> &mut Self {
+        let at = self.inside(text, 0);
+        self.click_with(button, mods, at)
+    }
+
+    /// Right-clicks the first occurrence of `text` on screen, as [`Reel::click_on`] does.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `text` is not on screen.
+    pub fn right_click_on(&mut self, text: &str) -> &mut Self {
+        self.click_on_with(MouseButton::Right, Modifiers::default(), text)
+    }
+
     /// Clicks the first occurrence of `text` at or below row `row`, as [`Reel::click_on`] does;
     /// for a word that also shows higher up, such as a theme's name in a top bar and in the list
     /// it opens.
@@ -277,11 +365,22 @@ impl<A: App> Reel<A> {
     ///
     /// Panics when `text` is not on screen at or below `row`.
     pub fn click_on_below(&mut self, text: &str, row: i32) -> &mut Self {
+        let at = self.inside(text, row);
+        self.click(at)
+    }
+
+    /// The cell a click on `text` at or below row `row` lands on: a cell inside the word, which
+    /// reads better than touching its first letter.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `text` is not on screen at or below `row`.
+    fn inside(&self, text: &str, row: i32) -> (i32, i32) {
         let found = self.find_below(text, row);
         let (x, y) =
             found.unwrap_or_else(|| panic!("`{text}` is not on screen below row {row}:\n{}", self.harness.screen()));
         let inside = if text.chars().nth(1).is_some() { 1 } else { 0 };
-        self.click((x + inside, y))
+        (x + inside, y)
     }
 
     /// The cell of the first occurrence of `text` at or below row `row`, or `None`.
@@ -382,6 +481,9 @@ impl Recording {
     /// stored per frame, which keeps it small; the MP4 is x264 at CRF 23, `yuv420p` so every
     /// player shows it, with its index at the front so a page can start playing it early.
     ///
+    /// Both pictures last exactly as long as [`Recording::total`], so a looping GIF returns to
+    /// its first frame the moment the story ends.
+    ///
     /// # Errors
     ///
     /// Returns an error naming the cause when ffmpeg is not on the `PATH`, and one carrying
@@ -398,7 +500,7 @@ impl Recording {
         mp4: impl AsRef<Path>,
         width: u32,
     ) -> io::Result<()> {
-        encode::run(program, &self.list, gif.as_ref(), mp4.as_ref(), width, STEP)
+        encode::run(program, &self.list, gif.as_ref(), mp4.as_ref(), width, STEP, self.total)
     }
 }
 

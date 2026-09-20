@@ -14,6 +14,7 @@ mod engine;
 mod focus_action_rules;
 #[cfg(unix)]
 mod foreground;
+mod frame_limit;
 mod handoff;
 mod harness;
 #[cfg(test)]
@@ -49,6 +50,7 @@ pub use clipboard::ClipboardEvent;
 pub use command::Command;
 pub use confirm::Confirm;
 pub use detached::{DetachedHandoff, DetachedOutcome};
+pub use frame_limit::FrameLimit;
 pub use handoff::{Handoff, HandoffOutcome, HandoffRequest};
 pub use harness::{Harness, html_page};
 pub use live_child::{ChildLine, LiveChild, TestChild};

@@ -65,6 +65,7 @@ pub struct Env {
     forced_reduced_motion: Option<bool>,
     pillar: Option<PillarStyle>,
     slide: Option<bool>,
+    remote: bool,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -91,12 +92,13 @@ impl Env {
             forced_reduced_motion: None,
             pillar: None,
             slide: None,
+            remote: false,
             diagnostics: Vec::new(),
         }
     }
 
-    /// Loads the application's files over the built-ins and detects colour depth, glyphs and
-    /// language from the process environment.
+    /// Loads the application's files over the built-ins and detects colour depth, glyphs,
+    /// language and the kind of connection from the process environment.
     ///
     /// # Errors
     ///
@@ -152,6 +154,7 @@ impl Env {
         env.depth = ColorDepth::detect(lookup);
         env.force_reduced_motion(forced_reduced_motion(lookup));
         env.icon_mode = IconMode::Auto;
+        env.remote = detect_remote(lookup);
         env.glyph_mode = detect_glyph_mode(IconMode::Auto, lookup, &default_font_dirs(lookup));
         env.rebuild_icons();
         Ok(env)
@@ -216,6 +219,22 @@ impl Env {
     #[must_use]
     pub fn depth(&self) -> ColorDepth {
         self.depth
+    }
+
+    /// Whether the terminal is at the other end of a remote connection, so every drawn frame
+    /// travels over a network.
+    ///
+    /// True when `SSH_CONNECTION` or `SSH_TTY` is set and not empty, which is how an SSH server
+    /// marks the session it started; an empty value counts as unset, the way an empty variable
+    /// left over from another program does. Detected once by [`Env::load`], so it cannot change
+    /// under a running application; [`Env::builtin`], the environment of tests, is never remote.
+    ///
+    /// The runtime already uses it for the [`FrameLimit`](crate::runtime::FrameLimit) an
+    /// application does not set. An application reads it to spend less on a slow link: fewer
+    /// animations, smaller pictures, a plainer screen.
+    #[must_use]
+    pub fn remote(&self) -> bool {
+        self.remote
     }
 
     /// Draws as a terminal of `depth` would, instead of the depth that was detected. Lets a test
@@ -386,6 +405,12 @@ impl Env {
 
 /// What `QUVYTA_REDUCED_MOTION` forces: nothing when unset or empty, motion for `0`, reduced
 /// motion for any other value.
+/// Whether the variables an SSH server sets mark this session as remote: either of them set and
+/// not empty. `lookup` reads the process environment in an application and a table in tests.
+fn detect_remote(lookup: impl Fn(&str) -> Option<String>) -> bool {
+    ["SSH_CONNECTION", "SSH_TTY"].iter().any(|name| lookup(name).is_some_and(|value| !value.is_empty()))
+}
+
 fn forced_reduced_motion(lookup: impl Fn(&str) -> Option<String>) -> Option<bool> {
     lookup("QUVYTA_REDUCED_MOTION").filter(|value| !value.is_empty()).map(|value| value != "0")
 }
@@ -427,6 +452,37 @@ fn load_keymap(file: &Path, diagnostics: &mut Vec<Diagnostic>) -> io::Result<Key
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every combination of the two variables an SSH server sets, with empty values among them.
+    /// The process environment itself is never changed: `detect_remote` is given a table, which
+    /// is what `Env::load` gives it in an application too.
+    #[test]
+    fn a_connection_is_remote_when_either_ssh_variable_carries_a_value() {
+        let cases = [
+            (None, None, false),
+            (Some(""), None, false),
+            (None, Some(""), false),
+            (Some(""), Some(""), false),
+            (Some("10.0.0.2 51150 10.0.0.9 22"), None, true),
+            (None, Some("/dev/pts/3"), true),
+            (Some("10.0.0.2 51150 10.0.0.9 22"), Some("/dev/pts/3"), true),
+            (Some(""), Some("/dev/pts/3"), true),
+            (Some("10.0.0.2 51150 10.0.0.9 22"), Some(""), true),
+        ];
+        for (connection, tty, remote) in cases {
+            let lookup = |name: &str| match name {
+                "SSH_CONNECTION" => connection.map(str::to_owned),
+                "SSH_TTY" => tty.map(str::to_owned),
+                _ => None,
+            };
+            assert_eq!(detect_remote(lookup), remote, "SSH_CONNECTION={connection:?} SSH_TTY={tty:?}");
+        }
+    }
+
+    #[test]
+    fn the_environment_of_tests_is_never_remote() {
+        assert!(!Env::builtin().remote(), "a test must draw the same wherever it runs");
+    }
 
     #[test]
     fn user_choices_for_pillar_and_slide_win_over_the_theme_and_survive_a_theme_switch() {

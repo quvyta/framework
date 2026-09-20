@@ -11,6 +11,21 @@
 - `fn before_quit(&self) -> Option<Msg>` — asked before the runtime quits for the user (the quit binding, the quit action from the command palette); a message keeps the application running and is delivered instead. `Command::quit()` is never asked about. Optional.
 - `fn terminating(&self, Termination) -> Option<Msg>` — hears that the system is ending the application: `Termination::Terminate` for a `SIGTERM` or an outside `SIGINT`, `Termination::Hangup` for a `SIGHUP`. `None` quits at once; a message keeps it running to save and quit. By default a terminate is answered by `before_quit` and a hangup quits. Optional.
 
+- `fn frame_limit(&self) -> FrameLimit` — how many frames a second the runtime may draw; asked before every frame, so it may follow the application's own state. Optional.
+
+## FrameLimit
+
+- `FrameLimit::default()` — 60 frames a second at the machine, 20 over a remote connection.
+- `FrameLimit::per_second(n)` — the same number on every connection; `n` of zero is no limit.
+- `.remote(n)` — a different number over a remote connection, leaving the local one as it is.
+- `FrameLimit::none()` — every frame that is wanted is drawn.
+- `limit.frames_per_second(remote)` — the number in force on the connection in hand, or `None` for no limit.
+- A frame that answers input — a key, a click, the pointer, a paste — is never held back, and a held frame is drawn as soon as the gap is over. Only frames the application's own work causes are merged.
+
+## Pace and connection
+
+- `env.remote()` — whether the terminal is at the other end of a remote connection: `SSH_CONNECTION` or `SSH_TTY` set and not empty. Detected once by `Env::load`; `Env::builtin`, the environment of tests, is never remote.
+
 ## Command
 
 - `Command::none()` — nothing to do.

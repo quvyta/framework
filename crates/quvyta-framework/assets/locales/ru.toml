@@ -239,3 +239,10 @@ pillar             = "Полоса выделения"
 pillar-thick       = "Толстая"
 pillar-thin        = "Тонкая"
 not-saved          = "Применено, но не сохранено: {reason}"
+
+# The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
+[quvyta.setup]
+sample-hint = "Выберите набор, значки которого выглядят как фигуры на вашем экране."
+install     = "Установить шрифт"
+defaults    = "Начать со значений по умолчанию"
+not-saved   = "Не удалось сохранить ваш выбор: {reason}"

@@ -2,6 +2,7 @@
 
 use super::clipboard::ClipboardEvent;
 use super::command::Command;
+use super::frame_limit::FrameLimit;
 use super::termination::Termination;
 use crate::geometry::Size;
 use crate::widget::View;
@@ -253,6 +254,35 @@ pub trait App: 'static {
             Termination::Terminate => self.before_quit(),
             Termination::Hangup => None,
         }
+    }
+
+    /// How many frames a second the runtime draws at most; see [`FrameLimit`].
+    ///
+    /// Asked before every frame, so an application may answer from its own state, such as a
+    /// setting the user changed. The default draws 60 frames a second locally and 20 over a
+    /// remote connection. Only frames the application's own work causes are merged: a frame
+    /// that answers input is never held back.
+    ///
+    /// ```
+    /// # use qframe::prelude::*;
+    /// # use qframe::runtime::FrameLimit;
+    /// # struct Desktop;
+    /// # impl App for Desktop {
+    /// #     type Msg = ();
+    /// #     fn update(&mut self, (): ()) -> Command<()> {
+    /// #         Command::none()
+    /// #     }
+    /// // A desktop of terminal windows spends a slow link on ten frames a second.
+    /// fn frame_limit(&self) -> FrameLimit {
+    ///     FrameLimit::per_second(60).remote(10)
+    /// }
+    /// #     fn view(&self, ui: &mut View<'_, ()>) {
+    /// #         ui.add(Text::new("windows"));
+    /// #     }
+    /// # }
+    /// ```
+    fn frame_limit(&self) -> FrameLimit {
+        FrameLimit::default()
     }
 
     /// Hears about the clipboard: text a widget or a mouse selection copied, and pasted text

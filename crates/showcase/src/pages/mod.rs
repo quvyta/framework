@@ -61,6 +61,7 @@ pub mod scrollbar_styles;
 pub mod segmented;
 pub mod select;
 pub mod settings_list;
+pub mod setup_wizard;
 pub mod shared_preferences;
 pub mod shimmer_text;
 pub mod side_panel;
@@ -223,6 +224,7 @@ pub const PAGES: &[PageContent] = &[
     page!("nerd-font", "nerd_font"),
     page!("storage", "storage"),
     page!("shared-preferences", "shared_preferences"),
+    page!("setup-wizard", "setup_wizard"),
     page!("folder-watch", "folder_watch"),
     page!("date-time", "date_time"),
     page!("document", "document"),
@@ -317,6 +319,7 @@ pub struct Pages {
     pub storage: storage::State,
     pub folder_watch: folder_watch::State,
     pub shared_preferences: shared_preferences::State,
+    pub setup_wizard: setup_wizard::State,
     pub date_time: date_time::State,
     pub document: document::State,
     pub page_transitions: page_transitions::State,
@@ -404,6 +407,7 @@ pub enum PageMsg {
     Storage(storage::Msg),
     FolderWatch(folder_watch::Msg),
     SharedPreferences(shared_preferences::Msg),
+    SetupWizard(setup_wizard::Msg),
     DateTime(date_time::Msg),
     Document(document::Msg),
     PageTransitions(page_transitions::Msg),
@@ -497,6 +501,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::Storage(m) => storage::update(&mut pages.storage, m, log),
         PageMsg::FolderWatch(m) => folder_watch::update(&mut pages.folder_watch, m, log),
         PageMsg::SharedPreferences(m) => shared_preferences::update(&mut pages.shared_preferences, m, log),
+        PageMsg::SetupWizard(m) => setup_wizard::update(&mut pages.setup_wizard, m, log),
         PageMsg::DateTime(m) => date_time::update(&mut pages.date_time, m, log),
         PageMsg::Document(m) => document::update(&mut pages.document, m, log),
         PageMsg::PageTransitions(m) => {
@@ -590,6 +595,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "storage" => storage::view(&pages.storage, ui),
         "folder-watch" => folder_watch::view(&pages.folder_watch, ui),
         "shared-preferences" => shared_preferences::view(&pages.shared_preferences, ui),
+        "setup-wizard" => setup_wizard::view(&pages.setup_wizard, ui),
         "date-time" => date_time::view(&pages.date_time, ui),
         "document" => document::view(&pages.document, ui),
         "page-transitions" => page_transitions::view(&pages.page_transitions, ui),

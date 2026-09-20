@@ -21,6 +21,15 @@ pub(crate) struct Drawing {
     pub missing: BTreeSet<char>,
 }
 
+/// A picture's shapes without the `<svg>` element around them, and the size they need. A larger
+/// picture, such as a card, places them with a transform instead of drawing the screen again.
+pub(crate) struct Body {
+    pub content: String,
+    pub width: f32,
+    pub height: f32,
+    pub missing: BTreeSet<char>,
+}
+
 /// Paths grouped by fill colour, in the order colours first appear, so the output is stable.
 #[derive(Default)]
 struct Fills {
@@ -171,9 +180,23 @@ const POINTER: &str = "M0 0V15L3.6 11.6L6.1 17.2L8.4 16.2L5.9 10.7H10.8Z";
 /// and above it, as the hot spot of a pointer resting on a character looks.
 const POINTER_TIP: (f32, f32) = (0.35, 0.3);
 
-/// Draws `shot`: its screen, with a title strip when it has a title, a mouse pointer on the cell
-/// it names and square corners when asked.
+/// Draws `shot` as a standalone picture.
 pub(crate) fn draw(shot: &Shot) -> Drawing {
+    let body = body(shot);
+    let (w, h) = (num(body.width), num(body.height));
+    let mut svg = String::new();
+    let _ = writeln!(
+        svg,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\">"
+    );
+    svg.push_str(&body.content);
+    svg.push_str("</svg>\n");
+    Drawing { svg, missing: body.missing }
+}
+
+/// Draws `shot`'s shapes: its screen, with a title strip when it has a title, a mouse pointer on
+/// the cell it names and square corners when asked.
+pub(crate) fn body(shot: &Shot) -> Body {
     let (screen, title, pointer) = (&shot.screen, shot.title.as_deref(), shot.pointer);
     let palette = screen.palette;
     let top = if title.is_some() { TITLE_H } else { 0.0 };
@@ -236,10 +259,6 @@ pub(crate) fn draw(shot: &Shot) -> Drawing {
 
     let mut svg = String::new();
     let (w, h) = (num(width), num(height));
-    let _ = writeln!(
-        svg,
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\">"
-    );
     if let Some(title) = title {
         let cells: f32 = title.chars().map(|c| f32::from(qframe::text::width(&c.to_string()))).sum();
         let mut x = ((width - cells * CELL_W) / 2.0).round();
@@ -292,6 +311,5 @@ pub(crate) fn draw(shot: &Shot) -> Drawing {
             palette.ground,
         );
     }
-    svg.push_str("</svg>\n");
-    Drawing { svg, missing: glyphs.missing }
+    Body { content: svg, width, height, missing: glyphs.missing }
 }

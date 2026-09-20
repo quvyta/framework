@@ -226,3 +226,10 @@ pillar             = "強調バー"
 pillar-thick       = "太い"
 pillar-thin        = "細い"
 not-saved          = "適用しましたが、保存できませんでした: {reason}"
+
+# The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
+[quvyta.setup]
+sample-hint = "画面上で図形として表示されるアイコンのセットを選んでください。"
+install     = "フォントをインストール"
+defaults    = "既定の設定で始める"
+not-saved   = "選択内容を保存できませんでした: {reason}"

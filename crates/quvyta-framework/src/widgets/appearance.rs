@@ -99,6 +99,8 @@ pub struct Appearance {
     app: String,
     folder: Option<PathBuf>,
     preferences: Preferences,
+    /// Whether a change is written to the files; a setup wizard holds them back.
+    saving: bool,
     failure: Option<(Row, String)>,
 }
 
@@ -107,7 +109,7 @@ impl Appearance {
     /// [`Family::preferences`] resolved for it. Changes are saved in the family's folder.
     #[must_use]
     pub fn new(family: Family, app: impl Into<String>, preferences: Preferences) -> Self {
-        Self { family, app: app.into(), folder: None, preferences, failure: None }
+        Self { family, app: app.into(), folder: None, preferences, saving: true, failure: None }
     }
 
     /// Saves changes in `folder` as the family's folder instead of this platform's, for a test
@@ -118,24 +120,40 @@ impl Appearance {
         self
     }
 
+    /// Applies every change without writing a file: the [shared preferences](Self::preferences)
+    /// and the `settings` given to [`update`](Self::update) take it, the screen shows it, and the
+    /// files are left to whoever writes them later.
+    ///
+    /// For the first step of a [setup wizard](super::Setup), which writes both files only when the
+    /// wizard finishes, so a wizard closed half-way leaves nothing behind.
+    #[must_use]
+    pub fn without_saving(mut self) -> Self {
+        self.saving = false;
+        self
+    }
+
     /// The shared preferences as they stand after the changes made so far.
     #[must_use]
     pub fn preferences(&self) -> &Preferences {
         &self.preferences
     }
 
-    /// Adds an "Appearance" heading and the [rows](Self::rows) to `list`.
+    /// Adds an "Appearance" heading, the three [shared rows](Self::rows) and the application's own
+    /// rows, reduced motion and the pillar, to `list`.
     pub fn section<Msg: Clone + 'static>(
         &self,
         list: &mut SettingsRows<'_, Msg>,
         message: impl Fn(AppearanceChange) -> Msg + Clone + 'static,
     ) {
         list.heading(crate::t!("quvyta.appearance.heading"));
-        self.rows(list, message);
+        self.rows(list, message.clone());
+        self.own_rows(list, message);
     }
 
-    /// Adds the rows to `list`, without a heading, for a page that names the section itself,
-    /// such as the first step of a setup wizard. Every change is sent as `message`.
+    /// Adds the three rows the family shares, language, theme and icons, each with its box, to
+    /// `list`, without a heading and without the application's own rows: what the first step of a
+    /// [setup wizard](super::Setup) asks, on a page that names the section itself. Every change is
+    /// sent as `message`.
     pub fn rows<Msg: Clone + 'static>(
         &self,
         list: &mut SettingsRows<'_, Msg>,
@@ -147,8 +165,6 @@ impl Appearance {
         let themes = env.themes();
         let theme = env.theme().id().to_owned();
         let icons = env.icon_mode();
-        let (reduced, forced) = (env.reduced_motion(), env.reduced_motion_forced());
-        let pillar = env.pillar_style().unwrap_or(PillarStyle::Thick);
 
         let codes: Vec<String> = languages.iter().map(|(code, _)| code.clone()).collect();
         let chosen = codes.iter().position(|code| *code == active);
@@ -184,6 +200,17 @@ impl Appearance {
             ui.add(select).width(Length::Cells(CHOICE_WIDTH));
         });
         self.everywhere(list, Shared::Icons, &message);
+    }
+
+    /// Adds the rows that are the application's own, reduced motion and the pillar, to `list`.
+    fn own_rows<Msg: Clone + 'static>(
+        &self,
+        list: &mut SettingsRows<'_, Msg>,
+        message: impl Fn(AppearanceChange) -> Msg + Clone + 'static,
+    ) {
+        let env = list.env();
+        let (reduced, forced) = (env.reduced_motion(), env.reduced_motion_forced());
+        let pillar = env.pillar_style().unwrap_or(PillarStyle::Thick);
 
         let note = match (forced, reduced) {
             (true, true) => crate::t!("quvyta.appearance.forced-on"),
@@ -294,6 +321,9 @@ impl Appearance {
         settings.set(key.key(), written);
         let source = if scope == Scope::Family { Source::Family } else { Source::App };
         self.preferences.record(key, value, source);
+        if !self.saving {
+            return Ok(());
+        }
         match &self.folder {
             Some(folder) => self.family.set_in(folder, &self.app, key, value, scope),
             None => self.family.set(&self.app, key, value, scope),
@@ -303,6 +333,9 @@ impl Appearance {
     /// Writes the application's own `key` as `value`.
     fn own<T: Setting + Clone>(&self, key: &str, value: T, settings: &mut Settings) -> io::Result<()> {
         settings.set(key, value.clone());
+        if !self.saving {
+            return Ok(());
+        }
         let folder = match &self.folder {
             Some(folder) => folder.clone(),
             None => self

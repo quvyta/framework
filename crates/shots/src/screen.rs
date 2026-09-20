@@ -27,6 +27,12 @@ pub(crate) struct Cell {
 /// The theme colours around the grid.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Palette {
+    /// The theme's `canvas`: the ground of the application itself, whatever the captured screen
+    /// happens to show at its edge. A picture larger than the screen, such as a card, stands on
+    /// it.
+    pub canvas: Rgb,
+    /// The theme's one accent colour, for the few words a picture leads with.
+    pub accent: Rgb,
     /// The ground under everything: the rounded background and the margin. The background most
     /// of the screen's edge shows, else the theme's `canvas`.
     pub ground: Rgb,
@@ -80,6 +86,8 @@ impl Screen {
         // application and never as a band of another tone around it.
         let ground = edge_color(&cells, area.width, area.height).unwrap_or(canvas);
         let palette = Palette {
+            canvas,
+            accent: color("accent", text),
             ground,
             text,
             muted: color("muted", ground.mix(text, 0.5)),

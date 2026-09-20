@@ -78,7 +78,7 @@ impl<Msg> Idle<Msg> {
 /// Whether `event` is the user doing something in this terminal. Every key event, every mouse
 /// event (the pointer moving over the window included) and a paste are; a terminal resize never
 /// reaches the engine as an event, and [`Event::PointerOutside`] is one the runtime makes itself.
-fn is_input(event: &Event) -> bool {
+pub(super) fn is_input(event: &Event) -> bool {
     match event {
         Event::Key(_) | Event::Mouse(_) | Event::Paste(_) => true,
         Event::PointerOutside => false,

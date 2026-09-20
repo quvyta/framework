@@ -11,6 +11,21 @@
 - `fn before_quit(&self) -> Option<Msg>` — çalışma motoru kullanıcı adına çıkmadan önce sorulur (çıkış bağı, komut paletinden çıkış eylemi); bir mesaj uygulamayı açık tutar ve onun yerine teslim edilir. `Command::quit()` hiç sorulmaz. İsteğe bağlı.
 - `fn terminating(&self, Termination) -> Option<Msg>` — uygulamayı sistemin kapattığını duyar: bir `SIGTERM` ya da dışarıdan gelen `SIGINT` için `Termination::Terminate`, bir `SIGHUP` için `Termination::Hangup`. `None` hemen çıkar; bir mesaj kaydedip çıkması için açık tutar. Varsayılan olarak terminate'e `before_quit` cevap verir, kopuş çıkar. İsteğe bağlı.
 
+- `fn frame_limit(&self) -> FrameLimit` — çalışma motorunun saniyede en fazla kaç kare çizebileceği; her kareden önce sorulur, yani uygulamanın kendi durumunu izleyebilir. İsteğe bağlı.
+
+## FrameLimit
+
+- `FrameLimit::default()` — makinenin başında saniyede 60, uzak bağlantıda 20 kare.
+- `FrameLimit::per_second(n)` — her bağlantıda aynı sayı; `n` sıfırsa sınır yoktur.
+- `.remote(n)` — uzak bağlantı için başka bir sayı; yereldeki olduğu gibi kalır.
+- `FrameLimit::none()` — istenen her kare çizilir.
+- `limit.frames_per_second(remote)` — eldeki bağlantıda geçerli sayı, sınır yoksa `None`.
+- Girdiye cevap veren kare — tuş, tıklama, imleç, yapıştırma — hiç bekletilmez; bekletilen kare de aradaki süre dolar dolmaz çizilir. Yalnızca uygulamanın kendi işinden doğan kareler birleştirilir.
+
+## Hız ve bağlantı
+
+- `env.remote()` — terminal uzak bir bağlantının öbür ucunda mı: `SSH_CONNECTION` ya da `SSH_TTY` dolu mu. `Env::load` bir kez algılar; testlerin ortamı olan `Env::builtin` hiçbir zaman uzak değildir.
+
 ## Command
 
 - `Command::none()` — yapılacak bir şey yok.

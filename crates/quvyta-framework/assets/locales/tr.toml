@@ -226,3 +226,10 @@ pillar             = "Vurgu çubuğu"
 pillar-thick       = "Kalın"
 pillar-thin        = "İnce"
 not-saved          = "Uygulandı ama kaydedilemedi: {reason}"
+
+# The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
+[quvyta.setup]
+sample-hint = "Simgeleri ekranınızda şekil olarak görünen seti seçin."
+install     = "Yazı tipini kur"
+defaults    = "Varsayılanlarla başla"
+not-saved   = "Seçimleriniz kaydedilemedi: {reason}"

@@ -239,3 +239,10 @@ pillar             = "Barra de acento"
 pillar-thick       = "Gruesa"
 pillar-thin        = "Fina"
 not-saved          = "Aplicado, pero no guardado: {reason}"
+
+# The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
+[quvyta.setup]
+sample-hint = "Elija el conjunto cuyos iconos se vean como formas en su pantalla."
+install     = "Instalar la tipografía"
+defaults    = "Empezar con los valores predeterminados"
+not-saved   = "No se pudieron guardar sus elecciones: {reason}"

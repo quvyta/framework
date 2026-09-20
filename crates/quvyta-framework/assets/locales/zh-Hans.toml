@@ -226,3 +226,10 @@ pillar             = "强调条"
 pillar-thick       = "粗"
 pillar-thin        = "细"
 not-saved          = "已应用，但未保存：{reason}"
+
+# The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
+[quvyta.setup]
+sample-hint = "请选择在您的屏幕上显示为图形的那一组图标。"
+install     = "安装字体"
+defaults    = "使用默认设置开始"
+not-saved   = "无法保存您的选择：{reason}"

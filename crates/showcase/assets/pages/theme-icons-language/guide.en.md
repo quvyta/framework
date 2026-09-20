@@ -41,6 +41,8 @@ When a theme loads, the framework measures contrast between text and grounds and
 
 Every icon has three glyphs: `nerd` for Nerd Fonts, `unicode`, and `ascii`. In `auto` mode the framework picks by looking at the terminal and the installed fonts; users can choose a mode, and `QUVYTA_ICONS=ascii` forces one. ASCII glyphs never use brackets to fake shapes.
 
+Some names are shared meanings rather than marks of one widget, so every application in the family draws the same shape for them: `project`, `profile`, `settings` and `power` for the main menu, `window-minimize`, `window-maximize` and `window-restore` for a window's title, `category-system`, `category-development`, `category-network`, `category-office`, `category-media` and `category-files` for the kinds of program a launcher groups its entries by, and `family` for Quvyta's own `❖`. Their Unicode column stays inside Geometric Shapes, which terminals and monospace fonts draw as one cell, so a row in a dock or a three-cell title mark cannot be pushed apart by a glyph that falls back to another font; `family` is the one exception, because it is the mark itself. A launcher entry with no icon of its own takes the icon of its category.
+
 The set answers the meanings an application's main menu shows, so every application in the family draws the same shapes: `project`, `profile`, `settings` and `power`. Nerd Font draws the thing itself; the Unicode column stays inside Geometric Shapes, which terminals and monospace fonts draw as one cell, so no row falls back to another font and overflows.
 
 ## Your application's own icons

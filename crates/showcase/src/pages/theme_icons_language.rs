@@ -16,10 +16,11 @@ use crate::log::EventLog;
 
 const PAGE: &str = "theme-icons-language";
 
-/// Icons shown in the icon grid. The last row is what an application's main menu needs, so every
-/// application in the family shows the same shapes for a project, who you are, the settings and
-/// the way out.
-const ICONS: [&str; 20] = [
+/// Icons shown in the icon grid. After the marks every screen draws come the four an
+/// application's main menu needs, so every application in the family shows the same shapes for a
+/// project, who you are, the settings and the way out; then the kinds of program a launcher groups
+/// its entries by, the mark of the family itself, and the marks on a window's title.
+const ICONS: [&str; 30] = [
     "check",
     "close",
     "dot",
@@ -40,6 +41,16 @@ const ICONS: [&str; 20] = [
     "profile",
     "settings",
     "power",
+    "category-system",
+    "category-development",
+    "category-network",
+    "category-office",
+    "category-media",
+    "category-files",
+    "family",
+    "window-minimize",
+    "window-maximize",
+    "window-restore",
 ];
 
 // region: sources
@@ -344,7 +355,7 @@ mod tests {
 
     #[test]
     fn a_theme_an_icon_set_and_a_keymap_given_as_text_need_no_directory() {
-        let h = showcase_tall(Showcase::new(), PAGE, 70);
+        let h = showcase_tall(Showcase::new(), PAGE, 74);
         let screen = h.screen();
         let panel = screen.split("FILES GIVEN AS TEXT").nth(1).unwrap_or_default();
         let row = |label: &str| panel.lines().find(|line| line.contains(label)).unwrap_or_default().to_owned();
@@ -355,7 +366,7 @@ mod tests {
 
     #[test]
     fn an_application_icon_from_text_is_drawn_in_the_glyph_mode_in_use() {
-        let mut h = showcase_tall(Showcase::new(), PAGE, 70);
+        let mut h = showcase_tall(Showcase::new(), PAGE, 74);
         for (mode, glyph) in [(GlyphMode::Nerd, "\u{f0ac}"), (GlyphMode::Unicode, "◎"), (GlyphMode::Ascii, "@")] {
             h.set_glyph_mode(mode);
             let screen = h.screen();
@@ -400,14 +411,18 @@ mod tests {
 
     #[test]
     fn switches_theme_and_language_and_pluralises() {
-        // The colour token table lists every required colour, so the plural demo below it needs
-        // more rows than the default terminal of the showcase tests.
-        let mut h = showcase_tall(Showcase::new(), PAGE, 70);
+        // The colour tokens and the icon gallery together take more rows than the default
+        // terminal of the showcase tests, and the plural demo sits below them.
+        let mut h = showcase_tall(Showcase::new(), PAGE, 80);
         assert!(h.screen().contains("0 files"));
-        h.click_text("+");
-        assert!(h.screen().contains("1 file"));
+        // The gallery above draws a bare `+` for window-maximize, so the demo's own button is
+        // looked for below its panel's title.
+        let title = h.screen().lines().position(|line| line.contains("LANGUAGE AND PLURALS"));
+        let row = i32::try_from(title.expect("the plural panel is on screen")).expect("a screen row");
+        crate::tests::click_text_below(&mut h, "+", row);
+        assert!(h.screen().contains("1 file"), "{}", h.screen());
         h.send(AppMsg::Locale("tr".into()));
-        assert!(h.screen().contains("1 dosya"));
+        assert!(h.screen().contains("1 dosya"), "{}", h.screen());
         h.send(AppMsg::Theme("amber".into()));
         assert_eq!(h.env().theme().id(), "amber");
     }

@@ -272,9 +272,15 @@ mod tests {
 
     #[test]
     fn one_key_leaves_the_shell_and_the_same_key_goes_back() {
-        // A shell set in place without its watch: the watch would block the inline test runner.
+        // A live but silent program in the widget: the page's own watch would block the inline
+        // test runner, so the test asks for a change within a bound instead.
         let session =
             TerminalSession::spawn("/bin/cat".as_ref(), &[] as &[&str], &super::super::home_folder()).expect("pty");
+        assert_eq!(
+            session.watch().next_change_within(Duration::from_millis(200)),
+            None,
+            "the program says nothing until it is written to"
+        );
         let mut showcase = Showcase::new();
         showcase.pages.terminal.session = Some(session.clone());
         let mut h = showcase_tall(showcase, PAGE, 60);

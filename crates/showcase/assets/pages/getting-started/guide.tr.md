@@ -65,6 +65,23 @@ fn terminating(&self, _sebep: Termination) -> Option<Msg> {
 }
 ```
 
+## Kareler ne sıklıkta çizilir
+
+Kareler saate göre çizilmez: çalışma motoru bir şey değiştiğinde çizer, kalan zamanda klavyeyi bekler. `App::frame_limit` saniyede en fazla kaç kare çizileceğini söyler, çünkü "bir şey değişti" kimsenin okuyamayacağı hızda olabilir — satır satır akan gömülü bir terminal, üst üste haber veren arka plan işi.
+
+Varsayılan, makinenin başında saniyede 60, uzak bağlantıda 20 kare çizer. İkisini `Env::remote` ayırır: `SSH_CONNECTION` ya da `SSH_TTY` doluysa doğrudur, böylece SSH sunucusunun başlattığı bir oturum uygulama hiçbir şey sormadan tanınır. Ağ üzerinden her kare, bağlantıdan geçen bütün bir ekrandır; durmadan yazan bir program, kimsenin ayırt edemediği karelerle bağlantıyı harcar.
+
+```rust
+fn frame_limit(&self) -> FrameLimit {
+    // Makinede 60, yavaş bağlantıda 10.
+    FrameLimit::per_second(60).remote(10)
+}
+```
+
+Sınır, girdiye verilen cevabı hiç geciktirmez. Bir tuşun, tıklamanın, imleç hareketinin ya da yapıştırmanın ardından gelen kare, sınır ne kadar düşük olursa olsun hemen çizilir: insan bütün programı yazdığı karakterin yankısından yargılar. Yalnızca uygulamanın kendi işinden doğan kareler birleştirilir ve bekletilen kare aradaki süre dolar dolmaz çizilir, yani sınırın kendisi gecikme eklemez. `FrameLimit::none()` istenen her kareyi çizer; `FrameLimit::per_second(n)` her bağlantıda tek sayıyı kullanır.
+
+Uygulama `Env::remote`'u kendi kararları için de okur: yavaş bağlantıda daha az animasyon, daha küçük resim, daha sade bir ilk ekran.
+
 ## Terminal olmadan test
 
 `Harness` aynı uygulamayı bellekteki bir ekranda, sahte bir saatle çalıştırır. Tuşa bas, yaz, metnin üstüne tıkla ve ekranı düz satırlar olarak geri oku:

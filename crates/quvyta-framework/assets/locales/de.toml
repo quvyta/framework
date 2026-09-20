@@ -226,3 +226,10 @@ pillar             = "Akzentbalken"
 pillar-thick       = "Breit"
 pillar-thin        = "Schmal"
 not-saved          = "Angewendet, aber nicht gespeichert: {reason}"
+
+# The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
+[quvyta.setup]
+sample-hint = "Wählen Sie den Satz, dessen Symbole auf Ihrem Bildschirm als Formen erscheinen."
+install     = "Schrift installieren"
+defaults    = "Mit den Vorgaben beginnen"
+not-saved   = "Ihre Auswahl konnte nicht gespeichert werden: {reason}"

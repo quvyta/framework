@@ -195,6 +195,15 @@ impl Preferences {
     }
 }
 
+/// What a resolution does about a shared file that is not there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Missing {
+    /// Write it with the detected values, so the next application finds them.
+    Create,
+    /// Leave it missing and detect its keys, so nothing is written before a setup wizard finishes.
+    Leave,
+}
+
 /// What this machine would choose for each shared preference.
 struct Detected {
     language: String,
@@ -257,7 +266,7 @@ impl Family {
         let font_dirs = default_font_dirs(lookup);
         let detected = Detected::on_this_machine(i18n, lookup, &font_dirs);
         match self.config_dir() {
-            Some(dir) => self.resolve(&dir, app, &detected),
+            Some(dir) => self.resolve(&dir, app, &detected, Missing::Create),
             None => {
                 let mut prefs = resolved_from(&detected, |_| None, |_| None);
                 prefs
@@ -274,7 +283,35 @@ impl Family {
     pub fn preferences_in(&self, config_dir: &Path, app: &str, i18n: &I18n) -> Preferences {
         let lookup = |name: &str| std::env::var(name).ok();
         let detected = Detected::on_this_machine(i18n, lookup, &default_font_dirs(lookup));
-        self.resolve(config_dir, app, &detected)
+        self.resolve(config_dir, app, &detected, Missing::Create)
+    }
+
+    /// [`preferences`](Self::preferences) without writing anything: a missing shared file is left
+    /// missing and its keys are detected instead.
+    ///
+    /// For an application whose first start shows a [setup wizard](crate::widgets::Setup): a
+    /// wizard closed half-way leaves the user's settings folder as empty as it found it, and the
+    /// wizard's Finish writes both files. An application without a wizard uses
+    /// [`preferences`](Self::preferences), so the first application to start leaves the shared
+    /// file for the next one.
+    #[must_use]
+    pub fn preferences_without_saving(&self, app: &str, i18n: &I18n) -> Preferences {
+        let lookup = |name: &str| std::env::var(name).ok();
+        let font_dirs = default_font_dirs(lookup);
+        let detected = Detected::on_this_machine(i18n, lookup, &font_dirs);
+        match self.config_dir() {
+            Some(dir) => self.resolve(&dir, app, &detected, Missing::Leave),
+            None => resolved_from(&detected, |_| None, |_| None),
+        }
+    }
+
+    /// [`preferences_without_saving`](Self::preferences_without_saving) with `config_dir` as the
+    /// family's folder instead of this platform's, for a test or a demo.
+    #[must_use]
+    pub fn preferences_without_saving_in(&self, config_dir: &Path, app: &str, i18n: &I18n) -> Preferences {
+        let lookup = |name: &str| std::env::var(name).ok();
+        let detected = Detected::on_this_machine(i18n, lookup, &default_font_dirs(lookup));
+        self.resolve(config_dir, app, &detected, Missing::Leave)
     }
 
     /// [`preferences_in`](Self::preferences_in) with the machine's detection read through
@@ -287,7 +324,7 @@ impl Family {
         i18n: &I18n,
         lookup: impl Fn(&str) -> Option<String>,
     ) -> Preferences {
-        self.resolve(config_dir, app, &Detected::on_this_machine(i18n, lookup, &[]))
+        self.resolve(config_dir, app, &Detected::on_this_machine(i18n, lookup, &[]), Missing::Create)
     }
 
     /// Changes shared preference `key` of application `app` to `value`, for the whole family or
@@ -368,8 +405,8 @@ impl Family {
     }
 
     /// Resolves the preferences of `app` from the files in `config_dir`, creating the shared file
-    /// with the `detected` values when it is missing.
-    fn resolve(&self, config_dir: &Path, app: &str, detected: &Detected) -> Preferences {
+    /// with the `detected` values when it is missing and `missing` says to.
+    fn resolve(&self, config_dir: &Path, app: &str, detected: &Detected, missing: Missing) -> Preferences {
         let mut diagnostics = Vec::new();
         let shared_path = config_dir.join(super::family::file_name(self.id()));
         let shared = if shared_path.exists() {
@@ -377,7 +414,9 @@ impl Family {
             diagnostics.extend(shared.diagnostics().iter().cloned());
             Some(shared)
         } else {
-            if let Err(error) = create(&shared_path, &detected.file()) {
+            if missing == Missing::Create
+                && let Err(error) = create(&shared_path, &detected.file())
+            {
                 diagnostics.push(Diagnostic::error(
                     None,
                     format!("{}: shared preferences not saved: {error}", shared_path.display()),

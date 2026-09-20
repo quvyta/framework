@@ -308,7 +308,13 @@ fn event_loop<A: App>(
         if let Some(deadline) = clipboard.deadline().filter(|_| !gone) {
             wait = wait.min(deadline.saturating_sub(now));
         }
-        if (engine.dirty && !gone) || engine.has_queued_work() {
+        // A frame the frame limit holds back: wake when the gap is over, not with the next
+        // idle wait, so the limit paces frames without adding latency of its own.
+        let held = if gone { None } else { engine.frame_deadline(now) };
+        if let Some(at) = held {
+            wait = wait.min(at.saturating_sub(now));
+        }
+        if (engine.dirty && held.is_none() && !gone) || engine.has_queued_work() {
             wait = Duration::ZERO;
         }
         if gone {
@@ -324,6 +330,8 @@ fn event_loop<A: App>(
 }
 
 /// Draws a frame when one is due, after the terminal clipboard and timed input had their turn.
+/// What is due is the engine's answer: a frame the view or an animation wants, unless the frame
+/// limit holds it back; a frame answering input is never held back.
 fn draw<A: App>(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     engine: &mut Engine<A>,
@@ -333,8 +341,7 @@ fn draw<A: App>(
     let now = start.elapsed();
     clipboard.update(engine, now)?;
     engine.tick(now);
-    let animation_due = engine.deadline().is_some_and(|deadline| deadline <= now);
-    if engine.dirty || animation_due {
+    if engine.frame_due(now) {
         execute!(io::stdout(), BeginSynchronizedUpdate)?;
         terminal.draw(|frame| engine.render(frame.buffer_mut(), start.elapsed()))?;
         execute!(io::stdout(), EndSynchronizedUpdate)?;

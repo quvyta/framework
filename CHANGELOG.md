@@ -4,6 +4,30 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.11 - 2026-09-20
+
+### Added
+
+- A first-run wizard that asks for the language, theme and icons before an application's own
+  steps, writes nothing until it is finished, and can start with the detected defaults
+  (`Setup`, `SetupWizard`).
+- A frame limit an application chooses (`App::frame_limit`, `FrameLimit`), with fewer frames over
+  a remote connection; a key is always drawn at once. `Env::remote` says whether the connection
+  is remote.
+- The icon set gained a launcher's categories (`category-system`, `-development`, `-network`,
+  `-office`, `-media`, `-files`) and the family's own mark (`family`).
+- `TerminalWatch::next_change_within` waits for a terminal change with a time limit, so a test
+  does not hang on a live but silent program.
+- The screenshots crate draws the card a shared link shows (`qshots::Card`): a fixed canvas, the
+  application's name, one sentence and a real screen, the same on every machine.
+- The recorder can right-click and hold a modifier (`right_click`, `click_with`), advance an
+  application's own clock while it records (`hold_with`), and let time pass off camera (`skip`).
+
+### Fixed
+
+- A recording lasts exactly as long as its story, so a looping picture no longer rests on its
+  last frame.
+
 ## 0.1.10 - 2026-09-20
 
 ### Added
