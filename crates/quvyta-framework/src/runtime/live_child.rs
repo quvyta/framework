@@ -204,6 +204,9 @@ impl LiveChild {
         match &*self.inner {
             Inner::Real(real) => {
                 if let Some(attach) = lock(&real.attach).take() {
+                    // The reading thread takes this once and then ends with the program. A send
+                    // that fails means the program is already over, so there are no more lines
+                    // for the sink to be given.
                     let _ = attach.send(Attach { sink, process: Arc::clone(&real.process) });
                 }
             }

@@ -18,9 +18,10 @@ const PAGE: &str = "theme-icons-language";
 
 /// Icons shown in the icon grid. After the marks every screen draws come the four an
 /// application's main menu needs, so every application in the family shows the same shapes for a
-/// project, who you are, the settings and the way out; then the kinds of program a launcher groups
-/// its entries by, the mark of the family itself, and the marks on a window's title.
-const ICONS: [&str; 30] = [
+/// project, who you are, the settings and the way out; the workspace that holds the work and the
+/// button that answers what the keys do; then the kinds of program a launcher groups its entries
+/// by, the mark of the family itself, and the marks on a window's title.
+const ICONS: [&str; 32] = [
     "check",
     "close",
     "dot",
@@ -36,8 +37,10 @@ const ICONS: [&str; 30] = [
     "warning",
     "error",
     "info",
+    "help",
     "prompt",
     "project",
+    "workspace",
     "profile",
     "settings",
     "power",
@@ -252,6 +255,25 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         .gap(2);
         ui.add(Text::new(t!("theme-icons-language.plural-hint")).role("faint"));
         ui.spacer().height(Length::Cells(1));
+        // region: customs
+        // A language is not only its words: where it puts a number's decimals, which way round it
+        // writes a date, how short its unit of time is beside a number. Switch the language above
+        // and this row changes with it, the same way every chart and field in the showcase does.
+        let day = qframe::date::Date::new(2026, 9, 18).unwrap_or_else(qframe::date::Date::today_local);
+        ui.add(
+            Text::rich([
+                Span::new(qframe::i18n::number(0.5, 1)).role("title"),
+                Span::new("   ").role("faint"),
+                Span::new(day.written()).role("title"),
+                Span::new("   ").role("faint"),
+                Span::new(t!("quvyta.time.hours-minutes", hours = 1, minutes = 30)).role("title"),
+            ])
+            .no_wrap(),
+        )
+        .id("customs");
+        ui.add(Text::new(t!("theme-icons-language.customs-hint")).role("faint"));
+        // endregion
+        ui.spacer().height(Length::Cells(1));
         key_check(ui);
     })
     .fill_width();
@@ -355,7 +377,7 @@ mod tests {
 
     #[test]
     fn a_theme_an_icon_set_and_a_keymap_given_as_text_need_no_directory() {
-        let h = showcase_tall(Showcase::new(), PAGE, 74);
+        let h = showcase_tall(Showcase::new(), PAGE, 90);
         let screen = h.screen();
         let panel = screen.split("FILES GIVEN AS TEXT").nth(1).unwrap_or_default();
         let row = |label: &str| panel.lines().find(|line| line.contains(label)).unwrap_or_default().to_owned();
@@ -365,8 +387,29 @@ mod tests {
     }
 
     #[test]
+    fn the_number_date_and_length_follow_the_language_the_switcher_chooses() {
+        let mut h = showcase_tall(Showcase::new(), PAGE, 90);
+        let row = |h: &qframe::runtime::Harness<Showcase>| {
+            h.screen().lines().find(|line| line.contains("2026")).unwrap_or_default().to_owned()
+        };
+        let english = row(&h);
+        assert!(english.contains("0.5"), "English writes a point: {english:?}");
+        assert!(english.contains("September 18, 2026"), "{english:?}");
+        assert!(english.contains("1 h 30 min"), "{english:?}");
+        // The switcher at the top of the page, the way a person changes language.
+        h.set_locale("fr");
+        let french = row(&h);
+        assert!(french.contains("0,5"), "French writes a comma: {french:?}");
+        assert!(french.contains("18 septembre 2026"), "and the date the other way round: {french:?}");
+        h.set_locale("zh-Hans");
+        let chinese = row(&h);
+        assert!(chinese.contains("2026年9月18日"), "{chinese:?}");
+        assert!(chinese.contains("1小时30分") && !chinese.contains("分钟"), "the short minute: {chinese:?}");
+    }
+
+    #[test]
     fn an_application_icon_from_text_is_drawn_in_the_glyph_mode_in_use() {
-        let mut h = showcase_tall(Showcase::new(), PAGE, 74);
+        let mut h = showcase_tall(Showcase::new(), PAGE, 90);
         for (mode, glyph) in [(GlyphMode::Nerd, "\u{f0ac}"), (GlyphMode::Unicode, "◎"), (GlyphMode::Ascii, "@")] {
             h.set_glyph_mode(mode);
             let screen = h.screen();
@@ -394,7 +437,7 @@ mod tests {
         for mode in [GlyphMode::Nerd, GlyphMode::Unicode, GlyphMode::Ascii] {
             h.set_glyph_mode(mode);
             let screen = h.screen();
-            for name in ["project", "profile", "settings", "power"] {
+            for name in ["project", "workspace", "profile", "settings", "power", "help"] {
                 let row = screen.lines().find(|line| line.contains(name)).unwrap_or_default();
                 let glyph = row
                     .split(name)
@@ -413,7 +456,7 @@ mod tests {
     fn switches_theme_and_language_and_pluralises() {
         // The colour tokens and the icon gallery together take more rows than the default
         // terminal of the showcase tests, and the plural demo sits below them.
-        let mut h = showcase_tall(Showcase::new(), PAGE, 80);
+        let mut h = showcase_tall(Showcase::new(), PAGE, 90);
         assert!(h.screen().contains("0 files"));
         // The gallery above draws a bare `+` for window-maximize, so the demo's own button is
         // looked for below its panel's title.

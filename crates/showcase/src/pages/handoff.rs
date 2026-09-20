@@ -1,8 +1,10 @@
 //! Terminal handoff: giving the terminal to another program for a while and taking the screen
-//! back afterwards.
+//! back afterwards, and the opening that gives nothing away at all.
 
 use qframe::prelude::*;
-use qframe::runtime::{ChildLine, DetachedHandoff, DetachedOutcome, Handoff, HandoffOutcome, LiveChild};
+use qframe::runtime::{
+    ChildLine, DetachedHandoff, DetachedOutcome, Handoff, HandoffOutcome, LiveChild, Open, OpenOutcome,
+};
 use qframe::widgets::Badge;
 
 use super::{PageMsg, setting, toggle};
@@ -24,6 +26,10 @@ const HELPER_SCRIPT: &str = r#"printf '%s ' "$QUVYTA_HELPER_ASK" >&2; read -r _ 
 /// A program nobody has installed, for the outcome of a handoff that cannot start.
 const MISSING: &str = "quvyta-not-installed";
 
+/// What the silent opening hands the desktop: the family's own page, so trying it out on a real
+/// machine opens something harmless in whatever browser this person uses.
+const ADDRESS: &str = "https://quvyta.com";
+
 /// The outcome of the last handoff and the playground.
 #[derive(Debug)]
 pub struct State {
@@ -34,11 +40,13 @@ pub struct State {
     helper: Option<LiveChild>,
     /// How many lines were sent to the helper, to number the next.
     sent: usize,
+    /// What came of the last silent opening.
+    opened: Option<OpenOutcome>,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { outcome: None, pause: false, notice: true, helper: None, sent: 0 }
+        Self { outcome: None, pause: false, notice: true, helper: None, sent: 0, opened: None }
     }
 }
 
@@ -56,6 +64,9 @@ pub enum Msg {
     HelperSaid(ChildLine),
     HelperSend,
     HelperStop,
+    Open,
+    OpenMissing,
+    Opened(OpenOutcome),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -149,6 +160,29 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             }
         }
         // endregion
+        // region: open
+        Msg::Open => {
+            // Nothing of this happens in the terminal, so the screen is never given away: no
+            // step aside, no blink, nothing drawn again.
+            log.push(PAGE, "Command::open_with", ADDRESS);
+            return Command::open_with(Open::new(ADDRESS).answer(|outcome| send(Msg::Opened(outcome))));
+        }
+        Msg::OpenMissing => {
+            log.push(PAGE, "Command::open_with", MISSING);
+            return Command::open_with(Open::program(MISSING).answer(|outcome| send(Msg::Opened(outcome))));
+        }
+        Msg::Opened(outcome) => {
+            log.push(
+                PAGE,
+                "OpenOutcome",
+                match &outcome {
+                    OpenOutcome::Opened => "opened".to_owned(),
+                    OpenOutcome::Failed(reason) => format!("failed: {reason}"),
+                },
+            );
+            state.opened = Some(outcome);
+        }
+        // endregion
         Msg::Pause(on) => {
             log.push(PAGE, "Playground", format!("pause = {on}"));
             state.pause = on;
@@ -204,6 +238,37 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             .gap(2)
             .fill_width();
         }
+        ui.spacer().height(Length::Cells(1));
+        // region: open
+        ui.add(Text::new(t!("handoff.open-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        ui.row(|ui| {
+            ui.add(Button::new(t!("handoff.open")).on_press(send(Msg::Open))).id("open");
+            ui.add(Button::new(t!("handoff.open-missing")).on_press(send(Msg::OpenMissing))).id("open-missing");
+        })
+        .gap(2)
+        .fill_width();
+        ui.spacer().height(Length::Cells(1));
+        match &state.opened {
+            None => {
+                ui.add(Text::new(t!("handoff.open-idle")).role("faint")).id("opened");
+            }
+            Some(outcome) => {
+                let (variant, label, detail) = match outcome {
+                    OpenOutcome::Opened => ("success", t!("handoff.badge-opened"), t!("handoff.opened")),
+                    OpenOutcome::Failed(reason) => {
+                        ("danger", t!("handoff.badge-not-opened"), t!("handoff.not-opened", reason = reason.clone()))
+                    }
+                };
+                ui.row(|ui| {
+                    ui.add(Badge::new(label).variant(variant));
+                    ui.add(Text::new(detail).role("secondary")).fill_width().id("opened");
+                })
+                .gap(2)
+                .fill_width();
+            }
+        }
+        // endregion
         ui.spacer().height(Length::Cells(1));
         // region: outcome
         // Every outcome is read the same way: the badge carries the tone and its marker, the
@@ -327,6 +392,32 @@ mod tests {
         assert!(!h.screen().contains("runs in the background"), "{}", h.screen());
         let log = h.app().log.recent(PAGE, 10);
         assert!(log.iter().any(|entry| entry.message == "finished with code 0"), "{log:?}");
+    }
+
+    #[test]
+    fn opening_an_address_hands_it_over_without_giving_the_screen_away() {
+        let mut h = showcase_on(PAGE);
+        assert!(h.screen().contains("Nothing has been opened yet"), "{}", h.screen());
+        h.click_text("Open the Quvyta page");
+        let asked = h.opens();
+        assert_eq!(asked.len(), 1);
+        assert_eq!(asked[0].target.as_deref(), Some(std::ffi::OsStr::new(ADDRESS)));
+        // This is the whole point of an opening: the terminal is never handed over.
+        assert!(h.handoffs().is_empty(), "nothing waited for it");
+        assert!(h.detached_handoffs().is_empty(), "and nothing detached");
+        assert!(h.screen().contains("was handed to this desktop"), "{}", h.screen());
+        let log = h.app().log.recent(PAGE, 10);
+        assert!(log.iter().any(|entry| entry.source == "OpenOutcome" && entry.message == "opened"), "{log:?}");
+    }
+
+    #[test]
+    fn a_desktop_with_no_opener_says_the_address_was_not_opened() {
+        let mut h = showcase_on(PAGE);
+        h.set_open_outcome(OpenOutcome::Failed("no such file or directory".to_owned()));
+        h.click_text("An opener that is missing");
+        assert_eq!(h.opens()[0].program, OsString::from(MISSING));
+        assert_eq!(h.opens()[0].target, None, "a program of its own is handed to no opener");
+        assert!(h.screen().contains("no such file or directory"), "{}", h.screen());
     }
 
     #[test]

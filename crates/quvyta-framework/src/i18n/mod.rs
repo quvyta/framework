@@ -244,6 +244,18 @@ impl I18n {
         own.and_then(Weekday::from_number).unwrap_or(Weekday::Monday)
     }
 
+    /// What this language writes between a number's whole part and its decimals: a point in
+    /// English, Japanese and Chinese, a comma in German, Spanish, French, Portuguese, Russian and
+    /// Turkish.
+    ///
+    /// It comes from the active language's `quvyta.number.decimal` key, and is a point for a
+    /// language that does not give it. [`number`] writes a value with it; every number the
+    /// framework itself draws — a slider's value, a chart's labels, a file's size — already does.
+    #[must_use]
+    pub fn decimal_separator(&self) -> char {
+        self.find(DECIMAL).map(|_| self.translate(DECIMAL, &[])).and_then(|text| text.chars().next()).unwrap_or('.')
+    }
+
     /// Translates `key` with `args`.
     #[must_use]
     pub fn translate(&self, key: &str, args: &[(&str, Arg)]) -> String {
@@ -376,6 +388,9 @@ impl I18n {
 /// The locale key giving a language's first day of the week, for a language without a region.
 const FIRST_WEEKDAY: &str = "quvyta.date.first-weekday";
 
+/// The key that carries what a language writes between a number and its decimals.
+const DECIMAL: &str = "quvyta.number.decimal";
+
 /// The locale name in the first of `variables` that is set, or else the operating system's.
 fn system_tag(variables: &[&str], env: impl Fn(&str) -> Option<String>) -> Option<Tag> {
     let from_env = variables.iter().filter_map(|name| env(name)).find(|value| !value.is_empty());
@@ -384,6 +399,8 @@ fn system_tag(variables: &[&str], env: impl Fn(&str) -> Option<String>) -> Optio
 
 fn render(template: &Template, args: &[(&str, Arg)]) -> String {
     let mut out = String::new();
+    // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+    // results are dropped for that reason and no other.
     for piece in &template.0 {
         match piece {
             Piece::Text(text) => out.push_str(text),
@@ -439,6 +456,36 @@ pub fn translate_active(key: &str, args: &[(&str, Arg)]) -> String {
 #[must_use]
 pub fn first_weekday() -> Weekday {
     ACTIVE.with(|active| active.borrow().as_ref().map_or(Weekday::Monday, |i18n| i18n.first_weekday()))
+}
+
+/// What the language of the translator installed by [`scope`] writes between a number's whole
+/// part and its decimals, as [`I18n::decimal_separator`] gives it. Outside a scope it is a point.
+#[must_use]
+pub fn decimal_separator() -> char {
+    ACTIVE.with(|active| active.borrow().as_ref().map_or('.', |i18n| i18n.decimal_separator()))
+}
+
+/// `value` written with `decimals` decimals in the active language's way: `0.5` in English, `0,5`
+/// in French.
+///
+/// This is what every number the framework draws goes through, and what an application writing a
+/// number of its own should use, so one screen never mixes the two ways.
+///
+/// ```
+/// # qframe::i18n::scope(std::sync::Arc::new(qframe::i18n::I18n::builtin()), || {
+/// assert_eq!(qframe::i18n::number(1.5, 1), "1.5");
+/// # });
+/// ```
+#[must_use]
+pub fn number(value: f64, decimals: usize) -> String {
+    localize(format!("{value:.decimals$}"))
+}
+
+/// The same number with the point of Rust's own formatting replaced by the active language's
+/// separator, for text a caller has already written out.
+pub(crate) fn localize(text: String) -> String {
+    let separator = decimal_separator();
+    if separator == '.' { text } else { text.replace('.', &separator.to_string()) }
 }
 
 /// Translates `key` without arguments with the translator installed by [`scope`], or `None` when

@@ -61,6 +61,10 @@ impl Tool {
             let mut output = Vec::new();
             stdout.read_to_end(&mut output).map(|_| output)
         }) else {
+            // Nothing is read, so the tool has nothing left to say and the answer is already
+            // `None`. The kill fails only on a tool that ended by itself, and the wait is here
+            // to collect it rather than to be checked: a reading that failed must not also leave
+            // a process behind.
             let _ = child.kill();
             let _ = child.wait();
             return None;
@@ -71,6 +75,9 @@ impl Tool {
                 Ok(Some(status)) => break status,
                 Ok(None) if started.elapsed() < timeout => std::thread::sleep(TOOL_POLL),
                 _ => {
+                    // The tool ran past its time or could not be waited on: either way the
+                    // clipboard has no answer, and the next source is tried. As above, the kill
+                    // and the wait are how the tool is cleared away, not a question being asked.
                     let _ = child.kill();
                     let _ = child.wait();
                     return None;
@@ -166,6 +173,9 @@ impl ClipboardReader {
                 let tools = tools.clone();
                 let (sender, receiver) = mpsc::channel();
                 let spawned = std::thread::Builder::new().name("quvyta-clipboard".to_owned()).spawn(move || {
+                    // The send fails only when nobody is waiting for the answer any more: the
+                    // read was let go, or the application is ending. There is then no clipboard
+                    // left to hand anything to.
                     let _ = sender.send(tools.iter().find_map(|tool| tool.read(TOOL_TIMEOUT)));
                 });
                 if spawned.is_err() {

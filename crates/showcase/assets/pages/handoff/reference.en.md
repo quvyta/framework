@@ -18,6 +18,13 @@
 - `LiveChild` (cheap to clone, clones share the program): `write_line(&str) -> io::Result<()>`, `close_stdin()`, `kill() -> io::Result<()>`, `try_wait() -> io::Result<Option<Option<i32>>>`, `id() -> Option<u32>`.
 - `LiveChild::for_tests() -> (LiveChild, TestChild)`; `TestChild`: `say(line)`, `exit(code)`, `written() -> Vec<String>`, `stdin_open() -> bool`, `killed() -> bool`.
 - `Harness::detached_handoffs() -> &[HandoffRequest]`, `Harness::set_detached_outcome(outcome)` — as for handoffs; `Finished { code: Some(0) }` without it.
+- `Command::open(target)` — starts this desktop's opener with `target` (an address, a file, a folder) beside the application, with no message. `Command::open_with(open)` takes an `Open`.
+- `Open::new(target)` — the desktop's opener: `xdg-open`, `open` on macOS, `cmd /C start` on Windows. `Open::program(name)` starts that program instead.
+- `Open::arg(arg)`, `Open::args(args)`, `Open::dir(path)`, `Open::env(key, value)` — as a handoff has them.
+- `Open::answer(|outcome| message)` — optional; without it nothing is delivered.
+- `OpenOutcome::Opened` — the program was started with what it was given. `OpenOutcome::Failed(reason)` — it could not be started at all.
+- `OpenRequest { program, args, target }` — what a `Harness` recorded; `target` is what `Open::new` was given and `None` after `Open::program`.
+- `Harness::opens() -> &[OpenRequest]`, `Harness::set_open_outcome(outcome)` — `Opened` without it.
 ## Behaviour
 
 - The handoff happens on the drawing thread and the application waits for it. Background tasks keep running; their messages are applied after the handoff.
@@ -34,6 +41,10 @@
 - One thread reads the program's output from its start, so no line after the first is lost; a program that writes faster than the application reads waits on its full pipe. Each line wakes the loop at once.
 - A program that ends before its first line ends as `Finished { code }`; one that closes its output but runs on is waited for as a handoff's program, its input closed.
 - When the last `LiveChild` clone is dropped, the program's standard input closes; the application's state is dropped when the run ends, so a helper that ends at the end of its input never outlives the application by long.
+
+- An opening gives nothing away: the screen is never released and nothing is drawn again. The program is started on a thread of its own, with its standard streams on the null device and, on Unix, a process group of its own, so the keys' signals never reach it and it outlives the application.
+- The message is delivered as soon as the program has been started; only afterwards is the child waited for, because an opener may live as long as the window it opened. `Opened` therefore says the opener was handed the target and no more: whether the desktop showed anything is out of a terminal's reach.
+- A `Harness` reaches no desktop: the opening is recorded and answered with the outcome the test set, delivered in a later update like the work of `Command::perform`.
 
 ## Theme and icons
 

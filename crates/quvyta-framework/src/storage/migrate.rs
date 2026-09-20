@@ -222,6 +222,8 @@ fn claim(to: &Path, permissions: &fs::Permissions) -> io::Result<()> {
         use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
         options.mode(permissions.mode());
     }
+    // No error is being dropped here: where a file has no mode there is nothing to copy from
+    // the old permissions, and the parameter would otherwise be an unused one.
     #[cfg(not(unix))]
     let _ = permissions;
     options.open(to).map(drop)

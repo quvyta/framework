@@ -232,11 +232,16 @@ mod tests {
 
     #[test]
     fn the_local_day_and_utc_are_shown_side_by_side() {
+        // The page read the clock while it was drawn and the test reads it again; a midnight
+        // passing in between puts a day between the two, so either day is accepted rather than
+        // the one this line happens to see.
+        let before = (Date::today_local(), Date::today_utc());
         let h = showcase_on(PAGE);
         let screen = h.screen();
-        let today = Date::today_local();
-        assert!(screen.contains(&today.to_string()), "{screen}");
-        assert!(screen.contains(&Date::today_utc().to_string()), "{screen}");
+        let after = (Date::today_local(), Date::today_utc());
+        let shown = |a: Date, b: Date| screen.contains(&a.to_string()) || screen.contains(&b.to_string());
+        assert!(shown(before.0, after.0), "the local day is shown:\n{screen}");
+        assert!(shown(before.1, after.1), "the UTC day is shown:\n{screen}");
         let offset = local_offset().map_or_else(|| "not known".to_owned(), written_offset);
         assert!(screen.contains(&offset), "the offset `{offset}` is shown:\n{screen}");
     }

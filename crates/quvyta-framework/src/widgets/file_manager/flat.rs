@@ -244,6 +244,11 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         let known = state.shown_children(shown);
         let label = match &known {
             None => String::new(),
+            // A folder that could not be read is not an empty one, and the foot is the only place
+            // a flat view has to say which of the two it is showing.
+            Some(_) if state.folder_error(shown).is_some() => {
+                crate::t!("quvyta.file-manager.unreadable-short")
+            }
             Some(_) if rows.len() <= 1 => crate::t!("quvyta.file-manager.empty"),
             Some(_) => crate::t!("quvyta.file-manager.entries", n = rows.len() - 1),
         };

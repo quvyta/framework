@@ -39,6 +39,8 @@ impl SettingValue {
 
     /// Writes the value as TOML.
     pub(crate) fn write(&self, out: &mut String) {
+        // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+        // results are dropped for that reason and no other.
         match self {
             Self::Bool(value) => out.push_str(if *value { "true" } else { "false" }),
             Self::Integer(value) => {
@@ -81,6 +83,7 @@ pub(crate) fn quote(text: &str, out: &mut String) {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
+            // As in `write` above: the target is a `String`, which has no failure to report.
             c if c.is_control() => {
                 let _ = write!(out, "\\u{:04X}", u32::from(c));
             }

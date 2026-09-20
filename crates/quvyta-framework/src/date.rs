@@ -220,6 +220,52 @@ impl Date {
     pub fn start_of_week(self, start: Weekday) -> Self {
         self.add_days(-i64::from(self.weekday().days_since(start)))
     }
+
+    /// The date the way the active language writes it, with the whole month name:
+    /// `September 18, 2026`, `18. September 2026`, `2026年9月18日`.
+    ///
+    /// This is the form a [`DatePicker`](crate::widgets::DatePicker) shows, so an application
+    /// that writes a date of its own with it puts both in the same order. Composing a date by
+    /// hand is what makes one screen say `September 18` beside a field saying `18 September`.
+    ///
+    /// A language whose month names change inside a date gives that form as
+    /// `quvyta.date.month-in-date-*`: Russian `января` where the heading says `Январь`.
+    #[must_use]
+    pub fn written(self) -> String {
+        crate::t!("quvyta.date.format", day = u32::from(self.day), month = self.month_in_date(), year = self.year)
+    }
+
+    /// The date with the short month name, for somewhere too narrow for [`written`](Self::written):
+    /// `Sep 18, 2026`, `18. Sep 2026`.
+    #[must_use]
+    pub fn written_short(self) -> String {
+        crate::t!("quvyta.date.format-short", day = u32::from(self.day), month = self.month_short(), year = self.year)
+    }
+
+    /// The day and the month with the whole month name, without the year: `September 18`,
+    /// `18 Eylül`. The form a heading over a day's own screen wants.
+    #[must_use]
+    pub fn day_and_month(self) -> String {
+        crate::t!("quvyta.date.format-day-month-long", day = u32::from(self.day), month = self.month_in_date())
+    }
+
+    /// The day and the short month, without the year: `Sep 18`, `18. Sep`. The narrowest form a
+    /// date field falls back to.
+    #[must_use]
+    pub fn day_and_month_short(self) -> String {
+        crate::t!("quvyta.date.format-day-month", day = u32::from(self.day), month = self.month_short())
+    }
+
+    /// The whole month name in the form this language uses inside a date.
+    fn month_in_date(self) -> String {
+        crate::i18n::translate_active_if_known(&format!("quvyta.date.month-in-date-{}", self.month))
+            .unwrap_or_else(|| crate::t!(&format!("quvyta.date.month-{}", self.month)))
+    }
+
+    /// The short month name.
+    fn month_short(self) -> String {
+        crate::t!(&format!("quvyta.date.month-short-{}", self.month))
+    }
 }
 
 impl fmt::Display for Date {
@@ -610,10 +656,15 @@ mod tests {
 
     #[test]
     fn local_today_and_now_agree_with_utc_within_the_offset() {
+        // One reading answers everything that must agree exactly; the clock is read again only
+        // where a midnight passing in between is allowed for, since two readings either side of
+        // one are a day apart and this test would otherwise fail every night for one second.
+        let before = Date::today_local();
         let now = DateTime::now_local();
+        let after = Date::today_local();
         assert_eq!(now.offset_minutes, local_offset_minutes());
-        assert_eq!(Date::today_local(), now.date);
-        let difference = Date::today_local().to_days() - Date::today_utc().to_days();
+        assert!(now.date == before || now.date == after, "{} is not the local day {before}", now.date);
+        let difference = now.date.to_days() - DateTime::from_unix(now.to_unix(), 0).date.to_days();
         assert!((-1..=1).contains(&difference), "the local day is at most a day from the UTC one");
         assert!(now.date.year() >= 2024, "{}", now.date);
         // The offset is exactly what turns the local reading back into the UTC one.

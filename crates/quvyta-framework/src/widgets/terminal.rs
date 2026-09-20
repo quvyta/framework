@@ -400,6 +400,11 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
                     return false;
                 }
                 cx.memory::<TerminalMemory>().scrollback = 0;
+                // The branch above already hands a key back when the program has ended, which is
+                // the case that loses keys. What is left here is the race of a program ending
+                // between that check and this write, one key wide; handing that one back would
+                // reach whatever is behind the terminal and do something else with it, which is
+                // worse than a key nobody heard.
                 let _ = self.session.write(&bytes);
                 true
             }

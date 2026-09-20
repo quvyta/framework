@@ -57,6 +57,9 @@ impl Staging {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let dir = root.join(format!("quvyta-nerd-font-{}-{n}", std::process::id()));
+        // A folder left by a run of this process that was killed before its drop. Removing it
+        // fails when there is nothing there, which is the usual case; when it fails for any
+        // other reason the `create_dir_all` below fails too and that error is the one reported.
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).map_err(|error| InstallError::Copy(error.to_string()))?;
         Ok(Self(dir))
@@ -65,6 +68,9 @@ impl Staging {
 
 impl Drop for Staging {
     fn drop(&mut self) {
+        // A drop has nobody to report to. The folder is this process's own, under the staging
+        // folder the caller chose, and nothing of the person's is in it; one left behind costs
+        // the space of one download and is cleared by the line above on the next install.
         let _ = fs::remove_dir_all(&self.0);
     }
 }
@@ -280,6 +286,9 @@ fn copy_font(font: &Path, target: &Path) -> Result<PathBuf, InstallError> {
     let installed = target.join(FONT_FILE);
     fs::copy(font, &partial).map_err(copy)?;
     if let Err(error) = fs::rename(&partial, &installed) {
+        // The half-written font goes so the folder never holds one; it is this call's own file
+        // under a dotted name, so removing it can only fail because it is already gone. The
+        // error the person hears is why the install failed, which is the one below.
         let _ = fs::remove_file(&partial);
         return Err(copy(error));
     }

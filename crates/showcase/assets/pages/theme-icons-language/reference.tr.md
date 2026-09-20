@@ -18,12 +18,16 @@
 - `[meta] name` ve `anahtar = { nerd = "…", unicode = "…", ascii = "…" }` içeren `[icons]`.
 - Eksik `nerd` glifi bir uyarıdır ve yerine `unicode` glifi geçer; eksik `unicode` glifi bir uyarıdır ve yerine `ascii` glifi geçer; eksik `ascii` glifi bir hatadır ve ikon atlanır. Her biri ikonun dosyasını, satırını ve sütununu söyler.
 - Uygulamanın setleri (`icon_dir` ve `icon_source` ile gelenler): gömülü sette olmayan anahtarlar her sette, seçili setin ve temanın `[icons]`'unun altında çizilir; iki set aynı anahtarı verirse sonra eklenen kazanır. Gömülü sette olan anahtarlar yalnızca bir tema o seti seçtiğinde geçerlidir.
-- Gömülü anahtarlar: `check check-partial close dot dot-outline select-on select-off radio-mark-small pillar bullet mask prompt enter arrow-left arrow-right arrow-up arrow-down chevron-left chevron-right chevron-down switch-rail switch-knob cap-left cap-right slider-rail slider-knob stepper-minus stepper-plus add search scroll-thumb scroll-track scroll-thin scroll-dot scroll-dot-thumb section-open section-closed tree-collapsed tree-expanded edge-left edge-right crumb-separator path-separator folder file inbox success warning error info project profile settings power window-minimize window-maximize window-restore category-system category-development category-network category-office category-media category-files family`. Spinner stilleri gibi tek hücrelik animasyonlar aynı dosyaların `[animations.<ad>]` tablolarında yaşar; Animasyon stüdyosu sayfasına bak.
+- Gömülü anahtarlar: `check check-partial close dot dot-outline select-on select-off radio-mark-small pillar bullet mask prompt enter arrow-left arrow-right arrow-up arrow-down chevron-left chevron-right chevron-down switch-rail switch-knob cap-left cap-right slider-rail slider-knob stepper-minus stepper-plus add search scroll-thumb scroll-track scroll-thin scroll-dot scroll-dot-thumb section-open section-closed tree-collapsed tree-expanded edge-left edge-right crumb-separator path-separator folder file inbox success warning error info help project workspace profile settings power window-minimize window-maximize window-restore category-system category-development category-network category-office category-media category-files family`. Spinner stilleri gibi tek hücrelik animasyonlar aynı dosyaların `[animations.<ad>]` tablolarında yaşar; Animasyon stüdyosu sayfasına bak.
 
 ## Dil dosyası
 
 - `[meta]` — `name`, `code`, isteğe bağlı `fallback`.
 - Anahtar bölümleri; değerler `{isim}` yer tutuculu metinler ya da `zero one two few many other` içeren çoğul tablolarıdır (`other` zorunlu).
+
+- `quvyta.number.decimal` — bu dilin sayının tam kısmıyla ondalıkları arasına yazdığı şey. `I18n::decimal_separator()` ve `qframe::i18n::decimal_separator()` verir; `qframe::i18n::number(değer, basamak)` sayıyı onunla yazar. Vermeyen dil için nokta.
+- `quvyta.date.format`, `format-short`, `format-day-month-long`, `format-day-month` — tarihin dört biçimi; arkalarında `Date::written()`, `written_short()`, `day_and_month()` ve `day_and_month_short()` vardır. Ay adları tarih içinde değişen dil bunları `month-in-date-1`'den `month-in-date-12`'ye verir.
+- `quvyta.duration.*` ve `quvyta.time.*` — birimler, sayının yanında yazıldıkları hâlleriyle; Çincede bu, sözcüğün tek başına hâlinden kısadır. `*-words`, bir süre yazıldığında okunan bütün sözcükleri, uzun biçimler dahil, tutar.
 
 ## Kod
 

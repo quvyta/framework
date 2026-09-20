@@ -9,7 +9,8 @@ Show code people read, copy or compare: snippets in help, configuration previews
 3. React to copying: `.on_copy(Msg::Copied)`, for example to show a toast.
 4. Show a diff: `.line_marks(marks)` with one `LineMark::Added`, `Removed` or `Unchanged` per line.
 5. Point at lines: `.highlight_lines(12..=14, LineTone::Warning)` for findings, `LineTone::Accent` for the line someone went to.
-6. Go to a line: put the code view in a `ScrollView` and add `.reveal(line)`; the scroll view glides just far enough to show it.
+6. Go to a line: put the code view in a `ScrollView` and add `.reveal(line)`; the scroll view glides just far enough to show it. In a diff, go by the file's own number instead: `.reveal_number(22)`.
+7. A diff that starts part way into a file: `.line_numbers_from(numbers)`, one number per line and `None` where a line has none, such as a hunk header.
 
 ## How it works
 
@@ -21,6 +22,8 @@ Show code people read, copy or compare: snippets in help, configuration previews
 - **Copy with one key.** Focus the block with Tab and press `c`: the code goes to the clipboard, also over SSH, and the block flashes.
 - **The surface is its frame.** A code block is a slightly raised surface with padding; no borders.
 - **Selectable by itself.** A drag inside the code selects text and stays in the block, never its padding. Copy (`ctrl c` or the right click menu) leaves the line numbers out; Raw copy keeps them. Turn selection off with `.selectable(false)` on the node.
+
+- **A diff's numbers belong to the files, not to the text.** A diff stands the lines of two versions one after another, so counting from the top numbers neither of them: a finding that says `PKGBUILD:22` would point at the wrong line. With `.line_marks(...)` the numbers follow the files instead — a removed line carries the old file's number, an added line the new file's, and a line in both carries the new file's. `.reveal_number(22)` then goes to the line that number means; where a removed line and an added line share a number, the line the new file numbers that way is the one reached, because that is the file a finding is about.
 
 ## Styling with a theme
 

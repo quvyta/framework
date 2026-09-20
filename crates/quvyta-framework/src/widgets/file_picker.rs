@@ -243,7 +243,7 @@ fn format_size(bytes: u64) -> String {
         value /= 1024.0;
         unit += 1;
     }
-    format!("{value:.1} {}", UNITS[unit])
+    format!("{} {}", crate::i18n::number(value, 1), UNITS[unit])
 }
 
 /// Cells kept after the path for the reading spinner: a gap and the spinner, so the segments

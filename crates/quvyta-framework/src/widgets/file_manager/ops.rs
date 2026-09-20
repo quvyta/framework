@@ -454,8 +454,11 @@ pub(super) fn copy_watched(
     match copy_tree(&from, &to, total, &mut written, watch) {
         Ok(()) => Ok(FileChange::Copied(child_key(into, name))),
         Err(problem) => {
-            // A copy that stopped leaves nothing behind: half a file is worse than no file, and
-            // the person who cancelled did not ask for one.
+            // A copy that stopped takes its half a file with it: half a file is worse than no
+            // file, and the person who cancelled did not ask for one. Should the removal itself
+            // be refused there is nothing better to say than why the copy failed, which is the
+            // error below and the one the person asked about; `to` is a name this call made and
+            // never one of theirs, so what is left behind is never a file they had.
             let _ = fs::symlink_metadata(&to)
                 .map(|meta| if meta.is_dir() { fs::remove_dir_all(&to) } else { fs::remove_file(&to) });
             Err(problem)

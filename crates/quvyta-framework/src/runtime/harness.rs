@@ -10,6 +10,7 @@ use super::app::App;
 use super::detached::DetachedOutcome;
 use super::engine::{Engine, TaskMode};
 use super::handoff::{HandoffOutcome, HandoffRequest};
+use super::open::{OpenOutcome, OpenRequest};
 use super::termination::Termination;
 use crate::color::{ColorDepth, Rgb};
 use crate::env::Env;
@@ -450,6 +451,24 @@ impl<A: App> Harness<A> {
     /// run ends.
     pub fn set_detached_outcome(&mut self, outcome: DetachedOutcome) -> &mut Self {
         self.engine.set_detached_outcome(outcome);
+        self
+    }
+
+    /// The openings of [`Command::open`](super::Command::open) and
+    /// [`Command::open_with`](super::Command::open_with) the application asked for, oldest first.
+    ///
+    /// A harness reaches no desktop: the opening is recorded and answered with the outcome of
+    /// [`Harness::set_open_outcome`] instead of starting anything. [`OpenRequest::target`] is
+    /// what was asked to be opened, so a test reads the address without knowing which opener
+    /// this system has.
+    #[must_use]
+    pub fn opens(&self) -> &[OpenRequest] {
+        self.engine.open_requests()
+    }
+
+    /// The outcome every opening from now on ends with; [`OpenOutcome::Opened`] without this.
+    pub fn set_open_outcome(&mut self, outcome: OpenOutcome) -> &mut Self {
+        self.engine.set_open_outcome(outcome);
         self
     }
 

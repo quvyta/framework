@@ -111,6 +111,20 @@ fn wide_characters_take_two_cells() {
 }
 
 #[test]
+fn text_is_asked_of_the_fonts_without_a_picture() {
+    // The same answer a drawn picture gives, for text that was never drawn: the nine languages'
+    // own letters are covered, emoji are not, and each missing character is named once.
+    assert!(crate::missing_in("Français Português Русский 日本語 中文 Türkçe Español Deutsch").is_empty());
+    assert_eq!(crate::missing_in("a 😀 b 😀 🚀"), vec!['😀', '🚀']);
+    // Whitespace has no glyph of its own and is never reported, or every sentence would be missing
+    // its spaces.
+    assert!(crate::missing_in(" \t\n").is_empty());
+    // The answer is the picture's answer: a screen drawn from the same text reports the same.
+    let cells: Vec<_> = "señor 😀".chars().map(|c| cell(&c.to_string())).collect();
+    assert_eq!(shot(screen(10, cells)).missing(), crate::missing_in("señor 😀"));
+}
+
+#[test]
 fn a_cjk_glyph_is_centred_in_its_two_cells() {
     // Drawn at the Latin size, the glyph is 15 px wide: 1.5 px of room on each side of 18.
     let wide = Cell { width: 2, ..cell("中") };

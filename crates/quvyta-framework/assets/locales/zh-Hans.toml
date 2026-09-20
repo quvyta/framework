@@ -41,6 +41,7 @@ unreadable = "无法读取此文件夹"
 [quvyta.file-manager]
 empty                    = "空"
 unreadable               = "无法读取此文件夹。"
+unreadable-short         = "无法读取"
 new-file                 = "新建文件"
 new-folder               = "新建文件夹"
 rename                   = "重命名"
@@ -133,12 +134,18 @@ empty     = "没有正在运行的任务"
 [quvyta.handoff]
 pause = "按任意键返回"
 
+[quvyta.number]
+# What this language writes between a number's whole part and its decimals.
+decimal = "."
+
 [quvyta.date]
 # 1 is Monday, 7 is Sunday.
 first-weekday = "1"
 format = "{year}年{month}{day}日"
 format-short = "{year}年{month}{day}日"
 format-day-month = "{month}{day}日"
+# The same without the year but with the whole month name, for a heading.
+format-day-month-long = "{month}{day}日"
 title = "{year}年{month}"
 month-1 = "1月"
 month-2 = "2月"
@@ -183,9 +190,9 @@ month-short-12 = "12月"
 clock = "{hour}:{minute}"
 hour = "{hour}"
 span = "{from}–{to}"
-hours-minutes = "{hours}小时{minutes}分钟"
+hours-minutes = "{hours}小时{minutes}分"
 hours = "{hours}小时"
-minutes = "{minutes}分钟"
+minutes = "{minutes}分"
 seconds = "{seconds}秒"
 
 [quvyta.timeline]
@@ -237,7 +244,7 @@ select-all = "全选"
 
 [quvyta.duration]
 hours   = "小时"
-minutes = "分钟"
+minutes = "分"
 seconds = "秒"
 hour-words   = "小时, 时, 钟头"
 minute-words = "分钟, 分"

@@ -439,6 +439,7 @@ impl TerminalSession {
 
     /// Ends the program.
     pub fn kill(&self) {
+        // Killing fails only when the program has already ended, which is what was asked for.
         let _ = lock(&self.process).killer.kill();
     }
 
@@ -691,6 +692,9 @@ impl TerminalWatch {
 
     fn resize(&self, size: (u16, u16)) {
         if let Some(process) = self.process.upgrade() {
+            // Telling the pseudo-terminal its new size fails only once the program is gone, and a
+            // program that is gone has no screen left to reflow. The parser below is set either
+            // way, so the widget keeps drawing the size it was given rather than the old one.
             let _ = lock(&process).master.resize(pty_size(size));
         }
         lock(&self.shared.parser).screen_mut().set_size(size.0.max(2), size.1.max(2));
@@ -860,6 +864,10 @@ mod tests {
         let session = sh("printf ready; read line; printf 'got %s' \"$line\"; exit 6").spawn().expect("pty");
         wait_for(&session, "ready");
         let watch = session.watch();
+        // The greeting may still be arriving in pieces, and a watch reports what lands after it
+        // was made, so whatever is already on its way is taken first. The question this test asks
+        // begins once the program has truly gone quiet.
+        while watch.next_change_within(BOUND).is_some() {}
         // Three times over, so giving up is not a one-off and nothing is left behind.
         for round in 1..=3 {
             let started = Instant::now();

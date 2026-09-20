@@ -322,6 +322,12 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
                 if entry.folder {
                     let open = state.is_open(&child);
                     node = node.expandable(true).expanded(open).loading(state.is_loading(&child));
+                    // A folder the system refused says so on its own row. Without this it opened
+                    // to nothing, which reads as an empty folder: the person would be told a
+                    // folder they may not look into holds nothing.
+                    if state.folder_error(&child).is_some() {
+                        node = node.detail(crate::t!("quvyta.file-manager.unreadable-short"));
+                    }
                     if open {
                         node = node.children(self.nodes(&child));
                     }

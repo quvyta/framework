@@ -41,6 +41,7 @@ unreadable = "No se pudo leer esta carpeta"
 [quvyta.file-manager]
 empty                    = "vacía"
 unreadable               = "No se pudo leer esta carpeta."
+unreadable-short         = "no se puede leer"
 new-file                 = "Nuevo archivo"
 new-folder               = "Nueva carpeta"
 rename                   = "Cambiar el nombre"
@@ -133,12 +134,18 @@ empty     = "No hay tareas en curso"
 [quvyta.handoff]
 pause = "Pulsa cualquier tecla para volver"
 
+[quvyta.number]
+# What this language writes between a number's whole part and its decimals.
+decimal = ","
+
 [quvyta.date]
 # 1 is Monday, 7 is Sunday.
 first-weekday = "1"
 format = "{day} de {month} de {year}"
 format-short = "{day} {month} {year}"
 format-day-month = "{day} {month}"
+# The same without the year but with the whole month name, for a heading.
+format-day-month-long = "{day} de {month}"
 title = "{month} de {year}"
 month-1 = "Enero"
 month-2 = "Febrero"

@@ -55,6 +55,9 @@ struct NumberMemory {
     draft: String,
     /// The value the draft was last written from or sent as.
     seen: Option<f64>,
+    /// The decimal separator the draft was written with, so a language changed while the field
+    /// stands there rewrites it instead of leaving the old language's point on screen.
+    separator: Option<char>,
     /// The stepper segment that was clicked last: 0 down, 1 up.
     pressed: Option<usize>,
 }
@@ -124,32 +127,33 @@ impl<Msg: 'static> NumberInput<Msg> {
         self
     }
 
-    /// The draft, rewritten from the value when the application changed it.
-    fn draft(&self, memory: &mut NumberMemory) -> String {
-        if memory.seen != Some(self.value) {
-            memory.draft = self.steps.write(self.value);
+    /// The draft, rewritten from the value when the application changed it or the language did.
+    fn draft(&self, memory: &mut NumberMemory, separator: char) -> String {
+        if memory.seen != Some(self.value) || memory.separator != Some(separator) {
+            memory.draft = self.steps.write_with(self.value, separator);
             memory.seen = Some(self.value);
+            memory.separator = Some(separator);
         }
         memory.draft.clone()
     }
 
     /// The number in `draft` when it is one inside the range.
-    fn parse(&self, draft: &str) -> Option<f64> {
-        let value = draft.parse::<f64>().ok().filter(|value| value.is_finite())?;
+    fn parse(&self, draft: &str, separator: char) -> Option<f64> {
+        let value = read(draft, separator)?;
         (value >= self.steps.min && value <= self.steps.max).then_some(value)
     }
 
     /// The text field that edits `draft`; it is invalid while the draft is not a number in the
     /// range.
-    fn field(&self, draft: String) -> TextInput<Msg> {
+    fn field(&self, draft: String, separator: char) -> TextInput<Msg> {
         let negative = self.steps.min < 0.0;
         let decimal = self.steps.decimals() > 0;
-        let broken = !draft.is_empty() && self.parse(&draft).is_none();
+        let broken = !draft.is_empty() && self.parse(&draft, separator).is_none();
         TextInput::new(draft)
             .placeholder(self.placeholder.clone())
             .invalid(self.invalid || broken)
             .disabled(self.disabled)
-            .accept(move |c| c.is_ascii_digit() || (negative && c == '-') || (decimal && c == '.'))
+            .accept(move |c| c.is_ascii_digit() || (negative && c == '-') || (decimal && (c == '.' || c == separator)))
     }
 
     /// The two stepper segments inside `area`: down, then up.
@@ -165,12 +169,14 @@ impl<Msg: 'static> NumberInput<Msg> {
     /// Moves the value by `count` steps from the draft (or the value when the draft is not a
     /// number) and sends it.
     fn nudge(&self, cx: &mut EventCx<'_, Msg>, count: f64) {
+        let separator = cx.env().i18n().decimal_separator();
         let memory = cx.memory::<NumberMemory>();
-        let draft = self.draft(memory);
-        let base = draft.parse::<f64>().ok().filter(|value| value.is_finite()).unwrap_or(self.value);
+        let draft = self.draft(memory, separator);
+        let base = read(&draft, separator).unwrap_or(self.value);
         let value = self.steps.clamp(base + count * self.steps.step);
-        memory.draft = self.steps.write(value);
+        memory.draft = self.steps.write_with(value, separator);
         memory.seen = Some(value);
+        memory.separator = Some(separator);
         if value != self.value
             && let Some(message) = &self.on_change
         {
@@ -201,10 +207,11 @@ impl<Msg: 'static> Widget<Msg> for NumberInput<Msg> {
     }
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
-        let draft = self.draft(cx.memory::<NumberMemory>());
+        let separator = cx.env().i18n().decimal_separator();
+        let draft = self.draft(cx.memory::<NumberMemory>(), separator);
         let segments = self.segments(area);
         let field_width = area.width.saturating_sub(if segments.is_some() { SEGMENT * 2 } else { 0 });
-        self.field(draft).paint(cx, Rect::new(area.x, area.y, field_width, area.height));
+        self.field(draft, separator).paint(cx, Rect::new(area.x, area.y, field_width, area.height));
         let Some(segments) = segments else {
             return;
         };
@@ -240,8 +247,9 @@ impl<Msg: 'static> Widget<Msg> for NumberInput<Msg> {
     }
 
     fn paint_overlay(&self, cx: &mut PaintCx<'_>, anchor: Rect) {
-        let draft = self.draft(cx.memory::<NumberMemory>());
-        self.field(draft).paint_overlay(cx, anchor);
+        let separator = cx.env().i18n().decimal_separator();
+        let draft = self.draft(cx.memory::<NumberMemory>(), separator);
+        self.field(draft, separator).paint_overlay(cx, anchor);
     }
 
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
@@ -288,10 +296,11 @@ impl<Msg: 'static> Widget<Msg> for NumberInput<Msg> {
             }
             Event::Paste(_) | Event::PointerOutside => {}
         }
-        let draft = self.draft(cx.memory::<NumberMemory>());
-        let edit = self.field(draft).edit(cx, event);
+        let separator = cx.env().i18n().decimal_separator();
+        let draft = self.draft(cx.memory::<NumberMemory>(), separator);
+        let edit = self.field(draft, separator).edit(cx, event);
         if let Some(text) = edit.changed {
-            let value = self.parse(&text);
+            let value = self.parse(&text, separator);
             let memory = cx.memory::<NumberMemory>();
             memory.draft = text;
             if let Some(value) = value
@@ -309,6 +318,13 @@ impl<Msg: 'static> Widget<Msg> for NumberInput<Msg> {
     fn focusable(&self) -> bool {
         !self.disabled
     }
+}
+
+/// The number `text` holds, written either with `separator`, the language's own, or with a point,
+/// which a numeric keypad gives whatever the language is.
+fn read(text: &str, separator: char) -> Option<f64> {
+    let text = if separator == '.' { text.to_owned() } else { text.replace(separator, ".") };
+    text.parse::<f64>().ok().filter(|value| value.is_finite())
 }
 
 #[cfg(test)]
@@ -344,6 +360,23 @@ mod tests {
 
     fn harness(value: f64, steppers: bool, step: f64) -> Harness<Demo> {
         Harness::new(Demo { value, steppers, step }, 20, 1)
+    }
+
+    #[test]
+    fn the_field_writes_and_reads_the_language_s_own_decimal_separator() {
+        let mut h = harness(3.0, false, 0.5);
+        assert_eq!(h.screen(), "  ❯ 3.0\n", "English writes a point");
+        h.set_locale("fr");
+        assert_eq!(h.screen(), "  ❯ 3,0\n", "a language changed while the field stands there rewrites it");
+        // The comma the field shows is the one that can be typed into it.
+        h.press("tab").press("backspace").type_text("5");
+        assert_eq!(h.screen(), "▌ ❯ 3,5\n");
+        assert_eq!(h.app().value, 3.5, "the comma reached the value");
+        // A numeric keypad gives a point whatever the language is, and it reads the same.
+        h.press("backspace").type_text("5");
+        assert_eq!(h.app().value, 3.5);
+        h.set_locale("en");
+        assert_eq!(h.screen(), "▌ ❯ 3.5\n", "and back the other way");
     }
 
     #[test]

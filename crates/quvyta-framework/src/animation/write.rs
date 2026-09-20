@@ -13,6 +13,8 @@ impl CellAnimation {
     #[must_use]
     pub fn to_toml(&self, name: &str) -> String {
         let mut out = format!("[animations.{name}]\n");
+        // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+        // results are dropped for that reason and no other.
         let _ = writeln!(out, "frame = {}", quoted(&self.frame_time.to_string()));
         let _ = writeln!(out, "playback = {}", quoted(self.playback.name()));
         let _ = writeln!(out, "colors = {}", quoted(self.colors.name()));
@@ -44,6 +46,8 @@ impl CellAnimation {
 /// `text` as a TOML basic string.
 fn quoted(text: &str) -> String {
     let mut out = String::from("\"");
+    // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+    // results are dropped for that reason and no other.
     for c in text.chars() {
         match c {
             '"' => out.push_str("\\\""),

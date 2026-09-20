@@ -133,6 +133,10 @@ pub(crate) struct Engine<A: App> {
     detached_requests: Vec<HandoffRequest>,
     /// The outcome a harness gives every detached handoff.
     detached_outcome: DetachedOutcome,
+    /// Openings a harness recorded instead of starting, oldest first.
+    open_requests: Vec<crate::runtime::OpenRequest>,
+    /// The outcome a harness answers every opening with.
+    open_outcome: crate::runtime::OpenOutcome,
     /// Starts the threads of performs and tasks; tests swap in one that fails.
     pub(crate) spawner: task::Spawner,
     pub(crate) clipboard: Vec<String>,
@@ -198,6 +202,8 @@ impl<A: App> Engine<A> {
             handoff_outcome: HandoffOutcome::Finished { code: Some(0) },
             detached_requests: Vec::new(),
             detached_outcome: DetachedOutcome::Finished { code: Some(0) },
+            open_requests: Vec::new(),
+            open_outcome: crate::runtime::OpenOutcome::Opened,
             spawner: task::spawn_thread,
             clipboard: Vec::new(),
             clipboard_text: None,
@@ -577,6 +583,18 @@ impl<A: App> Engine<A> {
                     }
                     TaskMode::Threads => self.handoffs.push(HandOver::Detach(handoff)),
                 },
+                Action::Open(open) => match self.task_mode {
+                    // Nothing of the desktop is reached from a test: the opening is recorded and
+                    // the outcome the test set answers it, from the loop like perform work.
+                    TaskMode::Inline => {
+                        self.open_requests.push(open.request());
+                        let outcome = self.open_outcome.clone();
+                        if let Some(message) = open.finish(outcome) {
+                            self.queued_work.push(Box::new(move || message));
+                        }
+                    }
+                    TaskMode::Threads => self.open_on_thread(open),
+                },
             }
         }
     }
@@ -603,6 +621,41 @@ impl<A: App> Engine<A> {
             self.pending_tasks += 1;
         } else if let Some(work) = slot.lock().ok().and_then(|mut slot| slot.take()) {
             self.queued_work.push(work);
+        }
+    }
+
+    /// Starts an opening on a thread of its own: the program is spawned there and the message
+    /// sent from there, so the loop never waits for a process to start.
+    ///
+    /// The loop is told the work is over as soon as the message is on its way, and only then is
+    /// the child waited for: an opener may live as long as the window it opened, and nothing
+    /// should wait for that. When no thread can start, the program is started from the loop
+    /// instead, so the message still arrives.
+    fn open_on_thread(&mut self, open: crate::runtime::Open<A::Msg>) {
+        let sender = self.tasks.0.clone();
+        let slot = Arc::new(Mutex::new(Some(open)));
+        let shared = Arc::clone(&slot);
+        let run = Box::new(move || {
+            let Some(open) = shared.lock().ok().and_then(|mut slot| slot.take()) else {
+                let _ = sender.send(Delivery::Ended);
+                return;
+            };
+            let (message, child) = open.start();
+            if let Some(message) = message {
+                let _ = sender.send(Delivery::Message(message));
+            }
+            let _ = sender.send(Delivery::Ended);
+            if let Some(mut child) = child {
+                let _ = child.wait();
+            }
+        });
+        if (self.spawner)("quvyta-open".to_owned(), run).is_ok() {
+            self.pending_tasks += 1;
+        } else if let Some(open) = slot.lock().ok().and_then(|mut slot| slot.take()) {
+            let (message, _child) = open.start();
+            if let Some(message) = message {
+                self.queued_work.push(Box::new(move || message));
+            }
         }
     }
 
@@ -633,6 +686,16 @@ impl<A: App> Engine<A> {
     /// Sets the outcome a harness answers every detached handoff with.
     pub(crate) fn set_detached_outcome(&mut self, outcome: DetachedOutcome) {
         self.detached_outcome = outcome;
+    }
+
+    /// Openings a harness recorded, oldest first.
+    pub(crate) fn open_requests(&self) -> &[crate::runtime::OpenRequest] {
+        &self.open_requests
+    }
+
+    /// Sets the outcome a harness answers every opening with.
+    pub(crate) fn set_open_outcome(&mut self, outcome: crate::runtime::OpenOutcome) {
+        self.open_outcome = outcome;
     }
 
     /// Where background work hands the loop its messages, for a detached child's lines.

@@ -3,9 +3,11 @@
 - `CodeView::new(kod, dil)` — `Language::Rust`, `Language::Toml`, `Language::Shell` ya da `Language::Plain`.
 - `.line_numbers(bool)` — Varsayılan: `true`.
 - `.on_copy(msg)` — `c` ile kopyalandıktan sonra gönderilir.
-- `.line_marks(işaretler)` — 1. satırdan başlayarak her satıra bir `LineMark`: `Added` (yeşil ton, `+`), `Removed` (kırmızı ton, `−`), `Unchanged`. Varsayılan: yok.
+- `.line_marks(işaretler)` — 1. satırdan başlayarak her satıra bir `LineMark`: `Added` (yeşil ton, `+`), `Removed` (kırmızı ton, `−`), `Unchanged`. Varsayılan: yok. Satır numaraları o zaman metni değil dosyaları izler: silinen satır eski dosyanın numarasını, eklenen satır yeni dosyanınkini, ikisinde de olan satır yeni dosyanınkini taşır.
 - `.highlight_lines(aralık, ton)` — satırlar 1'den sayılır, `4..=6` ya da `9..` gibi her aralık olur; `LineTone::Accent` (dikey çubuk) ya da `LineTone::Warning` (uyarı ikonu). Fark işaretini geçer; aralıklar çakışınca sonraki çağrı kazanır.
 - `.reveal(satır)` — satır değişince çevreleyen `ScrollView` satırı iki satır bağlamla gösterir; kayarak, hareket azaltılmışsa bir anda. Sonu geçerse son satır.
+- `.reveal_number(numara)` — aynısı, satırın metindeki yeri yerine yanında yazan numarasıyla. Silinen ve eklenen bir satır aynı numarayı taşıdığında yeni dosyanın o numarayı verdiği satıra gidilir; hiçbir satırın taşımadığı numara hiçbir yere kaydırmaz. `.reveal(...)` ile birlikte verilirse bu kazanır.
+- `.line_numbers_from(numaralar)` — 1. satırdan başlayarak her satıra bir `Option<usize>`; `None` o satırın sütununu boş bırakır, son numaradan sonraki satırlar da boştur. `.line_marks(...)`'ın ima ettiği numaraları geçer. Varsayılan: yok.
 
 ## Tuşlar
 

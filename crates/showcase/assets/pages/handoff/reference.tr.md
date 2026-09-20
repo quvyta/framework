@@ -19,6 +19,13 @@
 - `LiveChild::for_tests() -> (LiveChild, TestChild)`; `TestChild`: `say(satır)`, `exit(kod)`, `written() -> Vec<String>`, `stdin_open() -> bool`, `killed() -> bool`.
 - `Harness::detached_handoffs() -> &[HandoffRequest]`, `Harness::set_detached_outcome(outcome)` — teslimdeki gibi; verilmezse `Finished { code: Some(0) }`.
 
+- `Command::open(hedef)` — bu masaüstünün açıcısını `hedef` (bir adres, bir dosya, bir klasör) ile uygulamanın yanında başlatır, mesajsız. `Command::open_with(open)` bir `Open` alır.
+- `Open::new(hedef)` — masaüstünün açıcısı: `xdg-open`, macOS'te `open`, Windows'ta `cmd /C start`. `Open::program(ad)` onun yerine o programı başlatır.
+- `Open::arg(arg)`, `Open::args(args)`, `Open::dir(yol)`, `Open::env(anahtar, değer)` — teslimdeki gibidir.
+- `Open::answer(|outcome| mesaj)` — isteğe bağlı; verilmezse hiçbir şey iletilmez.
+- `OpenOutcome::Opened` — program, verilen şeyle başlatıldı. `OpenOutcome::Failed(sebep)` — hiç başlatılamadı.
+- `OpenRequest { program, args, target }` — bir `Harness`'ın kaydettiği; `target`, `Open::new`'e verilen şeydir ve `Open::program`'dan sonra `None`'dır.
+- `Harness::opens() -> &[OpenRequest]`, `Harness::set_open_outcome(outcome)` — verilmezse `Opened`.
 ## Davranış
 
 - Teslim çizim iş parçacığında olur ve uygulama bekler. Arka plan işleri çalışmaya devam eder; mesajları teslimden sonra uygulanır.
@@ -34,6 +41,10 @@
 - Programın çıktısını başından beri tek bir iş parçacığı okur, bu yüzden ilk satırdan sonraki hiçbir satır kaybolmaz; uygulamanın okuduğundan hızlı yazan program dolu borusunda bekler. Her satır döngüyü hemen uyandırır.
 - İlk satırını yazmadan biten program `Finished { code }` ile biter; çıktısını kapatıp çalışmayı sürdüren program, girdisi kapatılarak, teslimin programı gibi beklenir.
 - Son `LiveChild` kopyası bırakılınca programın standart girdisi kapanır; uygulamanın durumu çalışma bitince bırakıldığı için girdisinin sonunda biten bir yardımcı uygulamadan fazla yaşamaz.
+
+- Açma hiçbir şeyi teslim etmez: ekran bırakılmaz ve hiçbir şey yeniden çizilmez. Program kendi iş parçacığında, standart akışları boş aygıta bağlı ve Unix'te kendi süreç grubunda başlatılır; böylece tuşların sinyalleri ona hiç ulaşmaz ve uygulamadan sonra da yaşar.
+- Mesaj, program başlatılır başlatılmaz iletilir; çocuk ancak ondan sonra beklenir, çünkü bir açıcı açtığı pencere kadar yaşayabilir. Bu yüzden `Opened` yalnızca hedefin açıcıya verildiğini söyler: masaüstünün bir şey gösterip göstermediği terminalin ulaşabileceği bir şey değildir.
+- `Harness` hiçbir masaüstüne ulaşmaz: açma kaydedilir ve testin verdiği sonuçla cevaplanır; mesaj, `Command::perform` işinde olduğu gibi sonraki bir güncellemede gelir.
 
 ## Tema ve ikonlar
 

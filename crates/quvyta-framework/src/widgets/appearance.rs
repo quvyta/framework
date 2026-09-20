@@ -12,9 +12,22 @@ use crate::widget::Length;
 
 use super::{Checkbox, Segmented, Select, SettingRow, SettingsRows, Switch};
 
-/// Cells a choice takes beside its label, wide enough for the longest built-in theme and
-/// language names.
-const CHOICE_WIDTH: u16 = 18;
+/// Narrowest a choice is drawn at, so the three rows keep one column even when every name in
+/// them is short.
+const CHOICE_MIN: u16 = 18;
+
+/// Widest a choice is drawn at, a little over half of the narrow width the catalogue promises: a
+/// name longer than this is cut rather than left to take the row from its label. No built-in
+/// language, theme or icon name is near it.
+const CHOICE_MAX: u16 = 28;
+
+/// Cells a choice needs to show the longest of `names` whole: the name itself, the three the
+/// chevron and the space before it take, and the ground a [`Select`] leaves at each side, which
+/// the theme decides and which is why it is asked for rather than assumed.
+fn choice_width(names: &[String], padding: u16) -> u16 {
+    let longest = names.iter().map(|name| crate::text::width(name)).max().unwrap_or(0);
+    crate::widgets::cells::sum([longest, 3, padding.saturating_mul(2)]).clamp(CHOICE_MIN, CHOICE_MAX)
+}
 
 /// A change made on the [`Appearance`] rows. The application hands it back to
 /// [`Appearance::update`], which saves it and returns the command that shows it.
@@ -165,6 +178,23 @@ impl Appearance {
         let themes = env.themes();
         let theme = env.theme().id().to_owned();
         let icons = env.icon_mode();
+        let icon_names = IconMode::ALL.map(|mode| crate::t!(&format!("quvyta.appearance.icons-{}", mode.name())));
+
+        // One width for the three rows, from the longest name any of them offers: a language list
+        // whose longest name is `Português (Brasil)` needs more than the built-in themes do, and a
+        // column that changed width from row to row would read as three controls, not one group.
+        // The ground a select leaves at its sides is the theme's, so the width is asked of the
+        // theme rather than assumed; without it the name is cut by exactly that much.
+        let padding = env.theme().style("select", None, &[]).pair("padding").map_or(1, |(_, horizontal)| horizontal);
+        let width = choice_width(
+            &languages
+                .iter()
+                .map(|(_, name)| name.clone())
+                .chain(themes.iter().map(|(_, name)| name.clone()))
+                .chain(icon_names.iter().cloned())
+                .collect::<Vec<String>>(),
+            padding,
+        );
 
         let codes: Vec<String> = languages.iter().map(|(code, _)| code.clone()).collect();
         let chosen = codes.iter().position(|code| *code == active);
@@ -174,7 +204,7 @@ impl Appearance {
             let select = Select::new(names)
                 .selected(chosen)
                 .on_select(move |index| send(AppearanceChange::Language(codes[index].clone())));
-            ui.add(select).width(Length::Cells(CHOICE_WIDTH));
+            ui.add(select).width(Length::Cells(width));
         });
         self.everywhere(list, Shared::Language, &message);
 
@@ -186,18 +216,17 @@ impl Appearance {
             let select = Select::new(names)
                 .selected(chosen)
                 .on_select(move |index| send(AppearanceChange::Theme(ids[index].clone())));
-            ui.add(select).width(Length::Cells(CHOICE_WIDTH));
+            ui.add(select).width(Length::Cells(width));
         });
         self.everywhere(list, Shared::Theme, &message);
 
         let chosen = IconMode::ALL.iter().position(|mode| *mode == icons);
         let send = message.clone();
         list.row(self.row(Row::Shared(Shared::Icons), crate::t!("quvyta.appearance.icons")), |ui| {
-            let names = IconMode::ALL.map(|mode| crate::t!(&format!("quvyta.appearance.icons-{}", mode.name())));
-            let select = Select::new(names)
+            let select = Select::new(icon_names)
                 .selected(chosen)
                 .on_select(move |index| send(AppearanceChange::Icons(IconMode::ALL[index])));
-            ui.add(select).width(Length::Cells(CHOICE_WIDTH));
+            ui.add(select).width(Length::Cells(width));
         });
         self.everywhere(list, Shared::Icons, &message);
     }

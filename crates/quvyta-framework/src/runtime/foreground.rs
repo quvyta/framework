@@ -79,6 +79,10 @@ impl Foreground {
             if let Ok(Some(_)) = child.try_wait() {
                 return Ok((child, Self { lent: None, _only_one: only_one }));
             }
+            // The program never got the terminal, so it must not keep running unseen. The kill
+            // fails only on a group already gone, and the wait collects it rather than asking
+            // anything; the error the caller hears is why the handover failed, which is the one
+            // that explains what happened.
             let _ = kill_process_group(group, Signal::KILL);
             let _ = child.wait();
             return Err(error.into());
@@ -107,6 +111,9 @@ impl Foreground {
             if let Ok(Some(state)) = waitid(WaitId::Pid(pid), options)
                 && state.stopped()
             {
+                // The stop was only looked at; it is taken now so the next look sees what comes
+                // after it, and the group is let go on. Both fail only on a program that ended
+                // in between, which `try_wait` below is about to report properly.
                 let _ = waitid(WaitId::Pid(pid), WaitIdOptions::STOPPED | WaitIdOptions::NOHANG);
                 let _ = kill_process_group(*group, Signal::CONT);
             }
@@ -127,6 +134,10 @@ impl Foreground {
 impl Drop for Foreground {
     fn drop(&mut self) {
         if let Some((terminal, _)) = self.lent.take() {
+            // A drop has nobody to report to, which is why `take` exists beside it: every path
+            // that can say something calls that one and carries the error up. This is the last
+            // resort on a path that is already unwinding or ending, and taking the terminal back
+            // as far as it goes beats leaving the person's shell in raw mode.
             let _ = terminal.take_back();
         }
     }
@@ -215,6 +226,7 @@ mod tests {
     const PROGRAM: &str = r#"
 set -- $(cat /proc/$$/stat); echo "$5 $6 $7" > "$D/child"
 while set -- $(cat /proc/$$/stat); [ "$5" != "$8" ]; do sleep 0.01; done
+trap 'echo on >> "$D/continued"' CONT
 trap 'echo interrupted > "$D/interrupted"; exit 42' INT
 touch "$D/ready"
 while :; do sleep 0.05; done
@@ -288,6 +300,7 @@ while :; do sleep 0.05; done
     const DETACHED_PROGRAM: &str = r#"
 set -- $(cat /proc/$$/stat); echo "$5 $6 $7" > "$D/child"
 while set -- $(cat /proc/$$/stat); [ "$5" != "$8" ]; do sleep 0.01; done
+trap 'echo on >> "$D/continued"' CONT
 trap 'echo interrupted > "$D/interrupted"; echo ready; exec cat' INT
 touch "$D/ready"
 while :; do sleep 0.05; done
@@ -443,8 +456,30 @@ while :; do sleep 0.05; done
             wait_for(&dir.join("ready"), "the program owning the terminal", &output);
             // `Ctrl-Z` first: the program stops, and a handoff that did not let it go on would
             // wait forever, since the interrupt below stays pending on a stopped program.
+            //
+            // The interrupt may only follow once that stop has been answered. Both keys sit in
+            // the terminal's input together otherwise, and which signal the program handles
+            // first is then the machine's to decide: with the interrupt first the program ends
+            // (or, in the detached test, execs `cat`) and the stop lands on what is left, which
+            // nothing is waiting to continue any more — the session never ends and the test
+            // hangs until its patience runs out. Waiting on `/proc` for the stopped state does
+            // not help, because the handoff continues the program at once and a poll can miss
+            // the moment entirely. The program's own `CONT` trap cannot be missed: it appends a
+            // line that stays. The count is read first because the handoff also continues the
+            // program's group when it hands the terminal over, which is a line already there.
+            let continued = dir.join("continued");
+            let lines = |path: &Path| std::fs::read_to_string(path).unwrap_or_default().lines().count();
+            let before = lines(&continued);
             controller.write_all(b"\x1a").expect("Ctrl-Z");
-            std::thread::sleep(Duration::from_millis(300));
+            let started = Instant::now();
+            while lines(&continued) == before {
+                assert!(
+                    started.elapsed() < PATIENCE,
+                    "the program never stopped and went on again; the terminal showed:\n{}",
+                    String::from_utf8_lossy(&output.lock().expect("output"))
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
             controller.write_all(b"\x03").expect("Ctrl-C");
         }
         let started = Instant::now();
@@ -459,9 +494,14 @@ while :; do sleep 0.05; done
             }
             std::thread::sleep(Duration::from_millis(20));
         };
+        // Waited for, not merely dropped: the session ending says nothing about the reader having
+        // taken the last of what it wrote. Read straight after the wait above, the output is
+        // whatever happened to have arrived, and on a loaded machine the inner test's result line
+        // is regularly still in flight — the assertions below then fail on a test that passed.
+        // Every terminal device of the session is closed once it has ended, so the read ends too.
         drop(controller);
+        reader.join().expect("the reader of the terminal");
         let shown = String::from_utf8_lossy(&output.lock().expect("output")).into_owned();
-        drop(reader);
         assert!(status.success(), "the test inside the terminal failed ({status}):\n{shown}");
         assert!(shown.contains("1 passed"), "the test inside the terminal ran:\n{shown}");
         std::fs::remove_dir_all(&dir).expect("clean");

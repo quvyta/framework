@@ -307,7 +307,7 @@ impl<Msg> BarChart<Msg> {
 
     /// `value` as text, with the chart's unit when it has one.
     fn format(&self, value: f32) -> String {
-        let number = if value.fract() == 0.0 { format!("{value:.0}") } else { format!("{value:.1}") };
+        let number = crate::i18n::number(f64::from(value), usize::from(value.fract() != 0.0));
         match &self.unit {
             Some(unit) => format!("{number} {unit}"),
             None => number,

@@ -41,6 +41,7 @@ unreadable = "このフォルダーを読み込めませんでした"
 [quvyta.file-manager]
 empty                    = "空"
 unreadable               = "このフォルダーを読み取れませんでした。"
+unreadable-short         = "読み取れません"
 new-file                 = "新しいファイル"
 new-folder               = "新しいフォルダー"
 rename                   = "名前を変える"
@@ -133,12 +134,18 @@ empty     = "実行中のタスクはありません"
 [quvyta.handoff]
 pause = "何かキーを押すと戻ります"
 
+[quvyta.number]
+# What this language writes between a number's whole part and its decimals.
+decimal = "."
+
 [quvyta.date]
 # 1 is Monday, 7 is Sunday. Japanese calendars start on Sunday.
 first-weekday = "7"
 format = "{year}年{month}{day}日"
 format-short = "{year}年{month}{day}日"
 format-day-month = "{month}{day}日"
+# The same without the year but with the whole month name, for a heading.
+format-day-month-long = "{month}{day}日"
 title = "{year}年{month}"
 month-1 = "1月"
 month-2 = "2月"

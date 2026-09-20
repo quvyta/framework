@@ -54,6 +54,10 @@ const BIG: usize = 6 * 1024 * 1024;
 
 /// Makes the three folders the playground offers, with a small tree in the first.
 fn make_demo(demo: &Path) {
+    // Every write here is best effort on purpose. The folder is this run's own under the
+    // temporary folder and nothing of the person's is in it, and a page that could not make its
+    // playground shows the manager's own unreadable or empty state, which is a real state of the
+    // widget and not a lie. Stopping the page from opening would be worse than showing less.
     let files = demo.join("files");
     let _ = std::fs::create_dir_all(files.join("notes"));
     let _ = std::fs::create_dir_all(files.join("src"));
@@ -129,6 +133,9 @@ impl Default for State {
 impl Drop for State {
     /// Takes the demo folder away with the page, so a run leaves nothing in the temporary folder.
     fn drop(&mut self) {
+        // A drop has nobody to report to, and what is being removed is this run's own folder in
+        // the temporary folder, never one of the person's. The permissions are put back first or
+        // the folder below it cannot go.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

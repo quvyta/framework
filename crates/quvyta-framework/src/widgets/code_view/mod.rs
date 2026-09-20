@@ -182,8 +182,11 @@ pub struct CodeView<Msg> {
     language: Language,
     line_numbers: bool,
     marks: Vec<LineMark>,
+    /// The number each source line carries, when the caller gave them outright.
+    numbers: Option<Vec<Option<usize>>>,
     highlights: Vec<(usize, usize, LineTone)>,
     reveal: Option<usize>,
+    reveal_number: Option<usize>,
     on_copy: Option<Msg>,
 }
 
@@ -196,8 +199,10 @@ impl<Msg: 'static> CodeView<Msg> {
             language,
             line_numbers: true,
             marks: Vec::new(),
+            numbers: None,
             highlights: Vec::new(),
             reveal: None,
+            reveal_number: None,
             on_copy: None,
         }
     }
@@ -206,6 +211,13 @@ impl<Msg: 'static> CodeView<Msg> {
     /// past the last mark are unchanged. Added lines are tinted with the success colour and
     /// signed `+`, removed ones with the danger colour and `−`, in the sign column at the left
     /// edge.
+    ///
+    /// The line numbers then follow the files rather than the text: a diff puts the lines of two
+    /// versions one after another, so counting from the top would number neither file. A removed
+    /// line carries the old file's number, an added line the new file's, and a line in both
+    /// carries the new file's, which is the one a finding such as `PKGBUILD:22` means. Give
+    /// [`line_numbers_from`](Self::line_numbers_from) instead when the diff starts part way into
+    /// the file, and reach a line by its number with [`reveal_number`](Self::reveal_number).
     #[must_use]
     pub fn line_marks(mut self, marks: impl IntoIterator<Item = LineMark>) -> Self {
         self.marks = marks.into_iter().collect();
@@ -248,6 +260,75 @@ impl<Msg: 'static> CodeView<Msg> {
         self
     }
 
+    /// Gives each line its own number outright: the first number belongs to the first line of the
+    /// code, and `None` leaves that line's column blank, as a hunk header has no number of its
+    /// own. Lines past the last number are blank too.
+    ///
+    /// This is for a diff that starts part way into a file, where nothing in the text says the
+    /// hunk began at line 120. A whole-file diff needs only [`line_marks`](Self::line_marks),
+    /// which numbers the lines from the marks. Numbers given here win over that.
+    #[must_use]
+    pub fn line_numbers_from(mut self, numbers: impl IntoIterator<Item = Option<usize>>) -> Self {
+        self.numbers = Some(numbers.into_iter().collect());
+        self
+    }
+
+    /// Scrolls to the line whose number is `number`, the way [`reveal`](Self::reveal) scrolls to
+    /// a line of the text. In a diff the two are not the same line, so this is what a finding
+    /// that names a file and a line asks for.
+    ///
+    /// Two lines can carry one number — the line a version lost and the line that took its place.
+    /// The line the new file numbers that way is the one reached, because that is the file a
+    /// finding is about; a number only a removed line carries reaches that line. A number no line
+    /// carries scrolls nowhere. Given as well as [`reveal`](Self::reveal), this wins.
+    #[must_use]
+    pub fn reveal_number(mut self, number: usize) -> Self {
+        self.reveal_number = Some(number);
+        self
+    }
+
+    /// The number each source line is drawn with: the ones given outright, else the numbers the
+    /// diff marks imply, else the line's own place in the text.
+    fn numbers(&self) -> Vec<Option<usize>> {
+        let lines = self.code.split('\n').count();
+        if let Some(given) = &self.numbers {
+            return (0..lines).map(|index| given.get(index).copied().flatten()).collect();
+        }
+        if self.marks.is_empty() {
+            return (1..=lines).map(Some).collect();
+        }
+        let (mut old, mut new) = (0, 0);
+        (0..lines)
+            .map(|index| match self.marks.get(index) {
+                Some(LineMark::Removed) => {
+                    old += 1;
+                    Some(old)
+                }
+                Some(LineMark::Added) => {
+                    new += 1;
+                    Some(new)
+                }
+                Some(LineMark::Unchanged) | None => {
+                    old += 1;
+                    new += 1;
+                    Some(new)
+                }
+            })
+            .collect()
+    }
+
+    /// The source line `number` names, preferring the line the new file numbers that way over one
+    /// the old file lost.
+    fn line_of_number(&self, number: usize) -> Option<usize> {
+        let numbers = self.numbers();
+        let carries = |index: &usize| numbers.get(*index).copied().flatten() == Some(number);
+        let kept = |index: &usize| !matches!(self.marks.get(*index), Some(LineMark::Removed));
+        let index = (0..numbers.len())
+            .find(|index| carries(index) && kept(index))
+            .or_else(|| (0..numbers.len()).find(carries))?;
+        Some(index + 1)
+    }
+
     /// Message sent after the code was copied with `c`.
     #[must_use]
     pub fn on_copy(mut self, message: Msg) -> Self {
@@ -256,7 +337,15 @@ impl<Msg: 'static> CodeView<Msg> {
     }
 
     fn gutter(&self) -> u16 {
-        if self.line_numbers { gutter_width(&self.code) } else { 0 }
+        if !self.line_numbers {
+            return 0;
+        }
+        if self.numbers.is_none() && self.marks.is_empty() {
+            return gutter_width(&self.code);
+        }
+        // A diff's numbers are the files' own, which can be wider than the count of lines shown.
+        let widest = self.numbers().into_iter().flatten().max().unwrap_or(1);
+        text::width(&widest.to_string()).saturating_add(2)
     }
 
     /// Width of the sign column: a sign and a space when lines are marked or highlighted.
@@ -282,10 +371,29 @@ impl<Msg: 'static> CodeView<Msg> {
         }
     }
 
+    /// The rows of the code, each first row of a source line carrying the number that line is
+    /// drawn with.
+    fn numbered_rows(&self, width: u16) -> Vec<CodeRow> {
+        let mut rows = code_rows(&self.code, self.language, width);
+        if self.numbers.is_none() && self.marks.is_empty() {
+            return rows;
+        }
+        let numbers = self.numbers();
+        for row in &mut rows {
+            if row.number.is_some() {
+                row.number = row.line.checked_sub(1).and_then(|index| numbers.get(index).copied().flatten());
+            }
+        }
+        rows
+    }
+
     /// Tints marked and highlighted rows across `area` and draws their signs at `x`.
     fn paint_looks(&self, cx: &mut PaintCx<'_>, area: Rect, x: i32, top: i32, rows: &[CodeRow]) {
         for (index, row) in rows.iter().enumerate() {
             let Some((variant, sign)) = self.look(row.line) else { continue };
+            // A wrapped line signs only its first row, and a line without a number of its own —
+            // a hunk header — still signs.
+            let first_row = index == 0 || rows[index - 1].line != row.line;
             let y = top + i32::try_from(index).unwrap_or(i32::MAX);
             let style = cx.style("code-line", Some(variant), &[]);
             if let Some(bg) = style.color("bg") {
@@ -294,7 +402,7 @@ impl<Msg: 'static> CodeView<Msg> {
             let color = style.color("fg").unwrap_or_else(|| cx.color("text"));
             match sign {
                 Sign::Pillar => cx.pillar(x, y, color),
-                Sign::Icon(icon) if row.number.is_some() => {
+                Sign::Icon(icon) if first_row => {
                     let glyph = cx.env().icons().glyph(icon).into_owned();
                     cx.text(x, y, &glyph, CellStyle::fg(color), 1);
                 }
@@ -305,7 +413,11 @@ impl<Msg: 'static> CodeView<Msg> {
 
     /// Asks the enclosing scroll view to show the revealed line, once per line.
     fn request_reveal(&self, cx: &mut PaintCx<'_>, area: Rect, top: i32, rows: &[CodeRow]) {
-        let wanted = self.reveal.map(|line| line.clamp(1, rows.last().map_or(1, |row| row.line)));
+        let asked = match self.reveal_number {
+            Some(number) => self.line_of_number(number),
+            None => self.reveal,
+        };
+        let wanted = asked.map(|line| line.clamp(1, rows.last().map_or(1, |row| row.line)));
         let memory = cx.memory::<CodeMemory>();
         if memory.revealed == wanted {
             return;
@@ -352,7 +464,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for CodeView<Msg> {
         cx.selectable(inner);
         let (signs, gutter) = (self.signs(), self.gutter());
         let width = inner.width.saturating_sub(signs).saturating_sub(gutter).max(1);
-        let rows = code_rows(&self.code, self.language, width);
+        let rows = self.numbered_rows(width);
         if signs > 0 {
             // Signs say how a line changed; copies of the code leave them out like line numbers.
             cx.decoration(Rect::new(inner.x, inner.y, signs, inner.height));

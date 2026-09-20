@@ -84,6 +84,7 @@ pub fn close_mark_beside(harness: &Harness<Showcase>, title: &str) -> (Option<i3
 
 mod fuzz;
 mod reel;
+mod sweep;
 
 mod sweeps {
     use qframe::icons::GlyphMode;

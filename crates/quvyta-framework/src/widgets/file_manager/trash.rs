@@ -53,12 +53,17 @@ pub(super) fn move_to_trash(trash: &Path, path: &Path) -> Result<String, FileErr
     // two managers trashing the same name at the same moment cannot both win it.
     let (taken, note) = reserve(&info, &name)?;
     if let Err(problem) = write_info(&note, path) {
+        // The note is this call's own, made moments ago with `create_new`, so removing it can
+        // only fail because it is already gone. The error that is reported is the one the person
+        // asked about; a note left behind would cost the next trashing one name, nothing more.
         let _ = fs::remove_file(&note);
         return Err(problem);
     }
     match fs::rename(path, files.join(&taken)) {
         Ok(()) => Ok(taken),
         Err(problem) => {
+            // As above: the note is this call's own and the entry never moved, so the person is
+            // told why the trashing failed and nothing of theirs is touched.
             let _ = fs::remove_file(&note);
             // A rename across file systems is the specification's own limit, not the user's fault.
             Err(if problem.kind() == ErrorKind::CrossesDevices { FileError::NoTrash } else { problem.into() })

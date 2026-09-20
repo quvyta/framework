@@ -9,7 +9,8 @@
 3. Kopyalamaya tepki ver: `.on_copy(Msg::Copied)`, örneğin bir bildirim göstermek için.
 4. Fark göster: `.line_marks(işaretler)`, her satıra bir `LineMark::Added`, `Removed` ya da `Unchanged`.
 5. Satırları göster: bulgular için `.highlight_lines(12..=14, LineTone::Warning)`, gidilen satır için `LineTone::Accent`.
-6. Satıra git: kod görünümünü bir `ScrollView` içine koy ve `.reveal(satır)` ekle; kaydırma alanı satırı gösterecek kadar kayar.
+6. Satıra git: kod görünümünü bir `ScrollView` içine koy ve `.reveal(satır)` ekle; kaydırma alanı satırı gösterecek kadar kayar. Farkta bunun yerine dosyanın kendi numarasıyla git: `.reveal_number(22)`.
+7. Dosyanın ortasından başlayan bir fark: `.line_numbers_from(numaralar)`, her satıra bir numara ve numarası olmayan satıra (parça başlığı gibi) `None`.
 
 ## Nasıl çalışır
 
@@ -21,6 +22,8 @@
 - **Tek tuşla kopyala.** Bloğa Tab ile odaklan ve `c`'ye bas: kod panoya gider, SSH üzerinden de, blok parlar.
 - **Yüzey onun çerçevesidir.** Kod bloğu iç boşluklu, hafifçe yükseltilmiş bir yüzeydir; kenarlık yok.
 - **Kendiliğinden seçilebilir.** Kodun içinde sürüklemek metin seçer ve blokta kalır, iç boşluğa taşmaz. Kopyala (`ctrl c` ya da sağ tık menüsü) satır numaralarını almaz; Ham kopyala alır. Seçimi düğümde `.selectable(false)` ile kapat.
+
+- **Farkın numaraları metne değil, dosyalara aittir.** Fark, iki sürümün satırlarını arka arkaya dizer; baştan saymak bu yüzden ikisinden hiçbirini numaralamaz ve `PKGBUILD:22` diyen bir bulgu yanlış satırı gösterir. `.line_marks(...)` verildiğinde numaralar dosyaları izler: silinen satır eski dosyanın numarasını, eklenen satır yeni dosyanınkini, ikisinde de olan satır yeni dosyanınkini taşır. `.reveal_number(22)` o numaranın anlattığı satıra gider; silinen bir satırla eklenen bir satır aynı numarayı taşıdığında, yeni dosyanın o numarayı verdiği satıra gidilir, çünkü bulgu o dosya hakkındadır.
 
 ## Temayla özelleştirme
 

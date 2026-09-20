@@ -36,6 +36,9 @@
 //! [`Card`] puts a shot, an application's name and its one-sentence promise on a canvas of a
 //! fixed size: the picture a repository shows when its link is shared.
 //!
+//! [`missing_in`] asks the same of text alone, without drawing: an application can put every line
+//! of its language files to the embedded fonts in its own tests.
+//!
 //! [`Reel`] records a scripted visit of a harness as numbered frames and has ffmpeg join them
 //! into a GIF and an MP4.
 //!
@@ -44,6 +47,8 @@
 mod card;
 #[cfg(test)]
 mod coverage;
+#[cfg(test)]
+mod facts;
 mod font;
 mod geometry;
 mod png;
@@ -51,8 +56,11 @@ mod reel;
 mod screen;
 mod svg;
 #[cfg(test)]
+mod sweeps;
+#[cfg(test)]
 mod tests;
 
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -154,6 +162,25 @@ impl Shot {
         std::fs::write(with_extension(path, "svg"), svg)?;
         std::fs::write(with_extension(path, "png"), png)
     }
+}
+
+/// Characters of `text` no embedded font has a glyph for, answered without drawing anything.
+///
+/// The same question [`Shot::missing`] answers about a picture, asked of text alone, so an
+/// application can put every line of every language file to the fonts in its own tests instead of
+/// learning about a hole when someone happens to draw it. Whitespace is not asked about, and the
+/// answer is sorted and holds each character once. The weight makes no difference: a bold cell
+/// whose character only the regular face has is drawn regular, as terminals do.
+///
+/// ```
+/// assert!(qshots::missing_in("Français, Português, 日本語").is_empty());
+/// assert_eq!(qshots::missing_in("a 🦀 b"), vec!['🦀']);
+/// ```
+#[must_use]
+pub fn missing_in(text: &str) -> Vec<char> {
+    let missing: BTreeSet<char> =
+        text.chars().filter(|c| !c.is_whitespace() && font::glyph(*c, false).is_none()).collect();
+    missing.into_iter().collect()
 }
 
 /// `path` with `.extension` appended, keeping any dot already in the name (`home.v2` stays whole).

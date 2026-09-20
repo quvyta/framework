@@ -40,6 +40,19 @@ Some programs ask once and then serve the application for the rest of the sessio
 
 Until the first line everything above holds: `Ctrl-C` reaches the program, `Ctrl-Z` does not suspend, the session is kept. Only standard error stays the terminal, because `pkexec` and `sudo` ask on the controlling terminal itself, not on standard input. Afterwards the program runs in the background of the terminal; it should keep quiet on standard error from then on, since whatever it writes there lands on the application's screen.
 
+## Opening something on the person's own desktop
+
+A link that opens in the browser, a PDF that opens in the viewer, an image editor started on a file: none of that happens in the terminal, so there is nothing to step aside for. `Command::open` starts the program quietly beside the application, with its streams thrown away and a process group of its own, and the screen is left exactly as it is — no blink, nothing drawn again.
+
+1. The short way, when there is nothing to say about it: `Command::open("https://quvyta.com/guide")`. It takes an address, a file or a folder and gives it to this desktop's opener: `xdg-open`, `open` on macOS, `start` on Windows.
+2. With an answer: `Command::open_with(Open::new(address).answer(Msg::Opened))`. `OpenOutcome::Opened` says the opener was handed the target; `OpenOutcome::Failed(reason)` says nothing was started at all, because this desktop has no opener installed.
+3. A program of your own instead of the opener: `Open::program("gimp").arg(path)`, with `.dir(...)` and `.env(key, value)` as a handoff has them.
+4. In tests, `harness.opens()` shows what was asked for and `harness.set_open_outcome(...)` answers it; nothing on the desktop is ever reached from a test. `OpenRequest::target` is what you asked to open, so the test reads the address without knowing which opener the machine running it has.
+
+**`Opened` is not a promise that the person saw anything.** The opener is handed the target and that is the end of what a terminal can know: the browser may already be running, the file type may have no handler, the window may open behind another. Say "opened in your browser" and show the address too, so a person whose desktop did nothing can still read it.
+
+**Every door to the desktop goes through here.** Calling `xdg-open` from your own code means a test run really opens a browser on whoever is running it; an opening is recorded instead, and the test still sees that the call was made.
+
 ## Common mistakes
 
 - **Running `sudo` with a pipe.** Then the prompt has nowhere to go. A handoff or a pseudo-terminal, nothing in between.

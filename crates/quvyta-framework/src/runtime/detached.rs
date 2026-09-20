@@ -161,6 +161,8 @@ impl<Msg: Send + 'static> DetachedHandoff<Msg> {
         if let DetachedOutcome::Detached { child, .. } = &outcome {
             let sink: Sink = match self.on_line {
                 Some(message) => Box::new(move |line| {
+                    // A line arriving after the loop has gone has nowhere to be shown; the child
+                    // is detached and outlives the application on purpose.
                     let _ = deliveries.send(Delivery::Message(message(line)));
                     super::signals::wake();
                 }),
@@ -213,6 +215,9 @@ pub(crate) fn run<Msg: Send + 'static>(
         Ok(()) => {
             let outcome = start(&handoff.program);
             if handoff.program.pause && matches!(outcome, DetachedOutcome::Finished { .. }) {
+                // The pause is a courtesy, so the person can read what the program left before
+                // the application takes the screen back. A keyboard that cannot be read means
+                // there was nobody to wait for, and going straight on is the better answer.
                 let _ = (screen.wait_for_key)();
             }
             match (screen.take)() {
@@ -234,6 +239,10 @@ pub(crate) fn run<Msg: Send + 'static>(
 /// Starts the program with the terminal's foreground and pipes for its input and output, and
 /// waits for its first line or its end.
 fn start(program: &Program) -> DetachedOutcome {
+    // Three paths below give up on a child that started but cannot be used, and each ends it the
+    // same way: the kill fails only on a child that ended by itself, and the wait collects it so
+    // nothing is left behind. Neither has an answer to add — the `Failed` outcome returned beside
+    // it already carries the reason the person needs.
     let mut command = program.command();
     command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
     let (mut child, foreground) = match Foreground::spawn(&mut command) {

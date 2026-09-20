@@ -41,9 +41,9 @@ When a theme loads, the framework measures contrast between text and grounds and
 
 Every icon has three glyphs: `nerd` for Nerd Fonts, `unicode`, and `ascii`. In `auto` mode the framework picks by looking at the terminal and the installed fonts; users can choose a mode, and `QUVYTA_ICONS=ascii` forces one. ASCII glyphs never use brackets to fake shapes.
 
-Some names are shared meanings rather than marks of one widget, so every application in the family draws the same shape for them: `project`, `profile`, `settings` and `power` for the main menu, `window-minimize`, `window-maximize` and `window-restore` for a window's title, `category-system`, `category-development`, `category-network`, `category-office`, `category-media` and `category-files` for the kinds of program a launcher groups its entries by, and `family` for Quvyta's own `❖`. Their Unicode column stays inside Geometric Shapes, which terminals and monospace fonts draw as one cell, so a row in a dock or a three-cell title mark cannot be pushed apart by a glyph that falls back to another font; `family` is the one exception, because it is the mark itself. A launcher entry with no icon of its own takes the icon of its category.
+Some names are shared meanings rather than marks of one widget, so every application in the family draws the same shape for them: `project`, `profile`, `settings` and `power` for the main menu, `workspace` for the place the work is kept and `help` for the button that answers what the keys do, `window-minimize`, `window-maximize` and `window-restore` for a window's title, `category-system`, `category-development`, `category-network`, `category-office`, `category-media` and `category-files` for the kinds of program a launcher groups its entries by, and `family` for Quvyta's own `❖`. Their Unicode column stays inside Geometric Shapes, which terminals and monospace fonts draw as one cell, so a row in a dock or a three-cell title mark cannot be pushed apart by a glyph that falls back to another font; `family` is the one exception, because it is the mark itself. A launcher entry with no icon of its own takes the icon of its category.
 
-The set answers the meanings an application's main menu shows, so every application in the family draws the same shapes: `project`, `profile`, `settings` and `power`. Nerd Font draws the thing itself; the Unicode column stays inside Geometric Shapes, which terminals and monospace fonts draw as one cell, so no row falls back to another font and overflows.
+The set answers the meanings an application's main menu shows, so every application in the family draws the same shapes: `project`, `profile`, `settings` and `power`, beside `workspace` and `help`. A project is the thing worked on and a workspace the laid-out place that holds it, so they are two keys rather than two names for one shape; in ASCII both draw as `#` and the row's own words tell them apart. `help` draws a question mark in all three modes, because that is how the meaning is read wherever the family is read. Nerd Font draws the thing itself; the Unicode column stays inside Geometric Shapes, which terminals and monospace fonts draw as one cell, so no row falls back to another font and overflows.
 
 ## Your application's own icons
 
@@ -69,6 +69,15 @@ for key in ["app.save", "app.files"] {
 ```
 
 Comparing `translate(key)` with the key does not work for this: a missing key translates to `⟦key⟧`, which is not the key, so such a test passes when the translation is missing.
+
+## The customs of a language
+
+A language is more than its words. Where it puts a number's decimals, which way round it writes a date, how short its unit of time is beside a number: get one of those wrong and the screen reads as a mistake even when every word is right.
+
+- **Decimals.** `quvyta.number.decimal` says what a language writes between a number's whole part and its decimals — a point in English, Japanese and Chinese, a comma in German, Spanish, French, Portuguese, Russian and Turkish. Every number the framework draws goes through it: a chart's labels, a slider's value, a field's number, a file's size. Write your own numbers with `qframe::i18n::number(value, decimals)` and one screen never mixes the two ways.
+- **A number field reads what it writes.** `NumberInput` takes the language's separator when it is typed, and a point as well, because a numeric keypad has one whatever the language is. Change the language while the field stands there and it rewrites itself.
+- **Dates.** `Date::written()` is the long form a date field shows (`September 18, 2026`, `18. September 2026`, `2026年9月18日`), `Date::written_short()` the one with the short month, `Date::day_and_month()` the day and month without the year, for a heading, and `Date::day_and_month_short()` the narrowest. Use them instead of putting a day and a month together yourself: that is what makes a heading say `September 18` beside a field saying `18 September`.
+- **Units beside a number.** A language writes a unit shorter when it stands next to a number than when it stands alone: Chinese says `分` after a number where the word on its own is `分钟`. The `quvyta.duration.*` and `quvyta.time.*` keys carry the short form; the words that are *read* when someone types a length keep both.
 
 ## Switching at runtime
 

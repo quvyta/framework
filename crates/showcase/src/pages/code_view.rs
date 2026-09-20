@@ -78,25 +78,43 @@ const FINDINGS: [(&str, &str); 3] = [
     ("code-view.finding-root", "sudo"),
 ];
 
-/// The recipe's text and the mark of each of its lines.
-fn recipe() -> (String, Vec<LineMark>) {
+/// The recipe's text, the mark of each of its lines, and the number each line has in the recipe as
+/// it is now — `None` for a line the new version does not have.
+///
+/// The numbers are what a finding means by `PKGBUILD:22`: in a diff the two versions' lines stand
+/// one after another, so a line's place in the text is not its place in the file.
+fn recipe() -> (String, Vec<LineMark>, Vec<Option<usize>>) {
     let mut text = Vec::new();
     let mut marks = Vec::new();
+    let mut numbers = Vec::new();
+    let mut number = 0;
     for line in PKGBUILD.lines() {
         let (mark, code) = line.split_at(line.len().min(2));
-        marks.push(match mark {
+        let mark = match mark {
             "+ " => LineMark::Added,
             "- " => LineMark::Removed,
             _ => LineMark::Unchanged,
+        };
+        numbers.push(if mark == LineMark::Removed {
+            None
+        } else {
+            number += 1;
+            Some(number)
         });
+        marks.push(mark);
         text.push(code);
     }
-    (text.join("\n"), marks)
+    (text.join("\n"), marks, numbers)
 }
 
-/// The line, counted from 1, of the first line of the recipe that contains `needle`.
+/// The line of the text, counted from 1, that first contains `needle`.
 fn line_of(text: &str, needle: &str) -> usize {
     text.lines().position(|line| line.contains(needle)).map_or(1, |index| index + 1)
+}
+
+/// The number the recipe gives the line of the text that first contains `needle`.
+fn number_of(text: &str, numbers: &[Option<usize>], needle: &str) -> usize {
+    numbers.get(line_of(text, needle) - 1).copied().flatten().unwrap_or(1)
 }
 
 /// Playground settings.
@@ -105,6 +123,7 @@ pub struct State {
     numbers: bool,
     selectable: bool,
     marks: bool,
+    /// The number of the line gone to, in the recipe as it is now — not its place in the diff.
     reveal: Option<usize>,
 }
 
@@ -143,9 +162,9 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.marks = on;
             log.push(PAGE, "Playground", format!("line_marks = {on}"));
         }
-        Msg::Reveal(line) => {
-            state.reveal = Some(line);
-            log.push(PAGE, "CodeView#pkgbuild", format!("reveal({line})"));
+        Msg::Reveal(number) => {
+            state.reveal = Some(number);
+            log.push(PAGE, "CodeView#pkgbuild", format!("reveal_number({number})"));
         }
         Msg::Copied(id) => log.push(PAGE, format!("CodeView#{id}"), "copied"),
     }
@@ -172,12 +191,14 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
 
     ui.add_with(Panel::new().title(t!("code-view.review")), |ui| {
         ui.add(Text::new(t!("code-view.review-hint")).role("secondary"));
-        let (text, marks) = recipe();
+        let (text, marks, numbers) = recipe();
         // region: review
-        // Each finding is a warning tint with its sign; pressing one goes to its line.
+        // Each finding is a warning tint with its sign; pressing one goes to its line. A finding
+        // names the line of the recipe as it is now, which in a diff is not where the line sits.
         for (index, (key, needle)) in FINDINGS.iter().enumerate() {
-            let line = line_of(&text, needle);
-            ui.add(Button::new(t!(key, line = line)).on_press(send(Msg::Reveal(line)))).id(format!("finding-{index}"));
+            let number = number_of(&text, &numbers, needle);
+            ui.add(Button::new(t!(key, line = number)).on_press(send(Msg::Reveal(number))))
+                .id(format!("finding-{index}"));
         }
         let mut code = CodeView::new(text.as_str(), Language::from_file_name("PKGBUILD"))
             .line_numbers(state.numbers)
@@ -189,9 +210,16 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             let line = line_of(&text, needle);
             code = code.highlight_lines(line..=line, LineTone::Warning);
         }
-        // The line gone to is the accent tone, over its finding's warning.
-        if let Some(line) = state.reveal {
-            code = code.reveal(line).highlight_lines(line..=line, LineTone::Accent);
+        // The line gone to is the accent tone, over its finding's warning. The number is the
+        // recipe's own, so `reveal_number` is what finds the line; without the marks the diff is
+        // gone and the number is simply the line.
+        if let Some(number) = state.reveal {
+            let line = match state.marks {
+                true => numbers.iter().position(|n| *n == Some(number)).map_or(number, |index| index + 1),
+                false => number,
+            };
+            code = if state.marks { code.reveal_number(number) } else { code.reveal(number) };
+            code = code.highlight_lines(line..=line, LineTone::Accent);
         }
         ui.add_with(ScrollView::new(), |ui| {
             ui.add(code).fill_width().selectable(state.selectable).id("pkgbuild");
@@ -218,7 +246,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         ui.spacer().height(Length::Cells(1));
         // region: go-to-line
         setting(ui, t!("code-view.go-to-line"), |ui| {
-            let lines = PKGBUILD.lines().count();
+            let lines = PKGBUILD.lines().filter(|line| !line.starts_with("- ")).count();
             let field = NumberInput::new(state.reveal.unwrap_or(1) as f64)
                 .range(1.0, lines as f64)
                 .steppers(true)
@@ -262,15 +290,21 @@ mod tests {
     fn a_finding_goes_to_its_line_in_the_recipe() {
         let mut h = crate::tests::showcase_tall(crate::app::Showcase::new(), PAGE, 90);
         h.set_reduced_motion(true);
-        let (text, marks) = recipe();
+        let (text, marks, numbers) = recipe();
         assert_eq!(marks.iter().filter(|mark| **mark == LineMark::Added).count(), 4);
         assert_eq!(marks.iter().filter(|mark| **mark == LineMark::Removed).count(), 2);
-        let sudo = line_of(&text, "sudo");
+        // The finding names the line of the recipe as it is now, which the two lines the diff
+        // still shows above it push away from its place in the text.
+        let sudo = number_of(&text, &numbers, "sudo");
+        assert_ne!(sudo, line_of(&text, "sudo"), "the diff moved the line away from its number");
         let label = format!("Line {sudo}: asks for root");
         let (x, y) = h.find(&label).expect("the finding is on screen");
         h.click(x, y);
         assert_eq!(h.app().pages.code_view.reveal, Some(sudo));
         assert!(h.screen().contains("sudo chmod u+s"), "{}", h.screen());
+        // That number is the one drawn beside the line, not its place in the text.
+        let row = h.screen().lines().find(|line| line.contains("sudo chmod u+s")).unwrap_or_default().to_owned();
+        assert!(row.split_whitespace().any(|word| word == sudo.to_string()), "{row:?}");
         h.send(send(Msg::Reveal(1)));
         assert!(h.screen().contains("# Maintainer"), "{}", h.screen());
     }

@@ -39,6 +39,8 @@ const LINE: usize = 90;
 
 /// Every character `face` maps to a glyph, as `U+XXXX` and `U+XXXX-U+XXXX` ranges, a few to a line.
 fn ranges(face: &Face<'_>) -> String {
+    // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+    // results are dropped for that reason and no other.
     let mut codes = BTreeSet::new();
     for table in face.tables().cmap.into_iter().flat_map(|cmap| cmap.subtables) {
         table.codepoints(|code| {
@@ -73,6 +75,8 @@ fn ranges(face: &Face<'_>) -> String {
 
 /// The list as the embedded fonts say it is now.
 fn coverage() -> String {
+    // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+    // results are dropped for that reason and no other.
     let mut out = HEADER.to_owned();
     for (name, source) in
         [("latin", Source::Regular), ("latin-bold", Source::Bold), ("symbols", Source::Symbols), ("cjk", Source::Cjk)]

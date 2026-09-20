@@ -41,9 +41,9 @@ Tema yüklenirken framework yazı ile zeminler arasındaki kontrastı ve vurgu i
 
 Her ikonun üç biçimi vardır: Nerd Font için `nerd`, `unicode` ve `ascii`. `auto` modunda framework terminale ve kurulu yazı tiplerine bakarak seçer; kullanıcı bir mod seçebilir, `QUVYTA_ICONS=ascii` ise bir modu zorlar. ASCII biçimleri şekil taklit etmek için asla parantez kullanmaz.
 
-Bazı adlar tek bir bileşenin işareti değil, ortak bir anlamdır; ailedeki her uygulama onlar için aynı şekli çizer: ana menü için `project`, `profile`, `settings`, `power`; pencere başlığı için `window-minimize`, `window-maximize`, `window-restore`; başlatıcının girdileri grupladığı program türleri için `category-system`, `category-development`, `category-network`, `category-office`, `category-media`, `category-files`; ve Quvyta'nın kendi `❖` işareti için `family`. Bunların Unicode biçimi, terminallerin ve eşit aralıklı yazı tiplerinin tek hücre olarak çizdiği Geometric Shapes içinde kalır; böylece dock'taki bir sıra ya da üç hücrelik bir başlık işareti, başka bir yazı tipine düşen bir glifle aralanmaz. `family` tek istisnadır, çünkü o işaretin kendisidir. İkonu olmayan bir başlatıcı girdisi kategorisinin ikonunu kullanır.
+Bazı adlar tek bir bileşenin işareti değil, ortak bir anlamdır; ailedeki her uygulama onlar için aynı şekli çizer: ana menü için `project`, `profile`, `settings`, `power`; işin durduğu yer için `workspace` ve tuşların ne yaptığını açan düğme için `help`; pencere başlığı için `window-minimize`, `window-maximize`, `window-restore`; başlatıcının girdileri grupladığı program türleri için `category-system`, `category-development`, `category-network`, `category-office`, `category-media`, `category-files`; ve Quvyta'nın kendi `❖` işareti için `family`. Bunların Unicode biçimi, terminallerin ve eşit aralıklı yazı tiplerinin tek hücre olarak çizdiği Geometric Shapes içinde kalır; böylece dock'taki bir sıra ya da üç hücrelik bir başlık işareti, başka bir yazı tipine düşen bir glifle aralanmaz. `family` tek istisnadır, çünkü o işaretin kendisidir. İkonu olmayan bir başlatıcı girdisi kategorisinin ikonunu kullanır.
 
-Set, bir uygulamanın ana menüsünün gösterdiği anlamlara da karşılık verir; böylece ailedeki her uygulama aynı şekilleri çizer: `project`, `profile`, `settings` ve `power`. Nerd Font şeyin kendisini çizer; Unicode sütunu, terminallerin ve eşit aralıklı yazı tiplerinin tek hücre olarak çizdiği Geometric Shapes içinde kalır, böylece hiçbir satır başka bir yazı tipine düşüp hücreden taşmaz.
+Set, bir uygulamanın ana menüsünün gösterdiği anlamlara da karşılık verir; böylece ailedeki her uygulama aynı şekilleri çizer: `project`, `profile`, `settings` ve `power`, yanlarında `workspace` ve `help`. Proje üzerinde çalışılan şey, çalışma alanı ise onu tutan düzenli yerdir; bu yüzden tek şeklin iki adı değil, iki ayrı anahtardırlar. ASCII'de ikisi de `#` çizer, orada satırın kendi sözcükleri onları ayırır. `help` üç modda da soru işareti çizer, çünkü anlam ailenin okunduğu her yerde böyle okunur. Nerd Font şeyin kendisini çizer; Unicode sütunu, terminallerin ve eşit aralıklı yazı tiplerinin tek hücre olarak çizdiği Geometric Shapes içinde kalır, böylece hiçbir satır başka bir yazı tipine düşüp hücreden taşmaz.
 
 ## Uygulamanın kendi ikonları
 
@@ -69,6 +69,15 @@ for key in ["app.save", "app.files"] {
 ```
 
 `translate(key)` sonucunu anahtarın kendisiyle karşılaştırmak bu işi görmez: eksik anahtar `⟦key⟧` olarak çevrilir, bu da anahtarın kendisi değildir; böyle bir test çeviri eksikken de geçer.
+
+## Bir dilin âdetleri
+
+Bir dil sözcüklerinden ibaret değildir. Bir sayının ondalıklarını nereye koyduğu, tarihi hangi sırayla yazdığı, sayının yanındaki zaman biriminin ne kadar kısa olduğu: bunlardan biri yanlışsa, bütün sözcükler doğru olsa bile ekran yanlış okunur.
+
+- **Ondalıklar.** `quvyta.number.decimal`, bir dilin sayının tam kısmıyla ondalıkları arasına ne yazdığını söyler: İngilizce, Japonca ve Çincede nokta; Almanca, İspanyolca, Fransızca, Portekizce, Rusça ve Türkçede virgül. Framework'ün çizdiği her sayı buradan geçer: grafik etiketleri, kaydırıcının değeri, alandaki sayı, dosya boyutu. Kendi sayılarını `qframe::i18n::number(değer, basamak)` ile yaz; o zaman tek bir ekran iki yazımı karıştırmaz.
+- **Sayı alanı yazdığını okur.** `NumberInput`, dilin ayracını yazıldığında kabul eder; noktayı da kabul eder, çünkü sayı tuş takımında dil ne olursa olsun nokta vardır. Alan ekrandayken dil değişirse kendini yeniden yazar.
+- **Tarihler.** `Date::written()` bir tarih alanının gösterdiği uzun biçimdir (`September 18, 2026`, `18 Eylül 2026`, `2026年9月18日`), `Date::written_short()` kısa aylısı, `Date::day_and_month()` yılsız gün ve ay (başlıklar için), `Date::day_and_month_short()` en dar olanı. Günle ayı kendin yan yana koymak yerine bunları kullan: bir başlığın `18 Eylül`, alanın `Eylül 18` demesi tam olarak böyle olur.
+- **Sayının yanındaki birim.** Bir dil, birimi tek başına dururkenkinden daha kısa yazar: Çincede sayının ardından `分` gelir, sözcüğün kendisi ise `分钟`'dır. `quvyta.duration.*` ve `quvyta.time.*` anahtarları kısa biçimi taşır; biri bir süre yazdığında **okunan** sözcükler ikisini de tutar.
 
 ## Çalışırken değiştirmek
 

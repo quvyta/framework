@@ -307,6 +307,9 @@ fn kill(child: &mut Child, group: bool) {
     }
     #[cfg(not(unix))]
     let _ = group;
+    // The kill fails only on a child that ended by itself, which is what was wanted, and the
+    // wait collects it rather than being asked anything. This function has no answer to give:
+    // its callers have already decided the child is to go.
     let _ = child.kill();
     let _ = child.wait();
 }

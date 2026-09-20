@@ -154,6 +154,8 @@ impl Text {
     /// Draws `line` with its top left corner at (`x`, `y`), every cell `scale` times the size of
     /// a terminal cell. Characters without a glyph are left out; [`Card::missing`] reports them.
     fn line(&mut self, line: &str, x: f32, y: f32, scale: f32, bold: bool, color: Rgb) {
+        // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+        // results are dropped for that reason and no other.
         let mut uses = String::new();
         let mut pen = 0.0;
         for c in line.chars() {
@@ -221,6 +223,8 @@ fn wrap(text: &str, columns: f32) -> io::Result<Vec<String>> {
 /// Draws `card`: the ground, the name and the wrapped sentence in their column, and the
 /// screenshot scaled to fit the rest.
 fn draw(card: &Card) -> io::Result<String> {
+    // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+    // results are dropped for that reason and no other.
     let (px_w, px_h) = card.size;
     if px_w % 2 != 0 || px_h % 2 != 0 {
         return Err(io::Error::other(format!(

@@ -184,3 +184,55 @@ fn a_change_that_cannot_be_saved_is_applied_and_says_why() {
     assert_eq!(app.screen().matches("Applied, but not saved").count(), 1, "only under the last change");
     fs::remove_dir_all(&dir).expect("clean");
 }
+
+#[test]
+fn the_longest_language_name_is_shown_whole_and_the_three_choices_keep_one_width() {
+    let dir = folder("choice-width");
+    shared_file(&dir);
+    let family = Family::QUVYTA;
+    let preferences = family.preferences_in(&dir, "code", &I18n::builtin());
+    let appearance = Appearance::new(family, "code", preferences).in_folder(&dir);
+    let settings = Settings::open(dir.join("code.conf")).member_of(&family);
+    let mut app = Harness::with_env(Code { settings, appearance }, Env::builtin(), 100, 24);
+    app.set_locale("pt-BR");
+    let screen = app.screen();
+    // The name of the language a person chose is the one thing on this row they must be able to
+    // read: cut after `Português`, the two Portugueses cannot be told apart.
+    assert!(screen.contains("Português (Brasil)"), "the longest language name stands whole:\n{screen}");
+    assert!(!screen.contains("Português …"), "and is not cut although the row has room:\n{screen}");
+    // One column, not three: every choice starts in the same cell.
+    let starts: Vec<usize> = ["Português (Brasil)", "Monochrome", "Unicode"]
+        .iter()
+        .map(|name| app.find(name).unwrap_or_else(|| panic!("{name} is on the screen:\n{screen}")).0 as usize)
+        .collect();
+    assert_eq!(starts[0], starts[1], "language and theme start in the same cell:\n{screen}");
+    assert_eq!(starts[1], starts[2], "and so does the icon set:\n{screen}");
+    fs::remove_dir_all(&dir).expect("clean");
+}
+
+#[test]
+fn a_narrow_row_keeps_its_label_and_its_choice() {
+    let dir = folder("choice-narrow");
+    shared_file(&dir);
+    let family = Family::QUVYTA;
+    let preferences = family.preferences_in(&dir, "code", &I18n::builtin());
+    let appearance = Appearance::new(family, "code", preferences).in_folder(&dir);
+    let settings = Settings::open(dir.join("code.conf")).member_of(&family);
+    let mut app = Harness::with_env(Code { settings, appearance }, Env::builtin(), 48, 24);
+    app.set_locale("pt-BR");
+    let screen = app.screen();
+    assert!(screen.contains("Idioma"), "the label stays:\n{screen}");
+    assert!(screen.contains('▾'), "and the choice is still a choice:\n{screen}");
+    for line in screen.lines() {
+        assert!(crate::text::width(line) <= 48, "nothing is drawn past the edge: {line:?}");
+    }
+    fs::remove_dir_all(&dir).expect("clean");
+}
+
+#[test]
+fn a_choice_is_as_wide_as_its_longest_name_between_a_floor_and_a_cap() {
+    assert_eq!(choice_width(&["Nerd Font".to_owned()], 2), CHOICE_MIN, "short names keep the column's floor");
+    assert_eq!(choice_width(&["Português (Brasil)".to_owned()], 2), 25, "the name, the chevron and the ground");
+    assert_eq!(choice_width(&["Português (Brasil)".to_owned()], 0), 21, "a theme with no ground needs less");
+    assert_eq!(choice_width(&["x".repeat(60)], 2), CHOICE_MAX, "a name of an application's own cannot take the row");
+}

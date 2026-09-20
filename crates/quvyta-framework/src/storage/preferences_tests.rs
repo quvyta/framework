@@ -340,3 +340,14 @@ fn the_runtime_starts_with_the_resolved_values() {
     assert!(env.reduced_motion(), "the rest of the settings stay");
     fs::remove_dir_all(&dir).expect("clean");
 }
+
+#[test]
+fn the_theme_a_machine_starts_with_is_the_one_the_registry_falls_back_to() {
+    // Two places name the same theme: this module's DETECTED_THEME, and the theme registry's own
+    // default, which it uses when the named theme cannot be built. Written apart, one of them can
+    // be changed alone and a fresh machine would then start in a theme nothing else calls default.
+    let (fallback, _) = crate::theme::ThemeRegistry::builtin().resolve_or_default("no-such-theme");
+    assert_eq!(fallback.id(), DETECTED_THEME, "the detected theme is the registry's own default");
+    let ids: Vec<String> = crate::theme::ThemeRegistry::builtin().list().into_iter().map(|(id, _)| id).collect();
+    assert!(ids.iter().any(|id| id == DETECTED_THEME), "and it is a built-in theme: {ids:?}");
+}

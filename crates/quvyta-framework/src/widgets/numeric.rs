@@ -70,8 +70,21 @@ impl Steps {
         self.snap(self.min + fraction.clamp(0.0, 1.0) * (self.max - self.min))
     }
 
-    /// `value` written with the decimals of the step.
+    /// `value` written with the decimals of the step, with `separator` between the whole part and
+    /// the decimals. A caller that has the language to hand passes its separator, so what a field
+    /// writes and what it reads back never disagree.
+    pub(crate) fn write_with(self, value: f64, separator: char) -> String {
+        let text = self.write_plain(value);
+        if separator == '.' { text } else { text.replace('.', &separator.to_string()) }
+    }
+
+    /// `value` written with the decimals of the step, in the active language's way.
     pub(crate) fn write(self, value: f64) -> String {
+        crate::i18n::localize(self.write_plain(value))
+    }
+
+    /// `value` with the decimals of the step and a point, before any language touches it.
+    fn write_plain(self, value: f64) -> String {
         let text = format!("{value:.*}", self.decimals());
         // `-0` reads as a mistake.
         if text.trim_start_matches('-').chars().all(|c| c == '0' || c == '.') { text.replace('-', "") } else { text }

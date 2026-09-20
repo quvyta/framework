@@ -322,7 +322,10 @@ pub struct FileManagerState {
     loading: BTreeSet<String>,
     selected: Option<String>,
     chosen: Vec<String>,
-    error: Option<String>,
+    /// Why a folder could not be read, by key, for every folder whose last read failed. The root
+    /// is in here like any other: one place holds the reason, so a folder that failed can never
+    /// be drawn as one that is simply empty.
+    errors: BTreeMap<String, String>,
     cut: Vec<String>,
     /// Whether what waits to be pasted is to be copied rather than moved.
     copying: bool,
@@ -357,7 +360,7 @@ impl FileManagerState {
             loading: BTreeSet::new(),
             selected: None,
             chosen: Vec::new(),
-            error: None,
+            errors: BTreeMap::new(),
             cut: Vec::new(),
             copying: false,
             trash: Trash::Off,
@@ -536,7 +539,18 @@ impl FileManagerState {
     /// Why the root folder could not be read, when it could not be.
     #[must_use]
     pub fn error(&self) -> Option<&str> {
-        self.error.as_deref()
+        self.folder_error(ROOT)
+    }
+
+    /// Why the folder `key` could not be read, when its last read failed.
+    ///
+    /// A folder the system refused keeps its row and says so; before this the manager kept only
+    /// the root's reason and drew every other refused folder as an empty one, which told the
+    /// person a folder they may not look into holds nothing. `key` may be
+    /// [`ROOT`](Self::ROOT), which is what [`error`](Self::error) asks for.
+    #[must_use]
+    pub fn folder_error(&self, key: &str) -> Option<&str> {
+        self.errors.get(key).map(String::as_str)
     }
 
     /// The keys of the entries that were cut and wait to be pasted; empty while what waits is to
@@ -704,9 +718,7 @@ impl FileManagerState {
         }
         match entries {
             Ok(entries) => {
-                if key == ROOT {
-                    self.error = None;
-                }
+                self.errors.remove(key);
                 self.children.insert(key.to_owned(), entries);
                 // A folder read again may hold entries that changed since, so what was known about
                 // them is let go and asked for afresh rather than shown out of date.
@@ -715,9 +727,11 @@ impl FileManagerState {
                 self.prune(key);
             }
             Err(problem) => {
-                if key == ROOT {
-                    self.error = Some(problem);
-                } else {
+                // The reason is kept whichever folder it was. The root draws it in place of the
+                // tree; any other folder keeps its row, holds no entries and says on the row that
+                // it could not be read, so an empty folder and a refused one never look alike.
+                self.errors.insert(key.to_owned(), problem);
+                if key != ROOT {
                     self.children.insert(key.to_owned(), Vec::new());
                 }
             }
@@ -766,6 +780,10 @@ impl FileManagerState {
             .into_iter()
             .map(|(key, details)| (moved(&key).unwrap_or(key), details))
             .collect();
+        self.errors = std::mem::take(&mut self.errors)
+            .into_iter()
+            .map(|(key, problem)| (moved(&key).unwrap_or(key), problem))
+            .collect();
         self.reading.retain(|key| !is_within(key, from));
         if let Some(new) = moved(&self.shown) {
             self.shown = new;
@@ -789,6 +807,7 @@ impl FileManagerState {
         self.open.retain(|open| !is_within(open, key));
         self.loading.retain(|loading| !is_within(loading, key));
         self.children.retain(|folder, _| !is_within(folder, key));
+        self.errors.retain(|folder, _| !is_within(folder, key));
         self.cut.retain(|cut| !is_within(cut, key));
         self.chosen.retain(|chosen| !is_within(chosen, key));
         if self.selected.as_deref().is_some_and(|selected| is_within(selected, key)) {

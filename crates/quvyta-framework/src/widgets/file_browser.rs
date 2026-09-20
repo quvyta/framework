@@ -88,6 +88,10 @@ pub type Listing = Result<Arc<[FileEntry]>, ListingError>;
 pub fn read_folder(folder: &Path) -> Listing {
     let entries = std::fs::read_dir(folder).map_err(|error| ListingError::from_io(&error))?;
     let mut out: Vec<FileEntry> = entries
+        // An entry the folder stream could not hand over is skipped rather than failing the whole
+        // folder: the rest of the folder is what the person is looking at, and a folder that
+        // refuses one name is not a folder that cannot be read. The reason a folder as a whole
+        // could not be read is carried up as `ListingError` above.
         .filter_map(Result::ok)
         .map(|entry| {
             let path = entry.path();

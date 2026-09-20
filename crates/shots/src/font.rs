@@ -132,6 +132,8 @@ struct PathData {
 
 impl PathData {
     fn point(&mut self, x: f32, y: f32) {
+        // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+        // results are dropped for that reason and no other.
         let px = (x + self.slant * y + self.shift) * self.s;
         let py = self.top - y * self.s;
         let _ = write!(self.d, "{} {}", num(px), num(py));

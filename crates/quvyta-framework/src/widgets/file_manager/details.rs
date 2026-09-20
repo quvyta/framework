@@ -71,7 +71,8 @@ impl FileDetails {
             size /= 1000.0;
             unit += 1;
         }
-        let number = if unit == 0 || size >= WHOLE { format!("{}", size.round() as u64) } else { format!("{size:.1}") };
+        let number =
+            if unit == 0 || size >= WHOLE { format!("{}", size.round() as u64) } else { crate::i18n::number(size, 1) };
         crate::t!("quvyta.file-manager.size", n = number.as_str(), unit = UNITS[unit])
     }
 

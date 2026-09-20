@@ -18,12 +18,16 @@
 - `[meta] name`, and `[icons]` with `key = { nerd = "…", unicode = "…", ascii = "…" }`.
 - A missing `nerd` glyph is a warning and the `unicode` glyph stands in; a missing `unicode` glyph is a warning and the `ascii` glyph stands in; a missing `ascii` glyph is an error and the icon is skipped. Each names the file, line and column of the icon.
 - An application's sets (from `icon_dir` and `icon_source`): keys the built-in set lacks are drawn in every set, under the chosen set and the theme's `[icons]`, a later set winning a key two of them give; keys the built-in set has apply only while a theme names the set.
-- Built-in keys: `check check-partial close dot dot-outline select-on select-off radio-mark-small pillar bullet mask prompt enter arrow-left arrow-right arrow-up arrow-down chevron-left chevron-right chevron-down switch-rail switch-knob cap-left cap-right slider-rail slider-knob stepper-minus stepper-plus add search scroll-thumb scroll-track scroll-thin scroll-dot scroll-dot-thumb section-open section-closed tree-collapsed tree-expanded edge-left edge-right crumb-separator path-separator folder file inbox success warning error info project profile settings power window-minimize window-maximize window-restore category-system category-development category-network category-office category-media category-files family`. One-cell animations such as the spinner styles live in `[animations.<name>]` tables of the same files; see the Animation studio page.
+- Built-in keys: `check check-partial close dot dot-outline select-on select-off radio-mark-small pillar bullet mask prompt enter arrow-left arrow-right arrow-up arrow-down chevron-left chevron-right chevron-down switch-rail switch-knob cap-left cap-right slider-rail slider-knob stepper-minus stepper-plus add search scroll-thumb scroll-track scroll-thin scroll-dot scroll-dot-thumb section-open section-closed tree-collapsed tree-expanded edge-left edge-right crumb-separator path-separator folder file inbox success warning error info help project workspace profile settings power window-minimize window-maximize window-restore category-system category-development category-network category-office category-media category-files family`. One-cell animations such as the spinner styles live in `[animations.<name>]` tables of the same files; see the Animation studio page.
 
 ## Locale file
 
 - `[meta]` — `name`, `code`, optional `fallback`.
 - Sections of keys; values are strings with `{name}` placeholders or plural tables with `zero one two few many other` (`other` required).
+
+- `quvyta.number.decimal` — what this language writes between a number's whole part and its decimals. `I18n::decimal_separator()` and `qframe::i18n::decimal_separator()` give it; `qframe::i18n::number(value, decimals)` writes a number with it. A point for a language that does not give it.
+- `quvyta.date.format`, `format-short`, `format-day-month-long`, `format-day-month` — the four forms of a date, behind `Date::written()`, `written_short()`, `day_and_month()` and `day_and_month_short()`. A language whose month names change inside a date gives them as `month-in-date-1` to `month-in-date-12`.
+- `quvyta.duration.*` and `quvyta.time.*` — units as they are written beside a number, which is shorter than the word on its own in Chinese. `*-words` keeps every word that is read when a length is typed, long forms included.
 
 ## Code
 

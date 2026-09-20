@@ -37,6 +37,18 @@ sentence wraps to its column, and a word or a sentence with no room left is an e
 did not fit. `missing()` reports every character the fonts have no glyph for, in the screenshot
 as well as in the name and the sentence, so a Turkish or Chinese promise never comes out blank.
 
+## Asking without drawing
+
+`qshots::missing_in(text)` answers the same question about text that was never drawn, so an
+application can put every line of every language file to the fonts in its own tests:
+
+```rust,ignore
+let text: String = qfocus::locales().iter().map(|(_, text)| *text).collect();
+assert!(qshots::missing_in(&text).is_empty(), "the fonts lack {:?}", qshots::missing_in(&text));
+```
+
+Until now a hole was found only when someone happened to draw the sentence that had it.
+
 ## Moving pictures
 
 `qshots::Reel` records a scripted visit as a GIF and an MP4. It runs the harness's fake clock a

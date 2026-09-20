@@ -41,6 +41,7 @@ unreadable = "Dieser Ordner konnte nicht gelesen werden"
 [quvyta.file-manager]
 empty                    = "leer"
 unreadable               = "Dieser Ordner konnte nicht gelesen werden."
+unreadable-short         = "nicht lesbar"
 new-file                 = "Neue Datei"
 new-folder               = "Neuer Ordner"
 rename                   = "Umbenennen"
@@ -133,12 +134,18 @@ empty     = "Keine laufenden Aufgaben"
 [quvyta.handoff]
 pause = "Zum Zurückkehren eine beliebige Taste drücken"
 
+[quvyta.number]
+# What this language writes between a number's whole part and its decimals.
+decimal = ","
+
 [quvyta.date]
 # 1 is Monday, 7 is Sunday.
 first-weekday = "1"
 format = "{day}. {month} {year}"
 format-short = "{day}. {month} {year}"
 format-day-month = "{day}. {month}"
+# The same without the year but with the whole month name, for a heading.
+format-day-month-long = "{day}. {month}"
 title = "{month} {year}"
 month-1 = "Januar"
 month-2 = "Februar"

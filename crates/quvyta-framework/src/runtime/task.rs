@@ -374,6 +374,8 @@ pub(crate) fn spawn<Msg: Send + 'static>(
     let failed = on_event.clone();
     let outlet = sender.clone();
     let deliver: Deliver<Msg> = Arc::new(move |message| {
+        // A message from a task that outlived the loop has nowhere to be handled. The task is
+        // still ended below, so nothing waits for it either way.
         let _ = outlet.send(Delivery::Message(message));
     });
     let report = on_event.map(|message| {
@@ -408,6 +410,9 @@ pub(crate) fn spawn<Msg: Send + 'static>(
             let outcome = TaskOutcome::Failed(NO_THREAD.to_owned());
             let _ = sender.send(Delivery::Message(message(TaskEvent::Finished { id, outcome })));
         }
+        // Both sends fail only once the loop has gone, and a loop that has gone is not counting
+        // tasks any more. What must not happen is the task ending without this, which would
+        // leave the loop waiting for a task that never ran.
         let _ = sender.send(Delivery::Ended);
     }
     started

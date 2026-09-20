@@ -415,6 +415,8 @@ impl<A: App> Reel<A> {
     /// Returns the error of making the folder or writing the list.
     pub fn finish(self) -> io::Result<Recording> {
         let mut list = String::new();
+        // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+        // results are dropped for that reason and no other.
         for (name, held) in &self.frames {
             let _ = writeln!(list, "file '{name}'\nduration {:.3}", held.as_secs_f64());
         }

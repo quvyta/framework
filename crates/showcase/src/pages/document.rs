@@ -88,6 +88,8 @@ fn project(document: &Document) -> Option<Project> {
 fn to_toml(project: &Project) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
+    // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+    // results are dropped for that reason and no other.
     let _ = writeln!(out, "id = {:?}", project.id);
     for (key, value) in [("name", &project.name), ("created", &project.created)] {
         if let Some(value) = value {

@@ -220,28 +220,18 @@ fn month_name(month: u8) -> String {
     crate::t!(&format!("quvyta.date.month-{month}"))
 }
 
-/// `date` written the way the active language writes dates. A language whose month names
-/// change inside a date (Russian `января` for `Январь`, or Spanish writing `enero` in a date and
-/// `Enero` as a heading) gives that form as `quvyta.date.month-in-date-*`; the others use the
-/// month name as it is.
+/// The three forms of a date, longest first; they live on [`Date`] so an application writing a
+/// date of its own writes it in the same order as the field.
 fn format_date(date: Date) -> String {
-    let month = crate::i18n::translate_active_if_known(&format!("quvyta.date.month-in-date-{}", date.month()))
-        .unwrap_or_else(|| month_name(date.month()));
-    crate::t!("quvyta.date.format", day = u32::from(date.day()), month = month, year = date.year())
+    date.written()
 }
 
-/// `date` in the active language's short form, with the short month name, for a field too
-/// narrow for [`format_date`]: `Sep 18, 2026`, `18. Sep 2026`.
 fn format_date_short(date: Date) -> String {
-    let month = crate::t!(&format!("quvyta.date.month-short-{}", date.month()));
-    crate::t!("quvyta.date.format-short", day = u32::from(date.day()), month = month, year = date.year())
+    date.written_short()
 }
 
-/// `date` as a day and a short month without the year, for a field too narrow even for
-/// [`format_date_short`]: `Sep 18`, `18. Sep`. The calendar still shows the year when it opens.
 fn format_day_month(date: Date) -> String {
-    let month = crate::t!(&format!("quvyta.date.month-short-{}", date.month()));
-    crate::t!("quvyta.date.format-day-month", day = u32::from(date.day()), month = month)
+    date.day_and_month_short()
 }
 
 /// `date` in the longest form that fits in `room` cells: the long date, the short one, or the

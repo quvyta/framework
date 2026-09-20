@@ -121,7 +121,9 @@ fn diff_marks_sign_and_tint_their_lines_in_every_glyph_mode() {
             "{mode:?}: an unchanged line keeps the sign column blank: {screen}"
         );
         assert!(lines[2].starts_with(&format!("  {added} 2  added")), "{mode:?}: {screen}");
-        assert!(lines[3].starts_with(&format!("  {removed} 3  removed")), "{mode:?}: {screen}");
+        // The removed line is the old file's second: the added line above it is in the new file
+        // only, so it takes no number from the old one.
+        assert!(lines[3].starts_with(&format!("  {removed} 2  removed")), "{mode:?}: {screen}");
         if mode == GlyphMode::Ascii {
             assert_eq!((added.as_str(), removed.as_str()), ("+", "-"));
         }
@@ -278,4 +280,133 @@ fn reveal_glides_with_motion() {
     assert!(!shows(&h, 1) && !shows(&h, 150), "on its way: {}", h.screen());
     h.advance(std::time::Duration::from_secs(1));
     assert!(shows(&h, 150), "{}", h.screen());
+}
+
+/// A diff of two versions of a file, with the numbers each line carries in the file it came from.
+struct Diff {
+    marks: Vec<LineMark>,
+    numbers: Option<Vec<Option<usize>>>,
+    reveal: Option<usize>,
+}
+
+impl Default for Diff {
+    fn default() -> Self {
+        Self { marks: DIFF_MARKS.to_vec(), numbers: None, reveal: None }
+    }
+}
+
+/// The lines of the diff below: one kept, two taken out, one put in, one kept.
+const DIFF_MARKS: [LineMark; 5] =
+    [LineMark::Unchanged, LineMark::Removed, LineMark::Removed, LineMark::Added, LineMark::Unchanged];
+
+const DIFF_CODE: &str = "keep=a\ngone=b\ngone=c\nnew=d\nkeep=e";
+
+impl App for Diff {
+    type Msg = Option<usize>;
+    fn update(&mut self, reveal: Option<usize>) -> Command<Option<usize>> {
+        self.reveal = reveal;
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, Option<usize>>) {
+        let mut view = CodeView::new(DIFF_CODE, Language::Shell).line_marks(self.marks.iter().copied());
+        if let Some(numbers) = &self.numbers {
+            view = view.line_numbers_from(numbers.iter().copied());
+        }
+        if let Some(number) = self.reveal {
+            view = view.reveal_number(number);
+        }
+        ui.add(view).fill();
+    }
+}
+
+/// The number column of each code row, in order, with `None` where the column is blank.
+fn gutter_numbers(screen: &str) -> Vec<Option<usize>> {
+    screen
+        .lines()
+        .filter(|line| line.contains('='))
+        .map(|line| line.split_whitespace().find_map(|word| word.parse().ok()))
+        .collect()
+}
+
+#[test]
+fn the_numbers_of_a_diff_are_the_numbers_of_the_files_the_lines_came_from() {
+    let h = Harness::new(Diff::default(), 40, 7);
+    // The old file numbers the lines it lost 2 and 3; the new file numbers what it gained 2, and
+    // the line that stayed is its line 3. Counting the text from the top would say 1 2 3 4 5.
+    assert_eq!(gutter_numbers(&h.screen()), [Some(1), Some(2), Some(3), Some(2), Some(3)], "{}", h.screen());
+}
+
+#[test]
+fn numbers_given_outright_are_the_ones_drawn() {
+    let numbers = vec![Some(120), None, Some(121), Some(122), Some(123)];
+    let h = Harness::new(Diff { numbers: Some(numbers), ..Diff::default() }, 40, 7);
+    assert_eq!(
+        gutter_numbers(&h.screen()),
+        [Some(120), None, Some(121), Some(122), Some(123)],
+        "a hunk far into the file keeps its own numbers, and a line without one is blank:\n{}",
+        h.screen()
+    );
+}
+
+/// A long diff in a scroll view: a hundred lines the old file lost, then two hundred it kept, so
+/// a line's place in the text is nowhere near the number its file gives it.
+struct LongDiff {
+    reveal: Option<usize>,
+}
+
+impl App for LongDiff {
+    type Msg = Option<usize>;
+    fn update(&mut self, reveal: Option<usize>) -> Command<Option<usize>> {
+        self.reveal = reveal;
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, Option<usize>>) {
+        let gone = (1..=100).map(|n| format!("echo old-{n}"));
+        let kept = (1..=200).map(|n| format!("echo new-{n}"));
+        let code: Vec<String> = gone.chain(kept).collect();
+        let marks = std::iter::repeat_n(LineMark::Removed, 100).chain(std::iter::repeat_n(LineMark::Unchanged, 200));
+        ui.add_with(ScrollView::new(), |ui| {
+            let mut view = CodeView::new(code.join("\n"), Language::Shell).line_marks(marks);
+            if let Some(number) = self.reveal {
+                view = view.reveal_number(number);
+            }
+            ui.add(view).fill_width();
+        })
+        .fill();
+    }
+}
+
+fn shows_line(h: &Harness<LongDiff>, text: &str) -> bool {
+    h.screen().lines().any(|row| row.trim_end().ends_with(text))
+}
+
+#[test]
+fn revealing_a_number_finds_the_line_the_new_file_numbers_that_way() {
+    let mut h = Harness::new(LongDiff { reveal: None }, 40, 10);
+    h.set_reduced_motion(true);
+    assert!(shows_line(&h, "old-1") && !shows_line(&h, "new-50"));
+    // Two lines are numbered 50: one the old file lost and one the new file keeps. A finding that
+    // says `file:50` means the file as it is now, so the kept line is the one to go to.
+    h.send(Some(50));
+    assert!(shows_line(&h, "new-50"), "{}", h.screen());
+    assert!(!shows_line(&h, "old-50"), "the old file's 50 is left alone: {}", h.screen());
+    // A number only the new file has is found all the same.
+    h.send(Some(150));
+    assert!(shows_line(&h, "new-150"), "{}", h.screen());
+    // Counting the text from the top would have gone to line 150, which is `new-50`.
+    assert!(!shows_line(&h, "new-50"), "{}", h.screen());
+}
+
+#[test]
+fn revealing_a_number_no_line_carries_moves_nothing() {
+    let mut h = Harness::new(LongDiff { reveal: None }, 40, 10);
+    h.set_reduced_motion(true);
+    h.send(Some(4000));
+    assert!(shows_line(&h, "old-1"), "the view stays where it was: {}", h.screen());
+}
+
+#[test]
+fn without_marks_or_numbers_the_lines_are_counted_from_the_top_as_before() {
+    let h = Harness::new(Diff { marks: Vec::new(), ..Diff::default() }, 40, 7);
+    assert_eq!(gutter_numbers(&h.screen()), [Some(1), Some(2), Some(3), Some(4), Some(5)], "{}", h.screen());
 }

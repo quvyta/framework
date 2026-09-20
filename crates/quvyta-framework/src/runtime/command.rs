@@ -5,6 +5,7 @@ use std::sync::Arc;
 use super::confirm::Confirm;
 use super::detached::DetachedHandoff;
 use super::handoff::Handoff;
+use super::open::Open;
 use super::task::{Task, TaskId};
 use crate::icons::IconMode;
 use crate::widgets::{Corner, Toast};
@@ -30,6 +31,7 @@ pub(crate) enum Action<Msg> {
     CancelTask(TaskId),
     Handoff(Handoff<Msg>),
     HandoffDetached(DetachedHandoff<Msg>),
+    Open(Open<Msg>),
 }
 
 /// A message conversion shared by every action of a mapped command; the work of tasks and
@@ -69,6 +71,10 @@ impl<A: Send + 'static> Action<A> {
                 Action::Handoff(handoff.map(move |message| map(message)))
             }
             Self::HandoffDetached(handoff) => Action::HandoffDetached(handoff.map(Arc::clone(map))),
+            Self::Open(open) => {
+                let map = Arc::clone(map);
+                Action::Open(open.map(move |message| map(message)))
+            }
         }
     }
 }
@@ -306,6 +312,51 @@ impl<Msg: Send + 'static> Command<Msg> {
     #[must_use]
     pub fn handoff_detached(handoff: DetachedHandoff<Msg>) -> Self {
         Self::single(Action::HandoffDetached(handoff))
+    }
+
+    /// Opens an address, a file or a folder on the person's own desktop, without leaving the
+    /// screen: no step aside, no blink, nothing drawn again.
+    ///
+    /// This is the short way of saying `Command::open_with(Open::new(target))`, for an
+    /// application that has nothing to say about the opening. [`Command::open_with`] takes the
+    /// same opening with a message, a program of its own, arguments, a directory or environment.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    ///
+    /// enum Msg {
+    ///     ReadTheGuide,
+    /// }
+    ///
+    /// fn update(msg: Msg) -> Command<Msg> {
+    ///     match msg {
+    ///         Msg::ReadTheGuide => Command::open("https://quvyta.com/guide"),
+    ///     }
+    /// }
+    /// ```
+    #[must_use]
+    pub fn open(target: impl Into<std::ffi::OsString>) -> Self {
+        Self::single(Action::Open(Open::new(target)))
+    }
+
+    /// Carries out `open`: a program started quietly beside the application, with the screen left
+    /// exactly as it is. See [`Open`] for the whole of it.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    /// use qframe::runtime::{Open, OpenOutcome};
+    ///
+    /// enum Msg {
+    ///     Opened(OpenOutcome),
+    /// }
+    ///
+    /// fn update(_msg: Msg) -> Command<Msg> {
+    ///     Command::open_with(Open::new("/home/me/notes.pdf").answer(Msg::Opened))
+    /// }
+    /// ```
+    #[must_use]
+    pub fn open_with(open: Open<Msg>) -> Self {
+        Self::single(Action::Open(open))
     }
 
     /// The same work delivering `map(message)` wherever it would deliver `message`, so a screen

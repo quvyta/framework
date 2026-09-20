@@ -4,6 +4,48 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.14 - 2026-09-21
+
+### Added
+
+- A link or a program is opened on the person's own desktop without the screen ever being given
+  away (`Command::open`, and `Command::open_with(Open)` when the call needs arguments, a working
+  folder, environment or an answer of its own). The program starts on a thread of its own with
+  null streams and its own process group, the answer goes out as soon as it has started, and the
+  child is waited for only afterwards, so nothing is torn down and redrawn. `OpenOutcome::Opened`
+  says the opener was handed the target and no more than that. A test reads `Harness::opens()` and
+  decides the answer with `Harness::set_open_outcome()`.
+- Numbers, dates and units are written the way the reader's language writes them. Nine locales
+  carry `quvyta.number.decimal`, asked for with `I18n::decimal_separator()`,
+  `i18n::decimal_separator()` and `i18n::number(value, decimals)`; every number the framework
+  draws goes through it, and a number field reads the separator back, still takes a point, and
+  rewrites itself when the language changes. A date is composed by the framework rather than by
+  hand: `Date::written()`, `written_short()`, `day_and_month()` and `day_and_month_short()`.
+  Chinese writes its minute mark beside the number instead of in the middle of a word.
+- A diff shows the line numbers of the files its lines came from. Given `line_marks`, a removed
+  line carries the old file's number and an added or unchanged line the new file's;
+  `CodeView::reveal_number(n)` goes to the line a finding means and prefers the line that stayed
+  over the one the old version lost; `CodeView::line_numbers_from(numbers)` gives them outright
+  for a hunk that starts part way into a file.
+- `qshots::missing_in(text)` asks the fonts whether a piece of text can be drawn at all, without
+  drawing it, so an application can check every language it speaks rather than only the ones a
+  picture happens to show.
+- The icon set answers `help` with a question mark in all three glyph shapes, and `workspace` with
+  the ordered place that holds the thing worked on. `project` is unchanged and still means the
+  thing itself.
+- `FileManagerState::folder_error` answers why any one folder could not be read, the root among
+  them; `error()` is now that question asked about the root.
+
+### Changed
+
+- The language, theme and icon choices of the shared appearance rows are as wide as the longest
+  name they offer, between a floor and a cap, instead of a fixed eighteen cells. `Português
+  (Brasil)` was cut to `Português …` on every screen, however wide, which is exactly where the two
+  Portugueses part. The three rows still share one column, so they read as one group.
+- A folder in the file manager that could not be read says so on its row and in the foot of a
+  flat view. Until now only the root's reason was kept: every other refused folder was drawn as
+  an empty one, so a folder a person may not look into told them it held nothing.
+
 ## 0.1.13 - 2026-09-20
 
 ### Added

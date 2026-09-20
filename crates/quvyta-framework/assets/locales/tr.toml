@@ -41,6 +41,7 @@ unreadable = "Bu klasör okunamadı"
 [quvyta.file-manager]
 empty                    = "boş"
 unreadable               = "Bu klasör okunamadı."
+unreadable-short         = "okunamıyor"
 new-file                 = "Yeni dosya"
 new-folder               = "Yeni klasör"
 rename                   = "Yeniden adlandır"
@@ -133,12 +134,18 @@ empty     = "Çalışan iş yok"
 [quvyta.handoff]
 pause = "Dönmek için bir tuşa basın"
 
+[quvyta.number]
+# What this language writes between a number's whole part and its decimals.
+decimal = ","
+
 [quvyta.date]
 # 1 is Monday, 7 is Sunday.
 first-weekday = "1"
 format = "{day} {month} {year}"
 format-short = "{day} {month} {year}"
 format-day-month = "{day} {month}"
+# The same without the year but with the whole month name, for a heading.
+format-day-month-long = "{day} {month}"
 title = "{month} {year}"
 month-1 = "Ocak"
 month-2 = "Şubat"

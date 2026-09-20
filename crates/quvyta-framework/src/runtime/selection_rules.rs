@@ -100,9 +100,11 @@ fn a_drag_selects_inside_its_region_and_releasing_copies_nothing() {
 
 #[test]
 fn faint_text_stays_readable_under_the_selection_in_every_theme() {
-    for theme in ["monochrome", "iris", "nordic", "amber"] {
+    // Asked of the registry rather than a list written here: a fifth built-in theme is then
+    // measured the day it is added, instead of the day someone remembers this test.
+    for (theme, _) in crate::theme::ThemeRegistry::builtin().list() {
         let mut h = Harness::new(Faint, 30, 1);
-        h.set_theme(theme);
+        h.set_theme(&theme);
         let muted = h.fg(0, 0);
         h.drag((0, 0), (10, 0));
         let (fg, bg) = (h.fg(0, 0), h.bg(0, 0));

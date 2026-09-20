@@ -127,6 +127,9 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         }
         Msg::StartOver => {
             if let Some(demo) = state.demo.take() {
+                // Starting over only needs the page to forget the folder, which the `take` above
+                // has done. The folder is this run's own under the temporary folder, so one left
+                // behind costs nothing of the person's and the next run makes a fresh one.
                 let _ = std::fs::remove_dir_all(&demo.folder);
             }
             log.push(PAGE, "Family::preferences_in", "a new family folder");

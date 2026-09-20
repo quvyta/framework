@@ -77,6 +77,8 @@ impl Glyphs {
     /// Places character `c` centred in `slot`. A glyph narrower than its cells, such as a CJK
     /// glyph in two, sits in their middle as a terminal draws it.
     fn place(&mut self, c: char, bold: bool, italic: bool, color: Rgb, slot: Slot) {
+        // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+        // results are dropped for that reason and no other.
         let Some((key, advance)) = font::glyph(c, bold) else {
             self.missing.insert(c);
             return;
@@ -182,6 +184,8 @@ const POINTER_TIP: (f32, f32) = (0.35, 0.3);
 
 /// Draws `shot` as a standalone picture.
 pub(crate) fn draw(shot: &Shot) -> Drawing {
+    // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+    // results are dropped for that reason and no other.
     let body = body(shot);
     let (w, h) = (num(body.width), num(body.height));
     let mut svg = String::new();
@@ -197,6 +201,8 @@ pub(crate) fn draw(shot: &Shot) -> Drawing {
 /// Draws `shot`'s shapes: its screen, with a title strip when it has a title, a mouse pointer on
 /// the cell it names and square corners when asked.
 pub(crate) fn body(shot: &Shot) -> Body {
+    // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
+    // results are dropped for that reason and no other.
     let (screen, title, pointer) = (&shot.screen, shot.title.as_deref(), shot.pointer);
     let palette = screen.palette;
     let top = if title.is_some() { TITLE_H } else { 0.0 };

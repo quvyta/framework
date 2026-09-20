@@ -24,6 +24,9 @@ mod lifecycle_rules;
 mod live_child;
 #[cfg(test)]
 mod map_rules;
+mod open;
+#[cfg(test)]
+mod open_rules;
 mod process;
 mod selection;
 mod selection_menu;
@@ -54,6 +57,7 @@ pub use frame_limit::FrameLimit;
 pub use handoff::{Handoff, HandoffOutcome, HandoffRequest};
 pub use harness::{Harness, html_page};
 pub use live_child::{ChildLine, LiveChild, TestChild};
+pub use open::{Open, OpenOutcome, OpenRequest};
 pub use process::{Line, Process, ProcessOutcome};
 pub use task::{Task, TaskCx, TaskEntry, TaskEvent, TaskId, TaskOutcome, Tasks};
 pub use terminal::Runtime;

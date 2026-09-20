@@ -40,6 +40,7 @@ unreadable = "This folder could not be read"
 [quvyta.file-manager]
 empty                    = "empty"
 unreadable               = "This folder could not be read."
+unreadable-short         = "cannot be read"
 new-file                 = "New file"
 new-folder               = "New folder"
 rename                   = "Rename"
@@ -132,6 +133,10 @@ empty     = "No tasks running"
 [quvyta.handoff]
 pause = "Press any key to return"
 
+[quvyta.number]
+# What this language writes between a number's whole part and its decimals.
+decimal = "."
+
 [quvyta.date]
 # 1 is Monday, 7 is Sunday. English calendars in the US start on Sunday.
 first-weekday = "7"
@@ -140,6 +145,8 @@ format = "{month} {day}, {year}"
 format-short = "{month} {day}, {year}"
 # Without the year, for fields too narrow even for the short date.
 format-day-month = "{month} {day}"
+# The same without the year but with the whole month name, for a heading.
+format-day-month-long = "{month} {day}"
 title = "{month} {year}"
 month-1 = "January"
 month-2 = "February"

@@ -814,6 +814,15 @@ fn a_folder_that_cannot_be_read_says_why_and_nothing_below_it_is_lost() {
     assert!(!state(&h).is_loading("locked"), "and it is not left reading for ever");
     assert!(h.screen().contains("locked"), "the folder keeps its row:\n{}", h.screen());
     assert!(state(&h).error().is_none(), "one folder below the root is no trouble with the root");
+    // Keeping the row is not enough: without the reason, a folder that holds nothing and one
+    // that may not be looked into draw exactly the same.
+    assert!(state(&h).folder_error("locked").is_some(), "the reason the folder could not be read is kept");
+    assert!(
+        h.screen().contains("cannot be read"),
+        "and the row says so, instead of looking like an empty folder:\n{}",
+        h.screen()
+    );
+    assert!(state(&h).folder_error("inside").is_none(), "a folder that was never read has no reason of its own");
 
     // The root itself, unreadable, says what the system said instead of showing a gap.
     let mut own = Harness::new(Demo::new(locked.clone()), SIZE.0, SIZE.1);

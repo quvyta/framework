@@ -58,13 +58,18 @@ const LAUNCHER_ICONS: [&str; 10] = [
     "window-restore",
 ];
 
+/// Marks every application in the family shows outside its main menu: the place the work is kept
+/// and the button that answers what the keys do. Both sit in strips of counted cells, like the
+/// menu's own rows, so both stay one cell wide.
+const SHARED_ICONS: [&str; 2] = ["workspace", "help"];
+
 #[test]
 fn every_icon_set_answers_the_application_menu_in_every_mode_with_one_cell() {
     let registry = IconSetRegistry::builtin();
     for (id, _) in registry.list() {
         for mode in [GlyphMode::Nerd, GlyphMode::Unicode, GlyphMode::Ascii] {
             let icons = registry.icons(&id, &BTreeMap::new(), mode);
-            for name in MENU_ICONS.into_iter().chain(LAUNCHER_ICONS) {
+            for name in MENU_ICONS.into_iter().chain(LAUNCHER_ICONS).chain(SHARED_ICONS) {
                 let glyph = icons.glyph(name);
                 assert!(icons.keys().any(|key| key == name), "set {id} has no {name}");
                 assert_eq!(qframe::text::width(&glyph), 1, "{name} is one cell in {mode:?} of set {id}: {glyph:?}");

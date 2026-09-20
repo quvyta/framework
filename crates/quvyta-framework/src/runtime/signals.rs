@@ -235,6 +235,9 @@ impl Drop for Signals {
 /// applied now rather than at the loop's next deadline.
 pub(crate) fn wake() {
     if let Some(run) = lock().as_ref() {
+        // One byte on a pipe the loop is reading. A full pipe is a loop that has not read the
+        // wakes it already has, so it is about to wake anyway; a broken one is a loop that has
+        // ended, which has nothing left to be woken for.
         let _ = (&run.wake).write(&[0]);
     }
 }
@@ -266,12 +269,16 @@ fn start_catching() -> io::Result<()> {
                 .name("quvyta-signals".to_owned())
                 .spawn(move || match Caught::new([SIGTERM, SIGINT, SIGHUP, SIGWINCH]) {
                     Ok(mut caught) => {
+                        // Whether the start was heard is answered by the receive below: a send
+                        // that fails leaves it with a disconnected channel, which it reports.
                         let _ = started.send(Ok(()));
                         for signal in caught.forever() {
                             hear(signal);
                         }
                     }
                     Err(error) => {
+                        // As above: a send nobody is waiting for is the same disconnection the
+                        // receive already turns into an error.
                         let _ = started.send(Err(error.to_string()));
                     }
                 })
@@ -308,6 +315,8 @@ fn hear(signal: i32) {
             release_input(run);
         }
     }
+    // As in `wake`: a pipe that is full already holds a wake the loop has not taken, and a
+    // broken one belongs to a loop that has ended.
     let _ = (&run.wake).write(&[0]);
 }
 
@@ -328,6 +337,9 @@ fn release_input(run: &mut Run) {
     let Ok((ours, theirs)) = UnixStream::pair() else {
         return;
     };
+    // Both together or neither: a stand-in is only of use once it is non-blocking and standing
+    // where crossterm reads. When either fails the terminal is left as it is, which is the state
+    // this call was trying to improve on and never worse than it.
     if theirs.set_nonblocking(true).is_ok() && rustix::stdio::dup2_stdin(&theirs).is_ok() {
         run.stand_in = Some(ours);
     }
@@ -375,6 +387,9 @@ fn forward(run: &Run, signal: i32) {
     if let (Ok(group), Some(signal)) = (tcgetpgrp(&run.tty), Signal::from_named_raw(signal))
         && group != getpgrp()
     {
+        // Sent from a signal handler, where there is nothing to report to and nothing that may
+        // be allocated to report with. It fails only on a group that ended between the two
+        // calls, which is the program already doing what the signal asked.
         let _ = kill_process_group(group, signal);
     }
 }
@@ -386,9 +401,13 @@ fn force(run: &Run) -> ! {
         && let Ok(group) = tcgetpgrp(&run.tty)
         && group != getpgrp()
     {
+        // As in `forward`, and this path ends the process next: a group already gone is the
+        // outcome that was wanted.
         let _ = kill_process_group(group, Signal::KILL);
     }
     restore(run);
+    // The last thing done before the exit below, so that a terminal watching the process sees
+    // the same end it would see without the framework. Nothing is left that could be told.
     let _ = emulate_default_handler(run.signal);
     std::process::exit(128 + run.signal)
 }
@@ -409,6 +428,9 @@ fn restore(run: &Run) {
     }
     let mut ttou = SigSet::empty();
     ttou.add(NixSignal::SIGTTOU);
+    // Blocking SIGTTOU only makes the next two calls possible from a background group; failing
+    // to block it leaves them to be tried anyway, which is better than not putting the terminal
+    // back at all. This runs on the way out, where there is no one to report to.
     let _ = ttou.thread_block();
     let raw_off = || tcsetattr(&run.tty, OptionalActions::Now, original).map_err(io::Error::from);
     match rustix::fs::open(
@@ -417,9 +439,14 @@ fn restore(run: &Run) {
         Mode::empty(),
     ) {
         Ok(screen) => {
+            // The terminal is put back as far as it goes on the way out of the process. There is
+            // no application left to report to and no screen left to report on; what is left is
+            // the person's shell, and every step that still works is one they do not have to
+            // undo by hand.
             let _ = super::terminal::give_back(&mut std::fs::File::from(screen), true, raw_off);
         }
         Err(_) => {
+            // No terminal to write to, so the modes are all that can still be put right.
             let _ = raw_off();
         }
     }
