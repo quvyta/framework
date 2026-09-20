@@ -4,9 +4,10 @@ use std::time::{Duration, Instant};
 
 use super::*;
 use crate::color::Rgb;
+use crate::event::{MouseButton, MouseKind};
 use crate::icons::GlyphMode;
 use crate::runtime::{App, Command, Harness};
-use crate::widgets::{Button, Text};
+use crate::widgets::{Button, ContextItem, Text};
 
 /// A store page: `count` apps in a grid that fills the screen.
 struct Store {
@@ -17,6 +18,10 @@ struct Store {
     disabled: bool,
     /// Cards built since the counter was last reset.
     built: Rc<Cell<usize>>,
+    /// Whether every card carries a menu of its own.
+    menu: bool,
+    /// The cards a menu entry was chosen on, in order.
+    removed: Vec<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,6 +30,7 @@ enum Msg {
     Open(usize),
     Toggle(usize),
     Browse,
+    Remove(usize),
 }
 
 impl App for Store {
@@ -39,6 +45,7 @@ impl App for Store {
                 }
             }
             Msg::Browse => self.opened.push(usize::MAX),
+            Msg::Remove(index) => self.removed.push(index),
         }
         Command::none()
     }
@@ -60,12 +67,107 @@ impl App for Store {
         if let Some(checked) = &self.checked {
             grid = grid.checked(checked.clone());
         }
+        if self.menu {
+            grid = grid.context_menu(|index| vec![ContextItem::new(format!("Remove app {index}"), Msg::Remove(index))]);
+        }
         ui.add(grid).fill().id("grid");
     }
 }
 
 fn store(count: usize) -> Store {
-    Store { count, selected: None, opened: Vec::new(), checked: None, disabled: false, built: Rc::new(Cell::new(0)) }
+    Store {
+        count,
+        selected: None,
+        opened: Vec::new(),
+        checked: None,
+        disabled: false,
+        built: Rc::new(Cell::new(0)),
+        menu: false,
+        removed: Vec::new(),
+    }
+}
+
+/// A grid whose cards each carry a menu, with the motion off so a menu is there at once.
+fn menu_store(count: usize) -> Harness<Store> {
+    let mut store = store(count);
+    store.menu = true;
+    let mut h = Harness::new(store, 80, 16);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+    h
+}
+
+/// Right-clicks the cell at `(x, y)`.
+fn right_click(h: &mut Harness<Store>, x: i32, y: i32) {
+    h.mouse(MouseKind::Down(MouseButton::Right), x, y);
+    h.mouse(MouseKind::Up(MouseButton::Right), x, y);
+    h.render();
+}
+
+#[test]
+fn a_cards_menu_acts_on_the_card_that_was_right_clicked_and_not_on_the_selected_one() {
+    let mut h = menu_store(12);
+    h.send(Msg::Select(0));
+    let (x, y) = h.find("app 5").expect("the card is on screen");
+    right_click(&mut h, x, y);
+    assert!(h.screen().contains("Remove app 5"), "the menu is the card's own:\n{}", h.screen());
+    assert_eq!(h.app().selected, Some(5), "the card the menu belongs to became the selection");
+    h.click_text("Remove app 5").render();
+    assert_eq!(h.app().removed, vec![5], "the entry acts on the card that was clicked");
+}
+
+#[test]
+fn the_menu_key_opens_the_menu_of_the_card_the_keys_are_on() {
+    let mut h = menu_store(12);
+    h.press("tab").press("right").press("right");
+    assert_eq!(h.app().selected, Some(1));
+    h.press("menu").render();
+    assert!(h.screen().contains("Remove app 1"), "{}", h.screen());
+    h.press("enter").render();
+    assert_eq!(h.app().removed, vec![1]);
+}
+
+#[test]
+fn the_menu_key_scrolls_the_card_it_opens_on_into_view() {
+    let mut h = menu_store(400);
+    h.press("tab").press("end");
+    assert_eq!(h.app().selected, Some(399));
+    h.press("menu").render();
+    assert!(h.screen().contains("Remove app 399"), "{}", h.screen());
+}
+
+#[test]
+fn a_right_press_beside_the_cards_opens_nothing_and_one_on_another_card_moves_the_menu() {
+    let mut h = menu_store(4);
+    let (x, y) = h.find("app 1").expect("the card is on screen");
+    right_click(&mut h, x, y);
+    assert!(h.screen().contains("Remove app 1"), "{}", h.screen());
+    let (other_x, other_y) = h.find("app 3").expect("another card");
+    right_click(&mut h, other_x, other_y);
+    assert!(h.screen().contains("Remove app 3"), "the other card's menu took its place:\n{}", h.screen());
+    right_click(&mut h, 1, 15);
+    assert!(!h.screen().contains("Remove app"), "below the cards there is none:\n{}", h.screen());
+    assert!(h.app().removed.is_empty(), "nothing was chosen");
+}
+
+#[test]
+fn a_menu_card_keeps_its_surface_raised_while_its_menu_is_open() {
+    let mut h = menu_store(12);
+    let (x, y) = h.find("app 5").expect("the card is on screen");
+    let (cell_x, cell_y) = (u16::try_from(x).expect("on screen"), u16::try_from(y).expect("on screen"));
+    let resting = h.bg(cell_x, cell_y);
+    right_click(&mut h, x, y);
+    assert_ne!(h.bg(cell_x, cell_y), resting, "the card the menu acts on stays lit:\n{}", h.screen());
+}
+
+#[test]
+fn a_disabled_grid_opens_no_menu() {
+    let mut store = store(12);
+    store.menu = true;
+    store.disabled = true;
+    let mut h = Harness::new(store, 80, 16);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+    right_click(&mut h, 4, 1);
+    assert!(!h.screen().contains("Remove app"), "{}", h.screen());
 }
 
 fn color(h: &Harness<Store>, token: &str) -> Rgb {

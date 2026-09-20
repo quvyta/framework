@@ -95,6 +95,16 @@ no-room                  = "ディスクに空きがありません。"
 stopped                  = "あなたが止めたので、書き込まれた分は元に戻されました。"
 copying                  = "{n} 件をコピー中"
 stop                     = "中止"
+size                     = "{n} {unit}"
+read-only                = "読み取り専用"
+read-and-write           = "読み書き可能"
+column-name              = "名前"
+column-size              = "サイズ"
+column-permissions       = "権限"
+column-modified          = "更新日時"
+reading                  = "フォルダーを読み込み中"
+entries                  = "{n} 件"
+up                       = "上のフォルダーへ"
 
 [quvyta.terminal]
 scrolled = { other = "{n} 行さかのぼり中" }

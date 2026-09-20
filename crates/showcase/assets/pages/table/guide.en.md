@@ -20,6 +20,7 @@ Use a table when every row has the same few facts that people compare: container
 - **Too many columns scroll sideways.** When the minimum widths do not fit, ← and → move whole columns. Arrows at the ends of the header say more columns are hidden on that side; they are buttons too: a click scrolls one column, and they light up under the pointer.
 - **Any number of rows.** Only the rows on screen are painted; `Fit` widths are measured once per set of rows.
 - **A glyph before a name is quiet.** Without a colour it is `muted`, a step below the name, and takes the name's colour on the selected row, so the eye reads the name first and meaning never rides on the glyph's colour. It is drawn as the glyph, one space, then the text, in every glyph mode. A narrow column cuts only the text with `…`; the glyph and its space always stay. The demo's names carry their program's Nerd Font glyph in Nerd mode and the set's project icon otherwise; the playground turns them off.
+- **A menu belongs to a row, not to the table.** `.context_menu(|index| ..)` builds the entries for the row the menu opens on, and the row stays raised while it is open. A single menu wrapped around the table would act on whatever the cursor rests on, which in a file list means deleting the wrong file.
 - **Your data, your order.** The table never reorders rows. It asks for a sort and shows the arrow you give it back.
 
 ## Common mistakes

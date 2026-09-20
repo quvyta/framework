@@ -2,7 +2,7 @@
 //! an empty one.
 
 use qframe::prelude::*;
-use qframe::widgets::{CardGrid, EmptyState, Select, Span};
+use qframe::widgets::{CardGrid, ContextItem, EmptyState, Select, Span};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -36,11 +36,23 @@ pub struct State {
     checks: bool,
     contents: usize,
     disabled: bool,
+    /// Whether every card carries a menu of its own.
+    menu: bool,
+    /// What a card's menu was last asked for, empty before it is used.
+    asked: String,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { selected: None, checked: vec![false; COUNTS[0]], checks: false, contents: 0, disabled: false }
+        Self {
+            selected: None,
+            checked: vec![false; COUNTS[0]],
+            checks: false,
+            contents: 0,
+            disabled: false,
+            menu: true,
+            asked: String::new(),
+        }
     }
 }
 
@@ -53,6 +65,9 @@ pub enum Msg {
     Checks(bool),
     Contents(usize),
     Disabled(bool),
+    Menu(bool),
+    /// A card's own menu was used on the card of this index, for this action.
+    CardAction(usize, &'static str),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -89,18 +104,52 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.disabled = on;
             log.push(PAGE, "Playground", format!("disabled = {on}"));
         }
+        Msg::Menu(on) => {
+            state.menu = on;
+            state.asked.clear();
+            log.push(PAGE, "Playground", format!("card menu = {on}"));
+        }
+        // region: card-menu-update
+        Msg::CardAction(index, action) => {
+            // The menu says which card it was opened on, so the action never lands on the card the
+            // pointer happens to rest on. The words are chosen here, where the language is known.
+            let name = card_name(index);
+            state.asked = t!(&format!("card-grid.menu-{action}-done"), name = name.as_str());
+            log.push(PAGE, "CardGrid#apps", format!("{action} on card {index}"));
+        } // endregion
     }
     Command::none()
 }
 
-// region: card-content
-/// What card `index` shows: an icon and a name, a one-line summary, and where it comes from.
-fn card(ui: &mut View<'_, AppMsg>, index: usize) {
+/// The name of card `index`, which is worked out rather than kept, so ten thousand cards cost no
+/// ten thousand names.
+fn card_name(index: usize) -> String {
     let kind = KINDS[(index / PREFIXES.len()) % KINDS.len()];
     let mut name = format!("{} {}", PREFIXES[index % PREFIXES.len()], t!(&format!("card-grid.kind.{kind}.name")));
     if index >= PREFIXES.len() * KINDS.len() {
         name = format!("{name} {}", index / (PREFIXES.len() * KINDS.len()) + 1);
     }
+    name
+}
+
+// region: card-menu
+/// What the menu of card `index` offers. It is built when the menu opens, for that card alone.
+fn card_menu(index: usize) -> Vec<ContextItem<AppMsg>> {
+    let name = card_name(index);
+    vec![
+        ContextItem::new(t!("card-grid.menu-install", name = name.as_str()), send(Msg::CardAction(index, "install"))),
+        ContextItem::gap(),
+        ContextItem::new(t!("card-grid.menu-remove", name = name.as_str()), send(Msg::CardAction(index, "remove")))
+            .danger(true),
+    ]
+}
+// endregion
+
+// region: card-content
+/// What card `index` shows: an icon and a name, a one-line summary, and where it comes from.
+fn card(ui: &mut View<'_, AppMsg>, index: usize) {
+    let kind = KINDS[(index / PREFIXES.len()) % KINDS.len()];
+    let name = card_name(index);
     let icon = ui.env().icons().glyph("project").into_owned();
     ui.add(Text::rich([Span::new(format!("{icon} ")).color("accent"), Span::new(name).bold()]).no_wrap());
     ui.add(Text::new(t!(&format!("card-grid.kind.{kind}.summary"))).role("secondary").no_wrap());
@@ -136,8 +185,14 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         if state.checks {
             grid = grid.checked(state.checked.clone()).on_toggle(|index| send(Msg::Toggle(index)));
         }
-        ui.add(grid).width(Length::Fill(1)).height(Length::Cells(15)).id("apps");
+        if state.menu {
+            grid = grid.context_menu(card_menu);
+        }
+        ui.add(grid).width(Length::Fill(1)).height(Length::Cells(13)).id("apps");
         // endregion
+        if !state.asked.is_empty() {
+            ui.add(Text::new(state.asked.clone()).role("faint").no_wrap());
+        }
     })
     .fill_width();
 
@@ -150,6 +205,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         });
         setting(ui, t!("card-grid.checks"), |ui| {
             ui.add(toggle(state.checks, |on| send(Msg::Checks(on)))).id("checks");
+        });
+        setting(ui, t!("card-grid.menu"), |ui| {
+            ui.add(toggle(state.menu, |on| send(Msg::Menu(on)))).id("menu");
         });
         setting(ui, t!("card-grid.disabled"), |ui| {
             ui.add(toggle(state.disabled, |on| send(Msg::Disabled(on)))).id("disabled");
@@ -176,6 +234,20 @@ mod tests {
         h.press("space");
         assert!(h.app().pages.card_grid.checked[2]);
         assert!(h.screen().contains('✓'), "the checked card carries its mark");
+    }
+
+    #[test]
+    fn a_cards_own_menu_acts_on_the_card_it_was_opened_on() {
+        let mut h = showcase_on(PAGE);
+        h.send(send(Msg::Select(0)));
+        let (x, y) = h.find("Juniper Notes").expect("the third card");
+        h.mouse(qframe::event::MouseKind::Down(qframe::event::MouseButton::Right), x, y);
+        h.mouse(qframe::event::MouseKind::Up(qframe::event::MouseButton::Right), x, y);
+        h.advance(std::time::Duration::from_millis(400));
+        assert!(h.screen().contains("Install Juniper Notes"), "the menu is that card's own:\n{}", h.screen());
+        assert_eq!(h.app().pages.card_grid.selected, Some(2), "and the card became the selection");
+        h.click_text("Remove Juniper Notes");
+        assert!(h.screen().contains("Juniper Notes was asked to be removed"), "{}", h.screen());
     }
 
     #[test]

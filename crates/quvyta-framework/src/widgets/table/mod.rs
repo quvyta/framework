@@ -16,11 +16,13 @@ use crate::geometry::{Rect, Size, clamp_u16};
 use crate::keymap::{Key, KeyChord, Modifiers};
 use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
 
-use super::IndexMessage;
 use super::row::LEAD;
+use super::row_menu::{self, RowAnchor, RowMenuItems};
 use super::rows::{self, RowScroll, Step};
+use super::{ContextItem, IndexMessage};
 use layout::Placed;
 pub use model::{Column, ColumnWidth, SortDirection, TableCell, TableRow};
+use paint::RowPaint;
 
 /// Cells between two columns. Columns are told apart by space, never by a drawn line.
 const COLUMN_GAP: u16 = 2;
@@ -66,6 +68,7 @@ pub struct Table<Msg> {
     on_activate: Option<IndexMessage<Msg>>,
     on_toggle: Option<IndexMessage<Msg>>,
     on_sort: Option<SortMessage<Msg>>,
+    menu: Option<RowMenuItems<Msg>>,
 }
 
 #[derive(Debug, Default)]
@@ -96,6 +99,7 @@ impl<Msg: 'static> Table<Msg> {
             on_activate: None,
             on_toggle: None,
             on_sort: None,
+            menu: None,
         }
     }
 
@@ -155,6 +159,66 @@ impl<Msg: 'static> Table<Msg> {
     pub fn on_sort(mut self, message: impl Fn(usize, SortDirection) -> Msg + 'static) -> Self {
         self.on_sort = Some(Box::new(message));
         self
+    }
+
+    /// Gives every row a context menu: `items(index)` builds the entries for the row of that
+    /// index, and the menu acts on the row it was opened on rather than on the selected one.
+    ///
+    /// A right press on a row opens the menu at the pointer; the menu key or Shift+F10 opens the
+    /// menu of the selected row below it, scrolling it into view first. The row the menu belongs
+    /// to stays raised while it is open, so it is clear what the entries act on. A right press on
+    /// a row that is not checked makes it the selection first, so a menu never acts on rows the
+    /// person did not mean.
+    #[must_use]
+    pub fn context_menu(mut self, items: impl Fn(usize) -> Vec<ContextItem<Msg>> + 'static) -> Self {
+        self.menu = Some(Box::new(items));
+        self
+    }
+
+    /// The cells the rows have to themselves: the scrollbar column is not part of a row.
+    fn rows_width(area: Rect, overflows: bool) -> u16 {
+        area.width.saturating_sub(u16::from(overflows))
+    }
+
+    /// Offers `event` to the row menu. A right press picks the row under the pointer and makes it
+    /// the selection unless it is checked, because a menu on a checked row acts on the checked
+    /// rows, which the application knows about.
+    fn menu_event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
+        let area = cx.area();
+        let body = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1));
+        let total = self.rows.len();
+        let visible = usize::from(body.height);
+        let overflows = total > visible;
+        row_menu::event(
+            cx,
+            event,
+            self.menu.as_ref(),
+            total,
+            |cx, x, y| {
+                if y < body.y || x >= area.x + i32::from(Self::rows_width(area, overflows)) {
+                    return None;
+                }
+                let offset = cx.memory::<RowScroll>().offset;
+                let row = usize::try_from(y - body.y).ok().map(|row| offset + row).filter(|row| *row < total)?;
+                let checked = self.checked.as_ref().is_some_and(|checked| checked.get(row).copied().unwrap_or(false));
+                if !checked {
+                    self.select(cx, row);
+                }
+                Some(RowAnchor { row, at: Rect::new(x, y, 1, 1), keyboard: false })
+            },
+            |cx| {
+                let row = self.selected.filter(|row| *row < total)?;
+                let memory = cx.memory::<RowScroll>();
+                if row < memory.offset {
+                    memory.offset = row;
+                } else if visible > 0 && row >= memory.offset + visible {
+                    memory.offset = row + 1 - visible;
+                }
+                let y = body.y + i32::try_from(row - memory.offset).unwrap_or(0);
+                let at = Rect::new(area.x, y, Self::rows_width(area, overflows), 1);
+                Some(RowAnchor { row, at, keyboard: true })
+            },
+        )
     }
 
     fn lead(&self) -> u16 {
@@ -291,16 +355,29 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
         }
         let focused = cx.is_focused();
         let pressed = cx.is_pressed();
+        // An open row menu takes the pointer: only the row it acts on stays raised, so the menu
+        // and the row it belongs to are read together.
+        let menu_row = row_menu::open_row(cx, self.menu.as_ref());
+        if menu_row.is_some() {
+            cx.request_overlay(area);
+        }
         let offset = cx.memory::<RowScroll>().follow(self.selected, total, visible);
-        let row_width = area.width.saturating_sub(u16::from(overflows));
+        let row_width = Self::rows_width(area, overflows);
         for (row, index) in (offset..total).take(visible).enumerate() {
             let rect = Rect::new(area.x, body.y + i32::try_from(row).unwrap_or(0), row_width, 1);
-            self.paint_row(cx, rect, index, &placed, focused, pressed);
+            self.paint_row(cx, rect, index, &placed, RowPaint { focused, pressed, menu_row });
         }
         rows::paint_scrollbar(cx, body, total, offset, None);
     }
 
+    fn paint_overlay(&self, cx: &mut PaintCx<'_>, anchor: Rect) {
+        row_menu::paint(cx, self.menu.as_ref(), anchor);
+    }
+
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
+        if self.menu_event(cx, event) {
+            return true;
+        }
         let area = cx.area();
         let body = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1));
         let total = self.rows.len();

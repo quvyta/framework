@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::runtime::{Command, Confirm, Task, TaskEvent, TaskId, TaskOutcome};
 use crate::widgets::{Toast, TreeDrop};
 
+use super::details::{FileDetails, PAGE};
 use super::ops::{self, FileChange, FileError, NameProblem, is_within, name_of, parent_key};
 use super::watch::Live;
 
@@ -181,6 +182,15 @@ pub enum FileManagerMsg {
     Done(Vec<(String, Result<FileChange, FileError>)>),
     /// A batch of outside changes of the watch `u64` arrived; empty once that watch was let go.
     Changed(u64, Vec<crate::storage::FolderChange>),
+    /// The details of the entries of these keys were asked for: their size, when they changed and
+    /// their permissions. Keys that are already known, or already on their way, cost nothing.
+    Detail(Vec<String>),
+    /// The details of these keys were read, `None` for an entry the system said nothing about.
+    Detailed(Vec<(String, Option<FileDetails>)>),
+    /// A flat view stepped into the folder of this key; it is read if it has not been.
+    Enter(String),
+    /// A flat view stepped out of the folder it shows, into the one above it.
+    Leave,
 }
 
 /// A long operation the manager is running in the background right now.
@@ -299,7 +309,15 @@ pub struct FileManagerState {
     root: PathBuf,
     confined: bool,
     following: bool,
+    /// The folder a flat view shows; the root until one is stepped into.
+    shown: String,
     children: BTreeMap<String, Vec<FolderEntry>>,
+    /// What is known about an entry besides its name, for the entries it was asked for. Never a
+    /// whole folder: a folder of ten thousand entries must not become ten thousand calls.
+    details: BTreeMap<String, Option<FileDetails>>,
+    /// The keys whose details were asked for and have not come back yet, so one ask is not made
+    /// twice.
+    reading: BTreeSet<String>,
     open: BTreeSet<String>,
     loading: BTreeSet<String>,
     selected: Option<String>,
@@ -331,7 +349,10 @@ impl FileManagerState {
             root: root.into(),
             confined: false,
             following: false,
+            shown: ROOT.to_owned(),
             children: BTreeMap::new(),
+            details: BTreeMap::new(),
+            reading: BTreeSet::new(),
             open: BTreeSet::from([ROOT.to_owned()]),
             loading: BTreeSet::new(),
             selected: None,
@@ -460,6 +481,32 @@ impl FileManagerState {
     #[must_use]
     pub fn children(&self, key: &str) -> Option<&[FolderEntry]> {
         self.children.get(key).map(Vec::as_slice)
+    }
+
+    /// The folder a flat view shows, the root until one is stepped into.
+    ///
+    /// The tree shows the whole root and takes no notice of this; the list and the icons show this
+    /// one folder, and [`FileManagerMsg::Enter`] and [`FileManagerMsg::Leave`] move through it.
+    #[must_use]
+    pub fn folder(&self) -> &str {
+        &self.shown
+    }
+
+    /// What is known about the entry `key` besides its name: its size, when it changed last and
+    /// its permissions.
+    ///
+    /// `None` while nothing has been asked for that entry, and `Some(None)` for one the system
+    /// said nothing about — it went away, or may not be looked at. Ask for details with
+    /// [`detail`](Self::detail) or [`FileManagerMsg::Detail`]; a tree row never asks.
+    #[must_use]
+    pub fn details(&self, key: &str) -> Option<Option<&FileDetails>> {
+        self.details.get(key).map(Option::as_ref)
+    }
+
+    /// Whether the details of `key` have been asked for, whether or not the answer has come.
+    #[must_use]
+    pub fn has_details(&self, key: &str) -> bool {
+        self.details.contains_key(key) || self.reading.contains(key)
     }
 
     /// Whether the folder `key` is open.
@@ -661,6 +708,10 @@ impl FileManagerState {
                     self.error = None;
                 }
                 self.children.insert(key.to_owned(), entries);
+                // A folder read again may hold entries that changed since, so what was known about
+                // them is let go and asked for afresh rather than shown out of date.
+                self.details.retain(|entry, _| parent_key(entry) != key);
+                self.reading.retain(|entry| parent_key(entry) != key);
                 self.prune(key);
             }
             Err(problem) => {
@@ -711,6 +762,14 @@ impl FileManagerState {
             .into_iter()
             .map(|(key, entries)| (moved(&key).unwrap_or(key), entries))
             .collect();
+        self.details = std::mem::take(&mut self.details)
+            .into_iter()
+            .map(|(key, details)| (moved(&key).unwrap_or(key), details))
+            .collect();
+        self.reading.retain(|key| !is_within(key, from));
+        if let Some(new) = moved(&self.shown) {
+            self.shown = new;
+        }
         for key in self.selected.iter_mut().chain(&mut self.cut).chain(&mut self.chosen) {
             if let Some(new) = moved(key) {
                 *key = new;
@@ -721,6 +780,12 @@ impl FileManagerState {
     /// Forgets everything at or below `key`, after it was deleted. The cursor goes to the folder it
     /// was in, the nearest thing still there.
     fn forget(&mut self, key: &str) {
+        // A folder a flat view shows that is taken away leaves the view in the one above it.
+        if is_within(&self.shown, key) {
+            self.shown = parent_key(key).to_owned();
+        }
+        self.details.retain(|entry, _| !is_within(entry, key));
+        self.reading.retain(|entry| !is_within(entry, key));
         self.open.retain(|open| !is_within(open, key));
         self.loading.retain(|loading| !is_within(loading, key));
         self.children.retain(|folder, _| !is_within(folder, key));
@@ -807,6 +872,109 @@ impl FileManagerState {
             return Command::none();
         }
         self.read_folder(ROOT, wrap)
+    }
+
+    /// Asks for the details of the entries `keys`: their size, when they changed last and their
+    /// permissions.
+    ///
+    /// Only the keys nothing is known about yet are read, so asking for the same page twice costs
+    /// nothing. Use this when the application knows exactly which rows it draws; a view that shows
+    /// details asks for a page around the cursor by itself. Never hand it a whole folder: every
+    /// key is one more call to the system, which over a remote file system is what a large folder
+    /// cannot afford.
+    ///
+    /// The answers come back as [`FileManagerMsg::Detailed`] and are read with
+    /// [`details`](Self::details).
+    pub fn detail<Msg: Clone + Send + 'static>(
+        &mut self,
+        keys: Vec<String>,
+        wrap: impl Fn(FileManagerMsg) -> Msg + Send + Sync + 'static,
+    ) -> Command<Msg> {
+        let wrap: Wrap<Msg> = Arc::new(wrap);
+        self.read_details(keys, &wrap)
+    }
+
+    /// Asks for the details of a page of entries of the folder `folder`, around the cursor.
+    ///
+    /// A page of two hundred entries is always more than a screen holds and far less than a large
+    /// folder, so a person scrolling rarely waits and a folder of ten thousand entries never turns
+    /// into ten thousand calls to the system. The cursor decides where the page sits; a cursor
+    /// somewhere else, or nowhere, starts it at the top of the folder.
+    ///
+    /// The views that show details use this by themselves; an application that knows exactly which
+    /// rows it draws asks for those with [`detail`](Self::detail) instead.
+    pub fn detail_page<Msg: Clone + Send + 'static>(
+        &mut self,
+        folder: &str,
+        wrap: impl Fn(FileManagerMsg) -> Msg + Send + Sync + 'static,
+    ) -> Command<Msg> {
+        let wrap: Wrap<Msg> = Arc::new(wrap);
+        self.read_page(folder, &wrap)
+    }
+
+    /// Shows the folder `key` in the flat views, reading it if it has not been read.
+    ///
+    /// The cursor starts at the folder's own row, so the keys go on from the top of what is now
+    /// shown rather than from a row of the folder that was left.
+    fn enter<Msg: Clone + Send + 'static>(&mut self, key: &str, wrap: &Wrap<Msg>) -> Command<Msg> {
+        if key != ROOT && !self.is_folder(key) {
+            return Command::none();
+        }
+        self.shown = key.to_owned();
+        self.selected = None;
+        self.chosen.clear();
+        // The folder is opened as well as shown, so the tree and the flat views agree about where
+        // the person is when the shape is changed.
+        let read = self.expand(key, true);
+        if read { self.read_folder(key, wrap) } else { Command::none() }
+    }
+
+    /// The entries of a page around the cursor in the folder `folder` that nothing is known about
+    /// yet and that nothing is on its way for.
+    ///
+    /// This is what a view showing details asks for while it draws: it is empty once the page is
+    /// known or already being read, so the view asks once and then stops asking.
+    #[must_use]
+    pub fn detail_gaps(&self, folder: &str) -> Vec<String> {
+        let Some(entries) = self.shown_children(folder) else { return Vec::new() };
+        let keys: Vec<String> = entries.iter().map(|entry| child_key(folder, &entry.name)).collect();
+        let at = self.selected.as_deref().and_then(|cursor| keys.iter().position(|key| key == cursor)).unwrap_or(0);
+        // The page is put around the cursor, so moving on in either direction stays inside it.
+        let start = at.saturating_sub(PAGE / 2);
+        keys.into_iter().skip(start).take(PAGE).filter(|key| !self.has_details(key)).collect()
+    }
+
+    /// The page of [`detail_page`](Self::detail_page), for the manager's own asking.
+    pub(super) fn read_page<Msg: Clone + Send + 'static>(&mut self, folder: &str, wrap: &Wrap<Msg>) -> Command<Msg> {
+        let page = self.detail_gaps(folder);
+        self.read_details(page, wrap)
+    }
+
+    /// Reads the details of `keys` on a background thread, leaving out what is known or on its way.
+    pub(super) fn read_details<Msg: Clone + Send + 'static>(
+        &mut self,
+        keys: Vec<String>,
+        wrap: &Wrap<Msg>,
+    ) -> Command<Msg> {
+        let wanted: Vec<String> = keys.into_iter().filter(|key| key != ROOT && !self.has_details(key)).collect();
+        if wanted.is_empty() {
+            return Command::none();
+        }
+        for key in &wanted {
+            self.reading.insert(key.clone());
+        }
+        let (root, wrap) = (self.root.clone(), Arc::clone(wrap));
+        Command::perform(move || {
+            let read = wanted
+                .iter()
+                .map(|key| {
+                    let path =
+                        key.split('/').filter(|part| !part.is_empty()).fold(root.clone(), |at, part| at.join(part));
+                    (key.clone(), FileDetails::read(&path))
+                })
+                .collect();
+            wrap(FileManagerMsg::Detailed(read))
+        })
     }
 
     /// Reads one folder on a background thread.
@@ -922,6 +1090,26 @@ impl FileManagerState {
             }
             FileManagerMsg::Done(results) => self.done(results, wrap),
             FileManagerMsg::Changed(run, batch) => super::watch::changed(self, run, batch, wrap),
+            FileManagerMsg::Enter(key) => self.enter(&key, wrap),
+            FileManagerMsg::Leave => {
+                if self.shown == ROOT {
+                    return Command::none();
+                }
+                let left = self.shown.clone();
+                let up = parent_key(&left).to_owned();
+                let command = self.enter(&up, wrap);
+                // The cursor lands on the folder that was left, which is where the eye already is.
+                self.selected = Some(left);
+                command
+            }
+            FileManagerMsg::Detail(keys) => self.read_details(keys, wrap),
+            FileManagerMsg::Detailed(read) => {
+                for (key, details) in read {
+                    self.reading.remove(&key);
+                    self.details.insert(key, details);
+                }
+                Command::none()
+            }
         }
     }
 

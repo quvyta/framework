@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use qframe::prelude::*;
 use qframe::runtime::Task;
-use qframe::widgets::{ContextItem, FileManager, FileManagerMsg, FileManagerState, FolderEntry, RowMark, Select};
+use qframe::widgets::{
+    ContextItem, FileManager, FileManagerMsg, FileManagerState, FileView, FolderEntry, RowMark, Select,
+};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -21,6 +23,12 @@ const SLOW_DISK: Duration = Duration::from_secs(1);
 
 /// The folders the playground can root the manager at, all inside the folder of this run.
 const FOLDERS: [&str; 3] = ["files", "empty", "denied"];
+
+/// The shapes the playground can draw the folder in, in the order the switcher offers them.
+const VIEWS: [FileView; 3] = [FileView::Tree, FileView::List, FileView::Icons];
+
+/// What each of [`VIEWS`] is called, as locale keys.
+const VIEW_NAMES: [&str; 3] = ["tree", "list", "icons"];
 
 /// How wide the manager is drawn while the playground asks for a narrow one.
 const NARROW: u16 = 22;
@@ -75,6 +83,8 @@ pub struct State {
     demo: PathBuf,
     manager: FileManagerState,
     folder: usize,
+    /// The shape the folder is drawn in.
+    view: usize,
     confined: bool,
     narrow: bool,
     disabled: bool,
@@ -98,6 +108,7 @@ impl Default for State {
             manager: manager(&demo, 0, true, false, false),
             demo,
             folder: 0,
+            view: 0,
             confined: true,
             narrow: false,
             disabled: false,
@@ -162,6 +173,7 @@ pub enum Msg {
     /// The application's own menu item was chosen on this row.
     Mine(String),
     Folder(usize),
+    View(usize),
     Confine(bool),
     Narrow(bool),
     Disable(bool),
@@ -218,6 +230,15 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             log.push(PAGE, "Playground", format!("folder = {}", FOLDERS[index]));
             restart(state)
         }
+        // region: file-manager-shape
+        Msg::View(index) => {
+            // The shape is the view's own; what is read and what is shown follow from it, so
+            // nothing else has to change when it does.
+            state.view = index;
+            log.push(PAGE, "Playground", format!("view = {}", VIEW_NAMES[index]));
+            Command::none()
+        }
+        // endregion
         Msg::Confine(on) => {
             state.confined = on;
             log.push(PAGE, "Playground", format!("confined = {on}"));
@@ -299,6 +320,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         ui.spacer().height(Length::Cells(1));
         // region: file-manager-view
         let mut manager = FileManager::new(&state.manager, send)
+            .view(VIEWS[state.view])
             .root_label(t!("file-manager.root"))
             .on_open(|path| send_page(Msg::Open(path.to_path_buf())))
             .disabled(state.disabled);
@@ -340,6 +362,12 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             ui.add(Select::new(names).selected(Some(state.folder)).on_select(|i| send_page(Msg::Folder(i))))
                 .width(Length::Cells(28))
                 .id("folder");
+        });
+        setting(ui, t!("file-manager.view"), |ui| {
+            let names = VIEW_NAMES.map(|name| t!(&format!("file-manager.view-{name}")));
+            ui.add(Select::new(names).selected(Some(state.view)).on_select(|i| send_page(Msg::View(i))))
+                .width(Length::Cells(28))
+                .id("view");
         });
         setting(ui, t!("file-manager.confine"), |ui| {
             ui.add(toggle(state.confined, |on| send_page(Msg::Confine(on)))).id("confine");
@@ -471,6 +499,31 @@ mod tests {
         let screen = h.screen();
         assert!(screen.contains('\u{25b2}'), "the text file carries the warning sign:\n{screen}");
         assert!(screen.contains("README.md"), "and the other rows are as they were:\n{screen}");
+    }
+
+    #[test]
+    fn the_shape_switches_between_the_tree_the_list_and_the_icons() {
+        let mut h = showcase_on(PAGE);
+        assert!(h.screen().contains("README.md"), "{}", h.screen());
+
+        h.send(send_page(Msg::View(1))).advance(MOMENT);
+        let screen = h.screen();
+        assert!(screen.contains("Size") && screen.contains("Changed"), "the list shows its columns:\n{screen}");
+        assert!(screen.contains("README.md"), "{screen}");
+        assert!(!screen.contains("tide.md"), "a flat view shows one folder:\n{screen}");
+        h.advance(MOMENT);
+        assert!(h.screen().contains(" B "), "a size was read for the rows on screen:\n{}", h.screen());
+
+        // A folder is stepped into and the row of the folder itself is the way back out.
+        h.click_text("notes").advance(MOMENT);
+        assert!(h.screen().contains("tide.md"), "{}", h.screen());
+        h.click_text("notes").advance(MOMENT);
+        assert!(h.screen().contains("README.md"), "{}", h.screen());
+
+        h.send(send_page(Msg::View(2))).advance(MOMENT);
+        assert!(h.screen().contains("README.md"), "the icons show the same folder:\n{}", h.screen());
+        h.send(send_page(Msg::View(0))).advance(MOMENT);
+        assert!(h.screen().contains("README.md"), "{}", h.screen());
     }
 
     #[test]

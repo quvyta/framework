@@ -1,9 +1,11 @@
 use super::*;
 use crate::color::Rgb;
+use crate::event::{MouseButton, MouseKind};
 use crate::icons::Glyph;
 use crate::icons::GlyphMode;
 use crate::runtime::{App, Command, Harness};
 use crate::widget::{Align, Length, View};
+use crate::widgets::ContextItem;
 
 struct Demo {
     rows: Arc<[TableRow]>,
@@ -12,6 +14,10 @@ struct Demo {
     checked: Option<Vec<bool>>,
     sort: Option<(usize, SortDirection)>,
     wide: bool,
+    /// Whether every row carries a menu of its own.
+    menu: bool,
+    /// The rows a menu entry was chosen on, in order.
+    removed: Vec<usize>,
 }
 
 #[derive(Clone)]
@@ -20,6 +26,7 @@ enum Msg {
     Open(usize),
     Toggle(usize),
     Sort(usize, SortDirection),
+    Remove(usize),
 }
 
 impl App for Demo {
@@ -34,6 +41,7 @@ impl App for Demo {
                 }
             }
             Msg::Sort(column, direction) => self.sort = Some((column, direction)),
+            Msg::Remove(i) => self.removed.push(i),
         }
         Command::none()
     }
@@ -59,6 +67,13 @@ impl App for Demo {
         if let Some(checked) = &self.checked {
             table = table.checked(checked.clone());
         }
+        if self.menu {
+            let rows = Arc::clone(&self.rows);
+            table = table.context_menu(move |index| {
+                let name = rows[index].cells[0].text.clone();
+                vec![ContextItem::new(format!("Remove {name}"), Msg::Remove(index))]
+            });
+        }
         ui.add(table).width(Length::Fill(1)).height(Length::Fill(1)).id("table");
     }
 }
@@ -70,7 +85,16 @@ fn rows(count: usize) -> Arc<[TableRow]> {
 }
 
 fn demo(count: usize) -> Demo {
-    Demo { rows: rows(count), selected: None, opened: Vec::new(), checked: None, sort: None, wide: false }
+    Demo {
+        rows: rows(count),
+        selected: None,
+        opened: Vec::new(),
+        checked: None,
+        sort: None,
+        wide: false,
+        menu: false,
+        removed: Vec::new(),
+    }
 }
 
 #[test]
@@ -335,4 +359,92 @@ fn a_one_cell_glyph_takes_one_cell_and_one_space_in_a_fitting_column() {
     let mut text = Harness::new(Kinds(false), 24, 2);
     text.set_glyph_mode(GlyphMode::Unicode);
     assert_eq!(glyph.screen(), text.screen(), "the glyph and its space are two cells, like `▲ `");
+}
+
+/// A table whose rows each carry a menu, with the motion off so a menu is there at once.
+fn menu_demo(count: usize) -> Harness<Demo> {
+    let mut demo = demo(count);
+    demo.menu = true;
+    let mut h = Harness::new(demo, 30, 8);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+    h
+}
+
+/// Right-clicks the cell at `(x, y)`.
+fn right_click(h: &mut Harness<Demo>, x: i32, y: i32) {
+    h.mouse(MouseKind::Down(MouseButton::Right), x, y);
+    h.mouse(MouseKind::Up(MouseButton::Right), x, y);
+    h.render();
+}
+
+#[test]
+fn a_rows_menu_acts_on_the_row_that_was_right_clicked_and_not_on_the_selected_one() {
+    let mut h = menu_demo(5);
+    h.send(Msg::Select(0));
+    let (x, y) = h.find("svc-3").expect("the row is on screen");
+    right_click(&mut h, x, y);
+    assert!(h.screen().contains("Remove svc-3"), "the menu is the row's own:\n{}", h.screen());
+    assert_eq!(h.app().selected, Some(3), "the row the menu belongs to became the selection");
+    h.click_text("Remove svc-3").render();
+    assert_eq!(h.app().removed, vec![3], "the entry acts on the row that was clicked");
+}
+
+#[test]
+fn the_menu_key_opens_the_menu_of_the_selected_row() {
+    let mut h = menu_demo(5);
+    h.press("tab").press("down").press("down");
+    assert_eq!(h.app().selected, Some(1));
+    h.press("menu").render();
+    assert!(h.screen().contains("Remove svc-1"), "{}", h.screen());
+    h.press("enter").render();
+    assert_eq!(h.app().removed, vec![1]);
+}
+
+#[test]
+fn the_menu_key_scrolls_the_selected_row_into_view_first() {
+    let mut h = menu_demo(200);
+    h.press("tab").press("end");
+    assert_eq!(h.app().selected, Some(199));
+    h.press("menu").render();
+    assert!(h.screen().contains("Remove svc-199"), "{}", h.screen());
+}
+
+#[test]
+fn a_right_press_beside_the_menu_closes_it_without_choosing() {
+    let mut h = menu_demo(5);
+    let (x, y) = h.find("svc-1").expect("the row is on screen");
+    right_click(&mut h, x, y);
+    assert!(h.screen().contains("Remove svc-1"), "{}", h.screen());
+    let (other_x, other_y) = h.find("svc-4").expect("another row");
+    right_click(&mut h, other_x, other_y);
+    assert!(h.screen().contains("Remove svc-4"), "the other row's menu took its place:\n{}", h.screen());
+    assert!(h.app().removed.is_empty(), "nothing was chosen");
+}
+
+#[test]
+fn a_right_press_on_the_header_or_beside_the_rows_opens_nothing() {
+    let mut h = menu_demo(3);
+    right_click(&mut h, 4, 0);
+    assert!(!h.screen().contains("Remove"), "the header has no row menu:\n{}", h.screen());
+    right_click(&mut h, 4, 6);
+    assert!(!h.screen().contains("Remove"), "below the last row there is no row:\n{}", h.screen());
+}
+
+#[test]
+fn a_menu_row_keeps_its_surface_raised_while_its_menu_is_open() {
+    let mut h = menu_demo(5);
+    let (x, y) = h.find("svc-2").expect("the row is on screen");
+    let row = u16::try_from(y).expect("a row on screen");
+    let resting = h.bg(1, row);
+    right_click(&mut h, x, y);
+    assert_ne!(h.bg(1, row), resting, "the row the menu acts on stays lit:\n{}", h.screen());
+}
+
+#[test]
+fn a_table_without_a_menu_answers_no_right_press() {
+    let mut h = Harness::new(demo(3), 30, 6);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+    right_click(&mut h, 4, 1);
+    assert!(!h.screen().contains("Remove"), "nothing opens:\n{}", h.screen());
+    assert!(h.app().removed.is_empty() && h.app().opened.is_empty(), "and the right button does nothing else");
 }

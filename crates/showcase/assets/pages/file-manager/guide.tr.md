@@ -5,6 +5,7 @@ Bir klasör uygulamanın konusunun parçasıysa dosya yöneticisi kullanılır: 
 - **Ekrandaki her yönetici için bir durum.** `FileManagerState` her ekran durumu gibi senin durumunun içinde yaşar ve her `FileManagerMsg`'i ona verirsin.
 - **Açmak senin işin.** Yönetici yalnızca "şu yol açılmak istendi" der. Sekme, pencere, önizleme ya da bir diyaloğun cevabı olması senin kararın.
 - **Klasörün ne olduğunu söyle.** Çıkılmaması gereken bir klasör için `confined()`; onsuz yönetici kendisine verilen kökü gösterir, bütün dosya sistemi de olabilir.
+- **Biçimi seç.** `view(FileView::Tree | List | Icons)`: klasör içinde klasör; tek klasör, boyut, tarih ve izinleriyle satır satır; ya da tek klasör, simge ızgarası olarak. Hiçbir şey söylemezsen ağaç gelir.
 
 ## Adım adım
 
@@ -19,6 +20,8 @@ Bir klasör uygulamanın konusunun parçasıysa dosya yöneticisi kullanılır: 
 ## Nasıl çalışır
 
 - **Okuma hiçbir zaman çizim sırasında olmaz.** Bir klasör bir kez, tek cevapta okunur ve görünüm elde olandan kurulur. On bin girdi tek parça gelir ve bir kez çizilir; parça parça akıtılmaz, çünkü her yeniden çizim uzak bağlantıda yeni bir ekran demektir.
+- **Düz görünüm tek klasör gösterir.** Liste ve simgeler `state.folder()`'ın söylediği klasörü gösterir; en üstte o klasörün kendi satırı durur: menüsü oradadır ve o satır klasörden çıkmanın yoludur, bir klasör satırı ise içine girer. Tuşlar, menüler ve bütün işlemler üç biçimde de aynıdır.
+- **Liste bir sayfa okur, klasörü değil.** Boyut, tarih ve izin, o tek girdi için sisteme bir çağrı daha demektir; bu yüzden liste imlecin çevresindeki iki yüz girdilik bir sayfayı ister ve geleni saklar. Ağaç ile simgeler hiçbir şey istemez. Hangi satırları çizdiğini tam olarak bilen bir uygulama onları `state.detail(anahtarlar, sar)` ile ister.
 - **Yalnızca görünen satırlar boyanır.** On bin girdilik klasör iki yüz girdilik klasör kadar tutar: ekrandaki satırlar, o kadar. Ağaç satırı boyut, tarih ya da izin diye hiçbir şey okumaz.
 - **Yükleniyor göstergesinin kuralı var.** 300 ms'den kısa okuma hiçbir şey göstermez; daha yavaşı klasörün kendi satırına küçük bir spinner koyar ve o yaklaşık 500 ms kalır. Hızlı okuma ekranda yanıp sönmez, yavaş okuma da titremez.
 - **Yol değil, anahtar.** Her girdinin bir anahtarı vardır: köke göre yolu, her platformda `/` ile yazılmış. İşlemler anahtar alır ve yolu kendileri kurar; bu yüzden kökten çıkan bir anahtar (`..`, boş parça, NUL) nereden gelirse gelsin reddedilir — oturum dosyası dahil.

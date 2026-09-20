@@ -75,6 +75,11 @@ struct Demo {
     /// Whether the long operation's task is driven by hand rather than started, so a test can hold
     /// it in the middle and look at the screen.
     driven: bool,
+    /// The shape the manager is drawn in.
+    view: FileView,
+    /// Whether the work the manager asks for is dropped, so a read never finishes and the reading
+    /// state can be looked at.
+    slow: bool,
 }
 
 impl Demo {
@@ -95,6 +100,8 @@ impl Demo {
             disabled: false,
             marked: Vec::new(),
             driven: false,
+            view: FileView::Tree,
+            slow: false,
         }
     }
 }
@@ -111,6 +118,10 @@ enum Msg {
     Disable,
     /// The application marks this entry this way.
     Mark(String, RowMark),
+    /// The manager is drawn in this shape from now on.
+    View(FileView),
+    /// The work the manager asks for is dropped from now on, so a read never ends.
+    Slow,
 }
 
 impl App for Demo {
@@ -124,6 +135,9 @@ impl App for Demo {
         match msg {
             Msg::Files(message) => {
                 let command = self.manager.update(message, Msg::Files);
+                if self.slow {
+                    return Command::none();
+                }
                 if self.driven && self.manager.work().is_some() {
                     // The task is not started: the test sends its events itself.
                     return Command::none();
@@ -136,12 +150,15 @@ impl App for Demo {
             Msg::Extras => self.extras = true,
             Msg::Disable => self.disabled = true,
             Msg::Mark(key, mark) => self.marked.push((key, mark)),
+            Msg::View(view) => self.view = view,
+            Msg::Slow => self.slow = true,
         }
         Command::none()
     }
 
     fn view(&self, ui: &mut View<'_, Msg>) {
         let mut manager = FileManager::new(&self.manager, Msg::Files)
+            .view(self.view)
             .on_open(|path| Msg::Open(path.to_path_buf()))
             .disabled(self.disabled);
         if self.extras {
@@ -947,6 +964,16 @@ fn every_text_is_there_in_all_nine_languages() {
         "stopped",
         "copying",
         "stop",
+        "size",
+        "read-only",
+        "read-and-write",
+        "column-name",
+        "column-size",
+        "column-modified",
+        "column-permissions",
+        "reading",
+        "entries",
+        "up",
     ];
     let i18n = crate::i18n::I18n::builtin();
     for (code, _) in crate::assets::LOCALES {
@@ -1476,4 +1503,380 @@ fn a_copy_stopped_in_the_middle_takes_the_half_file_away_again() {
     assert!(!root.join("to/big.bin").exists(), "half a file is worse than no file");
     assert!(root.join("big.bin").is_file(), "and what was being copied is untouched");
     assert_eq!(FileError::Stopped, FileError::Stopped);
+}
+
+/// Counts how many entries the system was asked about: every `Detail` that reaches the state is
+/// one call per key, so the test can hold the manager to the page rule.
+fn detailed(state: &mut FileManagerState, keys: Vec<String>) -> usize {
+    let before = keys.iter().filter(|key| !state.has_details(key)).count();
+    drop(state.detail(keys, Msg::Files));
+    before
+}
+
+/// Answers a detail request the way its background work would.
+fn read_details(state: &mut FileManagerState, keys: &[String]) {
+    let read = keys.iter().map(|key| (key.clone(), FileDetails::read(&state.path(key)))).collect();
+    apply(state, FileManagerMsg::Detailed(read));
+}
+
+#[test]
+fn details_are_read_for_the_entries_asked_for_and_kept() {
+    let scratch = Scratch::new("details");
+    let mut state = FileManagerState::new(scratch.root()).confined();
+    read(&mut state, FileManagerState::ROOT);
+
+    assert_eq!(state.details("README.md"), None, "nothing is known before it is asked for");
+    assert_eq!(detailed(&mut state, vec!["README.md".to_owned()]), 1);
+    assert!(state.has_details("README.md"), "the ask is remembered while it is on its way");
+    read_details(&mut state, &["README.md".to_owned()]);
+
+    let details = state.details("README.md").expect("asked for").expect("the file is there");
+    assert_eq!(details.size, fs::metadata(scratch.root().join("README.md")).expect("the file").len());
+    assert!(details.modified.is_some(), "the system says when it changed");
+    assert!(!details.modified_text().is_empty());
+    #[cfg(unix)]
+    assert!(details.permissions_text(false).starts_with('-'), "{}", details.permissions_text(false));
+
+    // The same ask again reads nothing: what is known is not read twice.
+    assert_eq!(detailed(&mut state, vec!["README.md".to_owned()]), 0);
+}
+
+#[test]
+fn a_tree_row_reads_no_details_at_all() {
+    let scratch = Scratch::new("details-tree");
+    let mut h = harness(&scratch);
+    h.press("tab").press("down").press("down").render();
+    assert!(state(&h).selected().is_some(), "the cursor moved through the rows");
+    for key in ["README.md", "src", "src/main.rs"] {
+        assert!(!state(&h).has_details(key), "the tree asked about {key}");
+    }
+}
+
+#[test]
+fn a_page_of_details_is_read_around_the_cursor_and_never_the_whole_folder() {
+    let scratch = Scratch::new("details-page");
+    fill(&scratch.0.join("many"), MANY);
+    let mut state = FileManagerState::new(scratch.0.join("many"));
+    read(&mut state, FileManagerState::ROOT);
+    assert_eq!(state.children(FileManagerState::ROOT).map(<[FolderEntry]>::len), Some(MANY));
+
+    let page = |state: &FileManagerState| {
+        (0..MANY).filter(|index| state.has_details(&format!("entry-{index:05}.txt"))).collect::<Vec<_>>()
+    };
+    drop(state.detail_page(FileManagerState::ROOT, Msg::Files));
+    let asked = page(&state);
+    assert_eq!(asked.len(), 200, "one page, never the {MANY} entries of the folder");
+    assert_eq!(asked.first().copied(), Some(0), "with no cursor the page starts at the top");
+
+    // The cursor decides where the page sits, and the page around it reaches both ways.
+    state.select("entry-05000.txt");
+    drop(state.detail_page(FileManagerState::ROOT, Msg::Files));
+    let asked = page(&state);
+    assert_eq!(asked.len(), 400, "a second page and no more");
+    assert!(asked.contains(&4900) && asked.contains(&5099), "the page sits around the cursor: {asked:?}");
+    assert!(!asked.contains(&4899) && !asked.contains(&5100), "and stops there");
+}
+
+#[test]
+fn what_is_known_about_an_entry_is_let_go_when_it_moves_or_goes_away() {
+    let scratch = Scratch::new("details-forget");
+    let mut state = FileManagerState::new(scratch.root()).confined();
+    read(&mut state, FileManagerState::ROOT);
+    let keys = vec!["README.md".to_owned(), "src".to_owned()];
+    drop(state.detail(keys.clone(), Msg::Files));
+    read_details(&mut state, &keys);
+    assert!(state.details("README.md").is_some_and(|details| details.is_some()));
+
+    apply(
+        &mut state,
+        FileManagerMsg::Done(vec![(
+            "README.md".to_owned(),
+            Ok(FileChange::Moved("README.md".to_owned(), "src/README.md".to_owned())),
+        )]),
+    );
+    assert!(!state.has_details("README.md"), "the old key is gone");
+    assert!(state.details("src/README.md").is_some(), "and what was known travelled with it");
+
+    apply(&mut state, FileManagerMsg::Done(vec![("src".to_owned(), Ok(FileChange::Deleted("src".to_owned())))]));
+    assert!(!state.has_details("src") && !state.has_details("src/README.md"), "a deleted folder takes them along");
+}
+
+#[test]
+fn a_folder_read_again_asks_about_its_entries_afresh() {
+    let scratch = Scratch::new("details-reread");
+    let mut state = FileManagerState::new(scratch.root()).confined();
+    read(&mut state, FileManagerState::ROOT);
+    let keys = vec!["README.md".to_owned()];
+    drop(state.detail(keys.clone(), Msg::Files));
+    read_details(&mut state, &keys);
+    let first = state.details("README.md").expect("asked for").expect("there").size;
+
+    fs::write(scratch.root().join("README.md"), "a longer README than before\n").expect("the file");
+    read(&mut state, FileManagerState::ROOT);
+    assert!(!state.has_details("README.md"), "what was known of a folder read again is let go");
+    drop(state.detail(keys.clone(), Msg::Files));
+    read_details(&mut state, &keys);
+    let second = state.details("README.md").expect("asked for").expect("there").size;
+    assert_ne!(first, second, "and the new size is read");
+}
+
+#[test]
+fn a_size_is_said_in_the_largest_unit_that_still_means_something() {
+    let mut english = crate::i18n::I18n::builtin();
+    english.set_active("en");
+    crate::i18n::scope(std::sync::Arc::new(english), || {
+        let details = |size| FileDetails { size, modified: None, mode: None, readonly: false };
+        assert_eq!(details(0).size_text(false), "0 B");
+        assert_eq!(details(840).size_text(false), "840 B");
+        assert_eq!(details(9_400).size_text(false), "9.4 kB");
+        assert_eq!(details(12_000_000).size_text(false), "12 MB");
+        assert_eq!(details(4_000_000_000).size_text(false), "4.0 GB");
+        assert_eq!(details(9_000).size_text(true), "", "a folder's own size says nothing about what is in it");
+    });
+}
+
+/// A manager of `scratch` drawn in `view`, its root read.
+fn viewing(scratch: &Scratch, view: FileView) -> Harness<Demo> {
+    let mut h = harness(scratch);
+    h.send(Msg::View(view));
+    h.advance(MOMENT);
+    h
+}
+
+/// Every shape the manager is drawn in.
+const VIEWS: [FileView; 3] = [FileView::Tree, FileView::List, FileView::Icons];
+
+#[test]
+fn a_flat_view_shows_one_folder_and_steps_into_it_and_out_of_it() {
+    let scratch = Scratch::new("flat-walk");
+    for view in [FileView::List, FileView::Icons] {
+        let mut h = viewing(&scratch, view);
+        let screen = h.screen();
+        assert!(screen.contains("README.md") && screen.contains("src"), "{view:?}:\n{screen}");
+        assert!(!screen.contains("main.rs"), "a flat view shows one folder, not the tree:\n{screen}");
+
+        h.click_text("src").advance(MOMENT);
+        assert_eq!(state(&h).folder(), "src", "{view:?}");
+        let screen = h.screen();
+        assert!(screen.contains("main.rs"), "{view:?}:\n{screen}");
+        assert!(!screen.contains("README.md"), "the folder that was left is gone:\n{screen}");
+
+        // The folder's own row is the way back out.
+        h.click_text("src").advance(MOMENT);
+        assert_eq!(state(&h).folder(), FileManagerState::ROOT, "{view:?}");
+        assert!(h.screen().contains("README.md"), "{view:?}:\n{}", h.screen());
+        assert_eq!(state(&h).selected(), Some("src"), "the cursor is on the folder that was left");
+    }
+}
+
+#[test]
+fn the_list_shows_the_size_the_date_and_the_permissions_of_its_rows() {
+    let scratch = Scratch::new("list-details");
+    let h = viewing(&scratch, FileView::List);
+    let screen = h.screen();
+    assert!(screen.contains("Size") && screen.contains("Changed") && screen.contains("Permissions"), "{screen}");
+    assert!(screen.contains("README.md"), "{screen}");
+    // The page of details was asked for and answered by the harness's own run of the work.
+    let details = state(&h).details("README.md").expect("the page was asked for").expect("the file is there");
+    assert!(details.size > 0);
+    assert!(h.screen().contains(&details.modified_text()), "the date is on screen:\n{}", h.screen());
+    #[cfg(unix)]
+    assert!(h.screen().contains(&details.permissions_text(false)), "{}", h.screen());
+    assert!(!state(&h).has_details(FileManagerState::ROOT), "the folder's own row says nothing about itself");
+}
+
+#[test]
+fn the_tree_asks_for_no_details_whatever_the_list_asked_for() {
+    let scratch = Scratch::new("views-details");
+    let mut h = viewing(&scratch, FileView::Icons);
+    h.press("tab").press("right").render();
+    assert!(!state(&h).has_details("README.md"), "the icons show names, so they read nothing");
+    let mut h = viewing(&scratch, FileView::Tree);
+    h.press("tab").press("down").render();
+    assert!(!state(&h).has_details("README.md"), "and the tree reads nothing either");
+}
+
+#[test]
+fn a_page_is_the_most_the_list_ever_asks_about() {
+    let scratch = Scratch::new("list-page");
+    fill(&scratch.0.join("many"), MANY);
+    let mut h = Harness::new(Demo::new(scratch.0.join("many")), SIZE.0, SIZE.1);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+    h.send(Msg::View(FileView::List));
+    h.advance(MOMENT);
+    let asked = (0..MANY).filter(|index| state(&h).has_details(&format!("entry-{index:05}.txt"))).count();
+    assert!(asked > 0, "the list asked about the rows it shows");
+    assert!(asked <= 200, "a page and no more, never the {MANY} of the folder: {asked}");
+
+    // Moving through the folder keeps a page around the cursor, and still never the whole folder.
+    h.press("tab").press("end").advance(MOMENT);
+    let asked = (0..MANY).filter(|index| state(&h).has_details(&format!("entry-{index:05}.txt"))).count();
+    assert!(asked <= 400, "two pages at the most after moving to the far end: {asked}");
+    assert!(state(&h).has_details(&format!("entry-{:05}.txt", MANY - 1)), "including the row the cursor is on");
+}
+
+#[test]
+fn ten_thousand_entries_paint_the_same_cells_in_every_view() {
+    let scratch = Scratch::new("views-many");
+    fill(&scratch.0.join("small"), 200);
+    fill(&scratch.0.join("large"), MANY);
+
+    /// The cells with something in them, the scrollbar column left out, and the foot with it: the
+    /// foot says how many entries the folder holds, which is the one thing that may differ.
+    fn painted(h: &Harness<Demo>) -> usize {
+        let screen = h.screen();
+        let lines: Vec<&str> = screen.lines().collect();
+        lines[..lines.len().saturating_sub(1)]
+            .iter()
+            .map(|line| line.chars().take(usize::from(SIZE.0) - 2).filter(|c| !c.is_whitespace()).count())
+            .sum()
+    }
+
+    for view in VIEWS {
+        let open = |folder: &str| {
+            let mut h = Harness::new(Demo::new(scratch.0.join(folder)), SIZE.0, SIZE.1);
+            h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+            h.send(Msg::View(view));
+            h.advance(MOMENT);
+            h
+        };
+        let (mut small, mut large) = (open("small"), open("large"));
+        assert!(large.screen().contains("entry-00000.txt"), "{view:?}:\n{}", large.screen());
+        assert_eq!(painted(&small), painted(&large), "{view:?}: {MANY} entries paint what 200 paint");
+
+        small.press("tab").press("end").advance(MOMENT);
+        large.press("tab").press("end").advance(MOMENT);
+        assert!(large.screen().contains(&format!("entry-{:05}.txt", MANY - 1)), "{view:?}:\n{}", large.screen());
+        assert!(!large.screen().contains("entry-05000.txt"), "{view:?}: the middle is not drawn");
+        if view == FileView::Icons {
+            // The last row of a grid holds whatever is left over, so two folders of different
+            // sizes may end on rows of different lengths; the work still does not grow with them.
+            assert!(painted(&large) <= painted(&small), "{view:?}: at the far end too");
+        } else {
+            assert_eq!(painted(&small), painted(&large), "{view:?}: at the far end too");
+        }
+    }
+}
+
+#[test]
+fn every_operation_is_reached_from_a_rows_menu_in_every_view() {
+    for view in VIEWS {
+        let scratch = Scratch::new(&format!("views-ops-{view:?}"));
+        let mut h = viewing(&scratch, view);
+        right_click(&mut h, "README.md");
+        let screen = h.screen();
+        for item in ["Rename", "Cut", "Copy", "Delete"] {
+            assert!(screen.contains(item), "{view:?} has no {item}:\n{screen}");
+        }
+        h.click_text("Cut").advance(MOMENT);
+        assert_eq!(state(&h).pending(), ["README.md"], "{view:?}");
+
+        right_click(&mut h, "src");
+        assert!(h.screen().contains("Paste here"), "{view:?}:\n{}", h.screen());
+        h.click_text("Paste here").advance(MOMENT);
+        assert!(scratch.root().join("src/README.md").is_file(), "{view:?}: {}", h.screen());
+        assert!(!scratch.root().join("README.md").exists(), "{view:?}");
+
+        // And a new entry is made from the folder's own row, which every view has.
+        right_click(&mut h, "Project");
+        assert!(h.screen().contains("New file"), "{view:?}:\n{}", h.screen());
+        h.click_text("New file").advance(MOMENT);
+        h.type_text("notes.md").press("enter").advance(MOMENT);
+        assert!(scratch.root().join("notes.md").is_file(), "{view:?}: {}", h.screen());
+    }
+}
+
+#[test]
+fn a_menu_acts_on_the_row_it_was_opened_on_in_every_view() {
+    for view in VIEWS {
+        let scratch = Scratch::new(&format!("views-menu-{view:?}"));
+        let mut h = viewing(&scratch, view);
+        h.send(Msg::Files(FileManagerMsg::Select("src".to_owned())));
+        h.advance(MOMENT);
+        right_click(&mut h, "README.md");
+        h.click_text("Cut").advance(MOMENT);
+        assert_eq!(state(&h).pending(), ["README.md"], "{view:?}: the row that was clicked, not the cursor's");
+
+        // The keyboard reaches the menu of the row the cursor is on, and no other.
+        h.send(Msg::Files(FileManagerMsg::DropCut));
+        h.send(Msg::Files(FileManagerMsg::Select("src".to_owned())));
+        h.press("menu").advance(MOMENT);
+        assert!(h.screen().contains("Cut"), "{view:?}:\n{}", h.screen());
+        h.click_text("Cut").advance(MOMENT);
+        assert_eq!(state(&h).pending(), ["src"], "{view:?}");
+    }
+}
+
+#[test]
+fn the_empty_loading_narrow_ascii_and_disabled_states_are_drawn_in_every_view() {
+    for view in VIEWS {
+        let scratch = Scratch::new(&format!("views-states-{view:?}"));
+        fs::create_dir_all(scratch.root().join("hollow")).expect("an empty folder");
+        let mut h = viewing(&scratch, view);
+
+        // Empty: a manager rooted at a folder with nothing in it says so, in every view.
+        let mut hollow = Harness::new(Demo::new(scratch.root().join("hollow")), SIZE.0, SIZE.1);
+        hollow.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+        hollow.send(Msg::View(view));
+        hollow.advance(MOMENT);
+        assert!(hollow.screen().contains("empty"), "{view:?} says nothing about an empty folder:\n{}", hollow.screen());
+
+        // ASCII: no glyph of another mode is left on screen.
+        h.set_glyph_mode(GlyphMode::Ascii).render();
+        assert!(h.screen().contains("README.md"), "{view:?} in ASCII:\n{}", h.screen());
+        assert!(h.screen().is_ascii(), "{view:?} draws something that is not ASCII:\n{}", h.screen());
+        h.set_glyph_mode(GlyphMode::Unicode).render();
+
+        // Narrow: the rows are still readable in a fraction of the width.
+        h.resize(28, SIZE.1).render();
+        assert!(h.screen().contains("src"), "{view:?} narrow:\n{}", h.screen());
+        h.resize(SIZE.0, SIZE.1).render();
+
+        // Disabled: nothing answers.
+        h.send(Msg::Disable).render();
+        h.click_text("README.md").advance(MOMENT);
+        assert!(h.app().opened.is_empty(), "{view:?} answered while disabled");
+    }
+}
+
+#[test]
+fn a_folder_that_cannot_be_read_says_so_in_every_view() {
+    let scratch = Scratch::new("views-denied");
+    let denied = scratch.root().join("denied");
+    fs::create_dir_all(&denied).expect("the folder");
+    fs::set_permissions(&denied, fs::Permissions::from_mode(0o000)).expect("no permissions");
+    if fs::read_dir(&denied).is_ok() {
+        // Running as a user who may read anything, which a test cannot argue with.
+        fs::set_permissions(&denied, fs::Permissions::from_mode(0o755)).expect("back again");
+        return;
+    }
+    for view in [FileView::List, FileView::Icons] {
+        let mut h = Harness::new(Demo::new(denied.clone()), SIZE.0, SIZE.1);
+        h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+        h.send(Msg::View(view));
+        h.advance(MOMENT);
+        assert!(h.screen().contains("This folder could not be read."), "{view:?}:\n{}", h.screen());
+    }
+    fs::set_permissions(&denied, fs::Permissions::from_mode(0o755)).expect("back again");
+}
+
+#[test]
+fn a_slow_read_spins_in_the_foot_of_a_flat_view_and_a_quick_one_never_does() {
+    /// The frames of the spinner the framework draws.
+    const SPINNER: &str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+
+    let scratch = Scratch::new("flat-reading");
+    for view in [FileView::List, FileView::Icons] {
+        let mut h = viewing(&scratch, view);
+        // A read that already happened shows nothing: a quick read never flashes an indicator.
+        assert!(!h.screen().contains(|c| SPINNER.contains(c)), "{view:?}:\n{}", h.screen());
+
+        h.send(Msg::Slow);
+        h.send(Msg::Files(FileManagerMsg::Enter("src".to_owned())));
+        h.advance(Duration::from_millis(299));
+        assert!(!h.screen().contains(|c| SPINNER.contains(c)), "{view:?} spun too soon:\n{}", h.screen());
+        h.advance(Duration::from_millis(2));
+        assert!(h.screen().contains(|c| SPINNER.contains(c)), "{view:?} never spun:\n{}", h.screen());
+        assert!(h.screen().contains("src"), "{view:?} still shows the folder it is reading:\n{}", h.screen());
+    }
 }

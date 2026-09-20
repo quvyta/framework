@@ -11,6 +11,15 @@ use super::super::rows::{self, RowScroll};
 use super::layout::Placed;
 use super::{MARK, SortDirection, Table, TableCell};
 
+/// What every row of one frame is painted with: whether the table has the focus, whether an
+/// activation is flashing, and which row's context menu is open.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct RowPaint {
+    pub(super) focused: bool,
+    pub(super) pressed: bool,
+    pub(super) menu_row: Option<usize>,
+}
+
 impl<Msg: 'static> Table<Msg> {
     pub(super) fn paint_header(
         &self,
@@ -78,19 +87,14 @@ impl<Msg: 'static> Table<Msg> {
         }
     }
 
-    pub(super) fn paint_row(
-        &self,
-        cx: &mut PaintCx<'_>,
-        rect: Rect,
-        index: usize,
-        placed: &[Placed],
-        focused: bool,
-        pressed: bool,
-    ) {
+    pub(super) fn paint_row(&self, cx: &mut PaintCx<'_>, rect: Rect, index: usize, placed: &[Placed], frame: RowPaint) {
         let row = &self.rows[index];
-        let hovered = cx.pointer().is_some_and(|(x, y)| rect.contains(x, y));
+        let hovered = match frame.menu_row {
+            Some(menu) => menu == index,
+            None => cx.pointer().is_some_and(|(x, y)| rect.contains(x, y)),
+        };
         let flashed = cx.memory::<RowScroll>().flashed == Some(index);
-        let states = rows::row_states(hovered, Some(index) == self.selected, focused, pressed && flashed);
+        let states = rows::row_states(hovered, Some(index) == self.selected, frame.focused, frame.pressed && flashed);
         let style = cx.style("list-item", row.faint.then_some("faint"), &states);
         let text_style = rows::paint_row(cx, rect, &style);
         let shift = rows::slide(cx, &states);

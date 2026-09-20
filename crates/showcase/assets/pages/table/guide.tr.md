@@ -20,6 +20,7 @@ Her satırın insanların karşılaştırdığı aynı birkaç bilgiyi taşıdı
 - **Sığmayan sütunlar yana kayar.** En küçük genişlikler sığmazsa ← ve → bütün sütunları kaydırır. Başlığın uçlarındaki oklar o yanda gizli sütun olduğunu söyler; oklar birer düğmedir: tıklamak bir sütun kaydırır, fare üstüne gelince aydınlanırlar.
 - **Satır sayısı sınırsız.** Yalnızca ekrandaki satırlar çizilir; `Fit` genişlikleri her satır kümesi için bir kez ölçülür.
 - **Adın önündeki glif sessizdir.** Renk verilmezse `muted` çizilir, adın bir basamak altında; seçili satırda adın rengini alır. Böylece göz önce adı okur ve anlam hiçbir zaman glifin rengine yüklenmez. Glif, bir boşluk, sonra metin: her glif kipinde aynı düzen. Dar bir sütun yalnızca metni `…` ile keser; glif ve boşluğu hep kalır. Demodaki adlar Nerd kipinde programlarının Nerd Font glifini, öteki kiplerde setin proje ikonunu taşır; deneme alanından kapatılabilir.
+- **Menü tablonun değil satırın.** `.context_menu(|index| ..)` menünün açıldığı satır için öğeleri kurar ve o satır menü açık kaldığı sürece yükselmiş durur. Tablonun tamamını saran tek bir menü imlecin durduğu satıra göre iş yapardı; bir dosya listesinde bu, yanlış dosyayı silmek demektir.
 - **Veri senin, sıra senin.** Tablo satırları asla kendisi sıralamaz; sıralama ister ve senin geri verdiğin oku gösterir.
 
 ## Sık yapılan hatalar

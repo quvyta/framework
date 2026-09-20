@@ -68,6 +68,7 @@ mod press;
 mod progress_bar;
 mod radio_group;
 mod row;
+mod row_menu;
 mod rows;
 mod scroll_view;
 mod scrollbar;
@@ -138,8 +139,8 @@ pub use empty_state::EmptyState;
 pub use field::Field;
 pub use file_browser::{FileBrowser, FileEntry, FilePickerMsg, Listing, ListingError, PickMode, read_folder};
 pub use file_manager::{
-    FileChange, FileError, FileManager, FileManagerMsg, FileManagerState, FileWork, FolderEntry, NameFor, NameProblem,
-    Naming, RowMark, child_key, copy_into, is_inside, is_within, name_of, parent_key,
+    FileChange, FileDetails, FileError, FileManager, FileManagerMsg, FileManagerState, FileView, FileWork, FolderEntry,
+    NameFor, NameProblem, Naming, RowMark, child_key, copy_into, is_inside, is_within, name_of, parent_key,
 };
 pub use file_picker::FilePicker;
 pub use form::{Form, FormFields};

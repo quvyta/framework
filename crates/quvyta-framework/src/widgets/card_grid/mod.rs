@@ -13,9 +13,10 @@ use crate::text;
 use crate::theme::State;
 use crate::widget::{Axis, EventCx, Flex, IdleScope, Length, MeasureCx, Node, PaintCx, View, Widget};
 
-use super::IndexMessage;
 use super::empty_state::EmptyState;
+use super::row_menu::{self, RowAnchor, RowMenuItems};
 use super::scrollbar::{self, ScrollbarStyle};
+use super::{ContextItem, IndexMessage};
 use layout::{Layout, Sizing, Step};
 
 /// Builds what one card shows.
@@ -117,6 +118,7 @@ pub struct CardGrid<Msg> {
     on_activate: Option<IndexMessage<Msg>>,
     on_toggle: Option<IndexMessage<Msg>>,
     card: Option<CardBuilder<Msg>>,
+    menu: Option<RowMenuItems<Msg>>,
     empty: Vec<Node<Msg>>,
 }
 
@@ -161,6 +163,7 @@ impl<Msg: 'static> CardGrid<Msg> {
             on_activate: None,
             on_toggle: None,
             card: None,
+            menu: None,
             empty: Vec::new(),
         }
     }
@@ -248,6 +251,47 @@ impl<Msg: 'static> CardGrid<Msg> {
     pub fn card(mut self, build: impl Fn(&mut View<'_, Msg>, usize) + 'static) -> Self {
         self.card = Some(Box::new(build));
         self
+    }
+
+    /// Gives every card a context menu: `items(index)` builds the entries for the card of that
+    /// index, and the menu acts on the card it was opened on rather than on the selected one.
+    ///
+    /// A right press on a card opens the menu at the pointer; the menu key or Shift+F10 opens the
+    /// menu of the card the keys are on, scrolling it into view first. That card stays raised
+    /// while the menu is open, so it is clear what the entries act on. A right press on a card
+    /// that is not checked makes it the selection first, so a menu never acts on cards the person
+    /// did not mean.
+    #[must_use]
+    pub fn context_menu(mut self, items: impl Fn(usize) -> Vec<ContextItem<Msg>> + 'static) -> Self {
+        self.menu = Some(Box::new(items));
+        self
+    }
+
+    /// Offers `event` to the card menu; see [`context_menu`](Self::context_menu).
+    fn menu_event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
+        row_menu::event(
+            cx,
+            event,
+            self.menu.as_ref(),
+            self.count,
+            |cx, x, y| {
+                let memory = cx.memory::<GridMemory>();
+                let (layout, offset) = (memory.layout, memory.offset);
+                let index = layout.index_at(x, y, offset)?;
+                if !self.is_checked(index).unwrap_or(false) {
+                    self.select(cx, index);
+                }
+                Some(RowAnchor { row: index, at: Rect::new(x, y, 1, 1), keyboard: false })
+            },
+            |cx| {
+                let index = self.current(cx)?;
+                let memory = cx.memory::<GridMemory>();
+                let layout = memory.layout;
+                memory.offset = layout.reveal(index, memory.offset);
+                let at = layout.card_rect(index, memory.offset);
+                Some(RowAnchor { row: index, at, keyboard: true })
+            },
+        )
     }
 
     fn active(&self) -> bool {
@@ -526,7 +570,16 @@ impl<Msg: Clone + 'static> Widget<Msg> for CardGrid<Msg> {
             memory.layout = layout;
             (memory.offset, memory.pointed && pointer.is_some(), memory.flashed, memory.dragging)
         };
-        let hovered = pointer.filter(|_| pointed).and_then(|(x, y)| layout.index_at(x, y, offset));
+        // An open card menu takes the pointer: only the card it acts on stays raised, so the menu
+        // and the card it belongs to are read together.
+        let menu_card = row_menu::open_row(cx, self.menu.as_ref());
+        if menu_card.is_some() {
+            cx.request_overlay(area);
+        }
+        let hovered = match menu_card {
+            Some(card) => Some(card),
+            None => pointer.filter(|_| pointed).and_then(|(x, y)| layout.index_at(x, y, offset)),
+        };
 
         cx.with_clip(layout.body, |cx| {
             for index in layout.shown(offset) {
@@ -558,9 +611,16 @@ impl<Msg: Clone + 'static> Widget<Msg> for CardGrid<Msg> {
         }
     }
 
+    fn paint_overlay(&self, cx: &mut PaintCx<'_>, anchor: Rect) {
+        row_menu::paint(cx, self.menu.as_ref(), anchor);
+    }
+
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
         if !self.active() {
             return false;
+        }
+        if self.menu_event(cx, event) {
+            return true;
         }
         match event {
             Event::Key(key) => self.on_key(cx, key),

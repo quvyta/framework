@@ -1,5 +1,7 @@
 //! A file manager: a folder shown as a tree, with the operations a person expects on it.
 
+mod details;
+mod flat;
 mod mark;
 mod ops;
 mod state;
@@ -16,6 +18,8 @@ use crate::widget::{Length, NodeMut, View};
 
 use super::{Button, ContextItem, Field, Form, FormErrors, Modal, ProgressBar, Text, TextInput, Tree, TreeNode};
 
+pub use details::FileDetails;
+pub use flat::FileView;
 pub use mark::RowMark;
 pub use ops::copy_into;
 use ops::stem;
@@ -79,6 +83,7 @@ pub struct FileManager<'a, Msg> {
     on_open_terminal: Option<OnPath<Msg>>,
     menu: Option<Menu<Msg>>,
     marks: Option<Marks>,
+    view: FileView,
     disabled: bool,
 }
 
@@ -97,6 +102,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
             on_open_terminal: None,
             menu: None,
             marks: None,
+            view: FileView::Tree,
             disabled: false,
         }
     }
@@ -159,6 +165,23 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         self
     }
 
+    /// The shape the folder is drawn in: the tree it is without being asked, a list of rows with
+    /// their size, date and permissions, or a grid of icons.
+    ///
+    /// The tree shows folders inside folders, opened where they stand. The other two show one
+    /// folder at a time: its own row comes first, so the folder has a place for its menu and a way
+    /// back out of it, and stepping into a folder shows that folder instead. Which folder is shown
+    /// is [`FileManagerState::folder`], and the keys, the menus and every operation are the same
+    /// in all three.
+    ///
+    /// The list reads the size, the date and the permissions of a page of entries around the
+    /// cursor, never of a whole folder; the tree and the icons read none.
+    #[must_use]
+    pub fn view(mut self, view: FileView) -> Self {
+        self.view = view;
+        self
+    }
+
     /// Draws the rows faint and answers nothing: no click, key, drag or menu, while the
     /// application has taken the folder away from the person.
     #[must_use]
@@ -179,8 +202,33 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         }
         self.naming_dialog(ui);
         self.work_row(ui);
-        let tree = self.tree();
-        ui.add(tree)
+        if self.view == FileView::Tree {
+            let tree = self.tree();
+            return ui.add(tree);
+        }
+        // The rows and the foot under them are one thing to place, so they are given a column of
+        // their own and the application sizes that.
+        let rows = self.flat_rows();
+        // The list shows details, so it asks for the page around the cursor it has none of yet;
+        // the tree and the icons show names alone and ask for nothing, which is what keeps a
+        // folder of ten thousand entries from becoming ten thousand calls to the system.
+        if self.view == FileView::List {
+            let gaps = state.detail_gaps(state.folder());
+            if !gaps.is_empty() {
+                let wrap = Rc::clone(&self.wrap);
+                ui.on_idle(std::time::Duration::ZERO, move |_| wrap(FileManagerMsg::Detail(gaps.clone())));
+            }
+        }
+        ui.column(|ui| {
+            if self.view == FileView::Icons {
+                let grid = self.grid(&rows);
+                ui.add(grid).fill();
+            } else {
+                let table = self.table(&rows);
+                ui.add(table).fill();
+            }
+            self.foot(ui, &rows);
+        })
     }
 
     /// The row above the rows while a long operation runs: what it is doing, how far it has come

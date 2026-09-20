@@ -6,6 +6,7 @@
 - `.on_open_terminal(|yol| Msg)` — klasör menüsüne "Burada terminal aç" ekler, o klasörün yoluyla.
 - `.menu_items(|key, targets| Vec<ContextItem<Msg>>)` — kendi öğelerin, kendi grubunda; `targets` o satırdaki bir işlemin neye işlediğidir.
 - `.row_mark(|key| RowMark)` — uygulamanın o satırın görünüşü hakkında söyledikleri; söyleyecek bir şeyi olmayan satır için `RowMark::new()`.
+- `.view(FileView::Tree | List | Icons)` — klasörün çizildiği biçim; varsayılanı ağaç.
 - `.disabled(bool)` — her satır solgun; tık, tuş, sürükleme ve menü yok.
 - `.show(ui)` — yöneticiyi ekler ve ağacın düğümünü döner; `.fill()` ve `.id(ad)` için. Ad soran diyalog açıkken o da eklenir; bir katmandır ve yer tutmaz.
 - `FileManagerState::new(kök)`, `.confined()`, `.following(bool)`, `.trashing()`, `.trashing_in(klasör)`, `.showing_hidden(bool)`; `set_following(bool)`, `set_showing_hidden(bool)`, `is_confined()`, `follows_changes()`, `is_trashing()`, `shows_hidden()`.
@@ -13,7 +14,9 @@
 - Durumu okumak: `root()`, `path(key)`, `children(key)`, `work()`, `shown_children(key)`, `copied()`, `pending()`, `is_copying()`, `is_open(key)`, `is_loading(key)`, `is_folder(key)`, `folder_keys()`, `visible_folders()`, `selected()`, `chosen()`, `targets(key)`, `cut()`, `is_cut(key)`, `error()`, `naming()`, `naming_problem()`, `select(key)`.
 - `FileManagerState::ROOT` — kökün anahtarı, boş dizge.
 - `FolderEntry { name, folder }` ve `FolderEntry::read_folder(yol) -> Result<Vec<FolderEntry>, String>`; bir klasörü kendi yolundan okuyan uygulama için.
-- `FileManagerMsg::Select | Choose | Expand | Read | NewFile | NewFolder | Rename | Cut | Paste | DropCut | Drop | Delete | DeleteConfirmed | Refresh | Name | Submit | CloseNaming | Done | Changed`.
+- `FileManagerMsg::Select | Choose | Expand | Read | NewFile | NewFolder | Rename | Cut | Paste | DropCut | Drop | Delete | DeleteConfirmed | Refresh | Name | Submit | CloseNaming | Done | Changed | Detail | Detailed | Enter | Leave`.
+- Ayrıntılar: `details(key) -> Option<Option<&FileDetails>>` (hiç istenmedi / istendi ve orada bir şey yok), `has_details(key)`, tam bir aralık için `detail(anahtarlar, sar)`, imlecin çevresindeki sayfa için `detail_page(klasör, sar)`, sayfada hâlâ eksik olanlar için `detail_gaps(klasör)`. `FileDetails { size, modified, mode, readonly }`; `size_text(klasör_mü)`, `modified_text()`, `permissions_text(klasör_mü)` ve `FileDetails::read(yol)`.
+- Düz görünümler: `folder()` — liste ve simgelerin gösterdiği klasör; `FileManagerMsg::Enter(key)` bir klasöre girer, `FileManagerMsg::Leave` ondan çıkar.
 - `FileChange::Created(key) | Moved(from, to) | Deleted(key)`; `FileError::Name | Outside | IntoItself | Taken(ad) | CrossDevice | Denied | System(metin)`, her birinde `.message()`.
 - `FileChange::Copied(key) | Trashed(key)` ve `FileError::NotReadable | Missing | NoTrash | NoRoom | Stopped` ikinci adımla geldi; hepsi `.message()` ile konuşur.
 - `copy_into(kök, key, into, confined)` — bir yolu kendi yöntemiyle kopyalayan uygulama için.
@@ -24,6 +27,8 @@
 - Kimlik olarak anahtarlar: `child_key(üst, ad)`, `parent_key(key)`, `name_of(key)`, `is_within(key, klasör)`, `is_inside(key)`.
 
 ## Davranış
+
+- Listenin dört sütunu vardır — ad, boyut, değişti, izinler — ve sığmadıklarında yana kayarlar. İki düz görünüm de her satırın yanına çoklu seçim için bir işaret koyar; altlarındaki satır klasörün kaç öğe tuttuğunu söyler ya da okuma 300 ms'yi aşarsa döner.
 
 - Satırlar: önce kök, sonra klasörler ve dosyalar, her grup ad sırasında. Adı platformun metin olarak yazamadığı girdi dışarıda bırakılmaz, kayıplı gösterilir.
 - Klasör açıldığında bir kez okunur; tekrar açmak bilineni gösterir. Okunurken kapatılırsa cevap atılır, böylece aynı adda yeni bir klasör kapalı ve okunmamış başlar.

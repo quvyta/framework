@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use qframe::icons::{Glyph, GlyphMode};
 use qframe::prelude::*;
-use qframe::widgets::{Column, ColumnWidth, Select, SortDirection, Table, TableCell, TableRow};
+use qframe::widgets::{Column, ColumnWidth, ContextItem, Select, SortDirection, Table, TableCell, TableRow};
 
 use super::{PageMsg, setting, slide_setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -113,6 +113,9 @@ const CONTENTS: [&str; 3] = ["containers", "builds", "nothing"];
 pub struct State {
     containers: Vec<Container>,
     builds: Arc<[TableRow]>,
+    /// The name in each build row, so a row's menu can name the row it opens on without the
+    /// table handing its cells back.
+    build_names: Arc<[String]>,
     build_numbers: Vec<usize>,
     sort: Option<(usize, SortDirection)>,
     selected: Option<usize>,
@@ -122,6 +125,10 @@ pub struct State {
     sortable: bool,
     narrow: bool,
     icons: bool,
+    /// Whether every row carries a menu of its own.
+    menu: bool,
+    /// What the row menu was last asked for, empty before it is used.
+    asked: String,
 }
 
 impl Default for State {
@@ -129,6 +136,7 @@ impl Default for State {
         Self {
             containers: CONTAINERS.to_vec(),
             builds: Arc::from(Vec::new()),
+            build_names: Arc::from(Vec::new()),
             build_numbers: Vec::new(),
             sort: None,
             selected: Some(0),
@@ -138,12 +146,14 @@ impl Default for State {
             sortable: true,
             narrow: false,
             icons: true,
+            menu: true,
+            asked: String::new(),
         }
     }
 }
 
 /// Demo messages.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Msg {
     Select(usize),
     Activate(usize),
@@ -154,6 +164,9 @@ pub enum Msg {
     Sortable(bool),
     Narrow(bool),
     Icons(bool),
+    Menu(bool),
+    /// A row's own menu was used on the row of this index and name, for this action.
+    RowAction(usize, String, &'static str),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -173,6 +186,11 @@ fn build_rows(numbers: &[usize]) -> Arc<[TableRow]> {
             ])
         })
         .collect()
+}
+
+/// The name each build row shows, made with the rows and kept beside them.
+fn build_names(numbers: &[usize]) -> Arc<[String]> {
+    numbers.iter().map(|n| format!("#{n}")).collect()
 }
 
 // region: table-sorting
@@ -211,6 +229,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                     if direction == SortDirection::Descending { order.reverse() } else { order }
                 });
                 state.builds = build_rows(&state.build_numbers);
+                state.build_names = build_names(&state.build_numbers);
             } else {
                 sort_containers(&mut state.containers, column, direction);
             }
@@ -223,6 +242,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             if index == 1 && state.build_numbers.is_empty() {
                 state.build_numbers = (1..=BUILDS).rev().collect();
                 state.builds = build_rows(&state.build_numbers);
+                state.build_names = build_names(&state.build_numbers);
             }
             log.push(PAGE, "Playground", format!("contents = {}", CONTENTS[index]));
         }
@@ -242,6 +262,18 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.icons = on;
             log.push(PAGE, "Playground", format!("icons = {on}"));
         }
+        Msg::Menu(on) => {
+            state.menu = on;
+            state.asked.clear();
+            log.push(PAGE, "Playground", format!("row menu = {on}"));
+        }
+        // region: table-menu-update
+        Msg::RowAction(index, name, action) => {
+            // The menu says which row it was opened on, so the action never lands on the row the
+            // cursor happens to rest on.
+            state.asked = t!(&format!("table.menu-{action}-done"), name = name.as_str());
+            log.push(PAGE, "Table#rows", format!("{action} on row {index}"));
+        } // endregion
     }
     Command::none()
 }
@@ -251,6 +283,22 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
 /// Font, and the icon set's project icon in the other glyph modes.
 fn program_glyph(container: &Container, mode: GlyphMode) -> Glyph {
     if mode == GlyphMode::Nerd { Glyph::literal(container.nerd) } else { Glyph::key("project") }
+}
+// endregion
+
+// region: table-menu
+/// What the menu of row `index` offers. It is built when the menu opens, for that row alone, so a
+/// hundred thousand rows cost a hundred thousand nothing.
+fn row_menu(name: &str, index: usize) -> Vec<ContextItem<AppMsg>> {
+    vec![
+        ContextItem::new(
+            t!("table.menu-restart", name = name),
+            send(Msg::RowAction(index, name.to_owned(), "restart")),
+        ),
+        ContextItem::gap(),
+        ContextItem::new(t!("table.menu-stop", name = name), send(Msg::RowAction(index, name.to_owned(), "stop")))
+            .danger(true),
+    ]
 }
 // endregion
 
@@ -314,6 +362,11 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             _ => (vec![Column::new(t!("table.name")), Column::new(t!("table.status"))], Arc::from(Vec::new())),
         };
         // region: table-options
+        let names: Arc<[String]> = match state.contents {
+            0 => state.containers.iter().map(|c| c.name.to_owned()).collect(),
+            1 => Arc::clone(&state.build_names),
+            _ => Arc::from(Vec::new()),
+        };
         let mut table = Table::new(columns, rows)
             .selected(state.selected)
             .empty_text(t!("table.empty"))
@@ -328,9 +381,20 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         if state.multi && state.contents == 0 {
             table = table.checked(state.checked.clone()).on_toggle(|index| send(Msg::Toggle(index)));
         }
+        if state.menu {
+            // The rows are already shared, so the menu reads the name of the row it opens on
+            // rather than being given every row's menu in advance.
+            table = table.context_menu(move |index| match names.get(index) {
+                Some(name) => row_menu(name, index),
+                None => Vec::new(),
+            });
+        }
         // endregion
         let width = if state.narrow { Length::Cells(46) } else { Length::Fill(1) };
         ui.add(table).width(width).height(Length::Cells(10)).id("rows");
+        if !state.asked.is_empty() {
+            ui.add(Text::new(state.asked.clone()).role("faint").no_wrap());
+        }
     })
     .fill_width();
 
@@ -352,6 +416,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         });
         setting(ui, t!("table.icons"), |ui| {
             ui.add(toggle(state.icons, |on| send(Msg::Icons(on)))).id("icons");
+        });
+        setting(ui, t!("table.menu"), |ui| {
+            ui.add(toggle(state.menu, |on| send(Msg::Menu(on)))).id("menu");
         });
         slide_setting(ui, PAGE);
         ui.add(Text::new(t!("table.keys")).role("faint"));
@@ -396,6 +463,20 @@ mod tests {
         assert!(h.screen().contains(&format!("{project} worker-e…")), "{}", h.screen());
         h.send(send(Msg::Icons(false)));
         assert!(h.screen().contains("  postgres"), "{}", h.screen());
+    }
+
+    #[test]
+    fn a_rows_own_menu_acts_on_the_row_it_was_opened_on() {
+        let mut h = showcase_on(PAGE);
+        h.send(send(Msg::Select(0)));
+        let (x, y) = h.find("cache").expect("the third container's row");
+        h.mouse(qframe::event::MouseKind::Down(qframe::event::MouseButton::Right), x, y);
+        h.mouse(qframe::event::MouseKind::Up(qframe::event::MouseButton::Right), x, y);
+        h.advance(std::time::Duration::from_millis(400));
+        assert!(h.screen().contains("Restart cache"), "the menu is that row's own:\n{}", h.screen());
+        assert_eq!(h.app().pages.table.selected, Some(2), "and the row became the selection");
+        h.click_text("Stop cache");
+        assert!(h.screen().contains("cache was asked to stop"), "{}", h.screen());
     }
 
     #[test]

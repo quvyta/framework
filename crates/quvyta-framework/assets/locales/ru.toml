@@ -95,6 +95,16 @@ no-room                  = "На диске не осталось места."
 stopped                  = "Ты это остановил, и записанное было убрано обратно."
 copying                  = { one = "Копируется {n} объект", few = "Копируется {n} объекта", many = "Копируется {n} объектов", other = "Копируется {n} объекта" }
 stop                     = "Остановить"
+size                     = "{n} {unit}"
+read-only                = "Только чтение"
+read-and-write           = "Чтение и запись"
+column-name              = "Имя"
+column-size              = "Размер"
+column-modified          = "Изменён"
+column-permissions       = "Права"
+reading                  = "Чтение папки"
+entries                  = { one = "{n} объект", few = "{n} объекта", many = "{n} объектов", other = "{n} объекта" }
+up                       = "На папку вверх"
 
 [quvyta.terminal]
 scrolled = { one = "{n} строка назад", few = "{n} строки назад", many = "{n} строк назад", other = "{n} строки назад" }

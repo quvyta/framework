@@ -32,6 +32,18 @@ const WHEEL_LINES: usize = WHEEL_ROWS as usize;
 /// live screen. The widget asks the session for its size; a running
 /// [`TerminalWatch`](super::TerminalWatch) applies it.
 ///
+/// Once the program has ended nothing the widget cannot deliver is swallowed: a key, a paste and
+/// a wheel step on the alternate screen are handed back instead. A paste then reaches
+/// [`App::clipboard`](crate::runtime::App::clipboard) as
+/// [`ClipboardEvent::Pasted`](crate::runtime::ClipboardEvent::Pasted), so an application can say
+/// that the text went nowhere rather than let it disappear. Mouse reports are the exception: a
+/// program that has ended has nothing to learn about the pointer, and a press handed back would
+/// act on whatever is behind the terminal.
+///
+/// [`Terminal::read_only`] is the same terminal with the writing taken away: it shows a session
+/// faint, takes no focus and never sends anything to the program, while colours, wide characters,
+/// the cursor, selecting and scrolling back stay as they are.
+///
 /// The output is a text selection region: a mouse drag selects inside it (turn it off with
 /// [`NodeMut::selectable`](crate::widget::NodeMut::selectable)); clean copies leave out the
 /// scrolled-back and exited notes.
@@ -49,6 +61,7 @@ const WHEEL_LINES: usize = WHEEL_ROWS as usize;
 pub struct Terminal {
     session: TerminalSession,
     pass_through: Vec<(Scope, String)>,
+    read_only: bool,
 }
 
 #[derive(Debug, Default)]
@@ -60,7 +73,25 @@ impl Terminal {
     /// A terminal drawing `session`; cloning a session is cheap.
     #[must_use]
     pub fn new(session: &TerminalSession) -> Self {
-        Self { session: session.clone(), pass_through: Vec::new() }
+        Self { session: session.clone(), pass_through: Vec::new(), read_only: false }
+    }
+
+    /// A terminal that only shows: it draws the session's screen and never writes to it, takes no
+    /// focus by Tab or by a click, and is drawn faint.
+    ///
+    /// Everything else the widget does stays: the program's own colours, wide characters, the
+    /// cursor it left behind, selecting and copying its output, and scrolling back — which is the
+    /// reason to keep a program's last screen on the display at all. The size is not asked for
+    /// either, so a window shrinking around a program that has ended cannot reflow the screen
+    /// that was left to be read.
+    ///
+    /// This is the shape for a window whose program has ended and stays open so its last words
+    /// can be read. Keys, pastes and wheel steps take the usual route past the terminal, to the
+    /// buttons around it, so what a person types after the end reaches something that can answer.
+    #[must_use]
+    pub fn read_only(mut self) -> Self {
+        self.read_only = true;
+        self
     }
 
     /// Lets the keys of a keymap action through to the application instead of the program,
@@ -85,6 +116,11 @@ impl Terminal {
             && self.pass_through.iter().any(|(scope, action)| keymap.chords_for(*scope, action).contains(&chord))
     }
 }
+
+/// How far a view-only screen is mixed into its background: enough to read as inactive at a
+/// glance, little enough to keep the program's own colours apart. The same share a cell the
+/// program itself marks faint is drawn with.
+const FAINT: f32 = 0.45;
 
 /// Whether `chord` types a character, which always belongs to the program.
 fn types_text(chord: KeyChord) -> bool {
@@ -210,6 +246,15 @@ fn key_bytes(key: &KeyEvent, application_cursor: bool) -> Vec<u8> {
     }
 }
 
+/// Moves the widget's own view one wheel step back through earlier output, or forward again.
+/// Nothing is written to the program: the screen is drawn from the lines the session already
+/// keeps, which is why it also works for a program that has ended.
+fn scroll_back<Msg>(cx: &mut EventCx<'_, Msg>, up: bool) {
+    let memory = cx.memory::<TerminalMemory>();
+    memory.scrollback =
+        if up { memory.scrollback + WHEEL_LINES } else { memory.scrollback.saturating_sub(WHEEL_LINES) };
+}
+
 impl<Msg: 'static> Widget<Msg> for Terminal {
     fn measure(&self, _cx: &mut MeasureCx<'_>, available: Size) -> Size {
         available
@@ -221,22 +266,34 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
         }
         cx.register_hit(area);
         cx.selectable(area);
-        // Only a request: the watch resizes the pseudo-terminal off the drawing thread.
-        self.session.request_size(area.height, area.width);
+        if !self.read_only {
+            // Only a request: the watch resizes the pseudo-terminal off the drawing thread. A
+            // view-only terminal does not ask: resizing is a write, and a screen left to be read
+            // would be reflowed by the window it sits in changing size.
+            self.session.request_size(area.height, area.width);
+        }
         let focused = cx.is_focused();
         let base = cx.style("terminal", None, &[]).text();
         let default_bg = base.bg.unwrap_or_else(|| cx.color("surface"));
         let default_fg = base.fg.unwrap_or_else(|| cx.color("text"));
         cx.clear(area, default_bg);
         let cursor_states = if focused { vec![crate::theme::State::Focus] } else { Vec::new() };
-        let cursor_style = cx.style("terminal-cursor", None, &cursor_states).text();
+        let mut cursor_style = cx.style("terminal-cursor", None, &cursor_states).text();
+        if self.read_only {
+            // The cursor the program left fades with the screen it sits on; it is part of the
+            // picture, not a place text will appear.
+            cursor_style.fg = cursor_style.fg.map(|color| color.mix(default_bg, FAINT));
+            cursor_style.bg = cursor_style.bg.map(|color| color.mix(default_bg, FAINT));
+        }
         let wanted = cx.memory::<TerminalMemory>().scrollback;
 
         let session = self.session.clone();
         let mut parser = session.parser();
         parser.screen_mut().set_scrollback(wanted);
         let screen = parser.screen();
-        if terminal_mouse::wants_moves(screen) {
+        // Moves are only ever asked for to report them to the program, which a view-only terminal
+        // never does.
+        if !self.read_only && terminal_mouse::wants_moves(screen) {
             cx.track_pointer_moves();
         }
         let scrolled = screen.scrollback();
@@ -254,7 +311,13 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
                     std::mem::swap(&mut fg, &mut bg);
                 }
                 if cell.dim() {
-                    fg = fg.mix(bg, 0.45);
+                    fg = fg.mix(bg, FAINT);
+                }
+                if self.read_only {
+                    // Both colours are mixed into the background, so a screen with its own
+                    // background tones fades as one picture instead of losing its text alone.
+                    fg = fg.mix(default_bg, FAINT);
+                    bg = bg.mix(default_bg, FAINT);
                 }
                 let style = CellStyle {
                     fg: Some(fg),
@@ -303,6 +366,19 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
     }
 
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
+        if self.read_only {
+            // Nothing here reaches the session: no key, no paste, no mouse report, no arrow keys
+            // for the wheel. What is left is the widget's own scrolling back, which is what a
+            // screen kept on display is for, and it changes nothing but how much of it is shown.
+            // Everything else is handed back and takes the usual route to the application.
+            return match event {
+                Event::Mouse(mouse) if matches!(mouse.kind, MouseKind::ScrollUp | MouseKind::ScrollDown) => {
+                    scroll_back(cx, mouse.kind == MouseKind::ScrollUp);
+                    true
+                }
+                _ => false,
+            };
+        }
         match event {
             Event::Key(key) => {
                 let shift = Modifiers { shift: true, ..Modifiers::default() };
@@ -328,10 +404,18 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
                 true
             }
             Event::Paste(text) => {
-                cx.memory::<TerminalMemory>().scrollback = 0;
                 // The session decides how a paste is sent, so an application pasting into a
                 // program and a person pasting into this widget take exactly the same path.
-                let _ = self.session.paste_typed(text);
+                //
+                // The error is carried up: a paste the program never received is handed back, as
+                // a key is when the program has ended, and then reaches
+                // [`App::clipboard`](crate::runtime::App::clipboard) as
+                // `ClipboardEvent::Pasted`, where the application can say what happened. Text a
+                // person meant to send is the one thing that must not disappear without a word.
+                if self.session.paste_typed(text).is_err() {
+                    return false;
+                }
+                cx.memory::<TerminalMemory>().scrollback = 0;
                 true
             }
             Event::Mouse(mouse) if let Some(used) = terminal_mouse::event(&self.session, cx, mouse) => {
@@ -349,12 +433,16 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
                 if alternate {
                     let key =
                         KeyEvent::from_chord(crate::keymap::KeyChord::plain(if up { Key::Up } else { Key::Down }));
-                    let _ = self.session.write(&key_bytes(&key, application_cursor).repeat(WHEEL_LINES));
+                    // The error is carried up, as for a key. On the alternate screen the wheel is
+                    // arrow keys and there is no scrollback to fall back on, so a step a program
+                    // that has ended never hears must not be reported as used: handed back it
+                    // reaches whatever holds the terminal, which can scroll instead.
+                    if self.session.write(&key_bytes(&key, application_cursor).repeat(WHEEL_LINES)).is_err() {
+                        return false;
+                    }
                     return true;
                 }
-                let memory = cx.memory::<TerminalMemory>();
-                memory.scrollback =
-                    if up { memory.scrollback + WHEEL_LINES } else { memory.scrollback.saturating_sub(WHEEL_LINES) };
+                scroll_back(cx, up);
                 true
             }
             _ => false,
@@ -362,7 +450,10 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
     }
 
     fn focusable(&self) -> bool {
-        true
+        // A view-only terminal is left out of the focus order, which also keeps a click from
+        // focusing it: focus lands on the nearest focusable ancestor instead, so a window whose
+        // program has ended keeps its keys on the buttons that can still do something.
+        !self.read_only
     }
 }
 
@@ -579,6 +670,211 @@ mod tests {
         wait_for(&session, "61");
         assert!(!session.parser().screen().contents().contains("00"), "the chord never reached the program");
         session.kill();
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum PasteMsg {
+        /// Pasted text no widget took, offered to the application.
+        Loose(String),
+    }
+
+    struct Pasting {
+        session: TerminalSession,
+        heard: Vec<PasteMsg>,
+    }
+
+    impl App for Pasting {
+        type Msg = PasteMsg;
+        fn update(&mut self, msg: PasteMsg) -> Command<PasteMsg> {
+            self.heard.push(msg);
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, PasteMsg>) {
+            ui.add(Terminal::new(&self.session)).fill().id("terminal");
+        }
+        fn clipboard(&self, event: &crate::runtime::ClipboardEvent) -> Option<PasteMsg> {
+            match event {
+                crate::runtime::ClipboardEvent::Pasted(text) => Some(PasteMsg::Loose(text.clone())),
+                crate::runtime::ClipboardEvent::Copied(_) => None,
+            }
+        }
+    }
+
+    #[test]
+    fn a_paste_into_a_program_that_has_ended_is_handed_back_instead_of_disappearing() {
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", "printf done"], Path::new("/")).expect("pty");
+        assert_eq!(run_to_exit(&session), Some(0));
+        let mut h = Harness::new(Pasting { session, heard: Vec::new() }, 40, 4);
+        h.press("tab");
+        assert!(h.is_focused("terminal"));
+        h.paste("a message");
+        assert_eq!(
+            h.app().heard,
+            [PasteMsg::Loose("a message".to_owned())],
+            "the application heard the text instead of losing it"
+        );
+    }
+
+    #[test]
+    fn a_paste_into_a_running_program_stays_in_the_terminal() {
+        let script = "stty -echo -icanon min 1 time 0; printf ready; cat -v";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&session, "ready");
+        let mut h = Harness::new(Pasting { session: session.clone(), heard: Vec::new() }, 40, 4);
+        h.press("tab");
+        h.paste("typed");
+        wait_for(&session, "typed");
+        assert!(h.app().heard.is_empty(), "the widget took the paste, so the application was not asked");
+        session.kill();
+    }
+
+    struct Wheeling {
+        session: TerminalSession,
+    }
+
+    impl App for Wheeling {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add_with(crate::widgets::ScrollView::new(), |ui| {
+                ui.add(Terminal::new(&self.session))
+                    .width(crate::widget::Length::Fill(1))
+                    .height(crate::widget::Length::Cells(2))
+                    .id("terminal");
+                for i in 0..20 {
+                    ui.add(crate::widgets::Text::new(format!("line {i}")));
+                }
+            })
+            .fill();
+        }
+    }
+
+    #[test]
+    fn the_wheel_on_a_dead_alternate_screen_is_handed_back_and_a_live_one_keeps_it() {
+        // A full-screen program that ends while its alternate screen is still on, which is what a
+        // killed editor leaves behind.
+        let dead =
+            TerminalSession::spawn("/bin/sh".as_ref(), &["-c", "printf '\\033[?1049hfull screen'"], Path::new("/"))
+                .expect("pty");
+        assert_eq!(run_to_exit(&dead), Some(0));
+        let mut h = Harness::new(Wheeling { session: dead }, 20, 6);
+        assert!(h.screen().starts_with("full screen"), "{}", h.screen());
+        h.mouse(MouseKind::ScrollDown, 2, 0);
+        assert!(!h.screen().starts_with("full screen"), "the scroll view took the wheel: {}", h.screen());
+
+        // The same wheel over a program that is still there stays in the terminal.
+        let script = "stty raw -echo; printf '\\033[?1049hready '; cat -v";
+        let live = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&live, "ready");
+        let mut h = Harness::new(Wheeling { session: live.clone() }, 20, 6);
+        h.mouse(MouseKind::ScrollDown, 2, 0);
+        wait_for(&live, "^[[B");
+        h.render();
+        assert!(h.screen().starts_with("ready"), "the terminal kept the wheel: {}", h.screen());
+        live.kill();
+    }
+
+    struct Viewing {
+        session: TerminalSession,
+        heard: Vec<PasteMsg>,
+    }
+
+    impl App for Viewing {
+        type Msg = PasteMsg;
+        fn update(&mut self, msg: PasteMsg) -> Command<PasteMsg> {
+            self.heard.push(msg);
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, PasteMsg>) {
+            ui.add(crate::widgets::Button::new("close").on_press(PasteMsg::Loose("pressed".to_owned()))).id("close");
+            ui.add(Terminal::new(&self.session).read_only()).fill().id("screen");
+        }
+        fn clipboard(&self, event: &crate::runtime::ClipboardEvent) -> Option<PasteMsg> {
+            match event {
+                crate::runtime::ClipboardEvent::Pasted(text) => Some(PasteMsg::Loose(text.clone())),
+                crate::runtime::ClipboardEvent::Copied(_) => None,
+            }
+        }
+    }
+
+    #[test]
+    fn a_view_only_terminal_sends_the_program_nothing() {
+        // Echoes what it reads, escapes visible, and asks for every mouse motion, so a report the
+        // widget might send would show up in its own output.
+        let script = "stty raw -echo; printf '\\033[?1003h\\033[?1006hready '; cat -v";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&session, "ready");
+        let mut h = Harness::new(Viewing { session: session.clone(), heard: Vec::new() }, 40, 6);
+        h.press("tab").type_text("typed");
+        h.paste("pasted text");
+        h.click(5, 3).hover(6, 3).mouse(MouseKind::ScrollUp, 5, 3).mouse(MouseKind::ScrollDown, 5, 3);
+        // Ask the program itself: what arrives after everything above is the only thing written.
+        session.write(b"end").expect("write");
+        wait_for(&session, "end");
+        let shown = session.parser().screen().contents();
+        assert!(!shown.contains("typed"), "a key reached the program: {shown:?}");
+        assert!(!shown.contains("pasted"), "a paste reached the program: {shown:?}");
+        assert!(!shown.contains("^["), "an escape sequence reached the program: {shown:?}");
+        assert_eq!(
+            h.app().heard,
+            [PasteMsg::Loose("pasted text".to_owned())],
+            "the paste was handed back to the application"
+        );
+        session.kill();
+    }
+
+    #[test]
+    fn a_view_only_terminal_is_no_tab_stop_and_a_click_does_not_focus_it() {
+        let session =
+            TerminalSession::spawn("/bin/sh".as_ref(), &["-c", "printf screen"], Path::new("/")).expect("pty");
+        assert_eq!(run_to_exit(&session), Some(0));
+        let mut h = Harness::new(Viewing { session, heard: Vec::new() }, 40, 6);
+        h.press("tab");
+        assert!(h.is_focused("close"));
+        h.press("tab");
+        assert!(h.is_focused("close"), "Tab has nowhere else to go");
+        h.click(5, 3);
+        assert!(h.is_focused("close"), "the click did not move focus into the screen");
+    }
+
+    #[test]
+    fn a_view_only_screen_keeps_its_colours_and_cursor_and_shows_them_faint() {
+        // Red, a wide character, and the cursor left where the program stopped.
+        let script = "printf '\\033[31mred\\033[0m 世界'";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        assert_eq!(run_to_exit(&session), Some(0));
+        let live = Harness::new(Demo { session: session.clone() }, 40, 4);
+        let mut faint = Harness::new(Viewing { session, heard: Vec::new() }, 40, 4);
+        faint.render();
+        let surface = live.env().theme().color("surface").expect("the theme has a surface colour");
+        let screen = faint.screen();
+        assert!(screen.contains("red 世界"), "{screen}");
+        assert!(screen.contains("exited with 0"), "the note still says what happened: {screen}");
+        // The view-only screen is one row lower: the button above it takes the first row.
+        let dimmed = |color: Option<Rgb>| color.map(|color| color.mix(surface, FAINT));
+        assert_eq!(live.fg(0, 0), live.env().theme().color("danger"));
+        assert_eq!(faint.fg(0, 1), dimmed(live.fg(0, 0)), "classic red is drawn mixed into the background");
+        // The cursor sits after "red " and the two wide characters.
+        assert_ne!(live.bg(8, 0), live.bg(20, 0), "the cursor the program left is drawn");
+        assert_eq!(faint.bg(8, 1), dimmed(live.bg(8, 0)), "and it fades with the screen");
+    }
+
+    #[test]
+    fn a_view_only_terminal_scrolls_back_through_what_the_program_wrote() {
+        let script = "i=1; while [ $i -le 40 ]; do echo line$i; i=$((i+1)); done";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        assert_eq!(run_to_exit(&session), Some(0));
+        let mut h = Harness::new(Viewing { session, heard: Vec::new() }, 20, 6);
+        let before = h.screen();
+        assert!(before.contains("line18"), "the last screen of a 24-row program: {before}");
+        h.mouse(MouseKind::ScrollUp, 5, 3);
+        let back = h.screen();
+        assert!(back.contains("line15"), "the wheel went back through the earlier output: {back}");
+        assert!(!back.contains("line21"), "three lines of the live screen made way for them: {back}");
+        h.mouse(MouseKind::ScrollDown, 5, 3);
+        assert_eq!(h.screen(), before, "and forward again to where it was");
     }
 
     #[test]

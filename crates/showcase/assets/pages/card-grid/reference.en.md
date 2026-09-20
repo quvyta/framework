@@ -10,6 +10,7 @@
 - `.on_activate(|index| msg)` — a card was opened with Enter or a click.
 - `.checked(Vec<bool>)` and `.on_toggle(|index| msg)` — checks, off by default.
 - `.empty(EmptyState)` — what an empty grid shows.
+- `.context_menu(|index| Vec<ContextItem<Msg>>)` — gives every card a menu of its own, built for the card it opens on.
 - `.disabled(bool)` — no hover, focus or press; cards fade, the selection still shows.
 - `.scrollbar(ScrollbarStyle)` — pins a scrollbar style instead of the theme's.
 
@@ -19,6 +20,7 @@
 
 ## Mouse
 
+- With a card menu: a right click on a card opens that card's menu at the pointer and makes the card the selection unless it is checked; the menu key or `shift f10` opens the menu of the card the keys are on, scrolling it into view first. That card stays raised while the menu is open.
 - A click selects and activates a card; a click on the mark in a card's top right corner (or a cell beside it) only checks it; the wheel scrolls a row of cards; drag the scrollbar.
 
 ## Layout

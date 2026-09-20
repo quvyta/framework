@@ -95,6 +95,16 @@ no-room                  = "Diskte yer kalmadı."
 stopped                  = "Bunu sen durdurdun; yazılmış olan geri alındı."
 copying                  = "{n} öğe kopyalanıyor"
 stop                     = "Durdur"
+size                     = "{n} {unit}"
+read-only                = "Yalnızca okunur"
+read-and-write           = "Okunur ve yazılır"
+column-name              = "Ad"
+column-size              = "Boyut"
+column-modified          = "Değişti"
+column-permissions       = "İzinler"
+reading                  = "Klasör okunuyor"
+entries                  = "{n} öğe"
+up                       = "Bir klasör yukarı"
 
 [quvyta.terminal]
 scrolled = { one = "{n} satır geride", other = "{n} satır geride" }

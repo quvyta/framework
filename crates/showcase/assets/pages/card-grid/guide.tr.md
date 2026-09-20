@@ -20,6 +20,7 @@ Her öğe kendine ait küçük bir yüzeyi hak ediyorsa ve öğeler yan yana oku
 - **Kart bir yüzeydir, satır değil.** Seçili kart seçili zemini alır; ızgaraya klavyeyle gelindiyse çubuğu nefes alır. Hiçbir şey kaymaz.
 - **İşaret köşede durur.** İşaretli kart sağ üst köşesinde vurgu renginde bir işaret taşır. Yanan kart orada soluk bir işaret gösterir: tıklarsan kart açılmadan işaretlenir. Boşluk seçili kartı işaretler.
 - **Fare, tuşların yaptığını yapar.** Tıklamak kartı seçer ve açar, tekerlek bir sıra kart kaydırır, kaydırma çubuğuna basılıp sürüklenebilir.
+- **Menü kartın kendisinin.** `.context_menu(|index| ..)` menünün açıldığı kart için öğeleri kurar ve o kart menü açıkken yükselmiş durur; öğelerin neye dokunduğu hiç şüpheli kalmaz.
 
 ## Temayla biçimlendirme
 

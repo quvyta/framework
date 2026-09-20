@@ -95,6 +95,16 @@ no-room                  = "磁盘已没有空间。"
 stopped                  = "你停止了它，已经写入的部分已被撤回。"
 copying                  = "正在复制 {n} 项"
 stop                     = "停止"
+size                     = "{n} {unit}"
+read-only                = "只读"
+read-and-write           = "可读可写"
+column-name              = "名称"
+column-size              = "大小"
+column-modified          = "修改时间"
+column-permissions       = "权限"
+reading                  = "正在读取文件夹"
+entries                  = "{n} 项"
+up                       = "回到上层文件夹"
 
 [quvyta.terminal]
 scrolled = { other = "已向上翻 {n} 行" }

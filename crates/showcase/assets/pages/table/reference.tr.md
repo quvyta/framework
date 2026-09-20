@@ -6,6 +6,7 @@
 - `.sort(sütun, SortDirection)` — sıralama okunu gösterir; satırlar zaten bu sırada olmalı.
 - `.on_sort(|sütun, yön| mesaj)` — başlık tıklaması ve tuşlarla sıralamayı açar.
 - `.empty_text(metin)` — satır yokken başlığın altında görünür.
+- `.context_menu(|index| Vec<ContextItem<Msg>>)` — her satıra kendi menüsünü verir; menü, açıldığı satır için kurulur.
 - `Column::new(başlık)`, `.width(ColumnWidth::Fixed(n) | Fit | Fill(ağırlık))`, `.min(hücre)`, `.align(Align)`, `.sortable(bool)`.
 - `TableRow::new(hücreler)`, `.faint(bool)`; `TableCell::new(metin)`, `.icon(glif, renk)`, `.color(token)`; metinler hücreye dönüşür. `glif` bir ikon anahtarı (`"dot"`, `Glyph::key(..)`) ya da `Glyph::literal(..)` olur; glif, bir boşluk ve metin olarak çizilir. `Some(token)` ile o renkte, `None` ile `muted` çizilir ve satır seçiliyken satırın metin rengini alır. Kesme yalnızca metne uygulanır.
 - `SortDirection::Ascending | Descending`, `.reversed()`.
@@ -13,6 +14,7 @@
 ## Davranış
 
 - Odaktayken tuşlar: `up` `down` ya da `k` `j`, `pgup` `pgdn`, `home` `end` gezinir; `enter` etkinleştirir; `space` çoklu seçimde işaretler, değilse etkinleştirir; `left` `right` taşan sütunları kaydırır; `s` sonraki sıralanabilir sütuna göre sıralar, `shift s` yönü çevirir.
+- Satır menüsü varken: bir satıra sağ tıklama o satırın menüsünü imlecin yanında açar ve satır işaretli değilse onu seçim yapar; menü tuşu ya da `shift f10` seçili satırın menüsünü satırın altında açar, önce satırı görünür kılar. Menünün ait olduğu satır menü açıkken yükselmiş kalır. Menünün yanına yapılan bir basış menüyü kapatır ve altındakine yine ulaşır.
 - Fare: tıklama satırı seçer ve etkinleştirir; işarete ya da hemen sonraki hücreye tıklama yalnızca işaretler; sıralanabilir başlığa tıklama sıralar, tekrar tıklama çevirir; başlıktaki bir oka tıklama sütunları bir adım kaydırır; tekerlek ve kaydırma çubuğu kaydırır.
 - Önce sabit ve içeriğe uyan genişlikler yerleşir, dolduran sütunlar kalanı ağırlıklarına göre paylaşır. En küçük genişlikler sığmazsa sütunlar küçülmez, yana kayar.
 - Görünen ilk hücre seçim kayması için bir boş hücre ayırır ve uzun metni `…` ile keser. Çoklu seçim işareti hiç kaymaz.

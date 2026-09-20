@@ -31,12 +31,14 @@ Daha fazla denetim için başlatmayı `TerminalSession::builder(program)` ile ta
 - **Boyut bileşeni izler.** Bileşen çizerken boyutunu ister; izleyici bunu arka plan iş parçacığında uygular, çizim hiçbir zaman sürece dokunmaz.
 - **Tekerlekle geçmiş.** Tekerlek önceki çıktılara geri kaydırır, sessiz bir not ne kadar geride olduğunu söyler; yazmak canlı ekrana döndürür. Tam ekran programlara bunun yerine ok tuşları gönderilir; fareyi isteyen programlara tekerleğin kendisi gider.
 - **Çıktı seçilebilir.** Ekranda sürüklemek programın çıktısını seçer; `ctrl c` kopyalar (metin seçiliyken `ctrl c` programı kesmek yerine kopyalar), sağ tık Kopyala ve Ham kopyala sunar. Geri kaydırma ve çıkış notları temiz kopyaya girmez.
+- **Yalnızca gösteren terminal.** `Terminal::new(&session).read_only()` bir oturumun ekranını çizer ve ona hiç yazmaz: tuş, yapıştırma, fare bildirimi, tekerlek için ok tuşu, hiçbiri. Boyut bile istemez; böylece biten bir programın etrafındaki pencere değişince okunmak üzere bırakılan ekran yeniden akmaz. Odak almaz, ne Tab ile ne tıklamayla, ve soluk çizilir. Değerli olan her şey kalır: programın kendi renkleri, geniş karakterler, bıraktığı imleç, çıktıyı seçip kopyalamak ve tekerlekle geri kaydırmak. Bu, programı bittikten sonra son sözleri okunsun diye açık kalan bir pencerenin biçimidir; tuşlar ve yapıştırmalar o zaman her zamanki yoldan etrafındaki düğmelere gider. Bu sayfadaki Son ekranı göster, canlı kabuğun yanına böyle bir ekran koyar.
 - **Fareyi isteyen program alır.** Bir program fareyi istediğinde tıklamalar, sürüklemeler ve tekerlek ona gider: `htop`'u ya da `:set mouse=a` yazdıktan sonra `vim`'i dene. `shift` ile sürüklemek yine çıktıyı seçer, `shift` ile tekerlek yine geçmişe kaydırır.
 
 ## Sık yapılan hatalar
 
 - **İzlemeyi yeniden başlatmamak.** Çalışan bir izleyici yoksa ekran güncellenmez, boyut değişiklikleri bekler.
 - **Meşgul bir programa ya da yarım kalmış bir satırın içine yazmak.** `write` ve `paste` programa ne yapıyor olursa olsun ulaşır. Programa kendi metnini vermeden önce `last_output` ve `last_input`'a bak; yoksa mesaj bir cevabın ortasına düşer ya da kişinin cümlesini ikiye böler.
-- **Göstermediğin oturumları tutmak.** Oturum programını canlı tutar; bırak ya da `terminate` veya `kill` çağır.
+- **Göstermediğin oturumları tutmak.** Oturum programını canlı tutar; bırak ya da `terminate` veya `kill` çağır. Programı bitmiş bir oturum başkadır: son ekranı gösterildiği sürece onu elinde tut, çünkü ekran ve geri kaydırma onun içindedir.
+- **Programı bitmiş bir oturumun üstünde canlı bileşeni bırakmak.** O bileşen hâlâ odak alır ve Tab'ı yutar; içine yapıştırılan metin ancak bildirilebilir, ulaştırılamaz. Bitiş geldiğinde `read_only()` haline geç.
 - **`TerminalChange`'i her şeyi yakalayan kolsuz eşlemek.** İleride yeni bildirim türleri gelebilir; eşlemeyi `_ => {}` ile bitir ve izlemeyi orada da yeniden başlat.
 - **Testlerde kabuğu çalışma motoru üzerinden başlatmak.** Testler arka plan işlerini sırayla çalıştırır ve sınırsız izleyici bekler; `TerminalWatch::next`'i kendin sür ya da `next_change_within` ile sınırlı bir değişiklik iste.

@@ -95,6 +95,16 @@ no-room                  = "Auf der Festplatte ist kein Platz mehr."
 stopped                  = "Du hast das angehalten, und das Geschriebene wurde wieder entfernt."
 copying                  = { one = "{n} Eintrag wird kopiert", other = "{n} Einträge werden kopiert" }
 stop                     = "Anhalten"
+size                     = "{n} {unit}"
+read-only                = "Nur lesbar"
+read-and-write           = "Lesbar und schreibbar"
+column-name              = "Name"
+column-size              = "Größe"
+column-modified          = "Geändert"
+column-permissions       = "Rechte"
+reading                  = "Ordner wird gelesen"
+entries                  = { one = "{n} Eintrag", other = "{n} Einträge" }
+up                       = "Einen Ordner aufwärts"
 
 [quvyta.terminal]
 scrolled = { one = "{n} Zeile zurück", other = "{n} Zeilen zurück" }

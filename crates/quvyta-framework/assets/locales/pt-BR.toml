@@ -95,6 +95,16 @@ no-room                  = "Não há mais espaço no disco."
 stopped                  = "Você parou isso, e o que já havia sido escrito foi removido."
 copying                  = { one = "Copiando {n} item", other = "Copiando {n} itens" }
 stop                     = "Parar"
+size                     = "{n} {unit}"
+read-only                = "Somente leitura"
+read-and-write           = "Leitura e escrita"
+column-name              = "Nome"
+column-size              = "Tamanho"
+column-modified          = "Alterado"
+column-permissions       = "Permissões"
+reading                  = "Lendo a pasta"
+entries                  = { one = "{n} item", other = "{n} itens" }
+up                       = "Subir uma pasta"
 
 [quvyta.terminal]
 scrolled = { one = "{n} linha atrás", other = "{n} linhas atrás" }

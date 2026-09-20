@@ -30,6 +30,8 @@ const QUIET: Duration = Duration::from_millis(600);
 #[derive(Debug)]
 pub struct State {
     session: Option<TerminalSession>,
+    /// A program that has ended, kept only so its last screen can be read.
+    ended: Option<TerminalSession>,
     /// Counts started shells, so a watch of an earlier shell is recognised and ignored.
     run: u64,
     exit: Option<Option<u32>>,
@@ -60,6 +62,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             session: None,
+            ended: None,
             run: 0,
             exit: None,
             error: None,
@@ -78,6 +81,10 @@ impl Default for State {
 pub enum Msg {
     Start,
     Stop,
+    /// Run the small program whose last screen is shown beside the shell.
+    LastScreen,
+    /// That program said something or ended.
+    LastChanged(TerminalChange),
     Changed(u64, TerminalChange),
     Scrollback(usize),
     /// Hand the shell a line, if both it and the person have been quiet.
@@ -178,6 +185,34 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         }
         // endregion
         Msg::Changed(..) => {}
+        // region: terminal-view-only
+        Msg::LastScreen => {
+            // A program that writes two lines and stops, so there is a real last screen to read.
+            // Its text is given as arguments, never built into the script.
+            let script = "printf '\\033[1;31m%s\\033[0m\\n\\033[32m%s\\033[0m\\n' \"$1\" \"$2\"; exit 2";
+            let args = ["-c", script, "sh", &t!("terminal.ended-error"), &t!("terminal.ended-note")];
+            match TerminalSession::spawn("/bin/sh".as_ref(), &args, &super::home_folder()) {
+                Ok(session) => {
+                    let watch = session.watch();
+                    state.ended = Some(session);
+                    log.push(PAGE, "Terminal#last", "started");
+                    return Command::perform(move || send(Msg::LastChanged(watch.next_change())));
+                }
+                Err(error) => state.error = Some(error.to_string()),
+            }
+        }
+        // The session is kept after the program ends: it holds the screen and the scrollback the
+        // view-only terminal draws, and dropping it would take both away.
+        Msg::LastChanged(TerminalChange::Exited(code)) => {
+            log.push(PAGE, "Terminal#last", format!("exited {code:?}"));
+        }
+        Msg::LastChanged(_) => {
+            if let Some(session) = &state.ended {
+                let watch = session.watch();
+                return Command::perform(move || send(Msg::LastChanged(watch.next_change())));
+            }
+        }
+        // endregion
         Msg::Leave => return toggle(true, log),
         Msg::Enter => return toggle(false, log),
         Msg::Stop => {
@@ -281,6 +316,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             ui.add(Button::new(label).variant("primary").on_press(send(Msg::Start))).id("start");
             ui.add(Button::new(t!("terminal.stop")).disabled(!running).on_press(send(Msg::Stop))).id("stop");
             ui.add(Button::new(t!("terminal.deliver")).disabled(!running).on_press(send(Msg::Deliver))).id("deliver");
+            ui.add(Button::new(t!("terminal.last-screen")).on_press(send(Msg::LastScreen))).id("last-screen");
             ui.add(Text::new(t!("terminal.focus-hint")).role("faint").no_wrap());
         })
         .gap(2)
@@ -289,28 +325,43 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             strip(state, ui);
             quiet(state, ui);
         }
-        // region: terminal-view
-        match &state.session {
-            Some(session) => {
-                // `f1` still opens the help while the shell has focus; `?` stays a character for
-                // the shell. The palette's `ctrl p` and the menu's `ctrl b` are left to the shell,
-                // where readline and tmux use them. `terminal-focus` leaves the shell: its node
-                // answers the key while focus is inside, and `action` above answers it elsewhere.
-                let terminal = Terminal::new(session)
-                    .pass_through(Scope::Global, "help")
-                    .pass_through(Scope::App, "terminal-focus");
-                ui.add(terminal).width(Length::Fill(1)).height(Length::Cells(18)).id("shell").on_action(
-                    Scope::App,
-                    "terminal-focus",
-                    send(Msg::Leave),
-                );
+        ui.row(|ui| {
+            // region: terminal-view
+            match &state.session {
+                Some(session) => {
+                    // `f1` still opens the help while the shell has focus; `?` stays a character
+                    // for the shell. The palette's `ctrl p` and the menu's `ctrl b` are left to
+                    // the shell, where readline and tmux use them. `terminal-focus` leaves the
+                    // shell: its node answers the key while focus is inside, and `action` above
+                    // answers it elsewhere.
+                    let terminal = Terminal::new(session)
+                        .pass_through(Scope::Global, "help")
+                        .pass_through(Scope::App, "terminal-focus");
+                    ui.add(terminal).width(Length::Fill(1)).height(Length::Cells(18)).id("shell").on_action(
+                        Scope::App,
+                        "terminal-focus",
+                        send(Msg::Leave),
+                    );
+                }
+                None => {
+                    ui.add(Text::new(state.error.clone().unwrap_or_else(|| t!("terminal.idle"))).role("faint"))
+                        .width(Length::Fill(1))
+                        .height(Length::Cells(18));
+                }
             }
-            None => {
-                ui.add(Text::new(state.error.clone().unwrap_or_else(|| t!("terminal.idle"))).role("faint"))
-                    .height(Length::Cells(18));
+            // endregion
+            // region: terminal-view-only
+            if let Some(ended) = &state.ended {
+                // The last screen of a program that has ended. `read_only` draws it faint, keeps
+                // it out of the focus order and never writes to it, while its colours, the cursor
+                // it left and scrolling back stay exactly as they are: Tab goes past it, and what
+                // is typed or pasted reaches the page instead of disappearing into a dead program.
+                ui.add(Terminal::new(ended).read_only()).width(Length::Fill(1)).height(Length::Cells(18)).id("last");
             }
-        }
-        // endregion
+            // endregion
+        })
+        .gap(2)
+        .fill_width();
     })
     .fill_width();
 
@@ -323,6 +374,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         ui.add(Text::new(t!("terminal.scrollback-hint")).role("faint"));
         ui.add(Text::new(t!("terminal.notices-hint")).role("faint"));
         ui.add(Text::new(t!("terminal.deliver-hint")).role("faint"));
+        ui.add(Text::new(t!("terminal.view-only-hint")).role("faint"));
     })
     .fill_width();
 }
@@ -429,6 +481,35 @@ mod tests {
         let heard: Vec<&str> = h.app().log.recent(PAGE, 2).iter().map(|entry| entry.message.as_str()).collect();
         assert_eq!(heard, ["held back", "delivered"]);
         session.kill();
+    }
+
+    #[test]
+    fn the_last_screen_of_a_program_that_ended_is_shown_and_never_entered() {
+        let mut h = showcase_tall(Showcase::new(), PAGE, 60);
+        h.send(send(Msg::LastScreen));
+        // Each step runs one round of the watch chain; the small program ends after a few.
+        for _ in 0..20 {
+            if h.app().log.recent(PAGE, 1).iter().any(|entry| entry.message.starts_with("exited")) {
+                break;
+            }
+            h.render();
+        }
+        let shown = "error: two files could not be read";
+        let screen = h.screen();
+        assert!(screen.contains(shown), "the last screen is drawn: {screen}");
+        let at = h.find(shown).expect("the line is on the screen");
+        for _ in 0..20 {
+            assert!(!h.is_focused("last"), "the last screen is no Tab stop");
+            if h.is_focused("start") {
+                break;
+            }
+            h.press("tab");
+        }
+        assert!(h.is_focused("start"), "Tab went around the page and reached the start button");
+        // A click never enters it; it lands on the nearest focusable thing around it, as a click
+        // on any part of the page that takes no focus does.
+        h.click(at.0, at.1);
+        assert!(!h.is_focused("last"), "a click did not enter the last screen");
     }
 
     #[test]

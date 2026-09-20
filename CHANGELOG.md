@@ -4,6 +4,31 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.13 - 2026-09-20
+
+### Added
+
+- A terminal that only shows (`Terminal::read_only`): it never writes to the program, takes no
+  focus and is drawn faint, while keeping the true colours, the cursor the program left, wide
+  characters, selection and scrolling back. A window whose program has ended can keep showing its
+  last screen without swallowing what is typed into it.
+- The file manager shows a folder as a list with its size, date and permissions, or as a grid of
+  icons, beside the tree (`FileManager::view`, `FileView`). Stepping into a folder and back is
+  part of the state, every operation works in all three shapes, and the details of at most one
+  page around the cursor are ever read, so a folder of ten thousand entries is still one screen
+  of painting.
+- A row of a `Table` and a card of a `CardGrid` can carry their own context menu
+  (`Table::context_menu`, `CardGrid::context_menu`), acting on the row that was right-clicked
+  rather than the one the cursor rests on.
+
+### Changed
+
+- Text pasted into a terminal whose program has ended is handed back instead of disappearing, and
+  reaches the application as a clipboard event. A wheel step on the alternate screen of a program
+  that has ended is handed back too. A mouse report to a program that has ended is dropped on
+  purpose: where the pointer is has nothing left to say, and handing it back would let a press
+  act on whatever is behind the terminal.
+
 ## 0.1.12 - 2026-09-20
 
 ### Added

@@ -10,6 +10,7 @@
 - `.on_activate(|sıra| msg)` — bir kart Enter ya da tıklamayla açıldı.
 - `.checked(Vec<bool>)` ve `.on_toggle(|sıra| msg)` — işaretler; varsayılan olarak kapalı.
 - `.empty(EmptyState)` — boş ızgaranın gösterdiği.
+- `.context_menu(|index| Vec<ContextItem<Msg>>)` — her karta kendi menüsünü verir; menü, açıldığı kart için kurulur.
 - `.disabled(bool)` — hover, odak ve basma yok; kartlar solar, seçim görünmeye devam eder.
 - `.scrollbar(ScrollbarStyle)` — temanın yerine sabit bir kaydırma çubuğu stili kullanır.
 
@@ -19,6 +20,7 @@
 
 ## Fare
 
+- Kart menüsü varken: bir karta sağ tıklamak o kartın menüsünü imlecin yanında açar ve kart işaretli değilse onu seçim yapar; menü tuşu ya da `shift f10` tuşların üzerinde olduğu kartın menüsünü açar, önce kartı görünür kılar. O kart menü açıkken yükselmiş kalır.
 - Tıklamak kartı seçer ve açar; kartın sağ üst köşesindeki işarete (ya da yanındaki bir hücreye) tıklamak yalnızca işaretler; tekerlek bir sıra kart kaydırır; kaydırma çubuğu sürüklenir.
 
 ## Yerleşim

@@ -77,6 +77,13 @@ pub(super) fn event<Msg>(session: &TerminalSession, cx: &mut EventCx<'_, Msg>, m
         return Some(true);
     }
     if let Some(bytes) = encode(mode, encoding, action, cell, mouse.mods) {
+        // This error is dropped on purpose, unlike the ones a key and a paste carry up. A write
+        // fails only once the program has ended, and where the pointer is has nothing to tell a
+        // program that is no longer there; a report is also one of a stream, where the next one
+        // says everything a lost one did. Handing the event back instead would be worse than
+        // nothing happening: a press inside the terminal would reach whatever is behind it and do
+        // something else. The branch above keeps a mouse a program never asked for out of here,
+        // and this one keeps the last reports of a program ending under the pointer quiet.
         let _ = session.write(&bytes);
     }
     if matches!(action, Action::Press(_)) {

@@ -94,6 +94,16 @@ no-room                  = "There is no room left on the disk."
 stopped                  = "You stopped this, and what had been written was taken away again."
 copying                  = { one = "Copying {n} entry", other = "Copying {n} entries" }
 stop                     = "Stop"
+size                     = "{n} {unit}"
+read-only                = "Read only"
+read-and-write           = "Read and write"
+column-name              = "Name"
+column-size              = "Size"
+column-modified          = "Changed"
+column-permissions       = "Permissions"
+reading                  = "Reading the folder"
+entries                  = { one = "{n} entry", other = "{n} entries" }
+up                       = "Up a folder"
 
 [quvyta.terminal]
 scrolled = { one = "{n} line back", other = "{n} lines back" }

@@ -5,6 +5,7 @@ Use a file manager when a folder is part of what your application is about: a pr
 - **One state per manager on screen.** `FileManagerState` lives in your own state, like any other screen state, and you hand it every `FileManagerMsg`.
 - **Opening is yours.** The manager says "this path was asked to be opened" and nothing more. A tab, a window, a preview or an answer to a dialog are all your decision.
 - **Say what the folder is for.** `confined()` for a folder somebody must not leave; without it the manager shows whatever root it is given, the whole file system included.
+- **Choose the shape.** `view(FileView::Tree | List | Icons)`: folders inside folders, one folder as rows with size, date and permissions, or one folder as a grid of icons. The tree is what you get without asking.
 
 ## Step by step
 
@@ -19,6 +20,8 @@ Use a file manager when a folder is part of what your application is about: a pr
 ## How it works
 
 - **Reading never happens while drawing.** A folder is read once, in one answer, and the view is built from what is already known. Ten thousand entries arrive as one batch and are drawn once; they are never streamed in pieces, because every redraw is a whole screen over a remote connection.
+- **A flat view shows one folder.** The list and the icons show the folder `state.folder()` names, with its own row at the top: that row carries the folder's menu and is the way back out of it, and a folder row steps into it. The keys, the menus and every operation are the same in all three shapes.
+- **The list reads a page, never a folder.** Size, date and permissions each mean one more call to the system for that one entry, so the list asks for a page of two hundred entries around the cursor and remembers what came back. The tree and the icons ask for nothing at all. An application that knows exactly which rows it draws asks for those with `state.detail(keys, wrap)`.
 - **Only the visible rows are painted.** A folder of ten thousand entries costs what a folder of two hundred costs: the rows on screen, and no more. A tree row reads no size, date or permissions at all.
 - **The reading indicator has a rule.** A read shorter than about 300 ms shows nothing; a slower one puts a small spinner on the folder's own row, which then stays about 500 ms. Quick reads never flash, slow ones never blink.
 - **Keys, not paths.** Every entry has a key: its path relative to the root, written with `/` on every platform. Operations take keys and turn them into paths themselves, so a key that climbs out of the root (`..`, an empty part, a NUL) is refused wherever it came from — a session file included.

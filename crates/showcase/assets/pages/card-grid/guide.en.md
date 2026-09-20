@@ -20,6 +20,7 @@ Use a card grid when each item deserves a small surface of its own and the items
 - **A card is a surface, not a row.** The selected card takes the selected surface; its pillar breathes while the grid has focus reached with the keyboard. Nothing slides.
 - **Checks sit in the corner.** A checked card carries the accent mark in its top right corner. The lit card offers a faint mark there: click it to check without opening. Space checks the selected card.
 - **The mouse does what the keys do.** A click selects and opens a card, the wheel scrolls a row of cards, and the scrollbar can be pressed and dragged.
+- **A menu belongs to a card.** `.context_menu(|index| ..)` builds the entries for the card the menu opens on, and that card stays raised while it is open, so what the entries act on is never in doubt.
 
 ## Styling with a theme
 
