@@ -32,6 +32,8 @@ pub(crate) enum Action<Msg> {
     Handoff(Handoff<Msg>),
     HandoffDetached(DetachedHandoff<Msg>),
     Open(Open<Msg>),
+    #[cfg(feature = "updates")]
+    CheckForUpdate(super::update_check::UpdateCheck<Msg>),
 }
 
 /// A message conversion shared by every action of a mapped command; the work of tasks and
@@ -74,6 +76,11 @@ impl<A: Send + 'static> Action<A> {
             Self::Open(open) => {
                 let map = Arc::clone(map);
                 Action::Open(open.map(move |message| map(message)))
+            }
+            #[cfg(feature = "updates")]
+            Self::CheckForUpdate(check) => {
+                let map = Arc::clone(map);
+                Action::CheckForUpdate(check.map(move |message| map(message)))
             }
         }
     }
@@ -357,6 +364,16 @@ impl<Msg: Send + 'static> Command<Msg> {
     #[must_use]
     pub fn open_with(open: Open<Msg>) -> Self {
         Self::single(Action::Open(open))
+    }
+
+    /// Asks the package registry, on a thread of its own, whether a newer version of the
+    /// application is out, and sends the check's message only when one is. At most once a day,
+    /// never while the family's update notice is off, and silent without a network; see
+    /// [`UpdateCheck`](super::UpdateCheck). Needs the `updates` feature.
+    #[cfg(feature = "updates")]
+    #[must_use]
+    pub fn check_for_update(check: super::update_check::UpdateCheck<Msg>) -> Self {
+        Self::single(Action::CheckForUpdate(check))
     }
 
     /// The same work delivering `map(message)` wherever it would deliver `message`, so a screen

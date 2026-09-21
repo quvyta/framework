@@ -13,6 +13,10 @@
 - `Appearance::section(list, msg)` — a heading and the rows; `rows(list, msg)` without the heading.
 - `Appearance::update(change, &mut settings)` — saves an `AppearanceChange` and returns the command that shows it.
 - `SettingRow::nested(true)` — a row that belongs to the row above: its text starts two cells further in.
+- `Family::update_notice()`, `update_notice_in(folder)` — whether the family says when an update is out; on unless `quvyta.conf` says `update-notice = false`. `set_update_notice(on)`, `set_update_notice_in(folder, on)` write it; `Preferences::update_notice()` reads it with the rest. `Appearance::updates(list, msg)` is its row, right after `section`.
+- `UpdateCheck::new(family, app, package, current, on_newer)` — the question to crates.io, with the `updates` feature; `.in_folders(config, state)` for a test, `.registry(address)` for a mirror or a test server. `Command::check_for_update(check)` asks it.
+- `Update::latest()`, `current()`, `package()`, `toast()` — the answer, and the notice every member shows the same way; `Update::new(family, package, current, latest)` makes one by hand.
+- `Harness::update_checks()`, `set_latest_version(Some("0.2.0"))` — a test's view of the question: recorded, answered with the version given, never asked over the network.
 
 ## Files
 

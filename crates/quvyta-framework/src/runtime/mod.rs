@@ -51,6 +51,8 @@ mod termination;
 mod termination_rules;
 #[cfg(test)]
 mod toast_rules;
+#[cfg(feature = "updates")]
+mod update_check;
 
 pub use app::App;
 pub use clipboard::ClipboardEvent;
@@ -66,5 +68,7 @@ pub use process::{Line, Process, ProcessOutcome};
 pub use task::{Task, TaskCx, TaskEntry, TaskEvent, TaskId, TaskOutcome, Tasks};
 pub use terminal::Runtime;
 pub use termination::Termination;
+#[cfg(feature = "updates")]
+pub use update_check::{Update, UpdateCheck, UpdateCheckRequest};
 
 pub(crate) use selection::{CopyKind, MULTI_PRESS};

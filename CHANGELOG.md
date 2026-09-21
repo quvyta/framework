@@ -4,6 +4,24 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.17 - 2026-09-21
+
+### Added
+
+- An application says when a newer version of itself is out. With the new `updates` feature,
+  `Command::check_for_update(UpdateCheck::new(family, app, package, version, Msg::NewVersion))`
+  asks crates.io at most once a day, on a thread of its own so the start never waits, and sends
+  the message only when a newer version is published; `Update::toast()` is the notice every
+  member shows the same way, with how to update. No network or no answer is silence. Only the
+  package's name goes out, with a `User-Agent` of the package and its version. The feature
+  brings in `ureq`; an application that does not ask carries no network code.
+- One switch for the whole family: `Family::update_notice`, `update-notice` in the shared file,
+  on unless it is turned off; with it off nothing is asked or written. `Appearance::updates` is
+  its row, for an application that asks to put right after the section; the section itself is
+  unchanged.
+- A test never reaches the network: `Harness::update_checks()` lists the questions and
+  `Harness::set_latest_version(Some(..))` answers them.
+
 ## 0.1.16 - 2026-09-21
 
 ### Fixed

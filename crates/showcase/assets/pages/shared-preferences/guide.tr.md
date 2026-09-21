@@ -20,6 +20,27 @@ Quvyta ailesinin her uygulaması, kullanıcı birinde başka bir şey seçmediys
 - **Hareketi azalt ve vurgu çubuğu uygulamanındır.** Aynı bölümde durur ve uygulamanın dosyasına kaydedilir. `QUVYTA_REDUCED_MOTION` karar veriyorsa satır pasiftir ve bunu söyler.
 - **Değerin nereden geldiği.** `Resolved::source` `App`, `Family` ya da `Detected` olur.
 
+
+## Güncelleme çıkınca haber vermek
+
+Ailenin güncelleme bildirimi bütün uygulamalar için tek bir anahtardır. Güncellemelerini soran bir uygulama onu bölümün hemen ardından `self.appearance.updates(list, Msg::Appearance)` ile gösterir; hiç sormayan onu eklemez. Sormak için framework'ün `updates` özelliğini aç (`quvyta-framework = { version = "…", features = ["updates"] }`) ve açılışta sor:
+
+```rust
+fn init(&mut self) -> Command<Msg> {
+    let check = UpdateCheck::new(Family::QUVYTA, "code", "quvyta-code", env!("CARGO_PKG_VERSION"), Msg::NewVersion);
+    Command::check_for_update(check)
+}
+// update içinde:
+Msg::NewVersion(update) => Command::toast(update.toast()),
+```
+
+- **Günde en fazla bir kez, hiç yolunu kesmeden.** Soru kendi iş parçacığında sorulur; ilk kare onu hiç beklemez. En son ne zaman sorulduğu uygulamanın durum klasöründe tutulur.
+- **Soramazsa sessiz.** Ağ yoksa, on saniyede cevap gelmezse ya da cevap okunamazsa hiçbir şey gösterilmez; ertesi gün yeniden sorulur.
+- **Giden yalnızca ad.** İstek paketin adını söyler; `User-Agent`'ı paketin adı ve sürümüdür. Kimlik, makine bilgisi ya da kullanım verisi gitmez.
+- **Bütün aile için kapatılır.** Anahtar kapalıyken (`quvyta.conf` içinde `update-notice = false`) hiçbir şey sorulmaz ve yazılmaz.
+- **Yalnızca gerçekten yeni bir sürüm.** Geri çekilen sürümler ve ön sürümler sayılmaz; kayıttakinden yeni bir derleme hiçbir şey söylemez.
+- **Testler ağa hiç çıkmaz.** Bir harness soruyu kaydeder (`Harness::update_checks`) ve `Harness::set_latest_version(Some("0.2.0"))` ile cevaplar; denetimin klasörlerine dokunmaz.
+
 ## Sık yapılan hatalar
 
 - **`language`'ı sabit bir listeyle tanımlayıp kendini onarmayı açmak.** `self_heal`'den önce `Settings::member_of(&Family::QUVYTA)` çağır ya da `load_member` ile yükle; böylece `"quvyta"` korunur.

@@ -301,6 +301,14 @@ pillar             = "強調バー"
 pillar-thick       = "太い"
 pillar-thin        = "細い"
 not-saved          = "適用しましたが、保存できませんでした: {reason}"
+updates            = "アップデートが出たら知らせる"
+updates-text       = "{family} のすべてのアプリに共通の設定です。各アプリが1日1回 crates.io に最新バージョンを問い合わせます。送るのは名前だけで、あなたやこのマシンの情報は送りません。"
+
+# The notice that a newer version is out (runtime::Update::toast); {package} is the crate,
+# {launcher} the family's launcher command.
+[quvyta.update]
+title = "{package} {latest} が公開されました"
+body  = "現在のバージョンは {current} です。{launcher} から、または cargo install {package} で更新できます。"
 
 # The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
 [quvyta.setup]

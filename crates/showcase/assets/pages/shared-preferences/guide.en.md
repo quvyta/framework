@@ -20,6 +20,27 @@ Every application of the Quvyta family speaks the same language, draws with the 
 - **Reduced motion and the pillar are the application's own.** They sit in the same section and are saved in the application's file. When `QUVYTA_REDUCED_MOTION` decides, the row is disabled and says so.
 - **Where a value came from.** `Resolved::source` is `App`, `Family` or `Detected`.
 
+
+## Saying when an update is out
+
+The family's update notice is one switch for every application. An application that asks for its updates shows it right after the section, with `self.appearance.updates(list, Msg::Appearance)`; one that never asks leaves it out. To ask, turn on the framework's `updates` feature (`quvyta-framework = { version = "…", features = ["updates"] }`) and ask at start:
+
+```rust
+fn init(&mut self) -> Command<Msg> {
+    let check = UpdateCheck::new(Family::QUVYTA, "code", "quvyta-code", env!("CARGO_PKG_VERSION"), Msg::NewVersion);
+    Command::check_for_update(check)
+}
+// in update:
+Msg::NewVersion(update) => Command::toast(update.toast()),
+```
+
+- **At most once a day, never in the way.** The question runs on a thread of its own; the first frame never waits. When it was last asked is kept in the application's state folder.
+- **Silent when it cannot ask.** No network, no answer within ten seconds, or an answer that cannot be read: nothing is shown and the next day asks again.
+- **Only the name goes out.** The request names the package; its `User-Agent` is the package and its version. No identity, no machine detail, no use of the application.
+- **Off for the whole family.** With the switch off (`update-notice = false` in `quvyta.conf`) nothing is asked and nothing is written.
+- **Only a real newer version.** Yanked versions and pre-releases are passed over; a build newer than the registry says nothing.
+- **Tests never reach the network.** A harness records the question (`Harness::update_checks`) and answers it with `Harness::set_latest_version(Some("0.2.0"))`, without touching the check's folders.
+
 ## Common mistakes
 
 - **Declaring `language` with a fixed list and self-healing.** Call `Settings::member_of(&Family::QUVYTA)` before `self_heal`, or load with `load_member`, so `"quvyta"` is kept.

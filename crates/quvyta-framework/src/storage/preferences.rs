@@ -119,10 +119,24 @@ pub struct Preferences {
     language: Resolved<String>,
     theme: Resolved<String>,
     icons: Resolved<IconMode>,
+    update_notice: bool,
     diagnostics: Vec<Diagnostic>,
 }
 
 impl Preferences {
+    /// Whether the family's applications say when a newer version of themselves is out; see
+    /// [`Family::update_notice`]. One switch for the whole family, on unless it was turned off.
+    #[must_use]
+    pub fn update_notice(&self) -> bool {
+        self.update_notice
+    }
+
+    /// Records that the update notice is now `on`, after a change written with
+    /// [`Family::set_update_notice`].
+    pub(crate) fn record_update_notice(&mut self, on: bool) {
+        self.update_notice = on;
+    }
+
     /// The locale code to speak.
     #[must_use]
     pub fn language(&self) -> &Resolved<String> {
@@ -507,6 +521,7 @@ impl Family {
             }
         }
         let mut prefs = resolved_from(detected, app_value, family_value);
+        prefs.update_notice = shared.as_ref().is_none_or(super::update_notice::from_shared);
         prefs.diagnostics = diagnostics;
         prefs
     }
@@ -541,6 +556,7 @@ fn resolved_from(
         language: text(Shared::Language),
         theme: text(Shared::Theme),
         icons: Resolved { value: IconMode::from_name(&icons.value).unwrap_or(detected.icons), source: icons.source },
+        update_notice: true,
         diagnostics: Vec::new(),
     }
 }
@@ -550,14 +566,14 @@ fn resolved_from(
 /// leaves nothing behind in the user's settings. Unix only: elsewhere the framework has no
 /// advisory lock, as for [`AppLock`](super::AppLock).
 #[cfg(unix)]
-fn hold_folder(dir: &Path) -> io::Result<Option<fs::File>> {
+pub(super) fn hold_folder(dir: &Path) -> io::Result<Option<fs::File>> {
     let folder = fs::File::open(dir)?;
     folder.lock()?;
     Ok(Some(folder))
 }
 
 #[cfg(not(unix))]
-fn hold_folder(_dir: &Path) -> io::Result<Option<fs::File>> {
+pub(super) fn hold_folder(_dir: &Path) -> io::Result<Option<fs::File>> {
     Ok(None)
 }
 
@@ -571,7 +587,7 @@ fn create(path: &Path, text: &str) -> io::Result<()> {
 
 /// Reads the file at `path` as it is on disk now, changes only `key` to `value` and writes it
 /// back. `family` marks an application's file, whose own values follow the family.
-fn rewrite(path: &Path, key: &str, value: SettingValue, family: Option<&Family>) -> io::Result<()> {
+pub(super) fn rewrite(path: &Path, key: &str, value: SettingValue, family: Option<&Family>) -> io::Result<()> {
     let mut settings = Settings::open(path);
     if let Some(family) = family {
         settings = settings.member_of(family);

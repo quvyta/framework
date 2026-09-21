@@ -35,6 +35,24 @@ impl App for Code {
     }
 }
 
+/// An application that asks for its updates: the notice's row right after the section.
+struct Asking(Code);
+
+impl App for Asking {
+    type Msg = Msg;
+
+    fn update(&mut self, msg: Msg) -> Command<Msg> {
+        self.0.update(msg)
+    }
+
+    fn view(&self, ui: &mut View<'_, Msg>) {
+        SettingsList::show(ui, |list| {
+            self.0.appearance.section(list, Msg::Appearance);
+            self.0.appearance.updates(list, Msg::Appearance);
+        });
+    }
+}
+
 fn folder(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("quvyta-appearance-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
@@ -235,4 +253,34 @@ fn a_choice_is_as_wide_as_its_longest_name_between_a_floor_and_a_cap() {
     assert_eq!(choice_width(&["Português (Brasil)".to_owned()], 2), 25, "the name, the chevron and the ground");
     assert_eq!(choice_width(&["Português (Brasil)".to_owned()], 0), 21, "a theme with no ground needs less");
     assert_eq!(choice_width(&["x".repeat(60)], 2), CHOICE_MAX, "a name of an application's own cannot take the row");
+}
+
+#[test]
+fn the_update_notice_is_one_switch_for_the_family_kept_in_the_shared_file() {
+    let dir = folder("updates");
+    shared_file(&dir);
+    fs::write(dir.join("code.conf"), "engine = \"podman\"\n").expect("code.conf");
+    let family = Family::QUVYTA;
+    let preferences = family.preferences_in(&dir, "code", &I18n::builtin());
+    let appearance = Appearance::new(family, "code", preferences).in_folder(&dir);
+    let settings = Settings::open(dir.join("code.conf")).member_of(&family);
+    assert!(
+        !Harness::new(Code { settings: settings.clone(), appearance: appearance.clone() }, 70, 40)
+            .screen()
+            .contains("Say when an update is out"),
+        "not in the section itself: an application that never asks has no use for it"
+    );
+    let mut app = Harness::new(Asking(Code { settings, appearance }), 70, 40);
+    let screen = app.screen();
+    assert!(screen.contains("Say when an update is out"), "{screen}");
+    assert!(screen.contains("only its name is sent"), "it says what is never sent\n{screen}");
+    assert!(family.update_notice_in(&dir), "on until someone turns it off");
+    // The switch is a tone at the row's right edge; a person reaches it by the row and Space.
+    app.click_text("Say when an update is out").press("space");
+    assert!(!family.update_notice_in(&dir), "the click turned it off for the family\n{}", app.screen());
+    assert!(read(&dir, "quvyta.conf").contains("update-notice = false"), "{}", read(&dir, "quvyta.conf"));
+    assert_eq!(read(&dir, "code.conf"), "engine = \"podman\"\n", "not the application's own choice");
+    app.press("space");
+    assert!(family.update_notice_in(&dir));
+    fs::remove_dir_all(&dir).expect("clean");
 }

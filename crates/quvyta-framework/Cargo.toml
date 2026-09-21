@@ -30,6 +30,7 @@ toml = { version = "1.1.6", default-features = false, features = ["std", "parse"
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
 vt100 = { version = "0.16.2", optional = true }
+ureq = { version = "3.4.2", optional = true, default-features = false, features = ["rustls"] }
 
 [target.'cfg(unix)'.dependencies]
 # What `std` does not expose, read without `unsafe`: `time` for Uptime, `fs` for storage::AppLock,
@@ -56,3 +57,6 @@ dirs = "6.0.0"
 [features]
 # The embedded terminal: a shell in a pseudo-terminal, parsed into theme-coloured cells.
 pty = ["dep:portable-pty", "dep:vt100"]
+# Saying when a newer version is out: one question a day to crates.io, over HTTPS. Off by
+# default, so an application that does not ask carries no network code.
+updates = ["dep:ureq"]

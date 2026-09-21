@@ -301,6 +301,14 @@ pillar             = "强调条"
 pillar-thick       = "粗"
 pillar-thin        = "细"
 not-saved          = "已应用，但未保存：{reason}"
+updates            = "有更新时提醒"
+updates-text       = "对所有 {family} 应用统一生效。每个应用每天向 crates.io 查询一次最新版本；只发送名称，不发送任何关于你或这台机器的信息。"
+
+# The notice that a newer version is out (runtime::Update::toast); {package} is the crate,
+# {launcher} the family's launcher command.
+[quvyta.update]
+title = "{package} {latest} 已发布"
+body  = "你当前是 {current}。可在 {launcher} 中更新，或运行 cargo install {package}。"
 
 # The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
 [quvyta.setup]

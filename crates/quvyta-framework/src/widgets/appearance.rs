@@ -1,6 +1,6 @@
 //! The appearance rows every application of a family shows the same way: language, theme and
 //! icons, each with the choice of changing it everywhere or here only, then reduced motion and
-//! the pillar.
+//! the pillar; and, for an application that asks for its updates, the family's update notice.
 
 use std::io;
 use std::path::PathBuf;
@@ -46,6 +46,9 @@ pub enum AppearanceChange {
     ReducedMotion(bool),
     /// A pillar style was chosen.
     Pillar(PillarStyle),
+    /// The family's update notice was switched on (`true`) or off; see
+    /// [`Family::update_notice`].
+    UpdateNotice(bool),
 }
 
 /// Which row a failed save is shown under.
@@ -54,16 +57,19 @@ enum Row {
     Shared(Shared),
     ReducedMotion,
     Pillar,
+    UpdateNotice,
 }
 
 /// The appearance section of a settings page or a setup wizard: language, theme and icons as the
 /// family shares them, reduced motion and the pillar, as rows of a
-/// [`SettingsList`](super::SettingsList).
+/// [`SettingsList`](super::SettingsList); and, where the application asks for its updates, the
+/// family's update notice with [`updates`](Self::updates).
 ///
 /// Each shared row has a box under it, "In every Quvyta application", checked while the
 /// application follows the family: a change then goes to the family's shared file and every
 /// application that follows it changes too. Cleared, the change stays in the application's own
-/// file. Reduced motion and the pillar are the application's own. A change is applied at once
+/// file. Reduced motion and the pillar are the application's own. The update notice is one switch
+/// for the whole family, kept in the shared file; see [`Family::update_notice`]. A change is applied at once
 /// and saved at once, each file read again right before it is written; see
 /// [`Family::set`]. When the `QUVYTA_REDUCED_MOTION` environment variable decides, the reduced
 /// motion row is disabled and says why. Texts come from the framework's language files.
@@ -161,6 +167,28 @@ impl Appearance {
         list.heading(crate::t!("quvyta.appearance.heading"));
         self.rows(list, message.clone());
         self.own_rows(list, message);
+    }
+
+    /// Adds the family's update notice switch to `list`, with the text saying what it asks and
+    /// what it never sends: for an application that asks whether a newer version of itself is out
+    /// ([`Command::check_for_update`](crate::runtime::Command::check_for_update)), right after
+    /// [`section`](Self::section). The switch is the family's, one for every application, kept in
+    /// the shared file; see [`Family::update_notice`]. An application that never asks leaves the
+    /// row out, so its settings offer nothing that does nothing there.
+    pub fn updates<Msg: Clone + 'static>(
+        &self,
+        list: &mut SettingsRows<'_, Msg>,
+        message: impl Fn(AppearanceChange) -> Msg + Clone + 'static,
+    ) {
+        let row = SettingRow::new(crate::t!("quvyta.appearance.updates"));
+        let row = match self.failed(Row::UpdateNotice) {
+            Some(failure) => row.description(failure),
+            None => row.description(crate::t!("quvyta.appearance.updates-text", family = self.family.title())),
+        };
+        let on = self.preferences.update_notice();
+        list.row(row, |ui| {
+            ui.add(Switch::new(on).on_toggle(move |on| message(AppearanceChange::UpdateNotice(on))));
+        });
     }
 
     /// Adds the three rows the family shares, language, theme and icons, each with its box, to
@@ -333,6 +361,7 @@ impl Appearance {
                 let saved = self.own(Settings::PILLAR, style.name().to_owned(), settings);
                 (Row::Pillar, saved, Command::set_pillar(style))
             }
+            AppearanceChange::UpdateNotice(on) => (Row::UpdateNotice, self.update_notice(on), Command::none()),
         };
         self.failure = saved.err().map(|error| (row, error.to_string()));
         command
@@ -356,6 +385,18 @@ impl Appearance {
         match &self.folder {
             Some(folder) => self.family.set_in(folder, &self.app, key, value, scope),
             None => self.family.set(&self.app, key, value, scope),
+        }
+    }
+
+    /// Switches the family's update notice and records it.
+    fn update_notice(&mut self, on: bool) -> io::Result<()> {
+        self.preferences.record_update_notice(on);
+        if !self.saving {
+            return Ok(());
+        }
+        match &self.folder {
+            Some(folder) => self.family.set_update_notice_in(folder, on),
+            None => self.family.set_update_notice(on),
         }
     }
 

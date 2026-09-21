@@ -315,6 +315,14 @@ pillar             = "Barre d’accent"
 pillar-thick       = "Épaisse"
 pillar-thin        = "Fine"
 not-saved          = "Appliqué, mais non enregistré : {reason}"
+updates            = "Signaler les mises à jour"
+updates-text       = "Un seul réglage pour toutes les applications {family}. Chacune demande une fois par jour à crates.io sa version la plus récente ; seul son nom est envoyé, rien sur vous ni sur cette machine."
+
+# The notice that a newer version is out (runtime::Update::toast); {package} is the crate,
+# {launcher} the family's launcher command.
+[quvyta.update]
+title = "{package} {latest} est sortie"
+body  = "Vous avez la {current}. Mettez-la à jour dans {launcher} ou avec cargo install {package}."
 
 # The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
 [quvyta.setup]

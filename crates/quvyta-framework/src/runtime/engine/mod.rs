@@ -137,6 +137,15 @@ pub(crate) struct Engine<A: App> {
     open_requests: Vec<crate::runtime::OpenRequest>,
     /// The outcome a harness answers every opening with.
     open_outcome: crate::runtime::OpenOutcome,
+    /// Questions for a newer version a harness recorded instead of asking.
+    #[cfg(feature = "updates")]
+    update_checks: Vec<crate::runtime::UpdateCheckRequest>,
+    /// The newest version a harness answers every such question with; none by default.
+    #[cfg(feature = "updates")]
+    latest_version: Option<String>,
+    /// Questions a harness has not answered yet, because it was not told a version.
+    #[cfg(feature = "updates")]
+    unanswered_checks: Vec<crate::runtime::UpdateCheck<A::Msg>>,
     /// Starts the threads of performs and tasks; tests swap in one that fails.
     pub(crate) spawner: task::Spawner,
     pub(crate) clipboard: Vec<String>,
@@ -204,6 +213,12 @@ impl<A: App> Engine<A> {
             detached_outcome: DetachedOutcome::Finished { code: Some(0) },
             open_requests: Vec::new(),
             open_outcome: crate::runtime::OpenOutcome::Opened,
+            #[cfg(feature = "updates")]
+            update_checks: Vec::new(),
+            #[cfg(feature = "updates")]
+            latest_version: None,
+            #[cfg(feature = "updates")]
+            unanswered_checks: Vec::new(),
             spawner: task::spawn_thread,
             clipboard: Vec::new(),
             clipboard_text: None,
@@ -597,6 +612,17 @@ impl<A: App> Engine<A> {
                     }
                     TaskMode::Threads => self.open_on_thread(open),
                 },
+                #[cfg(feature = "updates")]
+                Action::CheckForUpdate(check) => match self.task_mode {
+                    // A test never reaches the network, and never the folders of the check: the
+                    // question is recorded and answered with the version the test named.
+                    TaskMode::Inline => {
+                        self.update_checks.push(check.request());
+                        self.unanswered_checks.push(check);
+                        self.answer_update_checks();
+                    }
+                    TaskMode::Threads => self.check_on_thread(check),
+                },
             }
         }
     }
@@ -688,6 +714,49 @@ impl<A: App> Engine<A> {
     /// Sets the outcome a harness answers every detached handoff with.
     pub(crate) fn set_detached_outcome(&mut self, outcome: DetachedOutcome) {
         self.detached_outcome = outcome;
+    }
+
+    /// Asks for a newer version on a thread of its own, so the application never waits for the
+    /// network. When no thread can start the question is not asked: asking from the loop would
+    /// hold the screen for as long as the registry takes, and the next start asks again.
+    #[cfg(feature = "updates")]
+    fn check_on_thread(&mut self, check: crate::runtime::UpdateCheck<A::Msg>) {
+        let sender = self.tasks.0.clone();
+        let run = Box::new(move || {
+            if let Some(message) = check.ask(std::time::SystemTime::now()) {
+                let _ = sender.send(Delivery::Message(message));
+            }
+            let _ = sender.send(Delivery::Ended);
+        });
+        if (self.spawner)("quvyta-update-check".to_owned(), run).is_ok() {
+            self.pending_tasks += 1;
+        }
+    }
+
+    /// Questions for a newer version a harness recorded, oldest first.
+    #[cfg(feature = "updates")]
+    pub(crate) fn update_checks(&self) -> &[crate::runtime::UpdateCheckRequest] {
+        &self.update_checks
+    }
+
+    /// Sets the newest version a harness answers every question for one with, those still
+    /// waiting included.
+    #[cfg(feature = "updates")]
+    pub(crate) fn set_latest_version(&mut self, latest: Option<String>) {
+        self.latest_version = latest;
+        self.answer_update_checks();
+    }
+
+    /// Answers the waiting questions with the version a harness was told, from the loop like
+    /// perform work; without one they keep waiting, as a question does without a network.
+    #[cfg(feature = "updates")]
+    fn answer_update_checks(&mut self) {
+        let Some(latest) = self.latest_version.clone() else { return };
+        for check in std::mem::take(&mut self.unanswered_checks) {
+            if let Some(message) = check.answer(&latest) {
+                self.queued_work.push(Box::new(move || message));
+            }
+        }
     }
 
     /// Openings a harness recorded, oldest first.

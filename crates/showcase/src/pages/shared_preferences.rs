@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use qframe::i18n::I18n;
 use qframe::prelude::*;
+use qframe::runtime::Update;
 use qframe::storage::{Family, Preferences, Scope, Settings, Shared, Source};
 use qframe::widgets::{Appearance, AppearanceChange, CodeView, Language, SettingsList};
 
@@ -90,6 +91,8 @@ pub enum Msg {
     /// The second application keeps a theme of its own (`true`) or follows the family.
     OtherOwnTheme(bool),
     StartOver,
+    /// Shows what the notice of a newer version looks like.
+    ShowNotice,
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -124,6 +127,15 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             };
             log.push(PAGE, if own { "Family::set_in" } else { "Family::follow_in" }, outcome);
             Command::none()
+        }
+        Msg::ShowNotice => {
+            log.push(PAGE, "Update::toast", "quvyta-code 0.1.14 while 0.1.13 runs");
+            // region: shared-preferences-notice
+            // An application gets its `Update` from `Command::check_for_update`; the demo makes one
+            // by hand so the notice shows without asking the network.
+            let update = Update::new(Family::QUVYTA, "quvyta-code", "0.1.13", "0.1.14");
+            Command::toast(update.toast())
+            // endregion
         }
         Msg::StartOver => {
             if let Some(demo) = state.demo.take() {
@@ -172,6 +184,8 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         // region: shared-preferences-rows
         SettingsList::show(ui, |list| {
             demo.appearance.section(list, |change| send(Msg::Appearance(change)));
+            // An application that asks for its updates adds the family's switch for them.
+            demo.appearance.updates(list, |change| send(Msg::Appearance(change)));
         })
         .id("appearance");
         // endregion
@@ -196,6 +210,13 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             let line = t!("shared-preferences.sees", app = OTHER, key = label, value = value, source = source(from));
             ui.add(Text::new(line).role("body"));
         }
+    })
+    .fill_width();
+
+    ui.add_with(Panel::new().title(t!("shared-preferences.notice")).gap(0), |ui| {
+        ui.add(Text::new(t!("shared-preferences.notice-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        ui.add(Button::new(t!("shared-preferences.show-notice")).on_press(send(Msg::ShowNotice))).id("show-notice");
     })
     .fill_width();
 
@@ -263,5 +284,17 @@ mod tests {
         h.send(send(Msg::StartOver));
         assert!(!first.exists());
         assert_ne!(folder(&h), first);
+    }
+
+    #[test]
+    fn the_notice_button_shows_the_notice_without_asking_anything() {
+        let mut h = showcase_tall(crate::app::Showcase::new(), PAGE, 120);
+        h.set_reduced_motion(true);
+        assert!(h.screen().contains("Say when an update is out"), "the family's switch is in the rows: {}", h.screen());
+        h.click_text("Show the notice").advance(std::time::Duration::from_millis(300));
+        let screen = h.screen();
+        assert!(screen.contains("quvyta-code 0.1.14 is out"), "{screen}");
+        assert!(h.update_checks().is_empty(), "the demo never asks the registry");
+        std::fs::remove_dir_all(folder(&h)).ok();
     }
 }

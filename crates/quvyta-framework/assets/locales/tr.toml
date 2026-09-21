@@ -301,6 +301,14 @@ pillar             = "Vurgu çubuğu"
 pillar-thick       = "Kalın"
 pillar-thin        = "İnce"
 not-saved          = "Uygulandı ama kaydedilemedi: {reason}"
+updates            = "Güncelleme çıkınca haber ver"
+updates-text       = "Bütün {family} uygulamaları için tek ayar. Her biri günde bir kez crates.io'ya en yeni sürümünü sorar; yalnızca adı gider, sizin ya da bu makinenin hakkında hiçbir şey gitmez."
+
+# The notice that a newer version is out (runtime::Update::toast); {package} is the crate,
+# {launcher} the family's launcher command.
+[quvyta.update]
+title = "{package} {latest} çıktı"
+body  = "Sizdeki sürüm {current}. {launcher} içinden ya da cargo install {package} ile güncelleyebilirsiniz."
 
 # The first-run setup wizard (widgets::Setup); {reason} is why a file could not be written.
 [quvyta.setup]

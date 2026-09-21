@@ -474,6 +474,27 @@ impl<A: App> Harness<A> {
         self
     }
 
+    /// The questions for a newer version of
+    /// [`Command::check_for_update`](super::Command::check_for_update) the application asked,
+    /// oldest first. A harness reaches no network and reads or writes none of the check's
+    /// folders: the question is recorded and answered with the version of
+    /// [`set_latest_version`](Self::set_latest_version), if any.
+    #[cfg(feature = "updates")]
+    #[must_use]
+    pub fn update_checks(&self) -> &[super::UpdateCheckRequest] {
+        self.engine.update_checks()
+    }
+
+    /// Answers the questions for a newer version as if the registry had named `latest` the newest,
+    /// the ones asked already and every one from now on, then renders. With `None`, the default,
+    /// a question gets no answer, as when the network is down. The application's message arrives
+    /// only when the version is newer than the one it runs.
+    #[cfg(feature = "updates")]
+    pub fn set_latest_version(&mut self, latest: Option<&str>) -> &mut Self {
+        self.engine.set_latest_version(latest.map(str::to_owned));
+        self.render()
+    }
+
     /// Whether the application asked to quit.
     #[must_use]
     pub fn quit_requested(&self) -> bool {

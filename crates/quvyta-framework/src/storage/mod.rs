@@ -50,6 +50,7 @@ mod machine;
 mod migrate;
 mod preferences;
 mod schema;
+mod update_notice;
 mod value;
 
 use std::fs;
@@ -115,6 +116,9 @@ impl Settings {
     pub const PILLAR: &'static str = "pillar";
     /// The key of the selection slide flag.
     pub const SLIDE: &'static str = "slide";
+    /// The key of the update notice, in a family's shared file: whether its applications ask once
+    /// a day if a newer version is out. On when the key is missing.
+    pub const UPDATE_NOTICE: &'static str = "update-notice";
 
     /// Settings that live only in memory; saving does nothing. For tests and for applications
     /// run without a config directory.
