@@ -4,6 +4,14 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.18 - 2026-09-21
+
+### Fixed
+
+- The showcase's search opens the first page it finds when Enter is pressed. Typing a name in the
+  sidebar search listed the right page, but neither Enter nor Tab and Enter opened it, so the
+  keys alone could not get there.
+
 ## 0.1.17 - 2026-09-21
 
 ### Added

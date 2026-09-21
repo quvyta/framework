@@ -32,6 +32,8 @@ pub enum Msg {
     Open(String),
     Back,
     Search(String),
+    /// Enter in the search: the first page the search finds opens.
+    OpenFound,
     Section(usize),
     Theme(String),
     Locale(String),
@@ -192,9 +194,14 @@ impl Showcase {
         let ids: Vec<Option<String>> = rows.iter().map(|(_, id)| id.clone()).collect();
         let items: Vec<ListItem> = rows.into_iter().map(|(item, _)| item).collect();
         ui.column(|ui| {
-            ui.add(TextInput::new(&self.search).placeholder(t!("menu.search")).on_change(Msg::Search))
-                .fill_width()
-                .id("search");
+            ui.add(
+                TextInput::new(&self.search)
+                    .placeholder(t!("menu.search"))
+                    .on_change(Msg::Search)
+                    .on_submit(|_| Msg::OpenFound),
+            )
+            .fill_width()
+            .id("search");
             ui.add(
                 List::new(items)
                     .selected(selected)
@@ -418,6 +425,14 @@ impl App for Showcase {
                 self.router.back();
             }
             Msg::Search(text) => self.search = text,
+            Msg::OpenFound => {
+                // The search is typed to reach a page; Enter reaches the first it finds, so the
+                // keys alone get there without stepping through the list.
+                let name = |id: &str| t!(&format!("names.{id}"));
+                if let Some(page) = self.menu(&name).into_iter().find_map(|(_, id)| id) {
+                    return self.update(Msg::Open(page));
+                }
+            }
             Msg::Section(index) => self.section = Section::ALL.get(index).copied().unwrap_or(Section::Demo),
             Msg::Theme(id) => return self.apply_and_remember(Settings::THEME, id.clone(), Command::set_theme(id)),
             Msg::Locale(code) => {
@@ -533,5 +548,25 @@ mod tests {
         let (title_x, title_y) = harness.find("EVENT LOG").expect("log title");
         harness.drag((title_x, title_y), (title_x + 4, title_y)).press("ctrl+c");
         assert_eq!(harness.copied().len(), copies, "the title never starts a selection");
+    }
+
+    #[test]
+    fn a_search_typed_in_the_sidebar_opens_its_first_page_with_enter() {
+        let mut harness = crate::tests::fresh();
+        harness.set_locale("en").set_reduced_motion(true);
+        harness.click_text("search components").type_text("Shared pref").press("enter");
+        assert_eq!(harness.app().current(), "shared-preferences", "{}", harness.screen());
+        assert!(harness.screen().contains("Shared preferences"), "{}", harness.screen());
+    }
+
+    #[test]
+    fn the_keys_alone_reach_a_page_through_the_search() {
+        let mut harness = crate::tests::fresh();
+        harness.set_locale("en").set_reduced_motion(true);
+        harness.press("/").type_text("Shared pref").press("enter");
+        assert_eq!(harness.app().current(), "shared-preferences", "{}", harness.screen());
+        // Nothing found: Enter stays where it is.
+        harness.press("/").press("ctrl+a").type_text("zzz").press("enter");
+        assert_eq!(harness.app().current(), "shared-preferences");
     }
 }
