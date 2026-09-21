@@ -410,3 +410,107 @@ fn without_marks_or_numbers_the_lines_are_counted_from_the_top_as_before() {
     let h = Harness::new(Diff { marks: Vec::new(), ..Diff::default() }, 40, 7);
     assert_eq!(gutter_numbers(&h.screen()), [Some(1), Some(2), Some(3), Some(4), Some(5)], "{}", h.screen());
 }
+
+#[test]
+fn a_comment_that_spans_lines_colours_every_line_it_covers() {
+    // The layout walks the tokens once for the whole file rather than once per line, and a
+    // comment, a string or an attribute can reach across several lines. If the walk stepped past
+    // such a token when it finished a line, every later line of it would lose its colour.
+    let code = "let a = 1;\n/* one\n   two\n   three */\nlet b = 2;\n";
+    let rows = code_rows(code, Language::Rust, 80);
+    let coloured = |row: &CodeRow| row.pieces.iter().all(|(_, token)| *token == Token::Comment);
+    assert!(coloured(&rows[1]), "{:?}", rows[1]);
+    assert!(coloured(&rows[2]), "{:?}", rows[2]);
+    assert!(coloured(&rows[3]), "{:?}", rows[3]);
+    assert!(rows[4].pieces.iter().any(|(_, token)| *token == Token::Keyword), "{:?}", rows[4]);
+}
+
+#[test]
+fn a_long_file_costs_its_size_rather_than_its_square() {
+    // Laying a line out by reading the whole file's tokens costs lines × tokens, so a file twice
+    // as long takes four times as long and a megabyte of code never finishes: the code view of a
+    // real source file freezes and does not come back. The walk is one pass, so the cost grows
+    // with the size of the file.
+    //
+    // The bound is deliberately far from the measurement — eight thousand lines take about a
+    // sixth of a second here, so a machine twenty times slower still passes — because a bound
+    // tight enough to measure anything would only cry wolf under load. It is finite because the
+    // shape it guards against is not slowness but a freeze: taking the one pass away puts these
+    // eight thousand lines back at seven to nine seconds, and a real file is far longer.
+    let code = "    let value = compute(other, 1234);\n".repeat(8_000);
+    let started = std::time::Instant::now();
+    let rows = code_rows(&code, Language::Rust, 120);
+    let spent = started.elapsed();
+    assert_eq!(rows.len(), 8_000);
+    assert!(spent < std::time::Duration::from_secs(3), "laying out eight thousand lines took {spent:?}");
+}
+
+#[test]
+fn sources_are_shared_by_code_and_language_and_the_cache_stays_bounded() {
+    let first = CodeView::<()>::new("fn main() {}", Language::Rust);
+    let again = CodeView::<()>::new("fn main() {}", Language::Rust);
+    assert!(Arc::ptr_eq(&first.source, &again.source), "the same code is laid out once");
+    let other = CodeView::<()>::new("fn main() {}", Language::Plain);
+    assert!(!Arc::ptr_eq(&first.source, &other.source), "another language colours it differently");
+    for n in 0..CACHED_SOURCES * 3 {
+        let _ = CodeView::<()>::new(format!("let release = {n};"), Language::Rust);
+    }
+    assert_eq!(SOURCES.with_borrow(Vec::len), CACHED_SOURCES);
+    let fresh = CodeView::<()>::new("fn main() {}", Language::Rust);
+    assert!(!Arc::ptr_eq(&first.source, &fresh.source), "the oldest sources are forgotten");
+    for width in 10..20 {
+        let _ = first.source.layout(width);
+    }
+    assert_eq!(first.source.layouts.lock().map(|layouts| layouts.len()).ok(), Some(CACHED_LAYOUTS));
+}
+
+/// A file of twenty thousand lines, about a megabyte, in a scroll view, the way a viewer shows
+/// one.
+struct Megabyte {
+    code: String,
+}
+
+impl App for Megabyte {
+    type Msg = ();
+    fn update(&mut self, (): ()) -> Command<()> {
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, ()>) {
+        ui.add_with(ScrollView::new(), |ui| {
+            ui.add(CodeView::new(self.code.as_str(), Language::Rust)).fill_width();
+        })
+        .fill();
+    }
+}
+
+#[test]
+fn scrolling_a_long_file_costs_a_screenful_rather_than_the_file() {
+    // A view is built anew every frame and a scroll view measures its content more than once, so
+    // a code view that colours and wraps its source whenever it is asked does all of that for a
+    // whole megabyte several times on every key: each step down a real source file then takes a
+    // fifth of a second in a release build and seconds in this one. Remembering the layout and
+    // drawing only the rows on screen makes a step cost what the screen shows.
+    //
+    // The bound is far from the measurement — the forty steps below take about a sixteenth of a
+    // second here even in a debug build, so a machine eighty times slower still passes — because
+    // a loaded machine must not cry wolf. It is finite because it guards both halves: drawing
+    // every row of the file rather than the screenful puts these steps at about ten seconds, and
+    // laying the file out again on every measure puts them near a minute.
+    let code: String = (0..20_000)
+        .map(|n| match n % 4 {
+            0 => format!("/// Answers the request numbered {n} of the batch.\n"),
+            1 => format!("pub fn answer_{n}(request: &Request) -> Result<Reply, Error> {{\n"),
+            2 => format!("    Ok(Reply::new(request.field(\"name-{n}\")?, {n}u32))\n"),
+            _ => "}\n".to_owned(),
+        })
+        .collect();
+    let mut h = Harness::new(Megabyte { code }, 120, 40);
+    h.press("tab");
+    let started = std::time::Instant::now();
+    for step in 0..40 {
+        h.press(if step % 2 == 0 { "down" } else { "up" });
+    }
+    let spent = started.elapsed();
+    assert!(h.screen().contains("answer_1("), "{}", h.screen());
+    assert!(spent < std::time::Duration::from_secs(5), "forty steps through a megabyte of code took {spent:?}");
+}

@@ -4,6 +4,18 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.15 - 2026-09-21
+
+### Changed
+
+- A large file opens and scrolls at once in a code view. A megabyte of source used to freeze the
+  screen for minutes: 0.88 MiB of Rust took 418 seconds to appear, 163 to redraw and 228 to move
+  one line. It now appears in about 0.14 seconds, and a redraw or a step down one line takes 0.2 to
+  0.4 milliseconds however long the file is. The file is laid out in one pass over its tokens
+  rather than reading every token again for every line, a code view remembers how it laid a file
+  out by its text and language, and only the rows on screen are drawn. Code blocks in `Markdown`
+  draw only their visible rows too.
+
 ## 0.1.14 - 2026-09-21
 
 ### Added

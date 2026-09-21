@@ -1,6 +1,8 @@
 //! Highlighted code.
 
-use std::ops::{Bound, RangeBounds};
+use std::cell::RefCell;
+use std::ops::{Bound, Range, RangeBounds};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -29,11 +31,20 @@ pub(crate) fn code_rows(code: &str, language: Language, width: u16) -> Vec<CodeR
     let tokens = highlight(code, language);
     let mut rows = Vec::new();
     let mut line_start = 0;
+    // The tokens cover the text from start to end without gaps or overlaps, so walking them for
+    // every line would read the whole file once per line and cost the square of its size: a
+    // megabyte then takes minutes rather than milliseconds. `first` is the first token that
+    // still reaches this line, and it only ever moves forward. It is not moved inside the loop
+    // below, because a token can span several lines and the next line needs it again.
+    let mut first = 0;
     for (index, line) in code.split('\n').enumerate() {
         let line_end = line_start + line.len();
+        while first < tokens.len() && tokens[first].0.end <= line_start {
+            first += 1;
+        }
         let mut row = CodeRow { line: index + 1, number: Some(index + 1), pieces: Vec::new() };
         let mut used = 0u16;
-        for (range, token) in &tokens {
+        for (range, token) in tokens[first..].iter().take_while(|(range, _)| range.start < line_end) {
             let start = range.start.max(line_start);
             let end = range.end.min(line_end);
             if start >= end {
@@ -67,7 +78,8 @@ pub(crate) fn code_rows(code: &str, language: Language, width: u16) -> Vec<CodeR
 
 /// Paints `rows` in `area` using the `code-token.<kind>` and `code-line-number` styles.
 pub(crate) fn paint_rows(cx: &mut PaintCx<'_>, area: Rect, rows: &[CodeRow], gutter: u16) {
-    for (y, row) in rows.iter().enumerate() {
+    let visible = visible_rows(cx, area, rows.len());
+    for (y, row) in rows.iter().enumerate().skip(visible.start).take(visible.len()) {
         let Ok(y) = u16::try_from(y) else { break };
         if y >= area.height {
             break;
@@ -92,6 +104,18 @@ pub(crate) fn paint_rows(cx: &mut PaintCx<'_>, area: Rect, rows: &[CodeRow], gut
     }
 }
 
+/// The indices of the `count` rows laid from the top of `area` that fall inside the visible area.
+/// A scroll view hands its content the whole height of the file and clips it to the screen, so a
+/// long file would otherwise style and draw every row it has only to have all but a screenful
+/// thrown away.
+fn visible_rows(cx: &PaintCx<'_>, area: Rect, count: usize) -> Range<usize> {
+    let clip = cx.clip();
+    let top = clip.y.max(area.y);
+    let bottom = clip.bottom().min(area.bottom()).max(top);
+    let row = |y: i32| usize::try_from(y - area.y).unwrap_or(0).min(count);
+    row(top)..row(bottom)
+}
+
 /// Marks the padding of a code block at `rect` around `inner` as decoration, so clean copies of
 /// a selection across the block keep only the code.
 pub(crate) fn padding_decoration(cx: &mut PaintCx<'_>, rect: Rect, inner: Rect) {
@@ -103,7 +127,11 @@ pub(crate) fn padding_decoration(cx: &mut PaintCx<'_>, rect: Rect, inner: Rect) 
 
 /// Width of the line number column for `code`, including two cells of spacing.
 pub(crate) fn gutter_width(code: &str) -> u16 {
-    let lines = code.split('\n').count();
+    gutter_for(code.split('\n').count())
+}
+
+/// Width of the line number column for code of `lines` lines, including two cells of spacing.
+fn gutter_for(lines: usize) -> u16 {
     text::width(&lines.to_string()).saturating_add(2)
 }
 
@@ -159,7 +187,84 @@ struct CodeMemory {
     revealed: Option<usize>,
 }
 
+/// How many sources a thread remembers. A screen shows a handful of code views at once, and a
+/// guide page in the showcase shows a dozen short ones beside its demo.
+const CACHED_SOURCES: usize = 16;
+
+/// How many widths a source remembers its layout for. A scroll view may measure its content with
+/// and without room for its scrollbar before it paints.
+const CACHED_LAYOUTS: usize = 4;
+
+thread_local! {
+    /// The sources laid out last on this thread, most recently used first.
+    static SOURCES: RefCell<Vec<Arc<Source>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Code in a language, with the layouts computed for it.
+struct Source {
+    code: String,
+    language: Language,
+    /// The number of source lines, counted once because the gutter's width follows it.
+    lines: usize,
+    /// Layouts at recent widths, most recently used first.
+    layouts: Mutex<Vec<Arc<Layout>>>,
+}
+
+/// Code laid out at one width.
+struct Layout {
+    width: u16,
+    rows: Vec<CodeRow>,
+    /// Cells taken by the widest row.
+    widest: u16,
+}
+
+impl Source {
+    /// The source for `code` in `language`: the remembered one when this thread showed the same
+    /// code recently, otherwise a fresh one that is remembered in place of the oldest.
+    ///
+    /// A view is built anew every frame and a scroll view measures its content more than once,
+    /// so without this a megabyte of code is coloured and wrapped several times a frame.
+    fn cached(code: String, language: Language) -> Arc<Self> {
+        SOURCES.with_borrow_mut(|sources| {
+            let source = match sources.iter().position(|source| source.language == language && source.code == code) {
+                Some(index) => sources.remove(index),
+                None => {
+                    let lines = code.split('\n').count();
+                    Arc::new(Self { code, language, lines, layouts: Mutex::new(Vec::new()) })
+                }
+            };
+            sources.insert(0, Arc::clone(&source));
+            sources.truncate(CACHED_SOURCES);
+            source
+        })
+    }
+
+    /// The code laid out `width` cells wide; computed once per width and remembered.
+    fn layout(&self, width: u16) -> Arc<Layout> {
+        let mut layouts = self.layouts.lock().unwrap_or_else(PoisonError::into_inner);
+        let layout = match layouts.iter().position(|layout| layout.width == width) {
+            Some(index) => layouts.remove(index),
+            None => {
+                let rows = code_rows(&self.code, self.language, width);
+                let widest = rows
+                    .iter()
+                    .map(|row| cells::sum(row.pieces.iter().map(|(piece, _)| text::width(piece))))
+                    .max()
+                    .unwrap_or(0);
+                Arc::new(Layout { width, rows, widest })
+            }
+        };
+        layouts.insert(0, Arc::clone(&layout));
+        layouts.truncate(CACHED_LAYOUTS);
+        layout
+    }
+}
+
 /// Code with syntax colours, line numbers and wrapping of long lines.
+///
+/// Building one in `view` every frame is cheap: the last few sources shown on a thread are
+/// remembered with how they were laid out at the last few widths, and only the rows on screen
+/// are drawn, so an unchanged file is neither coloured nor wrapped again however long it is.
 ///
 /// While focused, `c` copies the code to the clipboard and flashes. The code is a text selection
 /// region: a mouse drag selects inside it (turn it off with
@@ -178,8 +283,7 @@ struct CodeMemory {
 /// `removed`, `accent` or `warning`. Icons: `line-added`, `line-removed`, `warning` and the
 /// pillar.
 pub struct CodeView<Msg> {
-    code: String,
-    language: Language,
+    source: Arc<Source>,
     line_numbers: bool,
     marks: Vec<LineMark>,
     /// The number each source line carries, when the caller gave them outright.
@@ -191,12 +295,12 @@ pub struct CodeView<Msg> {
 }
 
 impl<Msg: 'static> CodeView<Msg> {
-    /// Shows `code` in `language`.
+    /// Shows `code` in `language`, reusing its layout when this thread showed the same code a
+    /// moment ago.
     #[must_use]
     pub fn new(code: impl Into<String>, language: Language) -> Self {
         Self {
-            code: code.into(),
-            language,
+            source: Source::cached(code.into(), language),
             line_numbers: true,
             marks: Vec::new(),
             numbers: None,
@@ -290,7 +394,7 @@ impl<Msg: 'static> CodeView<Msg> {
     /// The number each source line is drawn with: the ones given outright, else the numbers the
     /// diff marks imply, else the line's own place in the text.
     fn numbers(&self) -> Vec<Option<usize>> {
-        let lines = self.code.split('\n').count();
+        let lines = self.source.lines;
         if let Some(given) = &self.numbers {
             return (0..lines).map(|index| given.get(index).copied().flatten()).collect();
         }
@@ -341,7 +445,7 @@ impl<Msg: 'static> CodeView<Msg> {
             return 0;
         }
         if self.numbers.is_none() && self.marks.is_empty() {
-            return gutter_width(&self.code);
+            return gutter_for(self.source.lines);
         }
         // A diff's numbers are the files' own, which can be wider than the count of lines shown.
         let widest = self.numbers().into_iter().flatten().max().unwrap_or(1);
@@ -371,25 +475,26 @@ impl<Msg: 'static> CodeView<Msg> {
         }
     }
 
-    /// The rows of the code, each first row of a source line carrying the number that line is
-    /// drawn with.
-    fn numbered_rows(&self, width: u16) -> Vec<CodeRow> {
-        let mut rows = code_rows(&self.code, self.language, width);
+    /// `rows` with each first row of a source line carrying the number that line is drawn with,
+    /// when that is not its place in the text.
+    fn renumbered(&self, rows: &[CodeRow]) -> Option<Vec<CodeRow>> {
         if self.numbers.is_none() && self.marks.is_empty() {
-            return rows;
+            return None;
         }
         let numbers = self.numbers();
+        let mut rows = rows.to_vec();
         for row in &mut rows {
             if row.number.is_some() {
                 row.number = row.line.checked_sub(1).and_then(|index| numbers.get(index).copied().flatten());
             }
         }
-        rows
+        Some(rows)
     }
 
     /// Tints marked and highlighted rows across `area` and draws their signs at `x`.
     fn paint_looks(&self, cx: &mut PaintCx<'_>, area: Rect, x: i32, top: i32, rows: &[CodeRow]) {
-        for (index, row) in rows.iter().enumerate() {
+        let visible = visible_rows(cx, Rect::new(area.x, top, area.width, clamp_u16(area.bottom() - top)), rows.len());
+        for (index, row) in rows.iter().enumerate().skip(visible.start).take(visible.len()) {
             let Some((variant, sign)) = self.look(row.line) else { continue };
             // A wrapped line signs only its first row, and a line without a number of its own —
             // a hunk header — still signs.
@@ -438,15 +543,10 @@ impl<Msg: Clone + 'static> Widget<Msg> for CodeView<Msg> {
         let padding = cx.env().theme().style("code", None, &[]).pair("padding").unwrap_or((1, 2));
         let content_width =
             available.width.saturating_sub(cells::sum([padding.1.saturating_mul(2), self.signs(), self.gutter()]));
-        let rows = code_rows(&self.code, self.language, content_width.max(1));
-        let widest = rows
-            .iter()
-            .map(|row| cells::sum(row.pieces.iter().map(|(piece, _)| text::width(piece))))
-            .max()
-            .unwrap_or(0);
+        let layout = self.source.layout(content_width.max(1));
         Size::new(
-            cells::sum([widest, self.signs(), self.gutter(), padding.1.saturating_mul(2)]),
-            clamp_u16(i32::try_from(rows.len()).unwrap_or(i32::MAX)).saturating_add(padding.0.saturating_mul(2)),
+            cells::sum([layout.widest, self.signs(), self.gutter(), padding.1.saturating_mul(2)]),
+            clamp_u16(i32::try_from(layout.rows.len()).unwrap_or(i32::MAX)).saturating_add(padding.0.saturating_mul(2)),
         )
         .min(available)
     }
@@ -464,19 +564,21 @@ impl<Msg: Clone + 'static> Widget<Msg> for CodeView<Msg> {
         cx.selectable(inner);
         let (signs, gutter) = (self.signs(), self.gutter());
         let width = inner.width.saturating_sub(signs).saturating_sub(gutter).max(1);
-        let rows = self.numbered_rows(width);
+        let layout = self.source.layout(width);
+        let renumbered = self.renumbered(&layout.rows);
+        let rows = renumbered.as_deref().unwrap_or(&layout.rows);
         if signs > 0 {
             // Signs say how a line changed; copies of the code leave them out like line numbers.
             cx.decoration(Rect::new(inner.x, inner.y, signs, inner.height));
-            self.paint_looks(cx, area, inner.x, inner.y, &rows);
+            self.paint_looks(cx, area, inner.x, inner.y, rows);
         }
         paint_rows(
             cx,
             Rect::new(inner.x + i32::from(signs), inner.y, inner.width.saturating_sub(signs), inner.height),
-            &rows,
+            rows,
             gutter,
         );
-        self.request_reveal(cx, area, inner.y, &rows);
+        self.request_reveal(cx, area, inner.y, rows);
     }
 
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
@@ -486,7 +588,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for CodeView<Msg> {
         if !key.is_plain(Key::Char('c')) {
             return false;
         }
-        cx.copy(self.code.clone());
+        cx.copy(self.source.code.clone());
         cx.flash();
         if let Some(message) = &self.on_copy {
             cx.emit(message.clone());
