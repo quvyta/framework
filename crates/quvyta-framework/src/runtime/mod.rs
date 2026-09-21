@@ -2,6 +2,8 @@
 //! test [`Harness`].
 
 mod app;
+#[cfg(test)]
+mod burst_rules;
 mod clipboard;
 mod command;
 mod confirm;
@@ -28,6 +30,8 @@ mod open;
 #[cfg(test)]
 mod open_rules;
 mod process;
+#[cfg(test)]
+mod release_rules;
 mod selection;
 mod selection_menu;
 #[cfg(test)]

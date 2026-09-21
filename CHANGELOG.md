@@ -4,6 +4,24 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.16 - 2026-09-21
+
+### Fixed
+
+- Keys that arrive together are no longer lost. A fast typist, a terminal multiplexer, a slow
+  connection or a paste in a terminal without bracketed paste can hand several keys over in one
+  read, and a controlled text field kept only the last of them: `demo` typed at once became `o`.
+  The view is now rebuilt off screen between the events of such a burst, so each one meets what
+  the one before it did. That frame is never drawn and does not count against the frame limit.
+- A folder picker chooses the folder the user opened. Opening a folder puts the cursor on its
+  first entry so the keys have somewhere to start, and Choose folder took that entry for the
+  choice: opening `myapp` and pressing it chose `myapp/src`. It now chooses a folder inside only
+  when the user moved the cursor there.
+- A button, a switch, a checkbox and every other control pressed by a click act only when the
+  press began on them. A row that opens a page on the press could have that same click's release
+  land on a button the new page put in its place, and the button pressed itself: a setup wizard
+  finished before anyone looked at it.
+
 ## 0.1.15 - 2026-09-21
 
 ### Changed

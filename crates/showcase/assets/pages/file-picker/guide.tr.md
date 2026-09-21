@@ -8,7 +8,7 @@ Kullanıcının bir dosyayı ya da klasörü göstermesi gerektiğinde seçiciyi
 2. Okumayı `self.browser.open(başlangıç, Msg::Picker)` ile başlat ve verdiği komutu döndür.
 3. Göster: `FilePicker::new(&self.browser, Msg::Picker).show(ui)`; her düğüm gibi boyutlandırılır.
 4. `update` içinde `FilePickerMsg::Chosen(yol)` mesajını kendin yakala, diğer bütün seçici mesajlarını `self.browser.update(mesaj, Msg::Picker)` ile ilet ve komutunu döndür.
-5. Klasör seçmek için `PickMode::Folders` kullan: dosyalar silikleşir, düğme seçili klasörü ya da açık olanı seçer.
+5. Klasör seçmek için `PickMode::Folders` kullan: dosyalar silikleşir, düğme açık klasörü ya da kullanıcının imleci götürdüğü bir alt klasörü seçer. Bir klasör açılınca imlecin kendiliğinden durduğu girdi seçim sayılmaz: `myapp`'i açıp düğmeye basan `myapp`'i seçer, ilk alt klasörünü değil.
 
 ## Nasıl çalışır
 

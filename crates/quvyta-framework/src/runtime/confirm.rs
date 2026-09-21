@@ -319,6 +319,7 @@ impl<Msg> ConfirmLayer<Msg> {
                 now: cx.now,
                 persistent: cx.persistent,
                 preview: cx.preview,
+                holds_pointer: cx.holds_pointer,
             };
             part.widget.event(&mut part_cx, event)
         };
@@ -446,6 +447,7 @@ impl<Msg: 'static> Widget<Msg> for ConfirmLayer<Msg> {
                 now: cx.now,
                 persistent: cx.persistent,
                 preview: cx.preview,
+                holds_pointer: cx.holds_pointer,
             };
             Widget::<Answer>::event(&dialog, &mut dialog_cx, event)
         };

@@ -14,7 +14,8 @@ pub enum PickMode {
     /// Choose a file; folders are opened.
     #[default]
     Files,
-    /// Choose a folder; files are shown faint.
+    /// Choose a folder; files are shown faint. The button chooses the folder shown unless the
+    /// user moved the cursor to a folder inside it.
     Folders,
 }
 
@@ -162,6 +163,10 @@ pub struct FileBrowser {
     pub(crate) show_hidden: bool,
     pub(crate) filter: String,
     pub(crate) selected: Option<String>,
+    /// The person put the selection where it is. A folder that opens puts it on an entry by
+    /// itself so the keys have somewhere to start, and that is not a choice: in folder mode it
+    /// would choose a folder the person never pointed at.
+    pub(crate) picked: bool,
 }
 
 impl FileBrowser {
@@ -177,6 +182,7 @@ impl FileBrowser {
             show_hidden: false,
             filter: String::new(),
             selected: None,
+            picked: false,
         }
     }
 
@@ -253,6 +259,7 @@ impl FileBrowser {
                 self.loading = None;
                 if folder != self.folder {
                     self.selected = self.child_name_towards(&folder);
+                    self.picked = false;
                     self.filter.clear();
                     self.folder = folder;
                 }
@@ -266,12 +273,16 @@ impl FileBrowser {
             }
             // An answer for a folder the user no longer waits for.
             FilePickerMsg::Loaded(..) | FilePickerMsg::Chosen(_) => {}
-            FilePickerMsg::Select(name) => self.selected = name,
+            FilePickerMsg::Select(name) => {
+                self.picked = name.is_some();
+                self.selected = name;
+            }
             FilePickerMsg::Filter(text) => {
                 self.filter = text;
                 let visible = self.visible();
                 if !visible.iter().any(|entry| Some(&entry.name) == self.selected.as_ref()) {
                     self.selected = visible.first().map(|entry| entry.name.clone());
+                    self.picked = false;
                 }
             }
             FilePickerMsg::ShowHidden(on) => self.show_hidden = on,

@@ -19,7 +19,10 @@ pub(crate) enum Press {
 }
 
 /// Reads `event` as a press. The mouse is captured on the way down so the release is seen even
-/// when it happens outside the widget; releasing outside cancels.
+/// when it happens outside the widget; releasing outside cancels. A release is a click only when
+/// the press began on this widget: when a press elsewhere changes the screen, its release can
+/// land on a button that was not there when the mouse button went down, and pressing it would act on
+/// something the user never clicked.
 pub(crate) fn read<Msg>(cx: &mut EventCx<'_, Msg>, event: &Event) -> Press {
     match event {
         Event::Key(key) if key.is_plain(Key::Enter) || key.is_plain(Key::Space) => Press::Key,
@@ -28,7 +31,9 @@ pub(crate) fn read<Msg>(cx: &mut EventCx<'_, Msg>, event: &Event) -> Press {
                 cx.capture_pointer();
                 Press::Used
             }
-            MouseKind::Up(MouseButton::Left) if cx.area().contains(mouse.x, mouse.y) => Press::Click(mouse.x, mouse.y),
+            MouseKind::Up(MouseButton::Left) if cx.holds_pointer() && cx.area().contains(mouse.x, mouse.y) => {
+                Press::Click(mouse.x, mouse.y)
+            }
             MouseKind::Up(MouseButton::Left) => Press::Used,
             _ => Press::Ignored,
         },

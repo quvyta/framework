@@ -46,9 +46,19 @@ pub struct EventCx<'a, Msg> {
     /// Whether this is a press shown to a widget before the widgets inside it, see
     /// [`PaintCx::preview_presses`](super::PaintCx::preview_presses).
     pub(crate) preview: bool,
+    /// Whether this widget, or the widget that forwarded the event to it, holds the pointer: the
+    /// press it belongs to began on it. See [`EventCx::holds_pointer`].
+    pub(crate) holds_pointer: bool,
 }
 
 impl<Msg> EventCx<'_, Msg> {
+    /// Whether the press this pointer event belongs to began on this widget, which captured the
+    /// pointer then. A release that reaches a widget without it began somewhere else: on another
+    /// widget, or on a screen that changed since.
+    pub(crate) fn holds_pointer(&self) -> bool {
+        self.holds_pointer
+    }
+
     /// Whether the event is a press shown to this widget before the widgets inside it, because
     /// it asked with [`PaintCx::preview_presses`](super::PaintCx::preview_presses). Using it
     /// keeps it from them; leaving it lets it go on as usual, to this widget too.
@@ -135,6 +145,7 @@ impl<Msg> EventCx<'_, Msg> {
             now: self.now,
             persistent: self.persistent,
             preview: self.preview,
+            holds_pointer: self.holds_pointer,
         };
         node.widget.event(&mut child, event)
     }
@@ -206,6 +217,7 @@ impl<Msg> EventCx<'_, Msg> {
                 now: self.now,
                 persistent: self.persistent,
                 preview: self.preview,
+                holds_pointer: self.holds_pointer,
             };
             handle(&mut inner)
         };

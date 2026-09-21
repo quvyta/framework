@@ -8,7 +8,7 @@ Use the picker when the user must point at a file or a folder: a project to open
 2. Start reading with `self.browser.open(start, Msg::Picker)` and return the command it gives you.
 3. Show it: `FilePicker::new(&self.browser, Msg::Picker).show(ui)`, sized like any node.
 4. In `update`, catch `FilePickerMsg::Chosen(path)` yourself and hand every other picker message to `self.browser.update(message, Msg::Picker)`, returning its command.
-5. For folders use `PickMode::Folders`: files turn faint and the button chooses the selected folder, or the open one.
+5. For folders use `PickMode::Folders`: files turn faint and the button chooses the open folder, or a folder inside it the user moved the cursor to. The entry the cursor starts on when a folder opens is not a choice, so opening `myapp` and pressing the button chooses `myapp`, never its first subfolder.
 
 ## How it works
 

@@ -191,9 +191,11 @@ impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
     }
 
     fn footer(ui: &mut View<'_, Msg>, browser: &FileBrowser, wrap: &Wrap<Msg>) {
-        // The selected entry, when it is one the mode can choose: a file, or a folder.
+        // The selected entry, when it is one the mode can choose: a file, or a folder the person
+        // pointed at. The entry a folder selects by itself when it opens is only where the keys
+        // start; taking it for the choice would pick `myapp/src` for someone who opened `myapp`.
         let wants_folder = browser.mode == PickMode::Folders;
-        let selected = browser.selected.as_ref().filter(|name| {
+        let selected = browser.selected.as_ref().filter(|_| !wants_folder || browser.picked).filter(|name| {
             browser.visible().iter().any(|entry| entry.name() == name.as_str() && entry.is_folder() == wants_folder)
         });
         let chosen = match browser.mode {
@@ -473,9 +475,29 @@ mod tests {
     }
 
     #[test]
-    fn folder_mode_chooses_the_selected_folder_and_filters() {
+    fn folder_mode_chooses_the_folder_entered_rather_than_its_first_child() {
+        // A folder that opens puts the list's cursor on its first entry so the keys have
+        // somewhere to start. Taking that for a choice picked `deploy/scripts` for someone who
+        // opened `deploy` and pressed Choose folder.
+        let dir = scratch("entered");
+        let mut h = harness(&dir, PickMode::Folders);
+        h.click_text("deploy");
+        assert!(h.screen().contains("scripts"), "{}", h.screen());
+        h.click_text("Choose folder");
+        assert_eq!(h.app().chosen.as_deref(), Some(dir.join("deploy").as_path()));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn folder_mode_chooses_the_folder_shown_until_one_inside_is_pointed_at() {
         let dir = scratch("folders");
         let mut h = harness(&dir, PickMode::Folders);
+        h.click_text("Choose folder");
+        assert_eq!(h.app().chosen.as_deref(), Some(dir.as_path()), "nothing was pointed at");
+        // The keys move the cursor off the entry the folder chose by itself and back onto it:
+        // now the person pointed at it.
+        let (x, y) = h.find("compose.yaml").expect("the listing");
+        h.click(x, y).press("up").press("down").press("up");
         h.click_text("Choose folder");
         assert_eq!(h.app().chosen.as_deref(), Some(dir.join("deploy").as_path()));
         h.send(Msg::Picker(FilePickerMsg::Filter("zzz".into())));

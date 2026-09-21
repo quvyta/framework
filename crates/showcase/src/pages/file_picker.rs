@@ -206,8 +206,9 @@ mod tests {
         h.click_text("src");
         assert!(h.screen().contains("main.rs"), "{}", h.screen());
         h.send(send_page(Msg::Folders(true)));
+        // Nothing inside was pointed at, so the folder shown is the one chosen.
         h.click_text("Choose folder");
-        assert_eq!(h.app().pages.file_picker.chosen, Some(start_folder(0).join("assets")));
+        assert_eq!(h.app().pages.file_picker.chosen, Some(start_folder(0)));
         h.send(send_page(Msg::Start(2)));
         assert!(h.screen().contains("This folder does not exist"), "{}", h.screen());
     }

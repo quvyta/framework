@@ -8,11 +8,14 @@
 
 use std::time::Duration;
 
+use ratatui_core::buffer::Buffer;
+use ratatui_core::layout::Rect;
+
 use super::Engine;
 use crate::runtime::App;
 
 /// What the engine keeps about the pace of frames.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub(super) struct Pacing {
     /// When the latest frame was drawn, or `None` before the first one.
     last: Option<Duration>,
@@ -30,6 +33,27 @@ impl<A: App> Engine<A> {
     pub(super) fn frame_drawn(&mut self, now: Duration) {
         self.pacing.last = Some(now);
         self.pacing.urgent = false;
+    }
+
+    /// Builds and paints the view off screen when an event changed it and another event follows
+    /// before the next frame, so every event of a burst meets what the one before it did.
+    ///
+    /// Events arrive in bursts: a fast typist, a terminal multiplexer or a slow connection sends
+    /// several keys in one read, and a terminal without bracketed paste delivers a paste as keys.
+    /// A controlled text input computes its new value from the value its node was built with, so
+    /// without this every key of a burst starts from the same old value and only the last one
+    /// survives: `demo` typed at once becomes `do`, then `o`. The frame is not drawn and does not
+    /// count against the frame limit, so the burst's answer still reaches the screen at once.
+    pub(super) fn catch_up(&mut self, now: Duration) {
+        let Some(size) = self.screen.filter(|_| self.dirty && self.tree.is_some()) else {
+            return;
+        };
+        let pacing = self.pacing;
+        let mut unseen = Buffer::empty(Rect::new(0, 0, size.width, size.height));
+        self.render(&mut unseen, now);
+        self.pacing = pacing;
+        // The screen still shows the frame before the burst.
+        self.dirty = true;
     }
 
     /// Whether a frame is wanted at `now`: the view changed, or a moment an animation or an idle
@@ -158,6 +182,18 @@ mod tests {
         engine.update(());
         assert!(!engine.frame_due(2 * MILLISECOND), "the limit counts from the frame just drawn");
         assert!(engine.frame_due(Duration::from_millis(51)), "a gap after it");
+    }
+
+    #[test]
+    fn a_frame_built_between_two_events_is_not_a_drawn_frame() {
+        // The view is rebuilt between the events of a burst so each meets what the one before it
+        // did. That frame never reaches the screen, so it neither takes the place of the frame
+        // the screen still waits for nor moves the moment the limit counts from.
+        let (mut engine, _) = running(FrameLimit::per_second(20));
+        engine.update(());
+        engine.handle(Event::PointerOutside, 10 * MILLISECOND);
+        assert!(engine.frame_due(Duration::from_millis(50)), "the gap still counts from the frame drawn at zero");
+        assert!(!engine.frame_due(Duration::from_millis(49)), "and the limit still holds");
     }
 
     #[test]

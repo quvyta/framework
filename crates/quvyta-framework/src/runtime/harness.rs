@@ -112,9 +112,11 @@ impl<A: App> Harness<A> {
     }
 
     /// Delivers `events` in order at the current clock time and renders once afterwards, the
-    /// way the terminal loop handles every event waiting between two frames. Widgets see the
-    /// later events with what the earlier ones changed but the rects of the frame before, e.g. a
-    /// click where a submenu was drawn that a key delivered in the same call already closed.
+    /// way the terminal loop handles every event waiting between two frames: several keys a fast
+    /// typist, a terminal multiplexer or a paste without bracketed paste sent in one read. Each
+    /// event meets what the ones before it did, as the view is rebuilt off screen between them,
+    /// so four keys typed into a controlled [`TextInput`](crate::widgets::TextInput) at once all
+    /// arrive.
     pub fn events(&mut self, events: &[Event]) -> &mut Self {
         for event in events {
             self.engine.handle(event.clone(), self.now);

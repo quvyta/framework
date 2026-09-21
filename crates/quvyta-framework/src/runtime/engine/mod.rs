@@ -398,6 +398,7 @@ impl<A: App> Engine<A> {
 
     /// Handles one input event at `now`.
     pub(crate) fn handle(&mut self, event: Event, now: Duration) {
+        self.catch_up(now);
         self.clock = now;
         self.note_input(&event, now);
         // The answer to what the user just did is drawn at once, whatever the frame limit is.
@@ -446,6 +447,7 @@ impl<A: App> Engine<A> {
                     now,
                     persistent: self.frame.scopes.contains_key(id),
                     preview,
+                    holds_pointer: self.interaction.pointer_capture == Some(*id),
                 };
                 node.event(&mut cx, event)
             };
