@@ -9,7 +9,7 @@ the upright glyphs.
 - Licence: SIL Open Font License 1.1, in `OFL.txt` (copied unchanged from the archive)
 
 The symbols JetBrains Mono has no glyph for come from **JuliaMono**, Regular, cut down to the ones
-the family uses: the search (`⌕`) and settings (`▤`) icons of the Unicode icon set, which the setup
+the ecosystem uses: the search (`⌕`) and settings (`▤`) icons of the Unicode icon set, which the setup
 wizard shows as samples on its appearance step, the rest of that set's shapes, and the narrow
 no-break space of French typography. JuliaMono's advance is the same share of its em as JetBrains
 Mono's (1200 of 2000, 600 of 1000), so a symbol is exactly one cell wide and needs no scaling of
@@ -24,7 +24,7 @@ its own. It has no bold; a bold cell draws it regular, as the CJK face does.
   its shapes from, and the single characters the icon sets and texts need: U+202F, U+2139, U+2315,
   U+2610, U+2611, U+2714, U+2756 and the two sextants U+1FB03 and U+1FB07 of the small radio mark.
   108 glyphs, 17,400 bytes — the whole font would be 671,568, and this file ships inside every
-  application of the family.
+  application of the ecosystem.
 
 This machine has FontForge but not fontTools, and nothing is installed for a build, so the cut was
 made with FontForge 20251009 (`symbols-subset.py`, which also holds the list of characters).

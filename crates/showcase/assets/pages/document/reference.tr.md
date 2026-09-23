@@ -13,7 +13,7 @@
 - `ValueKind::choice(["podman", "docker"])` — sabit bir listeden bir metin; başkası `one of podman, docker` diye bildirilir.
 - `ValueKind::integer()` — TOML'un yazdığı her tabanda tam sayı (`0x1f`, 31 olarak okunur).
 - `ValueKind::flag()` — `true` ya da `false`.
-- Ondalık sayı, düz değer dizisi ve doğrulayıcı yok, çünkü ailenin yazdığı hiçbir veri dosyasında henüz yok. Yalnızca uygulamanın karar verebildiğini okuduktan sonra denetle ve framework'ün bir değer hakkındaki kendi bulgularını bildirdiği `Table::value_location(key)` konumunda bildir.
+- Ondalık sayı, düz değer dizisi ve doğrulayıcı yok, çünkü ekosistemin yazdığı hiçbir veri dosyasında henüz yok. Yalnızca uygulamanın karar verebildiğini okuduktan sonra denetle ve framework'ün bir değer hakkındaki kendi bulgularını bildirdiği `Table::value_location(key)` konumunda bildir.
 
 ## Document
 

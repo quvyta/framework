@@ -292,7 +292,7 @@ icons-auto         = "自动检测"
 icons-nerd         = "Nerd Font"
 icons-unicode      = "Unicode"
 icons-ascii        = "ASCII"
-everywhere         = "在所有 {family} 应用中"
+everywhere         = "适用于所有 {family} 应用"
 reduce-motion      = "减少动效"
 reduce-motion-text = "图层立即出现；不会有呼吸或旋转效果。"
 forced-on          = "已由 shell 减少（QUVYTA_REDUCED_MOTION）；此处的设置无法更改。"
@@ -302,10 +302,10 @@ pillar-thick       = "粗"
 pillar-thin        = "细"
 not-saved          = "已应用，但未保存：{reason}"
 updates            = "有更新时提醒"
-updates-text       = "对所有 {family} 应用统一生效。每个应用每天会向 crates.io 查询一次最新版本；只发送自己的名称和版本，不会发送任何有关你或这台电脑的信息。"
+updates-text       = "一次性应用于所有 {family} 应用。每天一次，每个应用会向 crates.io 查询最新版本；只会发送其自身名称和版本，不发送任何与你或这台机器相关的信息。"
 
 # The notice that a newer version is out (runtime::Update::toast); {package} is the crate,
-# {launcher} the family's launcher command.
+# {launcher} the ecosystem's launcher command.
 [quvyta.update]
 title = "{package} {latest} 已发布"
 body  = "你当前是 {current}。可在 {launcher} 中更新，或运行 cargo install {package}。"

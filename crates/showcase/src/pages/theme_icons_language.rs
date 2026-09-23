@@ -17,10 +17,10 @@ use crate::log::EventLog;
 const PAGE: &str = "theme-icons-language";
 
 /// Icons shown in the icon grid. After the marks every screen draws come the four an
-/// application's main menu needs, so every application in the family shows the same shapes for a
+/// application's main menu needs, so every application in the ecosystem shows the same shapes for a
 /// project, who you are, the settings and the way out; the workspace that holds the work and the
 /// button that answers what the keys do; then the kinds of program a launcher groups its entries
-/// by, the mark of the family itself, and the marks on a window's title.
+/// by, the mark of the ecosystem itself, and the marks on a window's title.
 const ICONS: [&str; 32] = [
     "check",
     "close",
@@ -50,7 +50,7 @@ const ICONS: [&str; 32] = [
     "category-office",
     "category-media",
     "category-files",
-    "family",
+    "ecosystem",
     "window-minimize",
     "window-maximize",
     "window-restore",

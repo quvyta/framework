@@ -67,7 +67,7 @@ impl Bar {
 /// One series of a [`BarChart`]: a name and one value per category.
 ///
 /// A series takes its tone from the theme's series palette, never from a colour the application
-/// picks, so charts in different applications of the family read the same. By default the n-th
+/// picks, so charts in different applications of the ecosystem read the same. By default the n-th
 /// series takes the n-th tone; [`tone`](Self::tone) pins a series to one tone of the palette, so
 /// a category keeps its colour from one chart to the next however many categories each shows.
 /// Values shorter than the categories count as zero and values past the last category are left

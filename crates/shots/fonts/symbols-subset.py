@@ -1,4 +1,4 @@
-"""Cuts JuliaMono down to the symbols the family's icon sets and texts use.
+"""Cuts JuliaMono down to the symbols the ecosystem's icon sets and texts use.
 
 A FontForge script, not pyftsubset: the machine that made the file has FontForge but no fontTools,
 and nothing is installed for a build. `SOURCE_DATE_EPOCH` fixes the timestamps FontForge writes,
@@ -21,7 +21,7 @@ import fontforge
 SHAPES = range(0x25A0, 0x2600)
 
 #: The rest, one by one: narrow no-break space (French typography), ℹ information, ⌕ search,
-#: ☐ ☑ ballot boxes, ✔ check mark, ❖ the family's own mark, and the two sextants of the small
+#: ☐ ☑ ballot boxes, ✔ check mark, ❖ the ecosystem's own mark, and the two sextants of the small
 #: radio mark.
 SINGLES = [0x202F, 0x2139, 0x2315, 0x2610, 0x2611, 0x2714, 0x2756, 0x1FB03, 0x1FB07]
 

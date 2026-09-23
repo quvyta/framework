@@ -166,15 +166,15 @@ impl<A: App> Runtime<A> {
         self
     }
 
-    /// Starts with the language, theme and icons of the family's shared
-    /// [`Preferences`], as [`Family::preferences`](crate::storage::Family::preferences) resolved
+    /// Starts with the language, theme and icons of the ecosystem's shared
+    /// [`Preferences`], as [`Ecosystem::preferences`](crate::storage::Ecosystem::preferences) resolved
     /// them for this application. They win over [`Runtime::theme`] and over the same keys in
     /// [`Runtime::settings`], which keeps the rest: reduced motion, pillar and slide.
     ///
     /// ```no_run
     /// # use qframe::prelude::*;
     /// # use qframe::i18n::I18n;
-    /// # use qframe::storage::{Family, Settings};
+    /// # use qframe::storage::{Ecosystem, Settings};
     /// # struct Hello;
     /// # impl App for Hello {
     /// #     type Msg = ();
@@ -182,9 +182,9 @@ impl<A: App> Runtime<A> {
     /// #     fn view(&self, ui: &mut View<'_, ()>) { ui.add(Text::new("hello")); }
     /// # }
     /// # fn main() -> std::io::Result<()> {
-    /// let family = Family::QUVYTA;
-    /// let settings = Settings::load_member(&family, "hello");
-    /// let prefs = family.preferences("hello", &I18n::builtin());
+    /// let ecosystem = Ecosystem::QUVYTA;
+    /// let settings = Settings::load_member(&ecosystem, "hello");
+    /// let prefs = ecosystem.preferences("hello", &I18n::builtin());
     /// Runtime::new(Hello).settings(&settings).preferences(&prefs).run()
     /// # }
     /// ```

@@ -15,7 +15,7 @@ Bir yüzeyin nerede duracağına ve ne kadar büyük olacağına kullanıcı kar
 ## Nasıl çalışır
 
 - **Kutu değil, yüzey.** Bir satır başlık, sonra gövde. Hiçbir yerde çizgi yok: başlık şeridi gövdeden bir ton açıktır, odaktaki pencere ötekilerin bir ton üstüne çıkar, adı parlak ve kalındır, sol kenarında `▌` vurgu çubuğu durur.
-- **Üç işaret.** Küçült, büyüt (büyükken eski boyuta dön) ve kapat başlığın sağ ucunda, her biri üç hücre; ailedeki bütün kapatma işaretleri gibi imleç üstüne gelince üçü birlikte aydınlanır. Başka bir yerde bırakılan tıklama hiçbir şey yapmaz.
+- **Üç işaret.** Küçült, büyüt (büyükken eski boyuta dön) ve kapat başlığın sağ ucunda, her biri üç hücre; ekosistemdeki bütün kapatma işaretleri gibi imleç üstüne gelince üçü birlikte aydınlanır. Başka bir yerde bırakılan tıklama hiçbir şey yapmaz.
 - **Taşıma ve boyutlandırma.** Başlık pencereyi sürükler, çift tık büyütür. Gövdenin sağ sütunu, alt satırı ve köşesi tutamaktır: imleç gelene kadar görünmez, sonra bir ton aydınlanır, sürüklenirken tam olarak bölücü sınırı gibi vurgu rengini alır. Sol kenar vurgu çubuğunun sütunu, üst kenar başlık olduğu için başka işe ayrılmıştır: alt tuşunu basılı tutup sol tuşla sürüklemek her yerden taşır, sağ tuşla sürüklemek imlece en yakın kenardan ya da köşeden boyutlandırır, sol ve üst dahil.
 - **Sürükleme pencereye aittir.** Pencerede bir tuş bir kez indi mi, her sürükleme ve bırakma ona ulaşır, ekranın çok dışında bile; imleç taşıdığı pencereyi kaybetmez.
 - **Gövdedeki terminal faresini korur.** Bir [`Terminal`](terminal) içindeki program fareyi okurken gövdedeki sade tıklamalar onundur. Başlık, işaretler, tutamaklar ve bütün alt sürüklemeleri yine pencerenindir; htop'un etrafındaki pencere taşınabilir kalır.

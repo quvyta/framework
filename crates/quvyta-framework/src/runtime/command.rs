@@ -368,7 +368,7 @@ impl<Msg: Send + 'static> Command<Msg> {
 
     /// Asks the package registry, on a thread of its own, whether a newer version of the
     /// application is out, and sends the check's message only when one is. At most once a day,
-    /// never while the family's update notice is off, and silent without a network; see
+    /// never while the ecosystem's update notice is off, and silent without a network; see
     /// [`UpdateCheck`](super::UpdateCheck). Needs the `updates` feature.
     #[cfg(feature = "updates")]
     #[must_use]

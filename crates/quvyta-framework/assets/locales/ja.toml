@@ -302,10 +302,10 @@ pillar-thick       = "太い"
 pillar-thin        = "細い"
 not-saved          = "適用しましたが、保存できませんでした: {reason}"
 updates            = "アップデートが出たら知らせる"
-updates-text       = "すべての {family} アプリケーションにまとめて適用されます。各アプリケーションは 1 日に 1 回 crates.io に最新バージョンを照会します。送信されるのはアプリケーション名とバージョンのみで、あなたやこのマシンに関する情報は一切送信されません。"
+updates-text       = "すべての {family} アプリに一括で適用されます。各アプリは 1 日に 1 回 crates.io に最新バージョンを問い合わせます。送信されるのはアプリ自身の名前とバージョンだけで、あなたやこのマシンに関する情報は一切送られません。"
 
 # The notice that a newer version is out (runtime::Update::toast); {package} is the crate,
-# {launcher} the family's launcher command.
+# {launcher} the ecosystem's launcher command.
 [quvyta.update]
 title = "{package} {latest} が公開されました"
 body  = "現在のバージョンは {current} です。{launcher} から、または cargo install {package} で更新できます。"

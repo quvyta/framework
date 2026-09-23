@@ -25,7 +25,7 @@ pub enum SwitchStyle {
     /// A flat five-cell capsule with a two-cell knob.
     #[default]
     Capsule,
-    /// A knob on a thin rail, from the same family as sliders. ASCII mode draws a capsule.
+    /// A knob on a thin rail, from the same ecosystem as sliders. ASCII mode draws a capsule.
     Rail,
     /// A capsule with the state written inside, for places where the state must be read.
     Labeled,

@@ -8,14 +8,14 @@
 //!
 //! What goes out is the package's name and version and nothing else: the address names the
 //! package, the `User-Agent` is its name and version, and the request carries no identity, no
-//! machine detail and no use of the application. The family's one switch,
-//! [`Family::update_notice`], turns the question off for every application of the family, and
+//! machine detail and no use of the application. The ecosystem's one switch,
+//! [`Ecosystem::update_notice`], turns the question off for every application of the ecosystem, and
 //! then nothing is asked at all.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::storage::{Family, atomic_write};
+use crate::storage::{Ecosystem, atomic_write};
 use crate::widgets::Toast;
 
 /// The registry asked unless another is given: crates.io's index, the one `cargo install` reads.
@@ -36,8 +36,8 @@ const LAST_ASKED: &str = "update-check";
 ///
 /// The question is asked on a thread of its own, so the application starts without waiting for
 /// it. It is asked at most once a day, remembered in the application's
-/// [state folder](Family::state_dir), and not at all while the family's
-/// [update notice](Family::update_notice) is off. No network, a registry that does not answer or
+/// [state folder](Ecosystem::state_dir), and not at all while the ecosystem's
+/// [update notice](Ecosystem::update_notice) is off. No network, a registry that does not answer or
 /// an answer that cannot be read is silence: nothing is shown and the next day asks again. Only a
 /// newer version that is not yanked becomes a message, newer by semver's precedence. A person on
 /// a release never hears of a pre-release; a person on a pre-release, such as `0.1.0-alpha.1`,
@@ -51,7 +51,7 @@ const LAST_ASKED: &str = "update-check";
 /// ```
 /// use qframe::prelude::*;
 /// use qframe::runtime::{Update, UpdateCheck};
-/// use qframe::storage::Family;
+/// use qframe::storage::Ecosystem;
 ///
 /// struct Code;
 ///
@@ -62,7 +62,7 @@ const LAST_ASKED: &str = "update-check";
 /// impl App for Code {
 ///     type Msg = Msg;
 ///     fn init(&mut self) -> Command<Msg> {
-///         let check = UpdateCheck::new(Family::QUVYTA, "code", "quvyta-code", env!("CARGO_PKG_VERSION"), Msg::NewVersion);
+///         let check = UpdateCheck::new(Ecosystem::QUVYTA, "code", "quvyta-code", env!("CARGO_PKG_VERSION"), Msg::NewVersion);
 ///         Command::check_for_update(check)
 ///     }
 ///     fn update(&mut self, msg: Msg) -> Command<Msg> {
@@ -77,7 +77,7 @@ const LAST_ASKED: &str = "update-check";
 /// assert_eq!(code.update_checks()[0].package(), "quvyta-code", "asked, but not over the network");
 /// ```
 pub struct UpdateCheck<Msg> {
-    family: Family,
+    ecosystem: Ecosystem,
     app: String,
     package: String,
     current: String,
@@ -89,18 +89,18 @@ pub struct UpdateCheck<Msg> {
 
 impl<Msg: Send + 'static> UpdateCheck<Msg> {
     /// Asks whether crates.io has a version of `package` newer than `current`, for application
-    /// `app` of `family`; a newer one is sent as `on_newer`. `current` is the running version,
+    /// `app` of `ecosystem`; a newer one is sent as `on_newer`. `current` is the running version,
     /// usually `env!("CARGO_PKG_VERSION")`.
     #[must_use]
     pub fn new(
-        family: Family,
+        ecosystem: Ecosystem,
         app: impl Into<String>,
         package: impl Into<String>,
         current: impl Into<String>,
         on_newer: impl FnOnce(Update) -> Msg + Send + 'static,
     ) -> Self {
         Self {
-            family,
+            ecosystem,
             app: app.into(),
             package: package.into(),
             current: current.into(),
@@ -111,7 +111,7 @@ impl<Msg: Send + 'static> UpdateCheck<Msg> {
         }
     }
 
-    /// Reads the family's switch from `config_dir` and remembers the last question in `state_dir`
+    /// Reads the ecosystem's switch from `config_dir` and remembers the last question in `state_dir`
     /// instead of this platform's folders, for a test or a demo that must leave the user's own
     /// files alone.
     #[must_use]
@@ -133,7 +133,7 @@ impl<Msg: Send + 'static> UpdateCheck<Msg> {
     pub(crate) fn map<B: Send + 'static>(self, map: impl FnOnce(Msg) -> B + Send + 'static) -> UpdateCheck<B> {
         let on_newer = self.on_newer;
         UpdateCheck {
-            family: self.family,
+            ecosystem: self.ecosystem,
             app: self.app,
             package: self.package,
             current: self.current,
@@ -164,11 +164,11 @@ impl<Msg: Send + 'static> UpdateCheck<Msg> {
     /// [`ask`](Self::ask) with the registry reached through `fetch`, which returns the index text
     /// of an address or `None`.
     fn ask_with(self, now: SystemTime, fetch: impl FnOnce(&str, &str) -> Option<String>) -> Option<Msg> {
-        let config_dir = self.config_dir.clone().or_else(|| self.family.config_dir())?;
-        if !self.family.update_notice_in(&config_dir) {
+        let config_dir = self.config_dir.clone().or_else(|| self.ecosystem.config_dir())?;
+        if !self.ecosystem.update_notice_in(&config_dir) {
             return None;
         }
-        let state_dir = self.state_dir.clone().or_else(|| self.family.state_dir(&self.app))?;
+        let state_dir = self.state_dir.clone().or_else(|| self.ecosystem.state_dir(&self.app))?;
         if !due(&state_dir, now) {
             return None;
         }
@@ -187,7 +187,7 @@ impl<Msg: Send + 'static> UpdateCheck<Msg> {
         let (running, found) = (Version::parse(&self.current)?, Version::parse(latest)?);
         (found.offered_to(&running) && found > running).then(|| {
             (self.on_newer)(Update {
-                family: self.family,
+                ecosystem: self.ecosystem,
                 package: self.package,
                 current: self.current,
                 latest: latest.to_owned(),
@@ -220,24 +220,24 @@ impl UpdateCheckRequest {
 /// A newer version of the application, found by an [`UpdateCheck`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Update {
-    family: Family,
+    ecosystem: Ecosystem,
     package: String,
     current: String,
     latest: String,
 }
 
 impl Update {
-    /// The news that `latest` of `package` is out while `current` runs, for application `family`.
+    /// The news that `latest` of `package` is out while `current` runs, for application `ecosystem`.
     /// An [`UpdateCheck`] makes one when the registry says so; made by hand it shows what the
     /// notice looks like, on a settings page or in a guide.
     #[must_use]
     pub fn new(
-        family: Family,
+        ecosystem: Ecosystem,
         package: impl Into<String>,
         current: impl Into<String>,
         latest: impl Into<String>,
     ) -> Self {
-        Self { family, package: package.into(), current: current.into(), latest: latest.into() }
+        Self { ecosystem, package: package.into(), current: current.into(), latest: latest.into() }
     }
 
     /// The package that has a newer version.
@@ -258,8 +258,8 @@ impl Update {
         &self.latest
     }
 
-    /// The notice every application of the family shows the same way: an info toast naming the
-    /// new version and the running one, and how to update — from the family's launcher, or with
+    /// The notice every application of the ecosystem shows the same way: an info toast naming the
+    /// new version and the running one, and how to update — from the ecosystem's launcher, or with
     /// `cargo install`. Texts come from the framework's language files.
     #[must_use]
     pub fn toast<Msg>(&self) -> Toast<Msg> {
@@ -267,7 +267,7 @@ impl Update {
         let body = crate::t!(
             "quvyta.update.body",
             current = self.current.as_str(),
-            launcher = self.family.id(),
+            launcher = self.ecosystem.id(),
             package = self.package.as_str()
         );
         Toast::info(title).body(body).key("quvyta-update").duration(Duration::from_secs(12))

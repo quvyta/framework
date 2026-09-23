@@ -1,4 +1,4 @@
-//! Shared preferences: language, theme and icons every application of the family shares, the
+//! Shared preferences: language, theme and icons every application of the ecosystem shares, the
 //! appearance rows that change them for every application or for one, and the three files that
 //! show where each change went.
 
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use qframe::i18n::I18n;
 use qframe::prelude::*;
 use qframe::runtime::Update;
-use qframe::storage::{Family, Preferences, Scope, Settings, Shared, Source};
+use qframe::storage::{Ecosystem, Preferences, Scope, Settings, Shared, Source};
 use qframe::widgets::{Appearance, AppearanceChange, CodeView, Language, SettingsList};
 
 use super::{PageMsg, setting, toggle};
@@ -20,13 +20,13 @@ const PAGE: &str = "shared-preferences";
 /// The application the rows belong to in the demo.
 const APP: &str = "code";
 
-/// A second application of the family, to show who follows a shared change.
+/// A second application of the ecosystem, to show who follows a shared change.
 const OTHER: &str = "focus";
 
 /// The theme the second application keeps when the playground gives it one of its own.
 const OWN_THEME: &str = "iris";
 
-/// The demo's family folder and what lives in it; made the first time the page is drawn.
+/// The demo's ecosystem folder and what lives in it; made the first time the page is drawn.
 #[derive(Debug)]
 struct Demo {
     folder: PathBuf,
@@ -39,11 +39,11 @@ impl Demo {
     fn new() -> Self {
         let folder = demo_dir();
         // region: shared-preferences-start
-        let family = Family::QUVYTA;
-        // An application passes `family.preferences(APP, &i18n)`; the demo keeps to a folder of its own.
-        let preferences = family.preferences_in(&folder, APP, &I18n::builtin());
-        let appearance = Appearance::new(family, APP, preferences).in_folder(&folder);
-        let settings = Settings::open(folder.join(format!("{APP}.conf"))).member_of(&family);
+        let ecosystem = Ecosystem::QUVYTA;
+        // An application passes `ecosystem.preferences(APP, &i18n)`; the demo keeps to a folder of its own.
+        let preferences = ecosystem.preferences_in(&folder, APP, &I18n::builtin());
+        let appearance = Appearance::new(ecosystem, APP, preferences).in_folder(&folder);
+        let settings = Settings::open(folder.join(format!("{APP}.conf"))).member_of(&ecosystem);
         // endregion
         Self { folder, appearance, settings }
     }
@@ -78,7 +78,7 @@ impl Drop for State {
 /// Tells the demo folders of two showcases in one process apart, which the tests need.
 static DEMO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-/// A family folder of this run, never the user's own.
+/// An ecosystem folder of this run, never the user's own.
 fn demo_dir() -> PathBuf {
     let ticket = DEMO.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::temp_dir().join(format!("quvyta-showcase-preferences-{}-{ticket}", std::process::id()))
@@ -88,7 +88,7 @@ fn demo_dir() -> PathBuf {
 #[derive(Debug, Clone)]
 pub enum Msg {
     Appearance(AppearanceChange),
-    /// The second application keeps a theme of its own (`true`) or follows the family.
+    /// The second application keeps a theme of its own (`true`) or follows the ecosystem.
     OtherOwnTheme(bool),
     StartOver,
     /// Shows what the notice of a newer version looks like.
@@ -111,21 +111,21 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         }
         Msg::OtherOwnTheme(own) => {
             let demo = state.demo();
-            let family = Family::QUVYTA;
+            let ecosystem = Ecosystem::QUVYTA;
             // region: shared-preferences-follow
             let written = if own {
-                family.set_in(&demo.folder, OTHER, Shared::Theme, OWN_THEME, Scope::App)
+                ecosystem.set_in(&demo.folder, OTHER, Shared::Theme, OWN_THEME, Scope::App)
             } else {
-                // Back to the family: only focus.conf is written, so the theme the whole family
+                // Back to the ecosystem: only focus.conf is written, so the theme the whole ecosystem
                 // draws with stays exactly as it is.
-                family.follow_in(&demo.folder, OTHER, Shared::Theme)
+                ecosystem.follow_in(&demo.folder, OTHER, Shared::Theme)
             };
             // endregion
             let outcome = match written {
                 Ok(()) => format!("{OTHER} keeps its own theme = {own}"),
                 Err(error) => error.to_string(),
             };
-            log.push(PAGE, if own { "Family::set_in" } else { "Family::follow_in" }, outcome);
+            log.push(PAGE, if own { "Ecosystem::set_in" } else { "Ecosystem::follow_in" }, outcome);
             Command::none()
         }
         Msg::ShowNotice => {
@@ -133,7 +133,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             // region: shared-preferences-notice
             // An application gets its `Update` from `Command::check_for_update`; the demo makes one
             // by hand so the notice shows without asking the network.
-            let update = Update::new(Family::QUVYTA, "quvyta-code", "0.1.13", "0.1.14");
+            let update = Update::new(Ecosystem::QUVYTA, "quvyta-code", "0.1.13", "0.1.14");
             Command::toast(update.toast())
             // endregion
         }
@@ -144,7 +144,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                 // behind costs nothing of the person's and the next run makes a fresh one.
                 let _ = std::fs::remove_dir_all(&demo.folder);
             }
-            log.push(PAGE, "Family::preferences_in", "a new family folder");
+            log.push(PAGE, "Ecosystem::preferences_in", "a new ecosystem folder");
             Command::none()
         }
     }
@@ -152,19 +152,19 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
 
 /// What `app` resolves in `folder`, as one line per preference.
 fn resolved(folder: &Path, app: &str) -> Preferences {
-    Family::QUVYTA.preferences_in(folder, app, &I18n::builtin())
+    Ecosystem::QUVYTA.preferences_in(folder, app, &I18n::builtin())
 }
 
 /// Where a value came from, in words.
 fn source(source: Source) -> String {
     match source {
         Source::App => t!("shared-preferences.from-app"),
-        Source::Family => t!("shared-preferences.from-family"),
+        Source::Ecosystem => t!("shared-preferences.from-ecosystem"),
         Source::Detected => t!("shared-preferences.from-detected"),
     }
 }
 
-/// One file of the family folder, under its name.
+/// One file of the ecosystem folder, under its name.
 fn file(ui: &mut View<'_, AppMsg>, folder: &Path, name: &str) {
     let contents = std::fs::read_to_string(folder.join(name)).unwrap_or_default();
     ui.add(Text::new(name.to_owned()).role("faint").no_wrap());
@@ -184,7 +184,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         // region: shared-preferences-rows
         SettingsList::show(ui, |list| {
             demo.appearance.section(list, |change| send(Msg::Appearance(change)));
-            // An application that asks for its updates adds the family's switch for them.
+            // An application that asks for its updates adds the ecosystem's switch for them.
             demo.appearance.updates(list, |change| send(Msg::Appearance(change)));
         })
         .id("appearance");
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn clearing_the_box_keeps_a_change_in_code_and_focus_follows_the_family() {
+    fn clearing_the_box_keeps_a_change_in_code_and_focus_follows_the_ecosystem() {
         let mut h = showcase_tall(crate::app::Showcase::new(), PAGE, 80);
         let folder = folder(&h);
         h.send(send(Msg::Appearance(AppearanceChange::Everywhere(Shared::Theme, false))));
@@ -259,21 +259,21 @@ mod tests {
         assert_eq!(h.env().theme().id(), "nordic");
         let code = std::fs::read_to_string(folder.join("code.conf")).expect("code.conf");
         assert!(code.contains("theme = \"nordic\""), "{code}");
-        assert_eq!(resolved(&folder, OTHER).theme().source, Source::Family);
+        assert_eq!(resolved(&folder, OTHER).theme().source, Source::Ecosystem);
         assert!(h.screen().contains("focus sees"), "{}", h.screen());
 
         h.send(send(Msg::Appearance(AppearanceChange::Everywhere(Shared::Theme, true))));
-        assert_eq!(resolved(&folder, OTHER).theme().value, "nordic", "focus follows the family now");
+        assert_eq!(resolved(&folder, OTHER).theme().value, "nordic", "focus follows the ecosystem now");
         h.send(send(Msg::OtherOwnTheme(true)));
         assert_eq!(resolved(&folder, OTHER).theme().value, OWN_THEME);
         let shared = std::fs::read_to_string(folder.join("quvyta.conf")).expect("quvyta.conf");
         h.send(send(Msg::OtherOwnTheme(false)));
-        assert_eq!(resolved(&folder, OTHER).theme().source, Source::Family, "focus follows again");
+        assert_eq!(resolved(&folder, OTHER).theme().source, Source::Ecosystem, "focus follows again");
         assert_eq!(resolved(&folder, OTHER).theme().value, "nordic");
         assert_eq!(
             std::fs::read_to_string(folder.join("quvyta.conf")).expect("quvyta.conf"),
             shared,
-            "following again leaves the family's own theme alone"
+            "following again leaves the ecosystem's own theme alone"
         );
     }
 
@@ -290,7 +290,11 @@ mod tests {
     fn the_notice_button_shows_the_notice_without_asking_anything() {
         let mut h = showcase_tall(crate::app::Showcase::new(), PAGE, 120);
         h.set_reduced_motion(true);
-        assert!(h.screen().contains("Say when an update is out"), "the family's switch is in the rows: {}", h.screen());
+        assert!(
+            h.screen().contains("Say when an update is out"),
+            "the ecosystem's switch is in the rows: {}",
+            h.screen()
+        );
         h.click_text("Show the notice").advance(std::time::Duration::from_millis(300));
         let screen = h.screen();
         assert!(screen.contains("quvyta-code 0.1.14 is out"), "{screen}");

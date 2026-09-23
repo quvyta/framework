@@ -7,7 +7,7 @@ use super::*;
 use crate::i18n::I18n;
 use crate::icons::nerd_font::{Archive, FONT_FILE};
 use crate::runtime::{App, Harness};
-use crate::storage::{Family, Settings, Shared};
+use crate::storage::{Ecosystem, Settings, Shared};
 use crate::widgets::{Select, Text};
 
 /// The application the wizard belongs to in these tests.
@@ -36,14 +36,14 @@ struct Demo {
 }
 
 impl Demo {
-    /// A demo whose family folder, install and font folders are all inside `folder`.
+    /// A demo whose ecosystem folder, install and font folders are all inside `folder`.
     fn new(folder: &Path) -> Self {
-        let family = Family::QUVYTA;
-        let setup = Setup::new_in(folder, family, APP, &I18n::builtin(), Msg::Setup)
+        let ecosystem = Ecosystem::QUVYTA;
+        let setup = Setup::new_in(folder, ecosystem, APP, &I18n::builtin(), Msg::Setup)
             .on_finish(Msg::Done)
             .install(Install::new().target(folder.join("fonts").join("QuvytaNerdFont")).register(false))
             .font_dirs(vec![folder.join("fonts")]);
-        let settings = Settings::open(folder.join("code.conf")).member_of(&family);
+        let settings = Settings::open(folder.join("code.conf")).member_of(&ecosystem);
         Self { setup, settings, engine: 0, done: false }
     }
 }
@@ -85,7 +85,7 @@ fn wizard(name: &str) -> (Harness<Demo>, PathBuf) {
     (Harness::new(Demo::new(&folder), 60, 30), folder)
 }
 
-/// What a file of the family folder says, or nothing when it does not exist.
+/// What a file of the ecosystem folder says, or nothing when it does not exist.
 fn file(folder: &Path, name: &str) -> String {
     fs::read_to_string(folder.join(name)).unwrap_or_default()
 }
@@ -128,7 +128,7 @@ fn starting_with_the_defaults_writes_both_files_and_never_asks_again() {
 }
 
 #[test]
-fn the_box_decides_whether_a_choice_goes_to_the_family_or_to_the_application() {
+fn the_box_decides_whether_a_choice_goes_to_the_ecosystem_or_to_the_application() {
     let (mut h, folder) = wizard("scope");
     h.send(Msg::Setup(SetupMsg::Appearance(AppearanceChange::Language("tr".to_owned()))));
     h.send(Msg::Setup(SetupMsg::Appearance(AppearanceChange::Everywhere(Shared::Theme, false))));
@@ -138,10 +138,10 @@ fn the_box_decides_whether_a_choice_goes_to_the_family_or_to_the_application() {
     h.advance(Duration::from_millis(0));
     let shared = file(&folder, "quvyta.conf");
     let own = file(&folder, "code.conf");
-    assert!(shared.contains("language = \"tr\""), "the family takes the language: {shared}");
+    assert!(shared.contains("language = \"tr\""), "the ecosystem takes the language: {shared}");
     assert!(own.contains("language = \"quvyta\""), "and the application follows it: {own}");
     assert!(own.contains("theme = \"nordic\""), "the theme stays here: {own}");
-    assert!(!shared.contains("theme"), "a choice made here alone never reaches the family: {shared}");
+    assert!(!shared.contains("theme"), "a choice made here alone never reaches the ecosystem: {shared}");
     assert!(shared.contains("icons = "), "what the boxes keep does reach it: {shared}");
     let _ = fs::remove_dir_all(&folder);
 }
@@ -257,7 +257,7 @@ fn the_install_offer_comes_only_without_a_nerd_font_and_says_what_to_look_at() {
 fn a_finish_that_cannot_be_saved_says_so_and_the_wizard_comes_again() {
     let folder = folder("failure");
     fs::create_dir_all(folder.parent().expect("a parent")).expect("the parent folder");
-    // A file where the family folder should be: nothing can be written into it.
+    // A file where the ecosystem folder should be: nothing can be written into it.
     fs::write(&folder, b"not a folder").expect("the file in the way");
     let mut h = Harness::new(Demo::new(&folder), 60, 30);
     h.click_text("Start with the defaults");

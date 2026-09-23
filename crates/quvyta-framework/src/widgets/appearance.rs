@@ -1,13 +1,13 @@
-//! The appearance rows every application of a family shows the same way: language, theme and
+//! The appearance rows every application of an ecosystem shows the same way: language, theme and
 //! icons, each with the choice of changing it everywhere or here only, then reduced motion and
-//! the pillar; and, for an application that asks for its updates, the family's update notice.
+//! the pillar; and, for an application that asks for its updates, the ecosystem's update notice.
 
 use std::io;
 use std::path::PathBuf;
 
 use crate::icons::{IconMode, PillarStyle};
 use crate::runtime::Command;
-use crate::storage::{Family, Preferences, Scope, Setting, Settings, Shared, Source};
+use crate::storage::{Ecosystem, Preferences, Scope, Setting, Settings, Shared, Source};
 use crate::widget::Length;
 
 use super::{Checkbox, Segmented, Select, SettingRow, SettingsRows, Switch};
@@ -39,15 +39,15 @@ pub enum AppearanceChange {
     Theme(String),
     /// An icon mode was chosen.
     Icons(IconMode),
-    /// The "in every application of the family" box under a shared row was checked (`true`) or
+    /// The "in every application of the ecosystem" box under a shared row was checked (`true`) or
     /// cleared (`false`).
     Everywhere(Shared, bool),
     /// Reduced motion was switched.
     ReducedMotion(bool),
     /// A pillar style was chosen.
     Pillar(PillarStyle),
-    /// The family's update notice was switched on (`true`) or off; see
-    /// [`Family::update_notice`].
+    /// The ecosystem's update notice was switched on (`true`) or off; see
+    /// [`Ecosystem::update_notice`].
     UpdateNotice(bool),
 }
 
@@ -61,23 +61,23 @@ enum Row {
 }
 
 /// The appearance section of a settings page or a setup wizard: language, theme and icons as the
-/// family shares them, reduced motion and the pillar, as rows of a
+/// ecosystem shares them, reduced motion and the pillar, as rows of a
 /// [`SettingsList`](super::SettingsList); and, where the application asks for its updates, the
-/// family's update notice with [`updates`](Self::updates).
+/// ecosystem's update notice with [`updates`](Self::updates).
 ///
 /// Each shared row has a box under it, "In every Quvyta application", checked while the
-/// application follows the family: a change then goes to the family's shared file and every
+/// application follows the ecosystem: a change then goes to the ecosystem's shared file and every
 /// application that follows it changes too. Cleared, the change stays in the application's own
 /// file. Reduced motion and the pillar are the application's own. The update notice is one switch
-/// for the whole family, kept in the shared file; see [`Family::update_notice`]. A change is applied at once
+/// for the whole ecosystem, kept in the shared file; see [`Ecosystem::update_notice`]. A change is applied at once
 /// and saved at once, each file read again right before it is written; see
-/// [`Family::set`]. When the `QUVYTA_REDUCED_MOTION` environment variable decides, the reduced
+/// [`Ecosystem::set`]. When the `QUVYTA_REDUCED_MOTION` environment variable decides, the reduced
 /// motion row is disabled and says why. Texts come from the framework's language files.
 ///
 /// ```
 /// use qframe::i18n::I18n;
 /// use qframe::prelude::*;
-/// use qframe::storage::{Family, Settings};
+/// use qframe::storage::{Ecosystem, Settings};
 /// use qframe::widgets::{Appearance, AppearanceChange, SettingsList};
 ///
 /// struct Code {
@@ -103,18 +103,18 @@ enum Row {
 /// }
 ///
 /// # let folder = std::env::temp_dir().join(format!("quvyta-appearance-doc-{}", std::process::id()));
-/// let family = Family::QUVYTA;
-/// // An application passes `family.preferences("code", &i18n)`; the example stays in a folder of its own.
-/// let preferences = family.preferences_in(&folder, "code", &I18n::builtin());
-/// let appearance = Appearance::new(family, "code", preferences).in_folder(&folder);
-/// let settings = Settings::open(folder.join("code.conf")).member_of(&family);
+/// let ecosystem = Ecosystem::QUVYTA;
+/// // An application passes `ecosystem.preferences("code", &i18n)`; the example stays in a folder of its own.
+/// let preferences = ecosystem.preferences_in(&folder, "code", &I18n::builtin());
+/// let appearance = Appearance::new(ecosystem, "code", preferences).in_folder(&folder);
+/// let settings = Settings::open(folder.join("code.conf")).member_of(&ecosystem);
 /// let mut app = Harness::new(Code { settings, appearance }, 60, 20);
 /// assert!(app.screen().contains("In every Quvyta application"));
 /// # std::fs::remove_dir_all(&folder).ok();
 /// ```
 #[derive(Debug, Clone)]
 pub struct Appearance {
-    family: Family,
+    ecosystem: Ecosystem,
     app: String,
     folder: Option<PathBuf>,
     preferences: Preferences,
@@ -124,15 +124,15 @@ pub struct Appearance {
 }
 
 impl Appearance {
-    /// The appearance of application `app` of `family`, starting from the `preferences`
-    /// [`Family::preferences`] resolved for it. Changes are saved in the family's folder.
+    /// The appearance of application `app` of `ecosystem`, starting from the `preferences`
+    /// [`Ecosystem::preferences`] resolved for it. Changes are saved in the ecosystem's folder.
     #[must_use]
-    pub fn new(family: Family, app: impl Into<String>, preferences: Preferences) -> Self {
-        Self { family, app: app.into(), folder: None, preferences, saving: true, failure: None }
+    pub fn new(ecosystem: Ecosystem, app: impl Into<String>, preferences: Preferences) -> Self {
+        Self { ecosystem, app: app.into(), folder: None, preferences, saving: true, failure: None }
     }
 
-    /// Saves changes in `folder` as the family's folder instead of this platform's, for a test
-    /// or a demo that must leave the user's own files alone; see [`Family::set_in`].
+    /// Saves changes in `folder` as the ecosystem's folder instead of this platform's, for a test
+    /// or a demo that must leave the user's own files alone; see [`Ecosystem::set_in`].
     #[must_use]
     pub fn in_folder(mut self, folder: impl Into<PathBuf>) -> Self {
         self.folder = Some(folder.into());
@@ -169,11 +169,11 @@ impl Appearance {
         self.own_rows(list, message);
     }
 
-    /// Adds the family's update notice switch to `list`, with the text saying what it asks and
+    /// Adds the ecosystem's update notice switch to `list`, with the text saying what it asks and
     /// what it never sends: for an application that asks whether a newer version of itself is out
     /// ([`Command::check_for_update`](crate::runtime::Command::check_for_update)), right after
-    /// [`section`](Self::section). The switch is the family's, one for every application, kept in
-    /// the shared file; see [`Family::update_notice`]. An application that never asks leaves the
+    /// [`section`](Self::section). The switch is the ecosystem's, one for every application, kept in
+    /// the shared file; see [`Ecosystem::update_notice`]. An application that never asks leaves the
     /// row out, so its settings offer nothing that does nothing there.
     pub fn updates<Msg: Clone + 'static>(
         &self,
@@ -183,7 +183,7 @@ impl Appearance {
         let row = SettingRow::new(crate::t!("quvyta.appearance.updates"));
         let row = match self.failed(Row::UpdateNotice) {
             Some(failure) => row.description(failure),
-            None => row.description(crate::t!("quvyta.appearance.updates-text", family = self.family.title())),
+            None => row.description(crate::t!("quvyta.appearance.updates-text", family = self.ecosystem.title())),
         };
         let on = self.preferences.update_notice();
         list.row(row, |ui| {
@@ -191,7 +191,7 @@ impl Appearance {
         });
     }
 
-    /// Adds the three rows the family shares, language, theme and icons, each with its box, to
+    /// Adds the three rows the ecosystem shares, language, theme and icons, each with its box, to
     /// `list`, without a heading and without the application's own rows: what the first step of a
     /// [setup wizard](super::Setup) asks, on a page that names the section itself. Every change is
     /// sent as `message`.
@@ -313,7 +313,7 @@ impl Appearance {
             .map(|(_, reason)| crate::t!("quvyta.appearance.not-saved", reason = reason.as_str()))
     }
 
-    /// The box under shared row `key`: checked while the application follows the family.
+    /// The box under shared row `key`: checked while the application follows the ecosystem.
     fn everywhere<Msg: Clone + 'static>(
         &self,
         list: &mut SettingsRows<'_, Msg>,
@@ -321,7 +321,7 @@ impl Appearance {
         message: &(impl Fn(AppearanceChange) -> Msg + Clone + 'static),
     ) {
         let checked = self.preferences.source(key) != Source::App;
-        let label = crate::t!("quvyta.appearance.everywhere", family = self.family.title());
+        let label = crate::t!("quvyta.appearance.everywhere", family = self.ecosystem.title());
         let send = message.clone();
         list.row(SettingRow::new(label).nested(true), |ui| {
             ui.add(Checkbox::new(checked).on_toggle(move |on| send(AppearanceChange::Everywhere(key, on))));
@@ -349,7 +349,7 @@ impl Appearance {
                 (Row::Shared(Shared::Icons), saved, Command::set_icon_mode(mode))
             }
             AppearanceChange::Everywhere(key, on) => {
-                let scope = if on { Scope::Family } else { Scope::App };
+                let scope = if on { Scope::Ecosystem } else { Scope::App };
                 let value = self.preferences.text(key);
                 (Row::Shared(key), self.share(key, &value, Some(scope), settings), Command::none())
             }
@@ -371,32 +371,32 @@ impl Appearance {
     /// `None`, and records it.
     fn share(&mut self, key: Shared, value: &str, scope: Option<Scope>, settings: &mut Settings) -> io::Result<()> {
         let scope =
-            scope.unwrap_or(if self.preferences.source(key) == Source::App { Scope::App } else { Scope::Family });
+            scope.unwrap_or(if self.preferences.source(key) == Source::App { Scope::App } else { Scope::Ecosystem });
         let written = match scope {
-            Scope::Family => self.family.id().to_owned(),
+            Scope::Ecosystem => self.ecosystem.id().to_owned(),
             Scope::App => value.to_owned(),
         };
         settings.set(key.key(), written);
-        let source = if scope == Scope::Family { Source::Family } else { Source::App };
+        let source = if scope == Scope::Ecosystem { Source::Ecosystem } else { Source::App };
         self.preferences.record(key, value, source);
         if !self.saving {
             return Ok(());
         }
         match &self.folder {
-            Some(folder) => self.family.set_in(folder, &self.app, key, value, scope),
-            None => self.family.set(&self.app, key, value, scope),
+            Some(folder) => self.ecosystem.set_in(folder, &self.app, key, value, scope),
+            None => self.ecosystem.set(&self.app, key, value, scope),
         }
     }
 
-    /// Switches the family's update notice and records it.
+    /// Switches the ecosystem's update notice and records it.
     fn update_notice(&mut self, on: bool) -> io::Result<()> {
         self.preferences.record_update_notice(on);
         if !self.saving {
             return Ok(());
         }
         match &self.folder {
-            Some(folder) => self.family.set_update_notice_in(folder, on),
-            None => self.family.set_update_notice(on),
+            Some(folder) => self.ecosystem.set_update_notice_in(folder, on),
+            None => self.ecosystem.set_update_notice(on),
         }
     }
 
@@ -409,11 +409,11 @@ impl Appearance {
         let folder = match &self.folder {
             Some(folder) => folder.clone(),
             None => self
-                .family
+                .ecosystem
                 .config_dir()
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no config directory found"))?,
         };
-        self.family.set_own_in(&folder, &self.app, key, value.to_setting())
+        self.ecosystem.set_own_in(&folder, &self.app, key, value.to_setting())
     }
 }
 

@@ -39,10 +39,10 @@ fn default_icon_set_is_valid_in_every_mode() {
 }
 
 /// The meanings an application's main menu shows. Every icon set must answer all of them, or a
-/// family application would have a menu with icons on only some of its rows.
+/// ecosystem application would have a menu with icons on only some of its rows.
 const MENU_ICONS: [&str; 4] = ["project", "profile", "settings", "power"];
 
-/// A launcher's categories, the entries without an icon of their own, the family's mark and the
+/// A launcher's categories, the entries without an icon of their own, the ecosystem's mark and the
 /// marks on a window's title. Each is drawn in a strip of counted cells — a dock, a menu row, a
 /// three-cell title mark — so a glyph two cells wide would push the strip apart.
 const LAUNCHER_ICONS: [&str; 10] = [
@@ -52,13 +52,13 @@ const LAUNCHER_ICONS: [&str; 10] = [
     "category-office",
     "category-media",
     "category-files",
-    "family",
+    "ecosystem",
     "window-minimize",
     "window-maximize",
     "window-restore",
 ];
 
-/// Marks every application in the family shows outside its main menu: the place the work is kept
+/// Marks every application in the ecosystem shows outside its main menu: the place the work is kept
 /// and the button that answers what the keys do. Both sit in strips of counted cells, like the
 /// menu's own rows, so both stay one cell wide.
 const SHARED_ICONS: [&str; 2] = ["workspace", "help"];

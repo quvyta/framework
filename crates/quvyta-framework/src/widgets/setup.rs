@@ -9,7 +9,7 @@ use crate::i18n::I18n;
 use crate::icons::nerd_font::{self, Install, Progress};
 use crate::icons::{GlyphMode, GlyphSample};
 use crate::runtime::Command;
-use crate::storage::{Family, Preferences, Scope, Settings, Shared, Source};
+use crate::storage::{Ecosystem, Preferences, Scope, Settings, Shared, Source};
 use crate::widget::{Length, NodeMut, View};
 
 use super::{Appearance, AppearanceChange, Button, ProgressBar, SettingsList, Text, Wizard};
@@ -46,14 +46,14 @@ pub enum SetupMsg {
 ///
 /// An application makes one at start, whether or not the wizard is needed, and asks
 /// [`Setup::needed`] before drawing its own screen: the wizard opens while the application has no
-/// settings file of its own, however much the family has already shared. Nothing is written until
+/// settings file of its own, however much the ecosystem has already shared. Nothing is written until
 /// it finishes, so closing the application half-way leaves the settings folder as it was and the
 /// wizard comes again next start.
 ///
 /// ```
 /// use qframe::i18n::I18n;
 /// use qframe::prelude::*;
-/// use qframe::storage::{Family, Settings};
+/// use qframe::storage::{Ecosystem, Settings};
 /// use qframe::widgets::{Select, Setup, SetupMsg, SetupWizard};
 ///
 /// struct Code {
@@ -100,20 +100,20 @@ pub enum SetupMsg {
 /// }
 ///
 /// # let folder = std::env::temp_dir().join(format!("quvyta-setup-doc-{}", std::process::id()));
-/// let family = Family::QUVYTA;
-/// // An application calls `Setup::new(family, "code", &i18n, Msg::Setup)`; the example keeps to a
+/// let ecosystem = Ecosystem::QUVYTA;
+/// // An application calls `Setup::new(ecosystem, "code", &i18n, Msg::Setup)`; the example keeps to a
 /// // folder of its own.
-/// let setup = Setup::new_in(&folder, family, "code", &I18n::builtin(), Msg::Setup).on_finish(Msg::Ready);
-/// let settings = Settings::open(folder.join("code.conf")).member_of(&family);
+/// let setup = Setup::new_in(&folder, ecosystem, "code", &I18n::builtin(), Msg::Setup).on_finish(Msg::Ready);
+/// let settings = Settings::open(folder.join("code.conf")).member_of(&ecosystem);
 /// let mut app = Harness::new(Code { setup, settings, engine: 0 }, 60, 24);
 /// assert!(app.screen().contains("In every Quvyta application"));
 /// assert!(!folder.exists(), "nothing is written before the wizard finishes");
 /// # std::fs::remove_dir_all(&folder).ok();
 /// ```
 pub struct Setup<Msg> {
-    family: Family,
+    ecosystem: Ecosystem,
     app: String,
-    /// The family's folder when it is not this platform's own, for a test or a demo.
+    /// The ecosystem's folder when it is not this platform's own, for a test or a demo.
     folder: Option<PathBuf>,
     appearance: Appearance,
     step: usize,
@@ -147,61 +147,61 @@ impl<Msg> std::fmt::Debug for Setup<Msg> {
 }
 
 impl<Msg: Clone + Send + 'static> Setup<Msg> {
-    /// The setup of application `app` of `family`, on its first step, with every message of the
+    /// The setup of application `app` of `ecosystem`, on its first step, with every message of the
     /// first step wrapped as `wrap`.
     ///
     /// The shared preferences are resolved without writing anything
-    /// ([`Family::preferences_without_saving`]), so the appearance step comes filled with what the
-    /// family already shares, or with what this machine detects, and the user's settings folder
+    /// ([`Ecosystem::preferences_without_saving`]), so the appearance step comes filled with what the
+    /// ecosystem already shares, or with what this machine detects, and the user's settings folder
     /// stays as it is until the wizard finishes. An application that has taken over an older
-    /// settings file migrates it ([`Family::adopt`](Family::adopt)) before making this, so a
+    /// settings file migrates it ([`Ecosystem::adopt`](Ecosystem::adopt)) before making this, so a
     /// migrated application is not asked again.
     #[must_use]
     pub fn new(
-        family: Family,
+        ecosystem: Ecosystem,
         app: impl Into<String>,
         i18n: &I18n,
         wrap: impl Fn(SetupMsg) -> Msg + Send + Sync + 'static,
     ) -> Self {
         let app = app.into();
-        let preferences = family.preferences_without_saving(&app, i18n);
-        let own_file = family.config_dir().map(|dir| dir.join(format!("{app}.conf")));
+        let preferences = ecosystem.preferences_without_saving(&app, i18n);
+        let own_file = ecosystem.config_dir().map(|dir| dir.join(format!("{app}.conf")));
         let needed = own_file.is_none_or(|file| !file.is_file());
-        Self::build(family, app, None, preferences, needed, wrap)
+        Self::build(ecosystem, app, None, preferences, needed, wrap)
     }
 
-    /// [`new`](Self::new) with `config_dir` as the family's folder instead of this platform's, for
+    /// [`new`](Self::new) with `config_dir` as the ecosystem's folder instead of this platform's, for
     /// a test or a demo that must leave the user's own files alone.
     #[must_use]
     pub fn new_in(
         config_dir: &Path,
-        family: Family,
+        ecosystem: Ecosystem,
         app: impl Into<String>,
         i18n: &I18n,
         wrap: impl Fn(SetupMsg) -> Msg + Send + Sync + 'static,
     ) -> Self {
         let app = app.into();
-        let preferences = family.preferences_without_saving_in(config_dir, &app, i18n);
+        let preferences = ecosystem.preferences_without_saving_in(config_dir, &app, i18n);
         let needed = !config_dir.join(format!("{app}.conf")).is_file();
-        Self::build(family, app, Some(config_dir.to_path_buf()), preferences, needed, wrap)
+        Self::build(ecosystem, app, Some(config_dir.to_path_buf()), preferences, needed, wrap)
     }
 
     fn build(
-        family: Family,
+        ecosystem: Ecosystem,
         app: String,
         folder: Option<PathBuf>,
         preferences: Preferences,
         needed: bool,
         wrap: impl Fn(SetupMsg) -> Msg + Send + Sync + 'static,
     ) -> Self {
-        let mut appearance = Appearance::new(family, app.clone(), preferences).without_saving();
+        let mut appearance = Appearance::new(ecosystem, app.clone(), preferences).without_saving();
         if let Some(folder) = &folder {
             appearance = appearance.in_folder(folder);
         }
         let font_dirs = crate::icons::default_font_dirs(|name| std::env::var(name).ok());
         let installed = nerd_font::installed_in(&font_dirs);
         Self {
-            family,
+            ecosystem,
             app,
             folder,
             appearance,
@@ -266,8 +266,8 @@ impl<Msg: Clone + Send + 'static> Setup<Msg> {
     /// so a later [`Settings::save`] writes what the wizard wrote instead of what the file said
     /// before.
     ///
-    /// On [`SetupMsg::Finish`] the three shared keys are written with [`Family::set`], each to the
-    /// family's file or the application's own by its box, and the application's file is made. Only
+    /// On [`SetupMsg::Finish`] the three shared keys are written with [`Ecosystem::set`], each to the
+    /// ecosystem's file or the application's own by its box, and the application's file is made. Only
     /// then is the wizard over and the message of [`Setup::on_finish`] sent. A write that fails
     /// leaves the wizard open and says why.
     pub fn update(&mut self, message: SetupMsg, settings: &mut Settings) -> Command<Msg> {
@@ -321,16 +321,16 @@ impl<Msg: Clone + Send + 'static> Setup<Msg> {
     fn write(&self, settings: &mut Settings) -> io::Result<()> {
         for key in Shared::ALL {
             let value = self.preferences().text(key);
-            let scope = if self.preferences().source(key) == Source::App { Scope::App } else { Scope::Family };
-            // The file says plainly where the value comes from: the value itself, or the family.
+            let scope = if self.preferences().source(key) == Source::App { Scope::App } else { Scope::Ecosystem };
+            // The file says plainly where the value comes from: the value itself, or the ecosystem.
             let written = match scope {
-                Scope::Family => self.family.id().to_owned(),
+                Scope::Ecosystem => self.ecosystem.id().to_owned(),
                 Scope::App => value.clone(),
             };
             settings.set(key.key(), written);
             match &self.folder {
-                Some(folder) => self.family.set_in(folder, &self.app, key, &value, scope)?,
-                None => self.family.set(&self.app, key, &value, scope)?,
+                Some(folder) => self.ecosystem.set_in(folder, &self.app, key, &value, scope)?,
+                None => self.ecosystem.set(&self.app, key, &value, scope)?,
             }
         }
         Ok(())

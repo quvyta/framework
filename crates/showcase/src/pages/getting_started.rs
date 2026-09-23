@@ -49,7 +49,7 @@ pub enum Msg {
 pub enum Pace {
     /// 60 frames a second at this machine, 20 over a remote connection.
     #[default]
-    Family,
+    Ecosystem,
     /// Four frames a second on any connection.
     Slow,
     /// Every frame that is wanted.
@@ -58,12 +58,12 @@ pub enum Pace {
 
 impl Pace {
     /// In the order the playground shows them.
-    const ALL: [Self; 3] = [Self::Family, Self::Slow, Self::Unlimited];
+    const ALL: [Self; 3] = [Self::Ecosystem, Self::Slow, Self::Unlimited];
 
     /// The limit itself.
     fn limit(self) -> FrameLimit {
         match self {
-            Self::Family => FrameLimit::default(),
+            Self::Ecosystem => FrameLimit::default(),
             Self::Slow => FrameLimit::per_second(4),
             Self::Unlimited => FrameLimit::none(),
         }
@@ -72,7 +72,7 @@ impl Pace {
     /// The stem of its label key.
     fn key(self) -> &'static str {
         match self {
-            Self::Family => "family",
+            Self::Ecosystem => "ecosystem",
             Self::Slow => "slow",
             Self::Unlimited => "unlimited",
         }
@@ -369,7 +369,7 @@ mod tests {
         use qframe::runtime::App as _;
 
         let mut h = showcase_on(PAGE);
-        assert_eq!(h.app().frame_limit().frames_per_second(false), Some(60), "the family default");
+        assert_eq!(h.app().frame_limit().frames_per_second(false), Some(60), "the Quvyta default");
         assert_eq!(h.app().frame_limit().frames_per_second(true), Some(20), "over a remote connection");
         assert!(h.screen().contains("At this machine"), "the test environment is never remote: {}", h.screen());
         assert!(h.screen().contains("60 a second"), "{}", h.screen());

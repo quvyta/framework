@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use qframe::i18n::I18n;
 use qframe::icons::nerd_font::Install;
 use qframe::prelude::*;
-use qframe::storage::{Family, Settings};
+use qframe::storage::{Ecosystem, Settings};
 use qframe::widgets::{CodeView, Language, Select, Setup, SetupMsg, SetupWizard, TextInput};
 
 use super::PageMsg;
@@ -22,7 +22,7 @@ const APP: &str = "code";
 /// Rows every step gets, so the buttons never move between them.
 const PAGE_ROWS: u16 = 18;
 
-/// The demo's family folder and everything in it; made the first time the page is drawn.
+/// The demo's ecosystem folder and everything in it; made the first time the page is drawn.
 #[derive(Debug)]
 struct Demo {
     folder: PathBuf,
@@ -42,16 +42,16 @@ impl Demo {
     fn new() -> Self {
         let folder = demo_dir();
         // region: setup-start
-        let family = Family::QUVYTA;
-        // An application calls `Setup::new(family, APP, &i18n, ..)`; the demo keeps to a folder of
+        let ecosystem = Ecosystem::QUVYTA;
+        // An application calls `Setup::new(ecosystem, APP, &i18n, ..)`; the demo keeps to a folder of
         // its own, and installs the font into it rather than the user's font folder.
-        let setup = Setup::new_in(&folder, family, APP, &I18n::builtin(), |m| send(Msg::Setup(m)))
+        let setup = Setup::new_in(&folder, ecosystem, APP, &I18n::builtin(), |m| send(Msg::Setup(m)))
             .on_finish(send(Msg::Started))
             .install(demo_install(&folder))
             .font_dirs(vec![folder.join("fonts")]);
-        let settings = Settings::open(folder.join(format!("{APP}.conf"))).member_of(&family);
+        let settings = Settings::open(folder.join(format!("{APP}.conf"))).member_of(&ecosystem);
         // endregion
-        let location = family.workspace_dir("Code").map_or_else(String::new, |dir| dir.display().to_string());
+        let location = ecosystem.workspace_dir("Code").map_or_else(String::new, |dir| dir.display().to_string());
         Self { folder, setup, settings, engine: 0, location, started: false }
     }
 }
@@ -106,7 +106,7 @@ impl Drop for State {
 /// Tells the demo folders of two showcases in one process apart, which the tests need.
 static DEMO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-/// A family folder of this run, never the user's own.
+/// An ecosystem folder of this run, never the user's own.
 fn demo_dir() -> PathBuf {
     let ticket = DEMO.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::temp_dir().join(format!("quvyta-showcase-setup-{}-{ticket}", std::process::id()))
@@ -164,7 +164,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             if let Some(demo) = state.demo.take() {
                 let _ = std::fs::remove_dir_all(&demo.folder);
             }
-            log.push(PAGE, "Setup::new_in", "a new family folder, so the wizard comes again");
+            log.push(PAGE, "Setup::new_in", "a new ecosystem folder, so the wizard comes again");
             Command::none()
         }
     }
@@ -226,7 +226,7 @@ fn wizard(demo: &Demo, ui: &mut View<'_, AppMsg>) {
 }
 // endregion
 
-/// One file of the family folder, under its name, or a word that it is not there yet.
+/// One file of the ecosystem folder, under its name, or a word that it is not there yet.
 fn file(ui: &mut View<'_, AppMsg>, folder: &Path, name: &str) {
     let contents = std::fs::read_to_string(folder.join(name)).unwrap_or_default();
     ui.add(Text::new(name.to_owned()).role("faint").no_wrap());

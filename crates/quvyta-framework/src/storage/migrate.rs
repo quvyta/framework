@@ -1,4 +1,4 @@
-//! Moving an application's settings from the folder it used on its own into its family's
+//! Moving an application's settings from the folder it used on its own into its ecosystem's
 //! layout, once, so that no file is ever lost on the way.
 //!
 //! Each file is copied before anything is removed: the new file is claimed under its name, filled
@@ -14,7 +14,7 @@ use super::FILE_NAME;
 use super::atomic::atomic_write;
 use crate::diagnostics::Diagnostic;
 
-/// What [`Family::adopt`](super::Family::adopt) did: the files it moved and, for everything it
+/// What [`Ecosystem::adopt`](super::Ecosystem::adopt) did: the files it moved and, for everything it
 /// left behind, a diagnostic that names the path and says why.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Migration {
@@ -43,7 +43,7 @@ impl Migration {
         self.diagnostics.is_empty()
     }
 
-    /// The report when the platform gives the family no folder to move into.
+    /// The report when the platform gives the ecosystem no folder to move into.
     pub(super) fn without_folder() -> Self {
         let mut report = Self::default();
         report.diagnostics.push(Diagnostic::warning(None, "no config directory found; nothing is adopted"));
@@ -258,7 +258,7 @@ mod tests {
         fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
     }
 
-    /// The legacy folder and the family's places for the application `packages`.
+    /// The legacy folder and the ecosystem's places for the application `packages`.
     struct Layout {
         root: PathBuf,
         legacy: PathBuf,
@@ -270,8 +270,8 @@ mod tests {
         fn new(name: &str) -> Self {
             let root = temp_dir(name);
             let legacy = root.join("quvyta-packages");
-            let family = root.join("quvyta");
-            Self { file: family.join("packages.conf"), dir: family.join("packages"), legacy, root }
+            let ecosystem = root.join("quvyta");
+            Self { file: ecosystem.join("packages.conf"), dir: ecosystem.join("packages"), legacy, root }
         }
 
         fn adopt(&self) -> Migration {
@@ -427,12 +427,12 @@ mod tests {
     #[test]
     fn folders_that_hold_each_other_are_refused() {
         let root = temp_dir("overlap");
-        let family = root.join("quvyta");
-        write(&family.join("settings.toml"), "a = 1\n");
-        let report = adopt(&family, &family.join("code.conf"), &family.join("code"));
+        let ecosystem = root.join("quvyta");
+        write(&ecosystem.join("settings.toml"), "a = 1\n");
+        let report = adopt(&ecosystem, &ecosystem.join("code.conf"), &ecosystem.join("code"));
         assert!(report.moved().is_empty());
         assert!(report.diagnostics()[0].message.contains("overlaps"), "{:?}", report.diagnostics());
-        assert_eq!(read(&family.join("settings.toml")), "a = 1\n");
+        assert_eq!(read(&ecosystem.join("settings.toml")), "a = 1\n");
         fs::remove_dir_all(&root).expect("clean");
     }
 

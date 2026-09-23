@@ -2,8 +2,8 @@
 
 Uygulamanın tuttuğu durum; `Msg` uygulamanın kendi mesaj türü.
 
-- `Setup::new(family, app, &i18n, wrap) -> Setup<Msg>` — `app`'ın kurulumu, ilk adımında, ilk adımın her mesajı `wrap` ile sarılı. Ortak ayarları hiçbir şey yazmadan çözer.
-- `Setup::new_in(config_dir, family, app, &i18n, wrap)` — aynısı başka bir aile klasörüyle, test ya da deneme için.
+- `Setup::new(ecosystem, app, &i18n, wrap) -> Setup<Msg>` — `app`'ın kurulumu, ilk adımında, ilk adımın her mesajı `wrap` ile sarılı. Ortak ayarları hiçbir şey yazmadan çözer.
+- `Setup::new_in(config_dir, ecosystem, app, &i18n, wrap)` — aynısı başka bir ekosistem klasörüyle, test ya da deneme için.
 - `.on_finish(msg)` — sihirbaz ortak anahtarları yazıp dosyayı oluşturunca uygulamaya gönderilen mesaj.
 - `.install(Install)` — `Install::new()` yerine başka bir kurulum, örneğin geçici bir klasöre.
 - `.font_dirs(Vec<PathBuf>)` — Nerd Font'un aranacağı başka klasörler.
@@ -33,9 +33,9 @@ Uygulamanın tuttuğu durum; `Msg` uygulamanın kendi mesaj türü.
 
 ## Neleri kullanır
 
-- `Appearance::rows(list, message)` — ailenin paylaştığı üç satır, başlıksız ve uygulamanın kendi satırları olmadan; `Appearance::without_saving()` değişikliği dosyaya yazmadan uygular.
-- `Family::preferences_without_saving(app, &i18n)` ve `..._in(config_dir, app, &i18n)` — olmayan ortak dosyayı olmayan bırakan çözüm, sihirbazı olan uygulama için.
-- `Family::set(app, key, value, scope)` — Bitir'in her ortak anahtar için bir kez yazdığı yer.
+- `Appearance::rows(list, message)` — ekosistemin paylaştığı üç satır, başlıksız ve uygulamanın kendi satırları olmadan; `Appearance::without_saving()` değişikliği dosyaya yazmadan uygular.
+- `Ecosystem::preferences_without_saving(app, &i18n)` ve `..._in(config_dir, app, &i18n)` — olmayan ortak dosyayı olmayan bırakan çözüm, sihirbazı olan uygulama için.
+- `Ecosystem::set(app, key, value, scope)` — Bitir'in her ortak anahtar için bir kez yazdığı yer.
 - `GlyphSample::new(GlyphMode)` — glif kipi adlarının yanındaki örnekler.
 - `nerd_font::installed_in`, `nerd_font::status_text`, `Install::task`, `Progress`, `nerd_font::after_install_text` — ilk adımın yazı tipi kurulumu.
 

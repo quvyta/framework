@@ -4,6 +4,21 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.21 - 2026-09-23
+
+### Changed
+
+- The applications that share one settings folder are called an ecosystem, not a family:
+  `storage::Family` is now `storage::Ecosystem`, and `Scope::Family` and `Source::Family` are
+  `Scope::Ecosystem` and `Source::Ecosystem`. The old names still work as plain aliases, without
+  a warning, so an application whose gate denies warnings builds unchanged; a later release marks
+  them deprecated and the one after removes them. The two variant aliases are associated
+  constants, which still work in a `match`. Nothing on disk changes: the files and keys never
+  carried the word. The placeholder of `quvyta.appearance.everywhere` and
+  `quvyta.appearance.updates-text` keeps its name, `{family}`, so applications that fill it
+  themselves keep working. The icon of Quvyta's own mark is named `ecosystem` instead of
+  `family`; the old key still gives the same mark, so an application asking for it keeps its icon. Texts, guides and documentation speak of the Quvyta ecosystem.
+
 ## 0.1.20 - 2026-09-23
 
 ### Fixed
@@ -55,6 +70,7 @@ is at 0.1, so a minor release may still change the API.
   nothing changed in time and the watch goes on. `FileManagerState::following_within(bound)`
   follows outside changes with each wait bounded. A screen test runs a wait on the spot, so an
   unbounded one held it for good; now a test can show a folder change arriving.
+
 
 ## 0.1.19 - 2026-09-23
 

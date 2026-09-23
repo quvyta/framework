@@ -315,10 +315,10 @@ pillar-thick       = "Gruesa"
 pillar-thin        = "Fina"
 not-saved          = "Aplicado, pero no guardado: {reason}"
 updates            = "Avisar cuando haya una actualización"
-updates-text       = "Para todas las aplicaciones de {family} a la vez. Una vez al día cada una consulta en crates.io su versión más reciente; solo se envían su nombre y su versión, nada sobre ti ni sobre este equipo."
+updates-text       = "Para todas las aplicaciones de {family} a la vez. Una vez al día, cada una le pide a crates.io su versión más reciente; solo se envían su nombre y versión, nada sobre ti ni sobre este equipo."
 
 # The notice that a newer version is out (runtime::Update::toast); {package} is the crate,
-# {launcher} the family's launcher command.
+# {launcher} the ecosystem's launcher command.
 [quvyta.update]
 title = "Ya salió {package} {latest}"
 body  = "Tiene la {current}. Actualícela en {launcher} o con cargo install {package}."

@@ -76,9 +76,9 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 /// The check of qcode at `current`, answering with the update, against `registry`, with the
-/// family's file and the memory of the last question in `dir`.
+/// ecosystem's file and the memory of the last question in `dir`.
 fn check(dir: &Path, current: &str, registry: &str) -> UpdateCheck<Update> {
-    UpdateCheck::new(Family::QUVYTA, "code", "quvyta-code", current, |update| update)
+    UpdateCheck::new(Ecosystem::QUVYTA, "code", "quvyta-code", current, |update| update)
         .in_folders(dir.join("config"), dir.join("state"))
         .registry(registry)
 }
@@ -216,14 +216,14 @@ fn the_registry_is_asked_at_most_once_a_day() {
 }
 
 #[test]
-fn with_the_family_s_notice_off_nothing_is_asked_or_written() {
+fn with_the_ecosystem_s_notice_off_nothing_is_asked_or_written() {
     let dir = scratch("off");
-    Family::QUVYTA.set_update_notice_in(&dir.join("config"), false).expect("turned off");
+    Ecosystem::QUVYTA.set_update_notice_in(&dir.join("config"), false).expect("turned off");
     let registry = Registry::listing(&[("0.1.14", false)]);
     assert_eq!(check(&dir, "0.1.13", &registry.address).ask(morning()), None);
     assert_eq!(registry.questions(), 0, "not a single request");
     assert!(!dir.join("state").exists(), "nothing remembered either");
-    Family::QUVYTA.set_update_notice_in(&dir.join("config"), true).expect("turned on");
+    Ecosystem::QUVYTA.set_update_notice_in(&dir.join("config"), true).expect("turned on");
     assert!(check(&dir, "0.1.13", &registry.address).ask(morning()).is_some());
     std::fs::remove_dir_all(dir).ok();
 }
@@ -236,7 +236,7 @@ fn the_index_is_read_where_cargo_reads_it() {
     assert_eq!(index_address("https://index.crates.io", "Quvyta-Code"), "https://index.crates.io/qu/vy/quvyta-code");
 }
 
-/// An application that asks at start and shows the notice, as a member of the family does.
+/// An application that asks at start and shows the notice, as a member of the ecosystem does.
 struct Code;
 
 #[derive(Debug)]
@@ -247,7 +247,7 @@ enum Msg {
 impl App for Code {
     type Msg = Msg;
     fn init(&mut self) -> Command<Msg> {
-        Command::check_for_update(UpdateCheck::new(Family::QUVYTA, "code", "quvyta-code", "0.1.13", Msg::NewVersion))
+        Command::check_for_update(UpdateCheck::new(Ecosystem::QUVYTA, "code", "quvyta-code", "0.1.13", Msg::NewVersion))
     }
     fn update(&mut self, msg: Msg) -> Command<Msg> {
         match msg {
@@ -281,7 +281,7 @@ impl App for Alpha {
     type Msg = Msg;
     fn init(&mut self) -> Command<Msg> {
         Command::check_for_update(UpdateCheck::new(
-            Family::QUVYTA,
+            Ecosystem::QUVYTA,
             "cli",
             "quvyta-cli",
             "0.1.0-alpha.1",
@@ -315,7 +315,7 @@ struct Waiting {
 impl App for Waiting {
     type Msg = Msg;
     fn init(&mut self) -> Command<Msg> {
-        let check = UpdateCheck::new(Family::QUVYTA, "code", "quvyta-code", "0.1.13", Msg::NewVersion)
+        let check = UpdateCheck::new(Ecosystem::QUVYTA, "code", "quvyta-code", "0.1.13", Msg::NewVersion)
             .in_folders(self.dir.join("config"), self.dir.join("state"))
             .registry(self.registry.clone());
         Command::check_for_update(check)

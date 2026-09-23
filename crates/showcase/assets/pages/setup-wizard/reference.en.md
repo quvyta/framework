@@ -2,8 +2,8 @@
 
 The state the application holds; `Msg` is the application's own message type.
 
-- `Setup::new(family, app, &i18n, wrap) -> Setup<Msg>` — the setup of `app`, on its first step, with every message of the first step wrapped as `wrap`. Resolves the shared preferences without writing anything.
-- `Setup::new_in(config_dir, family, app, &i18n, wrap)` — the same with another family folder, for a test or a demo.
+- `Setup::new(ecosystem, app, &i18n, wrap) -> Setup<Msg>` — the setup of `app`, on its first step, with every message of the first step wrapped as `wrap`. Resolves the shared preferences without writing anything.
+- `Setup::new_in(config_dir, ecosystem, app, &i18n, wrap)` — the same with another ecosystem folder, for a test or a demo.
 - `.on_finish(msg)` — what the application is sent once the wizard has written the shared keys and made the file.
 - `.install(Install)` — another install than `Install::new()`, e.g. into a temporary folder.
 - `.font_dirs(Vec<PathBuf>)` — other folders to look for a Nerd Font in.
@@ -33,9 +33,9 @@ Built in `view` from the `Setup`.
 
 ## What it uses
 
-- `Appearance::rows(list, message)` — the three rows the family shares, without a heading and without the application's own rows; `Appearance::without_saving()` applies a change without writing a file.
-- `Family::preferences_without_saving(app, &i18n)` and `..._in(config_dir, app, &i18n)` — the resolution that leaves a missing shared file missing, for an application with a wizard.
-- `Family::set(app, key, value, scope)` — what Finish writes with, once per shared key.
+- `Appearance::rows(list, message)` — the three rows the ecosystem shares, without a heading and without the application's own rows; `Appearance::without_saving()` applies a change without writing a file.
+- `Ecosystem::preferences_without_saving(app, &i18n)` and `..._in(config_dir, app, &i18n)` — the resolution that leaves a missing shared file missing, for an application with a wizard.
+- `Ecosystem::set(app, key, value, scope)` — what Finish writes with, once per shared key.
 - `GlyphSample::new(GlyphMode)` — the samples beside the glyph mode names.
 - `nerd_font::installed_in`, `nerd_font::status_text`, `Install::task`, `Progress`, `nerd_font::after_install_text` — the font install of the first step.
 

@@ -306,7 +306,7 @@ icons-auto         = "Detectar"
 icons-nerd         = "Nerd Font"
 icons-unicode      = "Unicode"
 icons-ascii        = "ASCII"
-everywhere         = "Em todos os aplicativos {family}"
+everywhere         = "Em todo aplicativo do {family}"
 reduce-motion      = "Reduzir movimento"
 reduce-motion-text = "As camadas aparecem na hora; nada pulsa nem gira."
 forced-on          = "Reduzido pelo shell (QUVYTA_REDUCED_MOTION); a configuração não pode mudar isso aqui."
@@ -316,10 +316,10 @@ pillar-thick       = "Grossa"
 pillar-thin        = "Fina"
 not-saved          = "Aplicado, mas não salvo: {reason}"
 updates            = "Avisar quando houver atualização"
-updates-text       = "Para todos os aplicativos {family} de uma vez. Uma vez por dia, cada um consulta crates.io em busca da versão mais recente; apenas o próprio nome e a versão são enviados, nada sobre você ou esta máquina."
+updates-text       = "Para todos os aplicativos {family} de uma vez. Uma vez por dia, cada um consulta a crates.io para saber sua versão mais recente; são enviados apenas o próprio nome e a versão, nada sobre você ou esta máquina."
 
 # The notice that a newer version is out (runtime::Update::toast); {package} is the crate,
-# {launcher} the family's launcher command.
+# {launcher} the ecosystem's launcher command.
 [quvyta.update]
 title = "Saiu o {package} {latest}"
 body  = "Você tem a {current}. Atualize pelo {launcher} ou com cargo install {package}."

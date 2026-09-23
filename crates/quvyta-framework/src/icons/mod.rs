@@ -270,6 +270,11 @@ pub(crate) fn read_icon_table(
     }
 }
 
+/// Icon keys that were renamed, with the key each is now. A former name still gives the same
+/// glyph, so an application that asks for it keeps its icon until it moves to the new name; the
+/// list is not shown among the set's [`keys`](Icons::keys).
+const FORMER_KEYS: &[(&str, &str)] = &[("family", "ecosystem")];
+
 /// Checks the frames of a former spinner icon, which now replaces an animation's glyphs.
 fn legacy_glyphs(doc: &Doc<'_>, key: &str, value: &Value<'_>, glyphs: IconGlyphs) -> Result<IconGlyphs, Diagnostic> {
     if !animation::LEGACY_ICONS.iter().any(|(icon, _)| *icon == key) {
@@ -558,10 +563,18 @@ impl Icons {
         self.mode = mode;
     }
 
+    /// The glyphs of `key`, or of the key it was renamed to when `key` is a former name.
+    fn lookup(&self, key: &str) -> Option<&IconGlyphs> {
+        self.glyphs.get(key).or_else(|| {
+            let (_, now) = FORMER_KEYS.iter().find(|(former, _)| *former == key)?;
+            self.glyphs.get(*now)
+        })
+    }
+
     /// The glyph for `key`. A missing icon is drawn as `⟦key⟧` so it is noticed.
     #[must_use]
     pub fn glyph(&self, key: &str) -> Cow<'_, str> {
-        match self.glyphs.get(key) {
+        match self.lookup(key) {
             Some(glyphs) => Cow::Borrowed(glyphs.for_mode(self.mode)),
             None => Cow::Owned(format!("⟦{key}⟧")),
         }
@@ -576,13 +589,13 @@ impl Icons {
     /// Every glyph of `key`, whatever the mode, or `None` when it is not defined.
     #[must_use]
     pub fn glyphs(&self, key: &str) -> Option<&IconGlyphs> {
-        self.glyphs.get(key)
+        self.lookup(key)
     }
 
     /// Whether `key` is defined.
     #[must_use]
     pub fn contains(&self, key: &str) -> bool {
-        self.glyphs.contains_key(key)
+        self.lookup(key).is_some()
     }
 
     /// Every icon key, sorted.

@@ -23,12 +23,12 @@
 //! [`machine_name`] for keeping one file per machine in a folder several machines share, and
 //! [`FolderWatch`] for hearing about changes in a folder the moment the system sees them.
 //!
-//! Applications made to be used together keep their settings in one folder: a [`Family`] names
+//! Applications made to be used together keep their settings in one folder: an [`Ecosystem`] names
 //! it, gives each application its `<app>.conf` file and a folder beside it, and
-//! [`Family::adopt`] moves an application's settings there from the folder it used on its own.
-//! [`documents_dir`] and [`Family::workspace_dir`] say where the user's own work goes.
-//! [`Family::preferences`] resolves the language, theme and icons the family's applications share,
-//! and [`Family::set`] changes one of them for every application or for one.
+//! [`Ecosystem::adopt`] moves an application's settings there from the folder it used on its own.
+//! [`documents_dir`] and [`Ecosystem::workspace_dir`] say where the user's own work goes.
+//! [`Ecosystem::preferences`] resolves the language, theme and icons the ecosystem's applications share,
+//! and [`Ecosystem::set`] changes one of them for every application or for one.
 //!
 //! An application can describe its keys with a [`Schema`]. Loading then checks every key against
 //! it, and with [`Settings::self_heal`] on it repairs the file: unknown keys are removed, invalid
@@ -40,7 +40,7 @@
 mod atomic;
 mod dirs;
 mod documents;
-mod family;
+mod ecosystem;
 mod folder_watch;
 #[cfg(test)]
 mod healing_tests;
@@ -62,7 +62,11 @@ use toml::de::{DeTable, DeValue};
 pub use atomic::{WriteStep, atomic_write, atomic_write_reporting};
 pub use dirs::{cache_dir, config_dir, data_dir, state_dir};
 pub use documents::documents_dir;
-pub use family::Family;
+pub use ecosystem::Ecosystem;
+/// The former name of [`Ecosystem`]. It still works so applications can move over at their own
+/// pace; a later release marks it deprecated, and the one after removes it. New code uses
+/// [`Ecosystem`].
+pub type Family = Ecosystem;
 pub use folder_watch::{FolderChange, FolderChangeKind, FolderChanges, FolderWatch};
 pub use instance_lock::InstanceLock;
 pub use lock::{AppLock, holder_pid};
@@ -98,9 +102,9 @@ pub struct Settings {
     repairs: Vec<Diagnostic>,
     schema: Option<Schema>,
     self_heal: bool,
-    /// The family these settings belong to, whose id stands for "follow the shared file" in the
+    /// The ecosystem these settings belong to, whose id stands for "follow the shared file" in the
     /// keys every member shares.
-    family: Option<Family>,
+    ecosystem: Option<Ecosystem>,
 }
 
 impl Settings {
@@ -116,7 +120,7 @@ impl Settings {
     pub const PILLAR: &'static str = "pillar";
     /// The key of the selection slide flag.
     pub const SLIDE: &'static str = "slide";
-    /// The key of the update notice, in a family's shared file: whether its applications ask once
+    /// The key of the update notice, in an ecosystem's shared file: whether its applications ask once
     /// a day if a newer version is out. On when the key is missing.
     pub const UPDATE_NOTICE: &'static str = "update-notice";
 
@@ -137,52 +141,52 @@ impl Settings {
         Self::open_or_keep_in_memory(config_dir(app).map(|dir| dir.join(FILE_NAME)))
     }
 
-    /// Loads the settings of application `app` of `family` from its file in the family's folder,
-    /// [`Family::app_file`]: `~/.config/quvyta/code.conf` for `code` of [`Family::QUVYTA`] on
+    /// Loads the settings of application `app` of `ecosystem` from its file in the ecosystem's folder,
+    /// [`Ecosystem::app_file`]: `~/.config/quvyta/code.conf` for `code` of [`Ecosystem::QUVYTA`] on
     /// Linux. Without a home directory the settings stay in memory and a diagnostic says why, as
-    /// with [`load`](Self::load). Call [`Family::adopt`] first to bring the settings over from
+    /// with [`load`](Self::load). Call [`Ecosystem::adopt`] first to bring the settings over from
     /// the folder the application used before.
     #[must_use]
-    pub fn load_member(family: &Family, app: &str) -> Self {
-        Self::open_or_keep_in_memory(family.app_file(app)).member_of(family)
+    pub fn load_member(ecosystem: &Ecosystem, app: &str) -> Self {
+        Self::open_or_keep_in_memory(ecosystem.app_file(app)).member_of(ecosystem)
     }
 
-    /// Marks these settings as those of a member of `family`, for settings loaded with
+    /// Marks these settings as those of a member of `ecosystem`, for settings loaded with
     /// [`open`](Self::open) from a folder of the application's choosing;
     /// [`load_member`](Self::load_member) does it itself.
     ///
-    /// The family's id (`"quvyta"` for [`Family::QUVYTA`]) is then a valid value of every key
-    /// [`Shared`] names, whatever the [schema](Self::schema) says: it means "use the family's
-    /// shared value", see [`Family::preferences`]. Self-healing keeps it, and
+    /// The ecosystem's id (`"quvyta"` for [`Ecosystem::QUVYTA`]) is then a valid value of every key
+    /// [`Shared`] names, whatever the [schema](Self::schema) says: it means "use the ecosystem's
+    /// shared value", see [`Ecosystem::preferences`]. Self-healing keeps it, and
     /// [`theme`](Self::theme), [`language`](Self::language) and [`icon_mode`](Self::icon_mode)
     /// give `None` for it, so [`apply`](Self::apply) leaves those keys to the
     /// [preferences](Preferences). Call it before [`self_heal`](Self::self_heal), which repairs
     /// the file as soon as it is turned on.
     ///
     /// ```
-    /// use qframe::storage::{Family, Schema, Settings};
+    /// use qframe::storage::{Ecosystem, Schema, Settings};
     ///
     /// let text = "theme = \"quvyta\"\nicons = \"quvyta\"\n";
     /// let settings = Settings::parse_str("code.conf", text)
-    ///     .member_of(&Family::QUVYTA)
+    ///     .member_of(&Ecosystem::QUVYTA)
     ///     .schema(Schema::builtin().choice(Settings::THEME, ["monochrome", "nordic"], "monochrome"))
     ///     .self_heal(true);
     /// assert!(settings.diagnostics().is_empty());
     /// assert_eq!(settings.get::<String>(Settings::THEME).as_deref(), Some("quvyta"));
-    /// assert_eq!(settings.theme(), None, "follows the family");
+    /// assert_eq!(settings.theme(), None, "follows the ecosystem");
     /// ```
     #[must_use]
-    pub fn member_of(mut self, family: &Family) -> Self {
-        self.family = Some(*family);
+    pub fn member_of(mut self, ecosystem: &Ecosystem) -> Self {
+        self.ecosystem = Some(*ecosystem);
         self.review();
         self
     }
 
-    /// Whether `value` under `key` means "follow the family's shared value".
-    fn follows_family(&self, key: &str, value: &SettingValue) -> bool {
-        let Some(family) = self.family else { return false };
+    /// Whether `value` under `key` means "follow the ecosystem's shared value".
+    fn follows_ecosystem(&self, key: &str, value: &SettingValue) -> bool {
+        let Some(ecosystem) = self.ecosystem else { return false };
         Shared::ALL.iter().any(|shared| shared.key() == key)
-            && matches!(value, SettingValue::Text(text) if text == family.id())
+            && matches!(value, SettingValue::Text(text) if text == ecosystem.id())
     }
 
     /// The settings at `path`, or settings in memory with the reason when there is no path.
@@ -197,7 +201,7 @@ impl Settings {
         }
     }
 
-    /// Puts `diagnostics` found around loading, such as what [`Family::adopt`] left behind, in
+    /// Puts `diagnostics` found around loading, such as what [`Ecosystem::adopt`] left behind, in
     /// front of what reading the file found, so [`diagnostics`](Self::diagnostics) shows them
     /// together. They stay when a [schema](Self::schema) check runs again.
     #[must_use]
@@ -312,7 +316,7 @@ impl Settings {
                 continue;
             };
             let Some(value) =
-                self.value(&key).filter(|value| !rule.accepts(value) && !self.follows_family(&key, value))
+                self.value(&key).filter(|value| !rule.accepts(value) && !self.follows_ecosystem(&key, value))
             else {
                 continue;
             };
@@ -472,23 +476,23 @@ impl Settings {
         self.values.iter().map(|(key, _)| key.as_str())
     }
 
-    /// The saved theme id; `None` when the file says to follow the family, see
+    /// The saved theme id; `None` when the file says to follow the ecosystem, see
     /// [`member_of`](Self::member_of).
     #[must_use]
     pub fn theme(&self) -> Option<String> {
         self.own(Self::THEME)
     }
 
-    /// The saved locale code; `None` when the file says to follow the family, see
+    /// The saved locale code; `None` when the file says to follow the ecosystem, see
     /// [`member_of`](Self::member_of).
     #[must_use]
     pub fn language(&self) -> Option<String> {
         self.own(Self::LANGUAGE)
     }
 
-    /// The text under `key` unless it says to follow the family.
+    /// The text under `key` unless it says to follow the ecosystem.
     fn own(&self, key: &str) -> Option<String> {
-        self.value(key).filter(|value| !self.follows_family(key, value)).and_then(String::from_setting)
+        self.value(key).filter(|value| !self.follows_ecosystem(key, value)).and_then(String::from_setting)
     }
 
     /// The saved icon mode.
@@ -772,9 +776,9 @@ mod tests {
     }
 
     #[test]
-    fn a_family_member_loads_its_own_conf_file() {
-        let settings = Settings::load_member(&Family::QUVYTA, "code");
-        match Family::QUVYTA.app_file("code") {
+    fn a_ecosystem_member_loads_its_own_conf_file() {
+        let settings = Settings::load_member(&Ecosystem::QUVYTA, "code");
+        match Ecosystem::QUVYTA.app_file("code") {
             Some(file) => assert_eq!(settings.path(), Some(file.as_path())),
             None => assert_eq!(settings.diagnostics()[0].message, "no config directory found; settings are not saved"),
         }

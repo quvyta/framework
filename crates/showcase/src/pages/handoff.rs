@@ -26,7 +26,7 @@ const HELPER_SCRIPT: &str = r#"printf '%s ' "$QUVYTA_HELPER_ASK" >&2; read -r _ 
 /// A program nobody has installed, for the outcome of a handoff that cannot start.
 const MISSING: &str = "quvyta-not-installed";
 
-/// What the silent opening hands the desktop: the family's own page, so trying it out on a real
+/// What the silent opening hands the desktop: the ecosystem's own page, so trying it out on a real
 /// machine opens something harmless in whatever browser this person uses.
 const ADDRESS: &str = "https://quvyta.com";
 

@@ -55,7 +55,7 @@ window-minimize  = { nerd = "\uf2d1", unicode = "−", ascii = "-" }
 window-maximize  = { nerd = "\uf2d0", unicode = "+", ascii = "+" }
 window-restore   = { nerd = "\uf2d2", unicode = "◇", ascii = "o" }
 
-# ---- Launcher categories and the family's mark
+# ---- Launcher categories and the ecosystem's mark
 # The kinds of program a launcher groups its entries by, and the icon an entry without one of its
 # own is drawn with. Nerd Font draws the thing itself (cogs, code, globe, page, note, folder);
 # Unicode stays inside Geometric Shapes, which terminals and monospace fonts draw as one cell, so
@@ -68,10 +68,10 @@ category-network     = { nerd = "", unicode = "◎", ascii = "~" }
 category-office      = { nerd = "", unicode = "▥", ascii = "=" }
 category-media       = { nerd = "", unicode = "◗", ascii = ">" }
 category-files       = { nerd = "", unicode = "▩", ascii = "/" }
-# Quvyta's own mark, on the button that opens everything the family can do. The one Unicode glyph
+# Quvyta's own mark, on the button that opens everything the ecosystem can do. The one Unicode glyph
 # outside Geometric Shapes: it is the mark itself, one cell wide in every terminal, and `◈` is
 # already the project icon. A theme that wants another shape sets it in its [icons] table.
-family               = { nerd = "❖", unicode = "❖", ascii = "*" }
+ecosystem               = { nerd = "❖", unicode = "❖", ascii = "*" }
 
 # ---- Scrollbars
 # Blank ASCII glyphs draw coloured cells.
@@ -102,11 +102,11 @@ warning          = { nerd = "\uf071", unicode = "▲", ascii = "!" }
 error            = { nerd = "\uf057", unicode = "✕", ascii = "x" }
 info             = { nerd = "\uf05a", unicode = "ℹ", ascii = "i" }
 # The button that answers what the keys do. A question mark is what the meaning is read as
-# wherever the family is read, so all three modes draw the same character.
+# wherever the ecosystem is read, so all three modes draw the same character.
 help             = { nerd = "?", unicode = "?", ascii = "?" }
 
 # ---- Application main menu
-# The rows every application in the family shows: a project, who you are, the settings and the way
+# The rows every application in the ecosystem shows: a project, who you are, the settings and the way
 # out. Nerd Font draws the thing itself (cube, person, cog, power); Unicode stays inside Geometric
 # Shapes, which terminals and monospace fonts draw as one cell, so no row falls back to another
 # font and overflows; ASCII borrows the character people already read as that meaning.

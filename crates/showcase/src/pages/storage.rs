@@ -1,8 +1,8 @@
 //! Settings storage: typed values saved as TOML in the config directory, the showcase's own
 //! appearance choices, located diagnostics for a broken file, self-healing by a schema, and the
 //! rest of what an application needs around its own files: the two platform folders and the
-//! machine's name for files of its own in them, the family's shared settings folder and the
-//! Documents folder, moving old settings into the family, an atomic write step by step, the lock
+//! machine's name for files of its own in them, the ecosystem's shared settings folder and the
+//! Documents folder, moving old settings into the ecosystem, an atomic write step by step, the lock
 //! that keeps a second instance out, and the shared lock that wakes a waiter when the last
 //! instance closes.
 
@@ -12,7 +12,7 @@ use qframe::diagnostics::Severity;
 use qframe::env::Env;
 use qframe::prelude::*;
 use qframe::storage::{
-    AppLock, Family, InstanceLock, Migration, Schema, SettingKind, Settings, WriteStep, atomic_write_reporting,
+    AppLock, Ecosystem, InstanceLock, Migration, Schema, SettingKind, Settings, WriteStep, atomic_write_reporting,
 };
 use qframe::widgets::{CodeView, Language, Segmented, Switch, TextInput};
 
@@ -92,7 +92,7 @@ pub struct State {
     waiting: bool,
     /// What the last wait for the exclusive lock came to.
     waited: Option<Result<(), String>>,
-    /// What the last move of the demo's old folder into its family reported, or why the demo
+    /// What the last move of the demo's old folder into its ecosystem reported, or why the demo
     /// could not set the old folder up.
     adopt: Option<Result<Migration, String>>,
     /// The folder this page's demo files live in, one per instance of the page.
@@ -154,7 +154,7 @@ fn write_safely(path: &Path) -> Result<Vec<WriteStep>, String> {
 }
 
 /// An application's old settings folder, the way it looked before the application joined its
-/// family: its settings, a profile, and a theme the family's folder already has a file for. Set
+/// ecosystem: its settings, a profile, and a theme the ecosystem's folder already has a file for. Set
 /// up once, so pressing the button again shows what a second start finds.
 fn old_folder(root: &Path) -> std::io::Result<()> {
     if root.exists() {
@@ -174,14 +174,14 @@ fn old_folder(root: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Moves the demo's old folder into the demo family folder under `root`.
+/// Moves the demo's old folder into the demo ecosystem folder under `root`.
 fn adopt_old_folder(root: &Path) -> Result<Migration, String> {
     old_folder(root).map_err(|error| error.to_string())?;
-    let (family, old) = (root.join("quvyta"), root.join("quvyta-packages"));
+    let (ecosystem, old) = (root.join("quvyta"), root.join("quvyta-packages"));
     // region: storage-adopt
-    // An application calls Family::QUVYTA.adopt("packages", &old) once at start, before
+    // An application calls Ecosystem::QUVYTA.adopt("packages", &old) once at start, before
     // Settings::load_member. The demo moves into a folder of this run, not into your own.
-    let migration = Family::QUVYTA.adopt_in(&family, "packages", &old);
+    let migration = Ecosystem::QUVYTA.adopt_in(&ecosystem, "packages", &old);
     // endregion
     Ok(migration)
 }
@@ -425,18 +425,18 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                     for (from, to) in migration.moved() {
                         log.push(
                             PAGE,
-                            "Family::adopt",
+                            "Ecosystem::adopt",
                             format!("moved {} to {}", shown(&root, from), shown(&root, to)),
                         );
                     }
                     for diagnostic in migration.diagnostics() {
-                        log.push(PAGE, "Family::adopt", shown_message(&root, &diagnostic.message));
+                        log.push(PAGE, "Ecosystem::adopt", shown_message(&root, &diagnostic.message));
                     }
                     if migration.moved().is_empty() && migration.is_clean() {
-                        log.push(PAGE, "Family::adopt", "nothing to move");
+                        log.push(PAGE, "Ecosystem::adopt", "nothing to move");
                     }
                 }
-                Err(error) => log.push(PAGE, "Family::adopt", error.clone()),
+                Err(error) => log.push(PAGE, "Ecosystem::adopt", error.clone()),
             }
             state.adopt = Some(result);
             Command::none()
@@ -505,22 +505,22 @@ fn folders(ui: &mut View<'_, AppMsg>) {
     .fill_width();
 }
 
-/// The family's shared settings folder and the Documents folder, as they are on this machine.
-fn family(ui: &mut View<'_, AppMsg>) {
-    ui.add_with(Panel::new().title(t!("storage.family")).gap(0), |ui| {
-        ui.add(Text::new(t!("storage.family-hint")).role("secondary"));
+/// The ecosystem's shared settings folder and the Documents folder, as they are on this machine.
+fn ecosystem(ui: &mut View<'_, AppMsg>) {
+    ui.add_with(Panel::new().title(t!("storage.ecosystem")).gap(0), |ui| {
+        ui.add(Text::new(t!("storage.ecosystem-hint")).role("secondary"));
         ui.spacer().height(Length::Cells(1));
-        // region: storage-family
-        let family = Family::QUVYTA;
+        // region: storage-ecosystem
+        let ecosystem = Ecosystem::QUVYTA;
         let rows = [
             (t!("storage.documents-dir"), qframe::storage::documents_dir()),
-            (t!("storage.workspace-dir"), family.workspace_dir("Code")),
-            (t!("storage.family-dir"), family.config_dir()),
-            (t!("storage.shared-file"), family.shared_file()),
-            (t!("storage.app-file"), family.app_file("code")),
-            (t!("storage.app-dir"), family.app_dir("code")),
-            (t!("storage.member-state-dir"), family.state_dir("code")),
-            (t!("storage.member-cache-dir"), family.cache_dir("code")),
+            (t!("storage.workspace-dir"), ecosystem.workspace_dir("Code")),
+            (t!("storage.ecosystem-dir"), ecosystem.config_dir()),
+            (t!("storage.shared-file"), ecosystem.shared_file()),
+            (t!("storage.app-file"), ecosystem.app_file("code")),
+            (t!("storage.app-dir"), ecosystem.app_dir("code")),
+            (t!("storage.member-state-dir"), ecosystem.state_dir("code")),
+            (t!("storage.member-cache-dir"), ecosystem.cache_dir("code")),
         ];
         // endregion
         for (label, path) in rows {
@@ -536,7 +536,7 @@ fn family(ui: &mut View<'_, AppMsg>) {
     .fill_width();
 }
 
-/// An old settings folder moved into the family, and what the move reported.
+/// An old settings folder moved into the ecosystem, and what the move reported.
 fn adoption(state: &State, ui: &mut View<'_, AppMsg>) {
     ui.add_with(Panel::new().title(t!("storage.adopt")).gap(0), |ui| {
         ui.add(Text::new(t!("storage.adopt-hint")).role("secondary"));
@@ -762,7 +762,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     .fill_width();
 
     folders(ui);
-    family(ui);
+    ecosystem(ui);
     adoption(state, ui);
     safe_write(state, ui);
     one_instance(state, ui);
@@ -946,20 +946,20 @@ mod tests {
     }
 
     #[test]
-    fn the_family_folders_are_shown_as_they_are_on_this_machine() {
+    fn the_ecosystem_folders_are_shown_as_they_are_on_this_machine() {
         let h = tall(Showcase::new());
         let screen = h.screen();
-        assert!(screen.contains("THE FAMILY'S FOLDERS"), "{screen}");
-        let family = Family::QUVYTA;
+        assert!(screen.contains("THE ECOSYSTEM'S FOLDERS"), "{screen}");
+        let ecosystem = Ecosystem::QUVYTA;
         let places = [
             qframe::storage::documents_dir(),
-            family.workspace_dir("Code"),
-            family.config_dir(),
-            family.shared_file(),
-            family.app_file("code"),
-            family.app_dir("code"),
-            family.state_dir("code"),
-            family.cache_dir("code"),
+            ecosystem.workspace_dir("Code"),
+            ecosystem.config_dir(),
+            ecosystem.shared_file(),
+            ecosystem.app_file("code"),
+            ecosystem.app_dir("code"),
+            ecosystem.state_dir("code"),
+            ecosystem.cache_dir("code"),
         ];
         for label in ["State of code", "Cache of code"] {
             assert!(screen.contains(label), "{label} row in {screen}");

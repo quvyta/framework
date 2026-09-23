@@ -37,24 +37,24 @@
 - Platformun değişkenleri bir şey söylemiyorsa `None`. `Settings::load` o zaman her şeyi bir uyarı tanısıyla bellekte tutar.
 - Sormak klasörü oluşturmaz, klasörün var olması da gerekmez.
 
-## Aile
+## Ekosistem
 
-- `Family::QUVYTA`, `Family::new(kimlik, başlık)` — bir uygulama ailesi: klasör ve dosya adları için küçük harfli bir `kimlik`, kullanıcının ad olarak okuduğu yerler için bir `başlık`. `.id()`, `.title()`.
-- `.config_dir()` — ailenin klasörü: Linux ve diğer Unix sistemlerinde mutlaksa `$XDG_CONFIG_HOME/<kimlik>`, değilse `$HOME/.config/<kimlik>`; macOS'ta `$HOME/Library/Application Support/<başlık>`; Windows'ta `%APPDATA%\<başlık>`. Ev klasörü yoksa `None`.
+- `Ecosystem::QUVYTA`, `Ecosystem::new(kimlik, başlık)` — bir uygulama ekosistemi: klasör ve dosya adları için küçük harfli bir `kimlik`, kullanıcının ad olarak okuduğu yerler için bir `başlık`. `.id()`, `.title()`.
+- `.config_dir()` — ekosistemin klasörü: Linux ve diğer Unix sistemlerinde mutlaksa `$XDG_CONFIG_HOME/<kimlik>`, değilse `$HOME/.config/<kimlik>`; macOS'ta `$HOME/Library/Application Support/<başlık>`; Windows'ta `%APPDATA%\<başlık>`. Ev klasörü yoksa `None`.
 - `.shared_file()` — `<config_dir>/<kimlik>.conf`, bütün üyelerin paylaştığı ayarlar.
-- `.app_file(uygulama)` — `<config_dir>/<uygulama>.conf`. Kimliği ailenin kimliğiyle aynı olan bir uygulama ortak dosyayı alır.
+- `.app_file(uygulama)` — `<config_dir>/<uygulama>.conf`. Kimliği ekosistemin kimliğiyle aynı olan bir uygulama ortak dosyayı alır.
 - `.app_dir(uygulama)` — `<config_dir>/<uygulama>`, uygulamanın diğer yapılandırma dosyaları için.
 - `.state_dir(uygulama)` — `<durum klasörü>/<kimlik>/<uygulama>`: Linux ve diğer Unix'te mutlaksa `$XDG_STATE_HOME/<kimlik>/<uygulama>`, değilse `$HOME/.local/state/<kimlik>/<uygulama>`; macOS'ta `$HOME/Library/Application Support/<başlık>/<uygulama>`; Windows'ta `%LOCALAPPDATA%\<başlık>\<uygulama>`.
 - `.cache_dir(uygulama)` — `<önbellek klasörü>/<kimlik>/<uygulama>`: Linux ve diğer Unix'te mutlaksa `$XDG_CACHE_HOME/<kimlik>/<uygulama>`, değilse `$HOME/.cache/<kimlik>/<uygulama>`; macOS'ta `$HOME/Library/Caches/<başlık>/<uygulama>`; Windows'ta `%LOCALAPPDATA%\<başlık>\<uygulama>`.
 - `.workspace_dir(uygulama_başlığı)` — `<documents_dir>/<başlık>/<uygulama_başlığı>`, kullanıcının uygulamayla yaptığı işin yeri.
-- `Settings::load_member(&aile, uygulama)` — `Settings::open(aile.app_file(uygulama))`; ev klasörü yoksa `Settings::load` ile aynı uyarıyla bellekte ayarlar.
+- `Settings::load_member(&ekosistem, uygulama)` — `Settings::open(ekosistem.app_file(uygulama))`; ev klasörü yoksa `Settings::load` ile aynı uyarıyla bellekte ayarlar.
 - `Settings::with_diagnostics(tanılar)` — yüklemenin çevresinde bulunan tanıları dosyanın kendi tanılarının önüne koyar; sonraki şema denetimlerinde de kalırlar.
 - Sormak hiçbir şey oluşturmaz.
 
 ## Eski ayarları taşımak
 
-- `aile.adopt(uygulama, eski_klasör) -> Migration` — `eski_klasör/settings.toml` `app_file(uygulama)` olur; `eski_klasör` altındaki diğer her dosya, her derinlikte, `app_dir(uygulama)` altında aynı göreli yola gider.
-- `aile.adopt_in(config_dir, uygulama, eski_klasör)` — aynı taşıma, ailenin klasörü olarak `config_dir` ile; kullanıcının kendi ayarlarına dokunmaması gereken testler ve demolar için.
+- `ekosistem.adopt(uygulama, eski_klasör) -> Migration` — `eski_klasör/settings.toml` `app_file(uygulama)` olur; `eski_klasör` altındaki diğer her dosya, her derinlikte, `app_dir(uygulama)` altında aynı göreli yola gider.
+- `ekosistem.adopt_in(config_dir, uygulama, eski_klasör)` — aynı taşıma, ekosistemin klasörü olarak `config_dir` ile; kullanıcının kendi ayarlarına dokunmaması gereken testler ve demolar için.
 - `eski_klasör` `app_dir(uygulama)` ise yalnızca `settings.toml` taşınır ve klasör kalır.
 - Her taşıma: yeni ad sahiplenilir (boş oluşturulur, orada bir şey varsa başarısız olur; Unix'te eski dosyanın izinleriyle), `atomic_write` ile doldurulur, eski dosyanın izinlerini alır, geri okunup karşılaştırılır; eski dosya ancak ondan sonra silinir. Başarısız bir adım yeni dosyayı siler, eskisini tutar.
 - Dolu bir yeni yer, sembolik bağ (asla izlenmez, asla taşınmaz), düz dosya olmayan her şey ve okunamayan dosya olduğu yerde kalır; her biri yolu anan bir tanıyla. `eski_klasör` sembolik bağ ya da dosyaysa, ya da `app_dir`'in içinde veya onu içeriyorsa hiçbir şey taşınmaz.

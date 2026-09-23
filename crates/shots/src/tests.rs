@@ -264,7 +264,7 @@ fn a_square_shot_fills_its_corners_with_the_ground() {
     assert!(square.contains(" rx=\"0\"") && !square.contains("A10 10"), "{square}");
 }
 
-/// The first screen of every application in the family: the setup wizard's appearance step, whose
+/// The first screen of every application in the ecosystem: the setup wizard's appearance step, whose
 /// icon samples are the glyphs an application's README wants a picture of.
 mod wizard {
     use std::path::{Path, PathBuf};
@@ -272,7 +272,7 @@ mod wizard {
     use qframe::i18n::I18n;
     use qframe::icons::nerd_font::Install;
     use qframe::prelude::*;
-    use qframe::storage::{Family, Settings};
+    use qframe::storage::{Ecosystem, Settings};
     use qframe::widgets::{Setup, SetupMsg, SetupWizard};
 
     use crate::Shot;
@@ -287,10 +287,10 @@ mod wizard {
         /// Everything this application reads or writes is inside `folder`, the user's own settings
         /// and font folders included: the wizard never sees them.
         fn new(folder: &Path) -> Self {
-            let setup = Setup::new_in(folder, Family::QUVYTA, "code", &I18n::builtin(), |msg| msg)
+            let setup = Setup::new_in(folder, Ecosystem::QUVYTA, "code", &I18n::builtin(), |msg| msg)
                 .install(Install::new().target(folder.join("fonts")).register(false))
                 .font_dirs(vec![folder.join("fonts")]);
-            Self { setup, settings: Settings::open(folder.join("code.conf")).member_of(&Family::QUVYTA) }
+            Self { setup, settings: Settings::open(folder.join("code.conf")).member_of(&Ecosystem::QUVYTA) }
         }
     }
 

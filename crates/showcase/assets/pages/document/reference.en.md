@@ -13,7 +13,7 @@
 - `ValueKind::choice(["podman", "docker"])` — one string of a fixed list; anything else is reported as `must be one of podman, docker`.
 - `ValueKind::integer()` — a whole number, in any base TOML writes (`0x1f` reads as 31).
 - `ValueKind::flag()` — `true` or `false`.
-- There is no float, no array of scalars and no validator, because no data file the family writes holds one yet. Check what only your application can judge after reading it, and report it at `Table::value_location(key)`, where the framework reports its own findings about a value.
+- There is no float, no array of scalars and no validator, because no data file the ecosystem writes holds one yet. Check what only your application can judge after reading it, and report it at `Table::value_location(key)`, where the framework reports its own findings about a value.
 
 ## Document
 

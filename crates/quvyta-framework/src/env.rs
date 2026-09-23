@@ -382,7 +382,7 @@ impl Env {
         }
     }
 
-    /// Switches to the language, theme and icons the family's preferences resolved.
+    /// Switches to the language, theme and icons the ecosystem's preferences resolved.
     pub(crate) fn apply_preferences(&mut self, preferences: &crate::storage::Preferences) {
         self.set_theme(&preferences.theme().value);
         self.set_locale(&preferences.language().value);

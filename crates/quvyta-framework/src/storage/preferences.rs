@@ -1,7 +1,7 @@
-//! The preferences every application of a family shares: language, theme and icons.
+//! The preferences every application of an ecosystem shares: language, theme and icons.
 //!
-//! The family's shared file holds one value of each, and each application's own file either
-//! names its own value or the family's id, which means "use the shared one":
+//! The ecosystem's shared file holds one value of each, and each application's own file either
+//! names its own value or the ecosystem's id, which means "use the shared one":
 //!
 //! ```toml
 //! # quvyta.conf
@@ -14,21 +14,21 @@
 //! theme = "nordic"
 //! ```
 //!
-//! [`Family::preferences`] resolves each key on its own, in this order:
+//! [`Ecosystem::preferences`] resolves each key on its own, in this order:
 //!
-//! 1. the application's value, when it is anything but the family's id;
-//! 2. the shared file's value, when the application's value is the family's id or the key is
+//! 1. the application's value, when it is anything but the ecosystem's id;
+//! 2. the shared file's value, when the application's value is the ecosystem's id or the key is
 //!    missing from the application's file;
 //! 3. the value detected on this machine, when the shared file does not hold one either.
 //!
-//! [`Family::set`] changes one key for the whole family or for one application, and
-//! [`Family::follow`] puts one application back on the family's value without touching it.
+//! [`Ecosystem::set`] changes one key for the whole ecosystem or for one application, and
+//! [`Ecosystem::follow`] puts one application back on the ecosystem's value without touching it.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{Family, SettingValue, Settings, atomic_write};
+use super::{Ecosystem, SettingValue, Settings, atomic_write};
 use crate::diagnostics::{Diagnostic, Severity};
 use crate::i18n::I18n;
 use crate::icons::{GlyphMode, IconMode, default_font_dirs, detect_glyph_mode};
@@ -40,7 +40,7 @@ const DETECTED_THEME: &str = "monochrome";
 /// The language when the system names none the application speaks.
 const FALLBACK_LANGUAGE: &str = "en";
 
-/// A preference every application of a family shares.
+/// A preference every application of an ecosystem shares.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Shared {
     /// The language, a locale code such as `tr`.
@@ -66,16 +66,23 @@ impl Shared {
     }
 }
 
-/// Where [`Family::set`] writes a change: the "In every Quvyta application" choice of a settings
+/// Where [`Ecosystem::set`] writes a change: the "In every Quvyta application" choice of a settings
 /// screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Scope {
     /// The shared file takes the value and the application follows it again, so every
-    /// application that follows the family changes with it. Applications that chose their own
+    /// application that follows the ecosystem changes with it. Applications that chose their own
     /// value keep it.
-    Family,
+    Ecosystem,
     /// Only the application's own file takes the value; the shared file is left alone.
     App,
+}
+
+impl Scope {
+    /// The former name of [`Scope::Ecosystem`], still working so applications can move over; a
+    /// later release marks it deprecated. New code uses [`Scope::Ecosystem`].
+    #[allow(non_upper_case_globals)]
+    pub const Family: Scope = Scope::Ecosystem;
 }
 
 /// Where a resolved preference came from, so a settings screen can say "follows every Quvyta
@@ -84,10 +91,17 @@ pub enum Scope {
 pub enum Source {
     /// The application's own file names it.
     App,
-    /// The family's shared file holds it and the application follows it.
-    Family,
+    /// The ecosystem's shared file holds it and the application follows it.
+    Ecosystem,
     /// Neither file holds it; it was detected on this machine.
     Detected,
+}
+
+impl Source {
+    /// The former name of [`Source::Ecosystem`], still working so applications can move over; a
+    /// later release marks it deprecated. New code uses [`Source::Ecosystem`].
+    #[allow(non_upper_case_globals)]
+    pub const Family: Source = Source::Ecosystem;
 }
 
 /// A preference's value together with where it came from.
@@ -99,16 +113,16 @@ pub struct Resolved<T> {
     pub source: Source,
 }
 
-/// The shared preferences as one application sees them, from [`Family::preferences`].
+/// The shared preferences as one application sees them, from [`Ecosystem::preferences`].
 ///
 /// ```
 /// use qframe::i18n::I18n;
-/// use qframe::storage::{Family, Source};
+/// use qframe::storage::{Ecosystem, Source};
 ///
 /// # let folder = std::env::temp_dir().join(format!("quvyta-preferences-doc-{}", std::process::id()));
-/// // An application calls `Family::QUVYTA.preferences("code", &i18n)`; the example keeps to a
+/// // An application calls `Ecosystem::QUVYTA.preferences("code", &i18n)`; the example keeps to a
 /// // folder of its own.
-/// let prefs = Family::QUVYTA.preferences_in(&folder, "code", &I18n::builtin());
+/// let prefs = Ecosystem::QUVYTA.preferences_in(&folder, "code", &I18n::builtin());
 /// let theme = prefs.theme();
 /// assert_eq!((theme.value.as_str(), theme.source), ("monochrome", Source::Detected), "never detected");
 /// assert!(folder.join("quvyta.conf").is_file(), "the first start writes the shared file");
@@ -124,15 +138,15 @@ pub struct Preferences {
 }
 
 impl Preferences {
-    /// Whether the family's applications say when a newer version of themselves is out; see
-    /// [`Family::update_notice`]. One switch for the whole family, on unless it was turned off.
+    /// Whether the ecosystem's applications say when a newer version of themselves is out; see
+    /// [`Ecosystem::update_notice`]. One switch for the whole ecosystem, on unless it was turned off.
     #[must_use]
     pub fn update_notice(&self) -> bool {
         self.update_notice
     }
 
     /// Records that the update notice is now `on`, after a change written with
-    /// [`Family::set_update_notice`].
+    /// [`Ecosystem::set_update_notice`].
     pub(crate) fn record_update_notice(&mut self, on: bool) {
         self.update_notice = on;
     }
@@ -166,7 +180,7 @@ impl Preferences {
     }
 
     /// Records that `key` now holds `value`, which came from `source`, after a change written
-    /// with [`Family::set`].
+    /// with [`Ecosystem::set`].
     pub(crate) fn record(&mut self, key: Shared, value: &str, source: Source) {
         match key {
             Shared::Language => self.language = Resolved { value: value.to_owned(), source },
@@ -255,12 +269,12 @@ impl Detected {
     }
 }
 
-impl Family {
+impl Ecosystem {
     /// Resolves the shared preferences of application `app`: for each of language, theme and
-    /// icons, the application's own value when its file names one other than the family's id,
+    /// icons, the application's own value when its file names one other than the ecosystem's id,
     /// else the value in the [shared file](Self::shared_file), else the value detected on this
-    /// machine. A key missing from the application's file follows the family, as the family's id
-    /// does, so a file written by hand before the family shared anything follows it too.
+    /// machine. A key missing from the application's file follows the ecosystem, as the ecosystem's id
+    /// does, so a file written by hand before the ecosystem shared anything follows it too.
     ///
     /// Detection reads the environment: the language as [`I18n::detect`] finds it among the
     /// languages `i18n` knows (English when it knows none of the system's), the theme always
@@ -292,7 +306,7 @@ impl Family {
         }
     }
 
-    /// [`preferences`](Self::preferences) with `config_dir` as the family's folder instead of
+    /// [`preferences`](Self::preferences) with `config_dir` as the ecosystem's folder instead of
     /// this platform's, for a test or a demo that must leave the user's own files alone.
     #[must_use]
     pub fn preferences_in(&self, config_dir: &Path, app: &str, i18n: &I18n) -> Preferences {
@@ -321,7 +335,7 @@ impl Family {
     }
 
     /// [`preferences_without_saving`](Self::preferences_without_saving) with `config_dir` as the
-    /// family's folder instead of this platform's, for a test or a demo.
+    /// ecosystem's folder instead of this platform's, for a test or a demo.
     #[must_use]
     pub fn preferences_without_saving_in(&self, config_dir: &Path, app: &str, i18n: &I18n) -> Preferences {
         let lookup = |name: &str| std::env::var(name).ok();
@@ -342,17 +356,17 @@ impl Family {
         self.resolve(config_dir, app, &Detected::on_this_machine(i18n, lookup, &[]), Missing::Create)
     }
 
-    /// Changes shared preference `key` of application `app` to `value`, for the whole family or
+    /// Changes shared preference `key` of application `app` to `value`, for the whole ecosystem or
     /// for the application alone:
     ///
     /// | `scope` | shared file | application's file |
     /// |---|---|---|
-    /// | [`Scope::Family`] | `key = value` | `key = "<family id>"` |
+    /// | [`Scope::Ecosystem`] | `key = value` | `key = "<ecosystem id>"` |
     /// | [`Scope::App`] | unchanged | `key = value` |
     ///
     /// Each file is read from disk right before it is written and only `key` changes in it, so
     /// two applications changing preferences at the same time both keep their change instead
-    /// of one writing back what it read earlier. On Unix systems the family's folder is held
+    /// of one writing back what it read earlier. On Unix systems the ecosystem's folder is held
     /// with an advisory lock from the reading to the writing, so even two changes in the same
     /// instant follow one another; elsewhere the window between them is a few microseconds. Files are written with [`atomic_write`]; the
     /// other keys stay as they were, though comments do not survive, as with
@@ -362,7 +376,7 @@ impl Family {
     /// # Errors
     ///
     /// Returns an error of kind [`io::ErrorKind::InvalidInput`] when `value` is not a valid
-    /// value of `key` (an unknown icon mode, the family's own id, an empty text), of kind
+    /// value of `key` (an unknown icon mode, the ecosystem's own id, an empty text), of kind
     /// [`io::ErrorKind::NotFound`] when there is no home folder, and any error from writing.
     pub fn set(&self, app: &str, key: Shared, value: &str, scope: Scope) -> io::Result<()> {
         match self.config_dir() {
@@ -371,7 +385,7 @@ impl Family {
         }
     }
 
-    /// [`set`](Self::set) with `config_dir` as the family's folder instead of this platform's.
+    /// [`set`](Self::set) with `config_dir` as the ecosystem's folder instead of this platform's.
     ///
     /// # Errors
     ///
@@ -380,10 +394,10 @@ impl Family {
         let value = self.checked(key, value)?;
         fs::create_dir_all(config_dir)?;
         let _held = hold_folder(config_dir)?;
-        let app_file = config_dir.join(super::family::file_name(app));
+        let app_file = config_dir.join(super::ecosystem::file_name(app));
         match scope {
-            Scope::Family => {
-                let shared_file = config_dir.join(super::family::file_name(self.id()));
+            Scope::Ecosystem => {
+                let shared_file = config_dir.join(super::ecosystem::file_name(self.id()));
                 rewrite(&shared_file, key.key(), SettingValue::Text(value), None)?;
                 rewrite(&app_file, key.key(), SettingValue::Text(self.id().to_owned()), Some(self))
             }
@@ -391,16 +405,16 @@ impl Family {
         }
     }
 
-    /// Puts application `app` back on the family's value of `key`: its own file says the family's
+    /// Puts application `app` back on the ecosystem's value of `key`: its own file says the ecosystem's
     /// id and the [shared file](Self::shared_file) is neither read nor written, so the next
-    /// resolution answers the shared value with [`Source::Family`] and no other application
+    /// resolution answers the shared value with [`Source::Ecosystem`] and no other application
     /// changes. The one way back from a value of an application's own, for the settings screen
-    /// that lists every member of the family: "follow the shared setting" on one member's cell
-    /// must not change what the whole family draws with.
+    /// that lists every member of the ecosystem: "follow the shared setting" on one member's cell
+    /// must not change what the whole ecosystem draws with.
     ///
     /// The file is read from disk right before it is written and only `key` changes in it, as
-    /// [`set`](Self::set) does, with the family's folder held by an advisory lock on Unix. A
-    /// missing file is created holding that one key. A key that already follows the family is
+    /// [`set`](Self::set) does, with the ecosystem's folder held by an advisory lock on Unix. A
+    /// missing file is created holding that one key. A key that already follows the ecosystem is
     /// left alone, file and all. Comments do not survive a change, as with [`Settings::save`].
     /// The running application is not switched; use [`Preferences::apply`] for that.
     ///
@@ -416,16 +430,16 @@ impl Family {
         }
     }
 
-    /// [`follow`](Self::follow) with `config_dir` as the family's folder instead of this
+    /// [`follow`](Self::follow) with `config_dir` as the ecosystem's folder instead of this
     /// platform's, for a test or a demo that must leave the user's own files alone.
     ///
     /// ```
-    /// use qframe::storage::{Family, Shared};
+    /// use qframe::storage::{Ecosystem, Shared};
     ///
     /// # let folder = std::env::temp_dir().join(format!("quvyta-follow-doc-{}", std::process::id()));
     /// # std::fs::create_dir_all(&folder).expect("folder");
     /// std::fs::write(folder.join("code.conf"), "theme = \"amber\"\n").expect("the file");
-    /// Family::QUVYTA.follow_in(&folder, "code", Shared::Theme).expect("follow");
+    /// Ecosystem::QUVYTA.follow_in(&folder, "code", Shared::Theme).expect("follow");
     /// assert_eq!(std::fs::read_to_string(folder.join("code.conf")).expect("read"), "theme = \"quvyta\"\n");
     /// assert!(!folder.join("quvyta.conf").exists(), "the shared file is left alone");
     /// # std::fs::remove_dir_all(&folder).ok();
@@ -437,7 +451,7 @@ impl Family {
     pub fn follow_in(&self, config_dir: &Path, app: &str, key: Shared) -> io::Result<()> {
         fs::create_dir_all(config_dir)?;
         let _held = hold_folder(config_dir)?;
-        let path = config_dir.join(super::family::file_name(app));
+        let path = config_dir.join(super::ecosystem::file_name(app));
         let mut settings = Settings::open(&path).member_of(self);
         if let Some(problem) = settings.diagnostics().iter().find(|problem| problem.severity == Severity::Error) {
             return Err(io::Error::new(io::ErrorKind::InvalidData, problem.to_string()));
@@ -457,7 +471,7 @@ impl Family {
     pub(crate) fn set_own_in(&self, config_dir: &Path, app: &str, key: &str, value: SettingValue) -> io::Result<()> {
         fs::create_dir_all(config_dir)?;
         let _held = hold_folder(config_dir)?;
-        rewrite(&config_dir.join(super::family::file_name(app)), key, value, Some(self))
+        rewrite(&config_dir.join(super::ecosystem::file_name(app)), key, value, Some(self))
     }
 
     /// `value` as it is written under `key`, or why it cannot be.
@@ -468,7 +482,7 @@ impl Family {
             return Err(invalid(format!("`{}` cannot be empty", key.key())));
         }
         if value == self.id() {
-            return Err(invalid(format!("`{}` cannot be set to the family's own id `{value}`", key.key())));
+            return Err(invalid(format!("`{}` cannot be set to the ecosystem's own id `{value}`", key.key())));
         }
         match key {
             Shared::Icons => IconMode::from_name(value)
@@ -482,7 +496,7 @@ impl Family {
     /// with the `detected` values when it is missing and `missing` says to.
     fn resolve(&self, config_dir: &Path, app: &str, detected: &Detected, missing: Missing) -> Preferences {
         let mut diagnostics = Vec::new();
-        let shared_path = config_dir.join(super::family::file_name(self.id()));
+        let shared_path = config_dir.join(super::ecosystem::file_name(self.id()));
         let shared = if shared_path.exists() {
             let shared = Settings::open(&shared_path);
             diagnostics.extend(shared.diagnostics().iter().cloned());
@@ -498,8 +512,8 @@ impl Family {
             }
             None
         };
-        let own = Settings::open(config_dir.join(super::family::file_name(app))).member_of(self);
-        let family_value = |key: Shared| -> Option<String> {
+        let own = Settings::open(config_dir.join(super::ecosystem::file_name(app))).member_of(self);
+        let ecosystem_value = |key: Shared| -> Option<String> {
             let shared = shared.as_ref()?;
             let text = shared.get::<String>(key.key()).filter(|text| valid(key, text))?;
             (text != self.id()).then_some(text)
@@ -513,14 +527,14 @@ impl Family {
                     diagnostics.push(Diagnostic::warning(
                         shared.origin(key.key()),
                         format!(
-                            "`{}` cannot follow the family in the family's own file; the detected value is used",
+                            "`{}` cannot follow the ecosystem in the ecosystem's own file; the detected value is used",
                             key.key()
                         ),
                     ));
                 }
             }
         }
-        let mut prefs = resolved_from(detected, app_value, family_value);
+        let mut prefs = resolved_from(detected, app_value, ecosystem_value);
         prefs.update_notice = shared.as_ref().is_none_or(super::update_notice::from_shared);
         prefs.diagnostics = diagnostics;
         prefs
@@ -536,17 +550,17 @@ fn valid(key: Shared, text: &str) -> bool {
     }
 }
 
-/// Each key from the application's value, the family's value or the detected one, in that order.
+/// Each key from the application's value, the ecosystem's value or the detected one, in that order.
 fn resolved_from(
     detected: &Detected,
     app_value: impl Fn(Shared) -> Option<String>,
-    family_value: impl Fn(Shared) -> Option<String>,
+    ecosystem_value: impl Fn(Shared) -> Option<String>,
 ) -> Preferences {
     let text = |key: Shared| -> Resolved<String> {
         if let Some(value) = app_value(key) {
             Resolved { value, source: Source::App }
-        } else if let Some(value) = family_value(key) {
-            Resolved { value, source: Source::Family }
+        } else if let Some(value) = ecosystem_value(key) {
+            Resolved { value, source: Source::Ecosystem }
         } else {
             Resolved { value: detected.text(key), source: Source::Detected }
         }
@@ -561,7 +575,7 @@ fn resolved_from(
     }
 }
 
-/// Holds the family's folder with an advisory lock while it lives, so no other writer reads a file
+/// Holds the ecosystem's folder with an advisory lock while it lives, so no other writer reads a file
 /// between this writer's reading and writing it. Locking the folder rather than a file of its own
 /// leaves nothing behind in the user's settings. Unix only: elsewhere the framework has no
 /// advisory lock, as for [`AppLock`](super::AppLock).
@@ -586,11 +600,11 @@ fn create(path: &Path, text: &str) -> io::Result<()> {
 }
 
 /// Reads the file at `path` as it is on disk now, changes only `key` to `value` and writes it
-/// back. `family` marks an application's file, whose own values follow the family.
-pub(super) fn rewrite(path: &Path, key: &str, value: SettingValue, family: Option<&Family>) -> io::Result<()> {
+/// back. `ecosystem` marks an application's file, whose own values follow the ecosystem.
+pub(super) fn rewrite(path: &Path, key: &str, value: SettingValue, ecosystem: Option<&Ecosystem>) -> io::Result<()> {
     let mut settings = Settings::open(path);
-    if let Some(family) = family {
-        settings = settings.member_of(family);
+    if let Some(ecosystem) = ecosystem {
+        settings = settings.member_of(ecosystem);
     }
     if settings.value(key) == Some(&value) && path.exists() {
         return Ok(());

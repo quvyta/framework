@@ -66,10 +66,10 @@ fn read(dir: &Path, file: &str) -> String {
 
 /// The rows of `code` in `dir`, drawn in `env`, 70 × 24 cells.
 fn code_in(dir: &Path, env: Env) -> Harness<Code> {
-    let family = Family::QUVYTA;
-    let preferences = family.preferences_in(dir, "code", &I18n::builtin());
-    let appearance = Appearance::new(family, "code", preferences).in_folder(dir);
-    let settings = Settings::open(dir.join("code.conf")).member_of(&family);
+    let ecosystem = Ecosystem::QUVYTA;
+    let preferences = ecosystem.preferences_in(dir, "code", &I18n::builtin());
+    let appearance = Appearance::new(ecosystem, "code", preferences).in_folder(dir);
+    let settings = Settings::open(dir.join("code.conf")).member_of(&ecosystem);
     Harness::with_env(Code { settings, appearance }, env, 70, 24)
 }
 
@@ -120,7 +120,7 @@ fn a_new_icon_mode_redraws_at_once_with_its_glyphs() {
     assert!(!screen.contains('▾'), "{screen}");
     assert!(screen.contains("ASCII"), "the row shows the new mode\n{screen}");
     assert_eq!(read(&dir, "quvyta.conf"), "language = \"en\"\ntheme = \"monochrome\"\nicons = \"ascii\"\n");
-    assert_eq!(read(&dir, "code.conf"), "icons = \"quvyta\"\n", "code follows the family");
+    assert_eq!(read(&dir, "code.conf"), "icons = \"quvyta\"\n", "code follows the ecosystem");
     fs::remove_dir_all(&dir).expect("clean");
 }
 
@@ -152,21 +152,21 @@ fn the_box_decides_which_file_a_change_goes_to() {
     let dir = folder("scope");
     shared_file(&dir);
     let mut app = code_in(&dir, Env::builtin());
-    // The box under the theme: checked while code follows the family. Clear it with the keys.
+    // The box under the theme: checked while code follows the ecosystem. Clear it with the keys.
     app.click_text("Theme");
     app.press("down").press("space");
     assert_eq!(app.app().appearance.preferences().theme().source, Source::App);
     app.send(Msg::Appearance(AppearanceChange::Theme("nordic".to_owned())));
     assert_eq!(app.env().theme().id(), "nordic", "applied at once");
     assert_eq!(read(&dir, "code.conf"), "theme = \"nordic\"\n");
-    assert!(read(&dir, "quvyta.conf").contains("theme = \"monochrome\""), "the family keeps its theme");
+    assert!(read(&dir, "quvyta.conf").contains("theme = \"monochrome\""), "the ecosystem keeps its theme");
     assert_eq!(app.app().settings.theme().as_deref(), Some("nordic"), "the settings in memory agree");
 
     app.send(Msg::Appearance(AppearanceChange::Everywhere(Shared::Theme, true)));
     assert!(read(&dir, "quvyta.conf").contains("theme = \"nordic\""), "{}", read(&dir, "quvyta.conf"));
     assert_eq!(read(&dir, "code.conf"), "theme = \"quvyta\"\n");
-    assert_eq!(app.app().settings.theme(), None, "follows the family again");
-    let focus = Family::QUVYTA.preferences_in(&dir, "focus", &I18n::builtin());
+    assert_eq!(app.app().settings.theme(), None, "follows the ecosystem again");
+    let focus = Ecosystem::QUVYTA.preferences_in(&dir, "focus", &I18n::builtin());
     assert_eq!(focus.theme().value, "nordic", "another application follows");
     fs::remove_dir_all(&dir).expect("clean");
 }
@@ -190,10 +190,10 @@ fn the_applications_own_rows_go_to_its_own_file() {
 fn a_change_that_cannot_be_saved_is_applied_and_says_why() {
     let dir = folder("unsaved");
     let blocked = dir.join("not-a-folder");
-    fs::write(&blocked, "a file where the family's folder should be").expect("blocker");
-    let family = Family::QUVYTA;
-    let preferences = family.preferences_in(&dir, "code", &I18n::builtin());
-    let appearance = Appearance::new(family, "code", preferences).in_folder(&blocked);
+    fs::write(&blocked, "a file where the ecosystem's folder should be").expect("blocker");
+    let ecosystem = Ecosystem::QUVYTA;
+    let preferences = ecosystem.preferences_in(&dir, "code", &I18n::builtin());
+    let appearance = Appearance::new(ecosystem, "code", preferences).in_folder(&blocked);
     let mut app = Harness::with_env(Code { settings: Settings::in_memory(), appearance }, Env::builtin(), 70, 24);
     app.send(Msg::Appearance(AppearanceChange::Theme("amber".to_owned())));
     assert_eq!(app.env().theme().id(), "amber");
@@ -207,10 +207,10 @@ fn a_change_that_cannot_be_saved_is_applied_and_says_why() {
 fn the_longest_language_name_is_shown_whole_and_the_three_choices_keep_one_width() {
     let dir = folder("choice-width");
     shared_file(&dir);
-    let family = Family::QUVYTA;
-    let preferences = family.preferences_in(&dir, "code", &I18n::builtin());
-    let appearance = Appearance::new(family, "code", preferences).in_folder(&dir);
-    let settings = Settings::open(dir.join("code.conf")).member_of(&family);
+    let ecosystem = Ecosystem::QUVYTA;
+    let preferences = ecosystem.preferences_in(&dir, "code", &I18n::builtin());
+    let appearance = Appearance::new(ecosystem, "code", preferences).in_folder(&dir);
+    let settings = Settings::open(dir.join("code.conf")).member_of(&ecosystem);
     let mut app = Harness::with_env(Code { settings, appearance }, Env::builtin(), 100, 24);
     app.set_locale("pt-BR");
     let screen = app.screen();
@@ -232,10 +232,10 @@ fn the_longest_language_name_is_shown_whole_and_the_three_choices_keep_one_width
 fn a_narrow_row_keeps_its_label_and_its_choice() {
     let dir = folder("choice-narrow");
     shared_file(&dir);
-    let family = Family::QUVYTA;
-    let preferences = family.preferences_in(&dir, "code", &I18n::builtin());
-    let appearance = Appearance::new(family, "code", preferences).in_folder(&dir);
-    let settings = Settings::open(dir.join("code.conf")).member_of(&family);
+    let ecosystem = Ecosystem::QUVYTA;
+    let preferences = ecosystem.preferences_in(&dir, "code", &I18n::builtin());
+    let appearance = Appearance::new(ecosystem, "code", preferences).in_folder(&dir);
+    let settings = Settings::open(dir.join("code.conf")).member_of(&ecosystem);
     let mut app = Harness::with_env(Code { settings, appearance }, Env::builtin(), 48, 24);
     app.set_locale("pt-BR");
     let screen = app.screen();
@@ -256,14 +256,14 @@ fn a_choice_is_as_wide_as_its_longest_name_between_a_floor_and_a_cap() {
 }
 
 #[test]
-fn the_update_notice_is_one_switch_for_the_family_kept_in_the_shared_file() {
+fn the_update_notice_is_one_switch_for_the_ecosystem_kept_in_the_shared_file() {
     let dir = folder("updates");
     shared_file(&dir);
     fs::write(dir.join("code.conf"), "engine = \"podman\"\n").expect("code.conf");
-    let family = Family::QUVYTA;
-    let preferences = family.preferences_in(&dir, "code", &I18n::builtin());
-    let appearance = Appearance::new(family, "code", preferences).in_folder(&dir);
-    let settings = Settings::open(dir.join("code.conf")).member_of(&family);
+    let ecosystem = Ecosystem::QUVYTA;
+    let preferences = ecosystem.preferences_in(&dir, "code", &I18n::builtin());
+    let appearance = Appearance::new(ecosystem, "code", preferences).in_folder(&dir);
+    let settings = Settings::open(dir.join("code.conf")).member_of(&ecosystem);
     assert!(
         !Harness::new(Code { settings: settings.clone(), appearance: appearance.clone() }, 70, 40)
             .screen()
@@ -274,13 +274,13 @@ fn the_update_notice_is_one_switch_for_the_family_kept_in_the_shared_file() {
     let screen = app.screen();
     assert!(screen.contains("Say when an update is out"), "{screen}");
     assert!(screen.contains("name and version"), "it says what is sent and nothing more\n{screen}");
-    assert!(family.update_notice_in(&dir), "on until someone turns it off");
+    assert!(ecosystem.update_notice_in(&dir), "on until someone turns it off");
     // The switch is a tone at the row's right edge; a person reaches it by the row and Space.
     app.click_text("Say when an update is out").press("space");
-    assert!(!family.update_notice_in(&dir), "the click turned it off for the family\n{}", app.screen());
+    assert!(!ecosystem.update_notice_in(&dir), "the click turned it off for the ecosystem\n{}", app.screen());
     assert!(read(&dir, "quvyta.conf").contains("update-notice = false"), "{}", read(&dir, "quvyta.conf"));
     assert_eq!(read(&dir, "code.conf"), "engine = \"podman\"\n", "not the application's own choice");
     app.press("space");
-    assert!(family.update_notice_in(&dir));
+    assert!(ecosystem.update_notice_in(&dir));
     fs::remove_dir_all(&dir).expect("clean");
 }
