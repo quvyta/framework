@@ -1,5 +1,6 @@
 //! One sweep that drives every showcase page through the three conditions the catalogue promises:
-//! a narrow terminal, ASCII glyphs and a sixteen-colour terminal.
+//! a narrow terminal, ASCII glyphs and a terminal with a palette (sixteen colours, and text in
+//! 256).
 //!
 //! Every check gathers findings instead of stopping at the first one, so a run names every page
 //! and condition that misses the promise at once. Findings that are known and not fixed yet sit in
@@ -43,8 +44,14 @@ mod check {
     pub const SHAPE: &str = "ascii-shape";
     /// Text that stops reading against what is behind it once colours are reduced to sixteen.
     pub const CONTRAST: &str = "colour-contrast";
+    /// Text that stops reading against what is behind it once colours are reduced to 256.
+    pub const CONTRAST_256: &str = "colour-contrast-256";
     /// Background tones that all collapse into one colour once reduced to sixteen.
     pub const FLAT: &str = "colour-flat";
+    /// The theme's raised surface tones collapse into the ground once reduced to sixteen, so tab
+    /// strips, raised panels and dialogs lose their shape even on a page whose accents keep it
+    /// from looking flat.
+    pub const SURFACES: &str = "colour-surfaces";
 }
 
 /// What an accepted finding is: something the component could do better, or something the
@@ -89,13 +96,6 @@ const EXCEPTIONS: &[Exception] = &[
         detail: "draws `·`",
         kind: Kind::Defect,
         reason: "the title row separates the group from the count with `·` in ASCII mode too",
-    },
-    Exception {
-        page: "*",
-        check: check::NON_ASCII,
-        detail: "draws `…`",
-        kind: Kind::Defect,
-        reason: "the title row cuts with `…` in ASCII mode, where the mark itself is not ASCII",
     },
     // Defects: a label cut at forty columns although the row beneath it was free.
     Exception {
@@ -156,19 +156,18 @@ const EXCEPTIONS: &[Exception] = &[
     },
     // Defect: text the showcase itself writes.
     Exception {
+        page: "file-picker",
+        check: check::NON_ASCII,
+        detail: "draws `↑` in `↑↓ move",
+        kind: Kind::Defect,
+        reason: "the demo's key sentence writes the arrow keys as `↑↓` in ASCII mode too; the title row's `…` hid it until the cut got an ASCII mark",
+    },
+    Exception {
         page: "storage",
         check: check::SHAPE,
         detail: "(tests an",
         kind: Kind::Defect,
         reason: "the demo's own label puts an aside in brackets, where a second line would do",
-    },
-    // Defect: a tone that stops reading once the colours are reduced.
-    Exception {
-        page: "badge",
-        check: check::CONTRAST,
-        detail: "`1` at 63,26",
-        kind: Kind::Defect,
-        reason: "the count inside a badge falls to 1.18:1 against its own fill in sixteen colours",
     },
     // Limits: a shape that cannot fit the width.
     Exception {
@@ -226,7 +225,7 @@ const EXCEPTIONS: &[Exception] = &[
 
 /// How many exceptions the list is allowed to hold. Adding one means changing this number, which
 /// makes it a decision rather than an accident.
-const EXCEPTION_COUNT: usize = 20;
+const EXCEPTION_COUNT: usize = 19;
 
 /// One missed promise.
 struct Finding {
@@ -262,30 +261,16 @@ impl Exception {
     }
 }
 
-/// The sixteen standard terminal colours, the same xterm defaults [`Rgb::to_ansi16`] snaps a
-/// colour to. A real terminal may be themed differently; these are what a reduction can count on.
-const ANSI16: [Rgb; 16] = [
-    Rgb::new(0, 0, 0),
-    Rgb::new(205, 0, 0),
-    Rgb::new(0, 205, 0),
-    Rgb::new(205, 205, 0),
-    Rgb::new(0, 0, 238),
-    Rgb::new(205, 0, 205),
-    Rgb::new(0, 205, 205),
-    Rgb::new(229, 229, 229),
-    Rgb::new(127, 127, 127),
-    Rgb::new(255, 0, 0),
-    Rgb::new(0, 255, 0),
-    Rgb::new(255, 255, 0),
-    Rgb::new(92, 92, 255),
-    Rgb::new(255, 0, 255),
-    Rgb::new(0, 255, 255),
-    Rgb::new(255, 255, 255),
-];
+/// What a sixteen-colour terminal shows for text in `fg` on `bg`, on a screen whose ground is
+/// `ground`: the same reduction the framework applies to a sixteen-colour frame.
+fn reduced_pair(fg: Rgb, bg: Rgb, ground: Rgb) -> (Rgb, Rgb) {
+    (Rgb::from_ansi16(fg.to_ansi16_text(bg, ground)), Rgb::from_ansi16(bg.to_ansi16_on(ground)))
+}
 
-/// The colour a sixteen-colour terminal shows in place of `color`.
-fn reduced(color: Rgb) -> Rgb {
-    ANSI16[usize::from(color.to_ansi16())]
+/// What a 256-colour terminal shows for text in `fg` on `bg`: the same reduction the framework
+/// applies to a 256-colour frame.
+fn reduced_pair_256(fg: Rgb, bg: Rgb) -> (Rgb, Rgb) {
+    (Rgb::from_ansi256(fg.to_ansi256_text(bg)), Rgb::from_ansi256(bg.to_ansi256()))
 }
 
 /// Contrast text keeps against its background after the reduction, measured with the same WCAG
@@ -423,44 +408,81 @@ fn sweep_ascii(found: &mut Findings) {
     }
 }
 
-/// Sixteen colours: text on a demo keeps reading, and the tones a page leans on stay apart.
-fn sweep_sixteen_colours(found: &mut Findings) {
+/// Theme tones a page lifts off the ground: raised surfaces, the selected surface and floating
+/// ones.
+const LIFTED: [&str; 3] = ["raised", "active", "overlay"];
+
+/// Sixteen colours: text on a demo keeps reading, and the tones a page leans on stay apart; text
+/// keeps reading in 256 colours too. The modal page is drawn a second time with its dialog open,
+/// so the dimmed page behind a layer is held to the same bar.
+fn sweep_reduced_colours(found: &mut Findings) {
     let (width, height) = super::SIZE;
     let mut harness = showcase(width, height, GlyphMode::Unicode);
     for page in PAGES {
         open(&mut harness, page.id);
         section(&mut harness, 0);
-        let mut grounds: BTreeSet<[u8; 3]> = BTreeSet::new();
-        let mut reduced_grounds: BTreeSet<u8> = BTreeSet::new();
-        let mut worst: Option<(f64, char, u16, u16)> = None;
-        for y in 0..height {
-            for x in 0..width {
-                let Some(bg) = harness.bg(x, y) else { continue };
-                grounds.insert([bg.r, bg.g, bg.b]);
-                reduced_grounds.insert(bg.to_ansi16());
-                let glyph = harness.buffer()[(x, y)].symbol().chars().next().filter(|c| is_text(*c));
-                let (Some(glyph), Some(fg)) = (glyph, harness.fg(x, y)) else { continue };
-                let ratio = reduced(fg).contrast_ratio(reduced(bg));
-                if worst.is_none_or(|(low, ..)| ratio < low) {
-                    worst = Some((ratio, glyph, x, y));
-                }
+        read_reduced_colours(&harness, found, page.id, "demo");
+    }
+    open(&mut harness, "modal");
+    section(&mut harness, 0);
+    harness.click_text("Rename project").advance(std::time::Duration::from_secs(1));
+    read_reduced_colours(&harness, found, "modal", "demo with its dialog open");
+}
+
+/// Reads one screen as a sixteen-colour terminal would show it, and its text as a 256-colour one
+/// would.
+fn read_reduced_colours(harness: &Harness<Showcase>, found: &mut Findings, page: &'static str, when: &str) {
+    let (width, height) = (harness.buffer().area.width, harness.buffer().area.height);
+    let theme = harness.env().theme();
+    let ground = theme.color("canvas").expect("every theme has a canvas");
+    let lifted: Vec<Rgb> = LIFTED.iter().filter_map(|token| theme.color(token)).collect();
+    let mut grounds: BTreeSet<[u8; 3]> = BTreeSet::new();
+    let mut reduced_grounds: BTreeSet<u8> = BTreeSet::new();
+    let mut surfaces: BTreeSet<u8> = BTreeSet::new();
+    let mut worst: Option<(f64, char, u16, u16)> = None;
+    let mut worst_256: Option<(f64, char, u16, u16)> = None;
+    for y in 0..height {
+        for x in 0..width {
+            let Some(bg) = harness.bg(x, y) else { continue };
+            grounds.insert([bg.r, bg.g, bg.b]);
+            reduced_grounds.insert(bg.to_ansi16_on(ground));
+            if lifted.contains(&bg) {
+                surfaces.insert(bg.to_ansi16_on(ground));
+            }
+            let glyph = harness.buffer()[(x, y)].symbol().chars().next().filter(|c| is_text(*c));
+            let (Some(glyph), Some(fg)) = (glyph, harness.fg(x, y)) else { continue };
+            let (shown_fg, shown_bg) = reduced_pair_256(fg, bg);
+            let ratio = shown_fg.contrast_ratio(shown_bg);
+            if worst_256.is_none_or(|(low, ..)| ratio < low) {
+                worst_256 = Some((ratio, glyph, x, y));
+            }
+            let (fg, bg) = reduced_pair(fg, bg, ground);
+            let ratio = fg.contrast_ratio(bg);
+            if worst.is_none_or(|(low, ..)| ratio < low) {
+                worst = Some((ratio, glyph, x, y));
             }
         }
-        if let Some((ratio, glyph, x, y)) = worst.filter(|(ratio, ..)| *ratio < MIN_CONTRAST) {
-            found.add(page.id, check::CONTRAST, "demo", format!("`{glyph}` at {x},{y} keeps only {ratio:.2}:1"));
-        }
-        if grounds.len() >= 3 && reduced_grounds.len() < 2 {
-            found.add(
-                page.id,
-                check::FLAT,
-                "demo",
-                format!("{} background tones collapse into one of the sixteen", grounds.len()),
-            );
-        }
+    }
+    if let Some((ratio, glyph, x, y)) = worst.filter(|(ratio, ..)| *ratio < MIN_CONTRAST) {
+        found.add(page, check::CONTRAST, when, format!("`{glyph}` at {x},{y} keeps only {ratio:.2}:1"));
+    }
+    if let Some((ratio, glyph, x, y)) = worst_256.filter(|(ratio, ..)| *ratio < MIN_CONTRAST) {
+        found.add(page, check::CONTRAST_256, when, format!("`{glyph}` at {x},{y} keeps only {ratio:.2}:1"));
+    }
+    if grounds.len() >= 3 && reduced_grounds.len() < 2 {
+        found.add(
+            page,
+            check::FLAT,
+            when,
+            format!("{} background tones collapse into one of the sixteen", grounds.len()),
+        );
+    }
+    if surfaces.len() == 1 && surfaces.contains(&ground.to_ansi16_on(ground)) {
+        found.add(page, check::SURFACES, when, "the raised surfaces fall onto the ground's colour".to_owned());
     }
 }
 
-/// Every page, at forty columns and narrower, in ASCII glyphs and in sixteen colours: what the
+/// Every page, at forty columns and narrower, in ASCII glyphs and in reduced colours: what the
 /// catalogue promises of every component, checked in one place. What is not kept yet is in
 /// [`EXCEPTIONS`] with its reason, so the debt is counted rather than forgotten.
 #[test]
@@ -470,7 +492,7 @@ fn every_page_keeps_the_catalogue_promise() {
     let mut found = Findings::default();
     sweep_narrow(&mut found);
     sweep_ascii(&mut found);
-    sweep_sixteen_colours(&mut found);
+    sweep_reduced_colours(&mut found);
 
     let mut report = String::new();
     for finding in &found.items {

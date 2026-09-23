@@ -182,6 +182,9 @@ pub enum FileManagerMsg {
     Done(Vec<(String, Result<FileChange, FileError>)>),
     /// A batch of outside changes of the watch `u64` arrived; empty once that watch was let go.
     Changed(u64, Vec<crate::storage::FolderChange>),
+    /// A [bounded](FileManagerState::following_within) wait of the watch `u64` ended with nothing
+    /// changed; the watch waits again.
+    Quiet(u64),
     /// The details of the entries of these keys were asked for: their size, when they changed and
     /// their permissions. Keys that are already known, or already on their way, cost nothing.
     Detail(Vec<String>),
@@ -336,6 +339,8 @@ pub struct FileManagerState {
     pub(super) live: Live,
     /// Counts the watches started, so a batch of one that was let go is recognised.
     pub(super) runs: u64,
+    /// How long one wait for outside changes may last; `None` waits until something changes.
+    pub(super) patience: Option<std::time::Duration>,
 }
 
 impl FileManagerState {
@@ -369,6 +374,7 @@ impl FileManagerState {
             naming: None,
             live: Live::Off,
             runs: 0,
+            patience: None,
         }
     }
 
@@ -457,6 +463,20 @@ impl FileManagerState {
     #[must_use]
     pub fn following(mut self, following: bool) -> Self {
         self.following = following;
+        self
+    }
+
+    /// Follows outside changes like [`following(true)`](Self::following), with each wait for them
+    /// lasting at most `bound`; a wait that ends with nothing changed simply waits again.
+    ///
+    /// Made for screen tests: a [`Harness`](crate::runtime::Harness) runs the wait on the spot, and
+    /// an unbounded one would never come back, so a test that wants to see another program's
+    /// change arrive gives a short bound and steps the harness. A running application keeps
+    /// `following(true)`.
+    #[must_use]
+    pub fn following_within(mut self, bound: std::time::Duration) -> Self {
+        self.following = true;
+        self.patience = Some(bound);
         self
     }
 
@@ -1109,6 +1129,7 @@ impl FileManagerState {
             }
             FileManagerMsg::Done(results) => self.done(results, wrap),
             FileManagerMsg::Changed(run, batch) => super::watch::changed(self, run, batch, wrap),
+            FileManagerMsg::Quiet(run) => super::watch::quiet(self, run, wrap),
             FileManagerMsg::Enter(key) => self.enter(&key, wrap),
             FileManagerMsg::Leave => {
                 if self.shown == ROOT {

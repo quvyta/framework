@@ -1889,3 +1889,26 @@ fn a_slow_read_spins_in_the_foot_of_a_flat_view_and_a_quick_one_never_does() {
         assert!(h.screen().contains("src"), "{view:?} still shows the folder it is reading:\n{}", h.screen());
     }
 }
+
+#[test]
+fn with_a_bounded_wait_a_screen_test_sees_what_another_program_made() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let scratch = Scratch::new("bounded-follow");
+    let mut demo = Demo::new(scratch.root());
+    demo.manager = FileManagerState::new(scratch.root()).confined().following_within(Duration::from_millis(50));
+    let mut h = Harness::new(demo, SIZE.0, SIZE.1);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+    assert!(h.screen().contains("README.md"), "the root is read:\n{}", h.screen());
+    assert!(state(&h).follows_changes());
+    fs::write(scratch.root().join("NOTES.md"), "").expect("a file another program made");
+    // Each step waits for the watch at most the bound, so the steps always end.
+    for _ in 0..100 {
+        if h.screen().contains("NOTES.md") {
+            break;
+        }
+        h.advance(MOMENT);
+    }
+    assert!(h.screen().contains("NOTES.md"), "the new file came on screen by itself:\n{}", h.screen());
+}

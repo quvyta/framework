@@ -250,27 +250,19 @@ impl<Msg: 'static> Heatmap<Msg> {
     }
 }
 
-/// How `depth` shows `color`: two tones with the same answer are one tone on screen.
-fn shown_as(color: Rgb, depth: ColorDepth) -> u32 {
-    match depth {
-        ColorDepth::TrueColor => u32::from(color.r) << 16 | u32::from(color.g) << 8 | u32::from(color.b),
-        ColorDepth::Ansi256 => u32::from(color.to_ansi256()),
-        ColorDepth::Ansi16 => u32::from(color.to_ansi16()),
-    }
-}
-
-/// The tones from the quietest step to the full one that `depth` can tell apart.
+/// The tones from the quietest step to the full one that `depth` can tell apart on a screen whose
+/// ground is `ground`.
 ///
 /// A step the terminal would show in the tone of the step below it is left out, so no two levels
 /// share a tone; the levels are then spread over the tones that are left. A terminal that shows
 /// the whole ramp as one colour still gets the full tone, because a day that holds something must
 /// never look like a day that holds nothing.
-fn ramp(empty: Rgb, full: Rgb, depth: ColorDepth) -> Vec<Rgb> {
+fn ramp(empty: Rgb, full: Rgb, depth: ColorDepth, ground: Rgb) -> Vec<Rgb> {
     let mut tones = Vec::with_capacity(LEVELS as usize);
     let mut previous = empty;
     for mix in MIX {
         let tone = empty.mix(full, mix);
-        if shown_as(tone, depth) != shown_as(previous, depth) {
+        if depth.tells_apart(tone, previous, ground) {
             tones.push(tone);
             previous = tone;
         }
@@ -314,7 +306,7 @@ impl<Msg: 'static> Widget<Msg> for Heatmap<Msg> {
             return;
         }
         let (empty, full) = self.tones(cx);
-        let steps = ramp(empty, full, cx.env().depth());
+        let steps = ramp(empty, full, cx.env().depth(), cx.color("canvas"));
         let (cursor, pointed) = self.lit(cx, area);
         let style = cx.style("heatmap", None, &[]);
         let pointer_lift = style.color("cursor").unwrap_or_else(|| cx.color("text"));
@@ -578,16 +570,17 @@ mod tests {
         let h = Harness::new(Demo::new([1.0]), 2, 7);
         let (empty, _) = tones(&h);
         let full = h.env().theme().color("accent").expect("token");
+        let ground = h.env().theme().color("canvas").expect("token");
 
-        let true_color = ramp(empty, full, ColorDepth::TrueColor);
+        let true_color = ramp(empty, full, ColorDepth::TrueColor, ground);
         assert_eq!(true_color.len(), 4, "true colour shows every step");
         assert_eq!(tone_of(&true_color, 1), Some(true_color[0]));
         assert_eq!(tone_of(&true_color, 4), Some(true_color[3]), "the top level takes the full tone");
 
         for depth in [ColorDepth::Ansi256, ColorDepth::Ansi16] {
-            let steps = ramp(empty, full, depth);
+            let steps = ramp(empty, full, depth, ground);
             assert!(!steps.is_empty(), "{depth:?} still shows that something is there");
-            let shown: Vec<u32> = steps.iter().map(|tone| shown_as(*tone, depth)).collect();
+            let shown: Vec<u32> = steps.iter().map(|tone| depth.shown(*tone, ground)).collect();
             let mut distinct = shown.clone();
             distinct.sort_unstable();
             distinct.dedup();
@@ -604,7 +597,7 @@ mod tests {
         }
 
         // A terminal that shows the whole ramp in one tone still draws the days.
-        let flat = ramp(empty, empty, ColorDepth::Ansi16);
+        let flat = ramp(empty, empty, ColorDepth::Ansi16, ground);
         assert_eq!(flat, vec![empty]);
         assert_eq!(tone_of(&flat, 4), Some(empty));
     }

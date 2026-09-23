@@ -80,7 +80,7 @@ pub(super) fn follow<Msg: Clone + Send + 'static>(state: &mut FileManagerState, 
         match FolderWatch::new() {
             Ok(watch) => {
                 state.runs += 1;
-                commands.push(wait(state.runs, watch.changes(), wrap));
+                commands.push(wait(state.runs, watch.changes(), state.patience, wrap));
                 state.live = Live::On(Watching { watch, run: state.runs, folders: BTreeMap::new() });
             }
             Err(_) => state.live = Live::Unavailable,
@@ -135,7 +135,7 @@ pub(super) fn changed<Msg: Clone + Send + 'static>(
     if watching.run != run || batch.is_empty() {
         return Command::none();
     }
-    let next = wait(run, watching.watch.changes(), wrap);
+    let next = wait(run, watching.watch.changes(), state.patience, wrap);
     let mut again = Vec::new();
     let mut everything = false;
     for change in batch {
@@ -164,8 +164,34 @@ pub(super) fn changed<Msg: Clone + Send + 'static>(
     Command::batch([reread, next])
 }
 
-/// Waits on a background thread for the next batch of the watch `run`.
-fn wait<Msg: Clone + Send + 'static>(run: u64, changes: FolderChanges, wrap: &Wrap<Msg>) -> Command<Msg> {
+/// Waits on a background thread for the next batch of the watch `run`, at most `patience` when
+/// there is one.
+fn wait<Msg: Clone + Send + 'static>(
+    run: u64,
+    changes: FolderChanges,
+    patience: Option<std::time::Duration>,
+    wrap: &Wrap<Msg>,
+) -> Command<Msg> {
     let wrap = std::sync::Arc::clone(wrap);
-    Command::perform(move || wrap(FileManagerMsg::Changed(run, changes.next())))
+    Command::perform(move || match patience {
+        None => wrap(FileManagerMsg::Changed(run, changes.next())),
+        Some(bound) => match changes.next_within(bound) {
+            Some(batch) => wrap(FileManagerMsg::Changed(run, batch)),
+            None => wrap(FileManagerMsg::Quiet(run)),
+        },
+    })
+}
+
+/// A bounded wait of the watch `run` ended with nothing changed: the watch waits again, unless it
+/// was let go meanwhile.
+pub(super) fn quiet<Msg: Clone + Send + 'static>(
+    state: &mut FileManagerState,
+    run: u64,
+    wrap: &Wrap<Msg>,
+) -> Command<Msg> {
+    let patience = state.patience;
+    match &state.live {
+        Live::On(watching) if watching.run == run => wait(run, watching.watch.changes(), patience, wrap),
+        _ => Command::none(),
+    }
 }

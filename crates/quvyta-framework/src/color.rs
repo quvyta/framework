@@ -110,28 +110,119 @@ impl Rgb {
         if self.squared_distance(grey) < self.squared_distance(cube) { grey_index } else { cube_index }
     }
 
-    /// Nearest of the 16 standard terminal colours (xterm defaults).
+    /// The entry of the xterm 256-colour palette this colour takes as text on `bg`.
+    ///
+    /// Mostly the nearest entry, as [`Rgb::to_ansi256`] gives it. Faint text, such as a page
+    /// dimmed behind a dialog, can land on an entry that no longer reads on its background's —
+    /// under 1.6:1 in the WCAG ratio, where a glyph starts to disappear; it then takes the entry
+    /// closest to it in OKLab that still keeps 1.6:1, so faint text stays faint rather than
+    /// vanishing. Text drawn in the very colour of its background is left as it is, since that
+    /// is a fill rather than something to read.
+    #[must_use]
+    pub fn to_ansi256_text(self, bg: Self) -> u8 {
+        let fg = self.to_ansi256();
+        let behind = Self::from_ansi256(bg.to_ansi256());
+        if self == bg || Self::from_ansi256(fg).contrast_ratio(behind) >= READABLE {
+            return fg;
+        }
+        (16..=255u8)
+            .filter(|&index| Self::from_ansi256(index).contrast_ratio(behind) >= READABLE)
+            .min_by(|&a, &b| {
+                let distance = |index| self.perceptual_distance(Self::from_ansi256(index));
+                distance(a).total_cmp(&distance(b))
+            })
+            .unwrap_or(fg)
+    }
+
+    /// Nearest of the 16 standard terminal colours (xterm defaults), by distance alone.
+    ///
+    /// This is the plain reduction: on a dark screen every surface tone lands on black here.
+    /// What a sixteen-colour frame actually shows is [`Rgb::to_ansi16_on`] for backgrounds and
+    /// [`Rgb::to_ansi16_text`] for text, which keep lifted surfaces and faint text apart from the
+    /// ground.
     #[must_use]
     pub fn to_ansi16(self) -> u8 {
-        const PALETTE: [Rgb; 16] = [
-            Rgb::new(0, 0, 0),
-            Rgb::new(205, 0, 0),
-            Rgb::new(0, 205, 0),
-            Rgb::new(205, 205, 0),
-            Rgb::new(0, 0, 238),
-            Rgb::new(205, 0, 205),
-            Rgb::new(0, 205, 205),
-            Rgb::new(229, 229, 229),
-            Rgb::new(127, 127, 127),
-            Rgb::new(255, 0, 0),
-            Rgb::new(0, 255, 0),
-            Rgb::new(255, 255, 0),
-            Rgb::new(92, 92, 255),
-            Rgb::new(255, 0, 255),
-            Rgb::new(0, 255, 255),
-            Rgb::new(255, 255, 255),
-        ];
-        (0u8..16).min_by_key(|&i| self.squared_distance(PALETTE[usize::from(i)])).unwrap_or(0)
+        (0u8..16).min_by_key(|&i| self.squared_distance(ANSI16[usize::from(i)])).unwrap_or(0)
+    }
+
+    /// The colour of entry `index` of the 16 standard terminal colours, as xterm shows them by
+    /// default; an index past 15 gives the last entry, white. A terminal may be themed
+    /// differently, so these are the colours a reduction can count on, not the ones a person
+    /// necessarily sees.
+    #[must_use]
+    pub fn from_ansi16(index: u8) -> Self {
+        ANSI16[usize::from(index.min(15))]
+    }
+
+    /// The colour of entry `index` of the xterm 256-colour palette as xterm shows it by default:
+    /// the 16 standard colours as [`Rgb::from_ansi16`] gives them, then the 6×6×6 colour cube,
+    /// then the 24 greys from 8 to 238.
+    #[must_use]
+    pub fn from_ansi256(index: u8) -> Self {
+        const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+        match index {
+            0..=15 => Self::from_ansi16(index),
+            16..=231 => {
+                let cube = index - 16;
+                let level = |i: u8| LEVELS[usize::from(i)];
+                Self::new(level(cube / 36), level(cube / 6 % 6), level(cube % 6))
+            }
+            _ => {
+                let grey = 8 + 10 * (index - 232);
+                Self::new(grey, grey, grey)
+            }
+        }
+    }
+
+    /// The entry of the 16 standard colours this colour takes as a background on a screen whose
+    /// ground is `ground` (the theme's `canvas`).
+    ///
+    /// Mostly the nearest entry, as [`Rgb::to_ansi16`] gives it. The exception is a tone the eye
+    /// tells from the ground in full colour — at least 0.05 away in OKLab, the same distance
+    /// under which a floating surface melts into the ground — that would still land on the
+    /// ground's own entry: it moves one step along the grey ladder black, bright black, white,
+    /// bright white, away from the ground. On a dark theme the ground stays black and raised
+    /// surfaces, tab strips and dialogs become bright black; on a light theme they step down
+    /// from bright white to white. Panels a shade off the ground stay on it, as in full colour
+    /// they barely differ.
+    #[must_use]
+    pub fn to_ansi16_on(self, ground: Self) -> u8 {
+        let nearest = self.to_ansi16();
+        let base = ground.to_ansi16();
+        if nearest != base || self.perceptual_distance(ground) < APART {
+            return nearest;
+        }
+        let Some(rung) = GREYS.iter().position(|&grey| grey == base) else {
+            return nearest;
+        };
+        let step = if self.oklab()[0] > ground.oklab()[0] { rung.checked_add(1) } else { rung.checked_sub(1) };
+        step.and_then(|rung| GREYS.get(rung)).copied().unwrap_or(nearest)
+    }
+
+    /// The entry of the 16 standard colours this colour takes as text on `bg`, on a screen whose
+    /// ground is `ground`.
+    ///
+    /// Both colours are reduced as [`Rgb::to_ansi16_on`] does. When the text would then no longer
+    /// read on its background — under 1.6:1 in the WCAG ratio, which is where a glyph starts to
+    /// disappear — it takes the quietest grey that still keeps 3:1 against it: faint text stays
+    /// faint rather than vanishing. On bright black that is white, on black bright black. Text
+    /// drawn in the very colour of its background is left as it is, since that is a fill rather
+    /// than something to read.
+    #[must_use]
+    pub fn to_ansi16_text(self, bg: Self, ground: Self) -> u8 {
+        let fg = self.to_ansi16_on(ground);
+        let behind = bg.to_ansi16_on(ground);
+        if self == bg || Self::from_ansi16(fg).contrast_ratio(Self::from_ansi16(behind)) >= READABLE {
+            return fg;
+        }
+        let behind = Self::from_ansi16(behind);
+        GREYS
+            .iter()
+            .copied()
+            .map(|grey| (grey, Self::from_ansi16(grey).contrast_ratio(behind)))
+            .filter(|(_, ratio)| *ratio >= QUIET_READABLE)
+            .min_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map_or(fg, |(grey, _)| grey)
     }
 
     fn linear(self) -> [f64; 3] {
@@ -147,6 +238,36 @@ impl Rgb {
         d(self.r, other.r) + d(self.g, other.g) + d(self.b, other.b)
     }
 }
+
+/// The 16 standard terminal colours as xterm shows them by default.
+const ANSI16: [Rgb; 16] = [
+    Rgb::new(0, 0, 0),
+    Rgb::new(205, 0, 0),
+    Rgb::new(0, 205, 0),
+    Rgb::new(205, 205, 0),
+    Rgb::new(0, 0, 238),
+    Rgb::new(205, 0, 205),
+    Rgb::new(0, 205, 205),
+    Rgb::new(229, 229, 229),
+    Rgb::new(127, 127, 127),
+    Rgb::new(255, 0, 0),
+    Rgb::new(0, 255, 0),
+    Rgb::new(255, 255, 0),
+    Rgb::new(92, 92, 255),
+    Rgb::new(255, 0, 255),
+    Rgb::new(0, 255, 255),
+    Rgb::new(255, 255, 255),
+];
+
+/// The greys of the 16 standard colours from dark to light: black, bright black, white, bright
+/// white.
+const GREYS: [u8; 4] = [0, 8, 7, 15];
+
+/// Contrast under which reduced text starts to disappear into its background.
+const READABLE: f64 = 1.6;
+
+/// Contrast the grey that replaces unreadable text keeps against its background.
+const QUIET_READABLE: f64 = 3.0;
 
 impl fmt::Display for Rgb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -265,13 +386,20 @@ impl ColorDepth {
         }
     }
 
-    /// Whether a terminal of this depth shows `a` and `b` as two different colours.
-    pub(crate) fn tells_apart(self, a: Rgb, b: Rgb) -> bool {
+    /// How a terminal of this depth shows `color` as a background on a screen whose ground is
+    /// `ground`: two colours with the same answer are one colour on screen.
+    pub(crate) fn shown(self, color: Rgb, ground: Rgb) -> u32 {
         match self {
-            Self::TrueColor => a != b,
-            Self::Ansi256 => a.to_ansi256() != b.to_ansi256(),
-            Self::Ansi16 => a.to_ansi16() != b.to_ansi16(),
+            Self::TrueColor => u32::from(color.r) << 16 | u32::from(color.g) << 8 | u32::from(color.b),
+            Self::Ansi256 => u32::from(color.to_ansi256()),
+            Self::Ansi16 => u32::from(color.to_ansi16_on(ground)),
         }
+    }
+
+    /// Whether a terminal of this depth shows `a` and `b` as two different colours on a screen
+    /// whose ground is `ground`.
+    pub(crate) fn tells_apart(self, a: Rgb, b: Rgb, ground: Rgb) -> bool {
+        self.shown(a, ground) != self.shown(b, ground)
     }
 }
 
@@ -334,6 +462,96 @@ mod tests {
         assert_eq!(Rgb::new(10, 10, 12).to_ansi16(), 0);
         assert_eq!(Rgb::new(250, 250, 250).to_ansi16(), 15);
         assert_eq!(Rgb::new(240, 20, 20).to_ansi16(), 9);
+    }
+
+    /// The monochrome theme's canvas, surface, overlay, raised and active tones.
+    const LADDER: [Rgb; 5] =
+        [Rgb::new(12, 12, 14), Rgb::new(19, 19, 23), Rgb::new(24, 24, 29), Rgb::new(29, 29, 35), Rgb::new(40, 40, 47)];
+
+    #[test]
+    fn a_lifted_surface_takes_bright_black_on_a_dark_ground() {
+        let [canvas, surface, overlay, raised, active] = LADDER;
+        for tone in LADDER {
+            assert_eq!(tone.to_ansi16(), 0, "the plain reduction puts {tone} on black");
+        }
+        assert_eq!(canvas.to_ansi16_on(canvas), 0, "the ground stays black");
+        assert_eq!(surface.to_ansi16_on(canvas), 0, "a panel a shade off the ground stays on it");
+        for tone in [overlay, raised, active] {
+            assert_eq!(tone.to_ansi16_on(canvas), 8, "{tone} is lifted to bright black");
+        }
+        // A dialog's dimmed page: the ground under it stays black, its faint text does not.
+        let (dimmed_text, dimmed_ground) = (Rgb::new(49, 49, 55), Rgb::new(15, 15, 18));
+        assert_eq!(dimmed_ground.to_ansi16_on(canvas), 0);
+        assert_eq!(dimmed_text.to_ansi16_text(dimmed_ground, canvas), 8);
+        // Colours that already land apart from the ground keep their nearest entry.
+        assert_eq!(Rgb::new(240, 20, 20).to_ansi16_on(canvas), 9);
+        assert_eq!(Rgb::new(245, 245, 247).to_ansi16_on(canvas), 15);
+    }
+
+    #[test]
+    fn a_lifted_surface_steps_down_on_a_light_ground() {
+        let canvas = Rgb::new(250, 250, 250);
+        assert_eq!(canvas.to_ansi16_on(canvas), 15);
+        assert_eq!(Rgb::new(244, 244, 245).to_ansi16_on(canvas), 15, "a shade off the ground stays on it");
+        assert_eq!(Rgb::new(238, 238, 240).to_ansi16_on(canvas), 7, "a raised tone steps down to white");
+        let text = Rgb::new(24, 24, 27);
+        assert_eq!(text.to_ansi16_text(Rgb::new(238, 238, 240), canvas), 0, "dark text keeps its black");
+    }
+
+    #[test]
+    fn text_that_would_vanish_takes_the_quietest_readable_grey() {
+        let [canvas, _, _, raised, _] = LADDER;
+        let muted = Rgb::new(95, 95, 105);
+        assert_eq!(muted.to_ansi16_on(canvas), 8, "muted text alone is bright black");
+        assert_eq!(muted.to_ansi16_text(canvas, canvas), 8, "and reads so on the ground");
+        assert_eq!(muted.to_ansi16_text(raised, canvas), 7, "on bright black it steps up to white");
+        let accent = Rgb::new(129, 140, 248);
+        assert_eq!(accent.to_ansi16_on(canvas), 12);
+        assert_eq!(accent.to_ansi16_text(raised, canvas), 7, "a blue that melts into bright black turns white");
+        assert_eq!(raised.to_ansi16_text(raised, canvas), 8, "a fill in its own colour is left alone");
+        for bg in 0..16 {
+            let behind = Rgb::from_ansi16(bg);
+            let text = Rgb::new(behind.r ^ 1, behind.g, behind.b);
+            let shown = text.to_ansi16_text(behind, behind);
+            let ratio = Rgb::from_ansi16(shown).contrast_ratio(Rgb::from_ansi16(behind.to_ansi16_on(behind)));
+            assert!(ratio >= READABLE, "text on entry {bg} keeps {ratio:.2}:1");
+        }
+    }
+
+    #[test]
+    fn the_sixteen_colours_round_trip() {
+        for index in 0..16 {
+            assert_eq!(Rgb::from_ansi16(index).to_ansi16(), index);
+        }
+        assert_eq!(Rgb::from_ansi16(200), Rgb::new(255, 255, 255));
+    }
+
+    #[test]
+    fn the_256_colours_round_trip() {
+        for index in 16..=255 {
+            assert_eq!(Rgb::from_ansi256(index).to_ansi256(), index);
+        }
+        assert_eq!(Rgb::from_ansi256(9), Rgb::from_ansi16(9));
+        assert_eq!(Rgb::from_ansi256(196), Rgb::new(255, 0, 0));
+        assert_eq!(Rgb::from_ansi256(232), Rgb::new(8, 8, 8));
+        assert_eq!(Rgb::from_ansi256(255), Rgb::new(238, 238, 238));
+    }
+
+    #[test]
+    fn faint_text_in_256_colours_keeps_a_readable_entry_near_its_own() {
+        let ground = Rgb::new(15, 15, 18);
+        // Nearest, this faint grey lands on an entry under 1.6:1 against its ground's.
+        let faint = Rgb::new(46, 46, 52);
+        let behind = Rgb::from_ansi256(ground.to_ansi256());
+        assert!(Rgb::from_ansi256(faint.to_ansi256()).contrast_ratio(behind) < READABLE);
+        let shown = Rgb::from_ansi256(faint.to_ansi256_text(ground));
+        let ratio = shown.contrast_ratio(behind);
+        assert!(ratio >= READABLE, "{shown} keeps {ratio:.2}:1");
+        assert!(ratio < 2.0, "and stays faint: {shown} at {ratio:.2}:1");
+        // Text that reads keeps its nearest entry; a fill in its own colour is left alone.
+        let text = Rgb::new(245, 245, 247);
+        assert_eq!(text.to_ansi256_text(ground), text.to_ansi256());
+        assert_eq!(ground.to_ansi256_text(ground), ground.to_ansi256());
     }
 
     const DARK_TEXT: Rgb = Rgb::new(245, 245, 247);

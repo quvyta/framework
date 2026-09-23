@@ -487,9 +487,14 @@ mod tests {
         assert!(h.screen().contains("\u{e76e} postgres"), "the program's own glyph in Nerd mode:\n{}", h.screen());
         h.set_glyph_mode(GlyphMode::Ascii);
         let project = h.env().icons().glyph("project").into_owned();
-        h.send(send(Msg::Narrow(true)));
-        assert!(h.screen().contains(&format!("{project} worker-e…")), "{}", h.screen());
-        h.send(send(Msg::Icons(false)));
+        // The playground's switches stand after their labels' column of 24 cells.
+        let switch = |h: &mut Harness<crate::app::Showcase>, label: &str| {
+            let (x, y) = h.find(label).unwrap_or_else(|| panic!("{label} is on screen:\n{}", h.screen()));
+            h.click(x + 25, y);
+        };
+        switch(&mut h, "Narrow, scroll sideways");
+        assert!(h.screen().contains(&format!("{project} worker-e~")), "cut with the ASCII mark: {}", h.screen());
+        switch(&mut h, "Icons before names");
         assert!(h.screen().contains("  postgres"), "{}", h.screen());
     }
 

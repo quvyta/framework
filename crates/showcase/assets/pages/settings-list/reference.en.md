@@ -12,6 +12,7 @@
 ## Behaviour
 
 - The label starts two cells in; the control ends two cells before the right edge.
+- The keyboard row's control is drawn focused and takes the keys, so a time or a duration keeps the part being typed: `12` makes twelve and ← → reach the minutes.
 - Label budget: the space up to two cells before the control, minus one spare cell for the slide.
 - Keys while focused: ↑/↓ move between enabled rows; Home and End jump when the control does not use them; everything else goes to the selected row's control first. In a `ScrollView` shorter than the list, a key move scrolls just enough to show the new row; a click never scrolls.
 - On focus the remembered row, or the first enabled row, is selected.

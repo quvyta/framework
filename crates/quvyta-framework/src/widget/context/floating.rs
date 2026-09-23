@@ -116,10 +116,9 @@ impl PaintCx<'_> {
     /// Blends every true-colour background inside `rect` by `lift`, keeping text colours. Cells
     /// in palette colours are left alone.
     pub(crate) fn lift(&mut self, rect: Rect, lift: Lift) {
-        let depth = self.env.depth();
         self.each_cell(rect, |cell| {
             if let Color::Rgb(r, g, b) = cell.bg {
-                cell.bg = to_color(lift.apply(Rgb::new(r, g, b)), depth);
+                cell.bg = to_color(lift.apply(Rgb::new(r, g, b)));
             }
         });
     }

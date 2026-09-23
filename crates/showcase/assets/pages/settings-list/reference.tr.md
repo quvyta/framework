@@ -7,6 +7,7 @@
 - `.description(metin)` — etiketin altında silik ikinci satır.
 - `.disabled(bool)` — soluk görünür, klavye atlar.
 - `.nested(bool)` — üstteki satıra ait bir satır, örneğin onu niteleyen bir seçim: metni iki hücre içeriden başlar; çubuk ve kontrol yerinde kalır.
+- Klavye satırının denetimi odaklı çizilir ve tuşları alır; saat ya da süre alanı yazılan bölümü tutar: `12` on iki olur, ← → dakikaya ulaşır.
 - `.on_activate(mesaj)` — kontrolün kullanmadığı Enter ya da Boşluk'ta veya etikete tıklanınca gönderilir.
 
 ## Davranış

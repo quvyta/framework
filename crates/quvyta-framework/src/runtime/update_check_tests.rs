@@ -120,6 +120,62 @@ fn yanked_versions_and_pre_releases_are_not_announced() {
     std::fs::remove_dir_all(dir).ok();
 }
 
+/// What a check of qcode at `current` announces against a registry listing `versions`.
+fn announced(name: &str, current: &str, versions: &[(&str, bool)]) -> Option<String> {
+    let dir = scratch(name);
+    let registry = Registry::listing(versions);
+    let found = check(&dir, current, &registry.address).ask(morning()).map(|update| update.latest().to_owned());
+    std::fs::remove_dir_all(dir).ok();
+    found
+}
+
+#[test]
+fn a_person_on_a_pre_release_hears_of_the_next_one() {
+    let listing = [("0.1.0-alpha.1", false), ("0.1.0-alpha.2", false)];
+    assert_eq!(announced("alpha-next", "0.1.0-alpha.1", &listing).as_deref(), Some("0.1.0-alpha.2"));
+    assert_eq!(announced("alpha-same", "0.1.0-alpha.2", &listing), None, "the one it runs is not news");
+}
+
+#[test]
+fn pre_release_numbers_count_as_numbers_and_more_parts_are_newer() {
+    let tens = [("0.1.0-alpha.9", false), ("0.1.0-alpha.10", false)];
+    assert_eq!(announced("alpha-ten", "0.1.0-alpha.9", &tens).as_deref(), Some("0.1.0-alpha.10"));
+    let parts = [("0.1.0-alpha", false), ("0.1.0-alpha.1", false)];
+    assert_eq!(announced("alpha-parts", "0.1.0-alpha", &parts).as_deref(), Some("0.1.0-alpha.1"));
+    let words = [("0.1.0-alpha.3", false), ("0.1.0-beta", false)];
+    assert_eq!(announced("alpha-beta", "0.1.0-alpha.3", &words).as_deref(), Some("0.1.0-beta"));
+    let numeric_first = [("0.1.0-1", false), ("0.1.0-alpha", false)];
+    assert_eq!(announced("numeric", "0.1.0-1", &numeric_first).as_deref(), Some("0.1.0-alpha"));
+}
+
+#[test]
+fn a_release_is_newer_than_its_pre_releases_and_wins_over_them() {
+    let listing = [("0.1.0-alpha.1", false), ("0.1.0-alpha.2", false), ("0.1.0", false), ("0.0.9", false)];
+    assert_eq!(announced("alpha-release", "0.1.0-alpha.1", &listing).as_deref(), Some("0.1.0"));
+    let older = [("0.0.9", false)];
+    assert_eq!(announced("alpha-older", "0.1.0-alpha.1", &older), None, "an older release is not news");
+    let next_line = [("0.2.0-alpha.1", false)];
+    assert_eq!(announced("alpha-line", "0.1.0-alpha.1", &next_line).as_deref(), Some("0.2.0-alpha.1"));
+}
+
+#[test]
+fn a_person_on_a_release_never_hears_of_a_pre_release() {
+    let listing = [("0.1.0", false), ("0.2.0-alpha.1", false)];
+    assert_eq!(announced("stable-pre", "0.1.0", &listing), None);
+    let both = [("0.1.0", false), ("0.1.1", false), ("0.2.0-alpha.1", false)];
+    assert_eq!(announced("stable-both", "0.1.0", &both).as_deref(), Some("0.1.1"));
+}
+
+#[test]
+fn a_yanked_pre_release_is_passed_over_and_build_metadata_is_ignored() {
+    let listing = [("0.1.0-alpha.2", false), ("0.1.0-alpha.3", true)];
+    assert_eq!(announced("alpha-yanked", "0.1.0-alpha.1", &listing).as_deref(), Some("0.1.0-alpha.2"));
+    let build = [("0.1.0-alpha.1+abc", false)];
+    assert_eq!(announced("alpha-build", "0.1.0-alpha.1+xyz", &build), None, "the same version built twice");
+    let junk = [("0.1.0-alpha..1", false), ("0.1.0-", false)];
+    assert_eq!(announced("alpha-junk", "0.1.0-alpha.1", &junk), None, "what cannot be read is silence");
+}
+
 #[test]
 fn without_a_registry_the_check_is_silent_and_waits_for_the_next_day() {
     // A port that was open a moment ago and is not now: the connection is refused, as it is on a
@@ -216,6 +272,37 @@ fn a_harness_records_the_question_and_shows_the_notice_for_the_version_it_is_tol
     assert!(screen.contains("quvyta-code 0.1.14 is out"), "{screen}");
     assert!(screen.contains("You have 0.1.13"), "{screen}");
     assert!(screen.contains("in quvyta") && screen.contains("cargo install"), "how to update: {screen}");
+}
+
+/// Qcli while it is in alpha, asking at start and showing the notice.
+struct Alpha;
+
+impl App for Alpha {
+    type Msg = Msg;
+    fn init(&mut self) -> Command<Msg> {
+        Command::check_for_update(UpdateCheck::new(
+            Family::QUVYTA,
+            "cli",
+            "quvyta-cli",
+            "0.1.0-alpha.1",
+            Msg::NewVersion,
+        ))
+    }
+    fn update(&mut self, msg: Msg) -> Command<Msg> {
+        match msg {
+            Msg::NewVersion(update) => Command::toast(update.toast()),
+        }
+    }
+    fn view(&self, _ui: &mut View<'_, Msg>) {}
+}
+
+#[test]
+fn an_application_in_alpha_shows_the_notice_for_the_next_alpha() {
+    let mut h = Harness::new(Alpha, 70, 12);
+    h.set_latest_version(Some("0.1.0-alpha.3")).advance(Duration::from_millis(300));
+    let screen = h.screen();
+    assert!(screen.contains("quvyta-cli 0.1.0-alpha.3 is out"), "{screen}");
+    assert!(screen.contains("You have 0.1.0-alpha.1"), "{screen}");
 }
 
 /// Qcode as the terminal runtime runs it, asking a registry of the test's own that takes the

@@ -5,6 +5,7 @@
 - `watch.unwatch(&Path)` — stops watching a folder; a folder that is not watched is left alone.
 - `watch.changes() -> FolderChanges` — the waiting side; cheap to clone, `Send`, meant for `Command::perform`.
 - `changes.next() -> Vec<FolderChange>` — blocks until something changes, gathers for a tenth of a second and returns the batch; empty once the watch is dropped.
+- `changes.next_within(bound) -> Option<Vec<FolderChange>>` — the same wait, at most `bound` for the first change; `None` when nothing changed, and the watch goes on. For screen tests, where a harness runs the wait on the spot.
 - `FolderChange { folder: PathBuf, name: Option<OsString>, kind: FolderChangeKind }` — `folder` as given to `watch`; `name` is `None` for `Gone` and `Overflow`.
 - `FolderChangeKind::Created`, `Removed`, `Renamed { from: OsString }`, `Modified`, `Gone`, `Overflow`.
 

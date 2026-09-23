@@ -38,7 +38,7 @@ Msg::NewVersion(update) => Command::toast(update.toast()),
 - **Silent when it cannot ask.** No network, no answer within ten seconds, or an answer that cannot be read: nothing is shown and the next day asks again.
 - **Only the name goes out.** The request names the package; its `User-Agent` is the package and its version. No identity, no machine detail, no use of the application.
 - **Off for the whole family.** With the switch off (`update-notice = false` in `quvyta.conf`) nothing is asked and nothing is written.
-- **Only a real newer version.** Yanked versions and pre-releases are passed over; a build newer than the registry says nothing.
+- **Only a real newer version.** Yanked versions are passed over and a build newer than the registry says nothing. Versions are ordered as semver orders them: `0.1.0-alpha.9` < `0.1.0-alpha.10` < `0.1.0-beta` < `0.1.0`. A person on a release never hears of a pre-release; a person on a pre-release hears of the newest version after it, the next alpha or the release, so nobody stays on an old alpha.
 - **Tests never reach the network.** A harness records the question (`Harness::update_checks`) and answers it with `Harness::set_latest_version(Some("0.2.0"))`, without touching the check's folders.
 
 ## Common mistakes

@@ -49,6 +49,7 @@
 - `showing_hidden(bool)` adı noktayla başlayan girdileri gösterir. Onlar her hâlükârda okunur, bu yüzden açmak diske hiç gitmez; yeni bir ad, gizli girdi gösteriliyor olsun olmasın ona karşı da denetlenir.
 - Reddetme sistemin değil kişinin diliyle söylenir: içine bakılamayan klasör, artık orada olmayan şey, dolu disk ve durdurulmuş kopyalama, her birinin kendi cümlesi var.
 - `following(true)` ekrandaki klasörleri izler. Oluşma, silinme ve ad değişimi o klasörü yeniden okutur; içerik değişimi hiçbir şey okutmaz; kaybolan klasör ya da taşma ekrandaki her şeyi okutur. Bırakılmış bir izlemenin partisi göz ardı edilir.
+- `.following_within(süre)` `following(true)` gibi izler, her bekleyiş en fazla `süre` sürer ve sonra yeniden bekler (`FileManagerMsg::Quiet`); böylece bir ekran testi başka bir programın değişikliğinin gelişini harness'i adımlatarak görür.
 
 ## Tema anahtarları
 

@@ -90,6 +90,23 @@ mod linux {
     }
 
     #[test]
+    fn a_bounded_wait_comes_back_empty_handed_and_the_watch_goes_on() {
+        let dir = temp_dir("bounded");
+        let mut watch = FolderWatch::new().expect("inotify");
+        watch.watch(&dir).expect("watch");
+        let changes = watch.changes();
+        let started = Instant::now();
+        assert_eq!(changes.next_within(Duration::from_millis(100)), None, "nothing changed within the bound");
+        assert!(started.elapsed() < PATIENCE, "and it came back");
+        fs::write(dir.join("late"), "").expect("create");
+        let batch = changes.next_within(PATIENCE).expect("the change after a quiet wait");
+        assert_eq!(names(&batch)[0], ("late".into(), FolderChangeKind::Created));
+        drop(watch);
+        assert_eq!(changes.next_within(PATIENCE), Some(Vec::new()), "a dropped watch still says stop");
+        fs::remove_dir_all(&dir).expect("clean");
+    }
+
+    #[test]
     fn creating_renaming_and_removing_a_file_are_reported_by_name() {
         let dir = temp_dir("basic");
         let mut watch = FolderWatch::new().expect("inotify");

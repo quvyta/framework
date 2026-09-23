@@ -13,7 +13,7 @@ Konum yolu, kullanıcının bir hiyerarşide nerede olduğunu gösterir ve yukar
 
 - **Buton değil yazı.** Seviyeler soluk, sade yazılardır; üstüne gelince yükselir. Son seviye bulunduğun yerdir: kalındır ve tıklanmaz.
 - **Ayırıcı bir ikondur.** Seviyeler arasında ikon setinden silik, küçük bir ok durur; asla `/` ya da `>` değil. Temalar bunu `crumb-separator` ile değiştirebilir.
-- **Dar yolda orta kısım katlanır.** Yol sığmayınca kök ve sığdığı kadar son seviye kalır, arada `…` durur. `…` açılınca gizli seviyeler listelenir. Çok dar alanda yalnızca `…` ve bulunduğun yer görünür.
+- **Dar yolda orta kısım katlanır.** Yol sığmayınca kök ve sığdığı kadar son seviye kalır, arada `…` durur. `…` açılınca gizli seviyeler listelenir. Çok dar alanda yalnızca `…` ve bulunduğun yer görünür. ASCII kipinde katlanan kısım `~` olarak çizilir.
 - **Klavye.** Yola odaklan, ← ve → ile gez, Home ve End ile uçlara git, Enter ya da Boşluk ile aç.
 
 ## Sık yapılan hatalar

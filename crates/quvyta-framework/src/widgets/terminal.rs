@@ -147,22 +147,11 @@ fn classic(cx: &PaintCx<'_>, index: u8) -> Rgb {
     }
 }
 
-/// The xterm colour of palette entries 16 to 255.
-fn xterm(index: u8) -> Rgb {
-    if index >= 232 {
-        let level = 8 + (index - 232) * 10;
-        return Rgb::new(level, level, level);
-    }
-    let cube = index - 16;
-    let level = |value: u8| if value == 0 { 0 } else { 55 + value * 40 };
-    Rgb::new(level(cube / 36), level(cube / 6 % 6), level(cube % 6))
-}
-
 fn resolve(cx: &PaintCx<'_>, color: vt100::Color, default: Rgb) -> Rgb {
     match color {
         vt100::Color::Default => default,
         vt100::Color::Idx(index) if index < 16 => classic(cx, index),
-        vt100::Color::Idx(index) => xterm(index),
+        vt100::Color::Idx(index) => Rgb::from_ansi256(index),
         vt100::Color::Rgb(r, g, b) => Rgb::new(r, g, b),
     }
 }
@@ -884,9 +873,9 @@ mod tests {
 
     #[test]
     fn palette_maps_classic_colours_to_the_theme_and_the_rest_to_xterm() {
-        assert_eq!(xterm(16), Rgb::new(0, 0, 0));
-        assert_eq!(xterm(196), Rgb::new(255, 0, 0));
-        assert_eq!(xterm(244), Rgb::new(128, 128, 128));
+        assert_eq!(Rgb::from_ansi256(16), Rgb::new(0, 0, 0));
+        assert_eq!(Rgb::from_ansi256(196), Rgb::new(255, 0, 0));
+        assert_eq!(Rgb::from_ansi256(244), Rgb::new(128, 128, 128));
     }
 
     struct Demo {

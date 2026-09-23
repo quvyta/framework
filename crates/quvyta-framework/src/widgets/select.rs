@@ -534,4 +534,21 @@ mod tests {
         let line = h.screen().lines().nth(2).unwrap_or_default().to_owned();
         assert!(line.starts_with("▌  us-east"), "the raised label slid one cell: {line}");
     }
+
+    #[test]
+    fn in_ascii_mode_the_open_list_cuts_with_an_ascii_mark() {
+        let mut h = Harness::new(Long, 22, 6);
+        h.set_reduced_motion(true).set_glyph_mode(crate::icons::GlyphMode::Ascii).press("tab").press("enter");
+        let screen = h.screen();
+        let cut: Vec<&str> = screen.lines().filter(|line| line.contains(text::ASCII_ELLIPSIS)).collect();
+        assert_eq!(cut.len(), 2, "both options are cut, and show it:\n{screen}");
+        assert!(screen.contains("eu-central"), "{screen}");
+        let buffer = h.buffer();
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                let symbol = buffer[(x, y)].symbol();
+                assert!(symbol.is_ascii(), "`{symbol}` at {x},{y} in ASCII mode:\n{screen}");
+            }
+        }
+    }
 }

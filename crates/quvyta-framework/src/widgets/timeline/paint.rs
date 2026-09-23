@@ -42,6 +42,8 @@ struct Tones {
     hover: Rgb,
     selected: Rgb,
     depth: ColorDepth,
+    /// The screen's ground, which decides how a sixteen-colour terminal shows a tone.
+    ground: Rgb,
 }
 
 impl Tones {
@@ -67,20 +69,24 @@ impl Tones {
 
     /// `tone` moved about `amount` of the way towards the track, as a colour this terminal shows
     /// apart from both `tone` and the track. The nearest amount that gives one is taken, so on a
-    /// terminal with few colours the step lands on whatever lies between the two; `None` when
-    /// nothing does.
+    /// terminal with few colours the step lands on whatever lies between the two. When nothing
+    /// does — sixteen colours with the track lifted to bright black — the tone recedes towards
+    /// the ground instead, as little as shows; `None` when that does not show either.
     fn towards_track(&self, tone: Rgb, amount: f32) -> Option<Rgb> {
-        let mut amounts: Vec<f32> = (1..20u8).map(|i| f32::from(i) / 20.0).collect();
+        let steps: Vec<f32> = (1..20u8).map(|i| f32::from(i) / 20.0).collect();
+        let mut amounts = steps.clone();
         amounts.sort_by(|a, b| (a - amount).abs().total_cmp(&(b - amount).abs()));
         std::iter::once(amount)
             .chain(amounts)
             .map(|amount| tone.mix(self.track, amount))
+            .chain(steps.into_iter().chain(std::iter::once(1.0)).map(|amount| tone.mix(self.ground, amount)))
             .find(|candidate| self.apart(*candidate, tone) && self.apart(*candidate, self.track))
     }
 
     /// Whether `a` and `b` read as two tones on this terminal.
     fn apart(&self, a: Rgb, b: Rgb) -> bool {
-        self.depth.tells_apart(a, b) && (self.depth != ColorDepth::TrueColor || a.perceptual_distance(b) >= VISIBLE)
+        self.depth.tells_apart(a, b, self.ground)
+            && (self.depth != ColorDepth::TrueColor || a.perceptual_distance(b) >= VISIBLE)
     }
 }
 
@@ -184,6 +190,7 @@ impl<Msg: 'static> Timeline<Msg> {
             hover: style.color("hover").unwrap_or(text),
             selected: style.color("selected").unwrap_or(text),
             depth: cx.env().depth(),
+            ground: cx.color("canvas"),
         }
     }
 
@@ -193,7 +200,7 @@ impl<Msg: 'static> Timeline<Msg> {
     fn plain(&self, theme: &Theme, tones: &Tones, block: &TimeBlock) -> Rgb {
         let tone =
             if self.disabled { tones.muted } else { block.tone.map_or(tones.fill, |index| theme.series_color(index)) };
-        let tone = if tones.depth.tells_apart(tone, tones.track) { tone } else { tones.text };
+        let tone = if tones.depth.tells_apart(tone, tones.track, tones.ground) { tone } else { tones.text };
         if block.faint { tones.towards_track(tone, FAINT).unwrap_or(tone) } else { tone }
     }
 }

@@ -771,9 +771,9 @@ fn the_initial_marker_ignores_icons_and_the_number_marker_counts_from_one() {
         h.screen()
     );
     h.set_glyph_mode(GlyphMode::Ascii);
-    assert_eq!(marker_column(&h), "123456789………", "numbers read the same in ASCII");
+    assert_eq!(marker_column(&h), "123456789~~~", "numbers read the same in ASCII, cut with an ASCII mark");
     h.hover(1, 10);
-    assert_eq!(h.screen().lines().nth(10), Some(" …  k"), "the name card still names the tab");
+    assert_eq!(h.screen().lines().nth(10), Some(" ~  k"), "the name card still names the tab");
 }
 
 #[test]

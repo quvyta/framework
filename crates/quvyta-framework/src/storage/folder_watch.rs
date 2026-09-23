@@ -9,7 +9,7 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How long a batch keeps gathering after its first event. A `git checkout` touches thousands of
 /// files in a burst; answering each would redraw a tree thousands of times, while a tenth of a
@@ -155,7 +155,24 @@ impl FolderChanges {
     /// [`FolderChangeKind::Created`] in the second, as it is when only one side is watched.
     #[must_use]
     pub fn next(&self) -> Vec<FolderChange> {
-        self.source.next(GATHER)
+        self.source.next(GATHER, None).unwrap_or_default()
+    }
+
+    /// Waits like [`next`](Self::next), but at most `bound` for the first change; `None` when
+    /// nothing changed in that time. The watch goes on: ask again.
+    ///
+    /// Made for screen tests: a [`Harness`](crate::runtime::Harness) runs the work of a
+    /// [`Command::perform`](crate::runtime::Command::perform) on the spot, so a wait with no end
+    /// would hold the test for good. A running application has a thread for its watch and keeps
+    /// using `next`. Once a change has come, the tenth of a second that gathers its batch is
+    /// waited in full, so a batch is never cut short by the bound.
+    #[must_use]
+    pub fn next_within(&self, bound: Duration) -> Option<Vec<FolderChange>> {
+        // A bound so far off that the clock cannot name it is the unbounded wait.
+        match Instant::now().checked_add(bound) {
+            Some(limit) => self.source.next(GATHER, Some(limit)),
+            None => Some(self.next()),
+        }
     }
 }
 
@@ -329,20 +346,27 @@ mod platform {
             let _ = rustix::io::write(&self.bell, &1u64.to_ne_bytes());
         }
 
-        pub(super) fn next(&self, gather: Duration) -> Vec<FolderChange> {
+        /// The next batch, `None` when `limit` passes before the first change of one.
+        pub(super) fn next(&self, gather: Duration, limit: Option<Instant>) -> Option<Vec<FolderChange>> {
             let mut buffer = lock(&self.buffer);
             let mut batch = Batch::default();
             let mut deadline: Option<Instant> = None;
             loop {
                 if self.closed.load(Ordering::SeqCst) {
-                    return Vec::new();
+                    return Some(Vec::new());
                 }
-                let timeout = match deadline {
+                // Until a change arrives the wait runs to the caller's limit, if any; after it,
+                // to the end of the gathering.
+                let until = match deadline {
+                    Some(deadline) => Some((deadline, true)),
+                    None => limit.map(|limit| (limit, false)),
+                };
+                let timeout = match until {
                     None => None,
-                    Some(deadline) => {
-                        let left = deadline.saturating_duration_since(Instant::now());
+                    Some((until, gathering)) => {
+                        let left = until.saturating_duration_since(Instant::now());
                         if left.is_zero() {
-                            return batch.finish();
+                            return gathering.then(|| batch.finish());
                         }
                         Some(Timespec::try_from(left).unwrap_or(Timespec { tv_sec: 0, tv_nsec: 0 }))
                     }
@@ -352,10 +376,10 @@ mod platform {
                     Ok(_) | Err(Errno::INTR) => {}
                     // Polling two descriptors this watch owns does not fail; if it ever does,
                     // the waiter stops rather than spinning, as if the watch had been dropped.
-                    Err(_) => return Vec::new(),
+                    Err(_) => return Some(Vec::new()),
                 }
                 if !fds[1].revents().is_empty() {
-                    return Vec::new();
+                    return Some(Vec::new());
                 }
                 if !fds[0].revents().is_empty() {
                     self.drain(&mut buffer, &mut batch);
@@ -430,7 +454,7 @@ mod platform {
 mod platform {
     use std::io;
     use std::path::Path;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use super::FolderChange;
 
@@ -458,7 +482,7 @@ mod platform {
             match *self {}
         }
 
-        pub(super) fn next(&self, _gather: Duration) -> Vec<FolderChange> {
+        pub(super) fn next(&self, _gather: Duration, _limit: Option<Instant>) -> Option<Vec<FolderChange>> {
             match *self {}
         }
     }

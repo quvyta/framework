@@ -19,6 +19,7 @@
 - **Every script by its own rules.** Chinese and Japanese are written without spaces, so a line may break between any two characters, but never before closing marks such as `。` `、` `」` or the long vowel `ー`, and never after an opening `「` or `（`. A no-break space (U+00A0, U+202F, U+2007) is part of the word: French puts one before `?` and `:`, and they never start a line. The OTHER SCRIPTS panel shows all three at the width you pick; there is nothing to set.
 - **Titles and labels are not content.** Nothing is selectable unless asked, so dragging over headings and hints selects nothing; opt in per node where copying makes sense.
 - **Cuts are honest.** When text must not wrap, the last visible cell is an ellipsis, so the reader knows something is hidden.
+- **The cut mark follows the glyph mode.** An ASCII terminal cannot show `…`, so in ASCII mode every cut ends in `~` instead, the mark shortened file names have long used. It takes the same one cell, so nothing moves when the mode changes.
 - **A middle cut keeps both ends.** `truncate_middle` shares the cells left after `…` between the start and the end, giving the end the odd one, and never splits a wide character or a letter from its accent; a cell one side cannot use goes to the other.
 - **Hierarchy is colour and weight.** No underlines of dashes, no capitals shouting. Titles are bold text colour, secondary text is dimmer, faint text is dimmer still.
 

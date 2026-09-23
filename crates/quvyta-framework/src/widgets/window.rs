@@ -481,9 +481,10 @@ impl<Msg: 'static> Window<Msg> {
         (icon, text::truncate(&self.title, room.saturating_sub(lead)).into_owned(), None)
     }
 
-    /// The title strip's colour and the styles of the name and the subtitle. In 16 colours every
-    /// surface tone falls to black, so the strip takes the accent on the focused window and a
-    /// grey on the others, with dark text on both.
+    /// The title strip's colour and the styles of the name and the subtitle. In 16 colours the
+    /// surface tones share two greys, too few to tell the focused window's strip from the others,
+    /// so the strip takes the accent on the focused window and a grey on the others, with dark
+    /// text on both.
     fn title_look(&self, cx: &mut PaintCx<'_>, states: &[State], ground: Rgb) -> (Rgb, CellStyle, CellStyle) {
         let name = cx.style("window-title", None, states).text();
         let subtitle = cx.style("window-subtitle", None, states).text();

@@ -39,6 +39,7 @@ use crate::event::{Event, MouseButton, MouseKind};
 use crate::geometry::{Rect, Size};
 use crate::i18n;
 use crate::keymap::Key;
+use crate::style;
 use crate::widget::{
     Axis, Effects, EventCx, Flex, Frame, IdleScope, Interaction, Key as NodeKey, Length, Memory, Node, PaintCx, View,
     WidgetId,
@@ -264,6 +265,7 @@ impl<A: App> Engine<A> {
         let screen = Rect::new(i32::from(buf.area.x), i32::from(buf.area.y), buf.area.width, buf.area.height);
         let mut frame = std::mem::take(&mut self.spare_frame);
         frame.clear();
+        let canvas;
         {
             let mut cx = PaintCx {
                 buf,
@@ -277,8 +279,9 @@ impl<A: App> Engine<A> {
                 layout: root.layout,
                 scope: None,
                 idle: silent,
+                focus_lent: false,
             };
-            let canvas = cx.color("canvas");
+            canvas = cx.color("canvas");
             cx.clear(screen, canvas);
             i18n::scope(self.env.i18n_arc(), || {
                 cx.paint_child(&root, screen);
@@ -320,6 +323,7 @@ impl<A: App> Engine<A> {
                 }
             });
         }
+        style::reduce(buf, self.env.depth(), canvas);
         self.memory.end_frame();
         self.tree = Some(root);
         self.spare_frame = std::mem::replace(&mut self.frame, frame);

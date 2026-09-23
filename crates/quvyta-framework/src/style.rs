@@ -1,6 +1,8 @@
 //! Drawing styles: what a cell looks like, and theme styles resolved for one frame.
 
-use ratatui_core::buffer::Cell;
+use std::collections::HashMap;
+
+use ratatui_core::buffer::{Buffer, Cell};
 use ratatui_core::style::{Color, Modifier};
 
 use crate::color::{ColorDepth, Rgb};
@@ -45,26 +47,25 @@ impl CellStyle {
         self
     }
 
-    /// Writes this style into `cell`, reducing colours to `depth`.
+    /// Writes this style into `cell`.
     #[cfg(test)]
-    pub(crate) fn apply(self, cell: &mut Cell, depth: ColorDepth) {
-        self.for_depth(depth).apply(cell);
+    pub(crate) fn apply(self, cell: &mut Cell) {
+        self.paint().apply(cell);
     }
 
-    /// This style with its colours reduced to `depth`, for writing into many cells.
-    pub(crate) fn for_depth(self, depth: ColorDepth) -> CellPaint {
+    /// This style as cell colours and modifiers, for writing into many cells.
+    pub(crate) fn paint(self) -> CellPaint {
         let mut modifier = Modifier::empty();
         modifier.set(Modifier::BOLD, self.bold);
         modifier.set(Modifier::ITALIC, self.italic);
         modifier.set(Modifier::UNDERLINED, self.underline);
         modifier.set(Modifier::DIM, self.dim);
-        CellPaint { fg: self.fg.map(|fg| to_color(fg, depth)), bg: self.bg.map(|bg| to_color(bg, depth)), modifier }
+        CellPaint { fg: self.fg.map(to_color), bg: self.bg.map(to_color), modifier }
     }
 }
 
-/// A [`CellStyle`] with its colours already reduced to the terminal's depth. Reducing a colour
-/// to 256 or 16 colours searches a palette, which is worth doing once per text rather than once
-/// per cell.
+/// A [`CellStyle`] as the colours and modifiers a cell carries, worked out once per text rather
+/// than once per cell.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CellPaint {
     fg: Option<Color>,
@@ -85,12 +86,76 @@ impl CellPaint {
     }
 }
 
-/// Converts a colour for a terminal of `depth`.
-pub(crate) fn to_color(color: Rgb, depth: ColorDepth) -> Color {
+/// Converts a colour for painting a frame.
+///
+/// Every frame is painted in full colour; one below true colour is reduced to its palette once
+/// it is complete, by [`reduce`]. Blending (a dimmed screen behind a dialog, a lifted menu, a page
+/// sliding in) needs the full colours to work on, and which palette entry a colour takes can
+/// depend on the theme's ground and, for text, on the colour behind it.
+pub(crate) fn to_color(color: Rgb) -> Color {
+    Color::Rgb(color.r, color.g, color.b)
+}
+
+/// Reduces a frame painted in full colour to the palette of `depth`, on a screen whose ground is
+/// `ground`; a true-colour frame is left as it is. Cells already in palette colours are left as
+/// they are.
+///
+/// In sixteen colours backgrounds take [`Rgb::to_ansi16_on`] and text [`Rgb::to_ansi16_text`]
+/// against the background of its own cell; in 256 colours backgrounds take [`Rgb::to_ansi256`]
+/// and text [`Rgb::to_ansi256_text`].
+pub(crate) fn reduce(buf: &mut Buffer, depth: ColorDepth, ground: Rgb) {
     match depth {
-        ColorDepth::TrueColor => Color::Rgb(color.r, color.g, color.b),
-        ColorDepth::Ansi256 => Color::Indexed(color.to_ansi256()),
-        ColorDepth::Ansi16 => Color::Indexed(color.to_ansi16()),
+        ColorDepth::TrueColor => {}
+        ColorDepth::Ansi256 => reduce_with(buf, Rgb::to_ansi256, Rgb::to_ansi256_text),
+        ColorDepth::Ansi16 => {
+            reduce_with(buf, |tone| tone.to_ansi16_on(ground), |text, bg| text.to_ansi16_text(bg, ground));
+        }
+    }
+}
+
+/// Reduces every full-colour cell of `buf`: backgrounds and glyphless text by `tone`, the text of
+/// a glyph by `text` against its cell's background.
+fn reduce_with(buf: &mut Buffer, tone: impl Fn(Rgb) -> u8, text: impl Fn(Rgb, Rgb) -> u8) {
+    // A frame holds few distinct colours and many cells; each reduction searches the palette once.
+    // Neighbouring cells mostly share their colours, so the last cell's answer is tried first.
+    let mut tones: HashMap<Rgb, u8> = HashMap::new();
+    let mut texts: HashMap<(Rgb, Rgb), u8> = HashMap::new();
+    let mut last: Option<(CellColours, (Color, Color))> = None;
+    for cell in &mut buf.content {
+        let (bg, fg) = (rgb(cell.bg), rgb(cell.fg));
+        if bg.is_none() && fg.is_none() {
+            continue;
+        }
+        let glyph = fg.is_some() && bg.is_some() && !cell.symbol().trim().is_empty();
+        let key = (cell.fg, cell.bg, glyph);
+        if let Some((seen, (fg, bg))) = last
+            && seen == key
+        {
+            (cell.fg, cell.bg) = (fg, bg);
+            continue;
+        }
+        if let Some(fg) = fg {
+            let index = match bg {
+                Some(bg) if glyph => *texts.entry((fg, bg)).or_insert_with(|| text(fg, bg)),
+                _ => *tones.entry(fg).or_insert_with(|| tone(fg)),
+            };
+            cell.fg = Color::Indexed(index);
+        }
+        if let Some(bg) = bg {
+            cell.bg = Color::Indexed(*tones.entry(bg).or_insert_with(|| tone(bg)));
+        }
+        last = Some((key, (cell.fg, cell.bg)));
+    }
+}
+
+/// A cell's text and background colours as painted, and whether it holds a glyph.
+type CellColours = (Color, Color, bool);
+
+/// The colour of a cell painted in full colour.
+fn rgb(color: Color) -> Option<Rgb> {
+    match color {
+        Color::Rgb(r, g, b) => Some(Rgb::new(r, g, b)),
+        _ => None,
     }
 }
 
@@ -174,18 +239,39 @@ mod tests {
     use crate::theme::ThemeRegistry;
 
     #[test]
-    fn applies_colours_for_each_depth() {
+    fn applies_colours_and_modifiers() {
         let mut cell = Cell::default();
-        CellStyle::fg(Rgb::new(255, 0, 0))
-            .on(Rgb::new(0, 0, 0))
-            .with_bold(true)
-            .apply(&mut cell, ColorDepth::TrueColor);
+        CellStyle::fg(Rgb::new(255, 0, 0)).on(Rgb::new(0, 0, 0)).with_bold(true).apply(&mut cell);
         assert_eq!(cell.fg, Color::Rgb(255, 0, 0));
         assert!(cell.modifier.contains(Modifier::BOLD));
-        CellStyle::fg(Rgb::new(255, 0, 0)).apply(&mut cell, ColorDepth::Ansi256);
-        assert_eq!(cell.fg, Color::Indexed(196));
-        assert_eq!(cell.bg, Color::Rgb(0, 0, 0));
+        CellStyle::fg(Rgb::new(0, 0, 255)).apply(&mut cell);
+        assert_eq!(cell.fg, Color::Rgb(0, 0, 255));
+        assert_eq!(cell.bg, Color::Rgb(0, 0, 0), "a style without a background keeps the one there");
         assert!(!cell.modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn a_frame_is_reduced_to_its_palette_once_painted() {
+        let ground = Rgb::new(12, 12, 14);
+        let painted = || {
+            let mut buf = Buffer::empty(ratatui_core::layout::Rect::new(0, 0, 3, 1));
+            CellStyle::fg(Rgb::new(255, 0, 0)).on(Rgb::new(0, 0, 0)).apply(&mut buf.content[0]);
+            buf.content[0].set_symbol("a");
+            buf.content[1].set_bg(Color::Indexed(4));
+            buf.content[2].set_bg(Color::Rgb(128, 128, 128));
+            buf
+        };
+        let mut buf = painted();
+        reduce(&mut buf, ColorDepth::TrueColor, ground);
+        assert_eq!(buf, painted(), "true colour is sent as painted");
+        reduce(&mut buf, ColorDepth::Ansi256, ground);
+        assert_eq!((buf.content[0].fg, buf.content[0].bg), (Color::Indexed(196), Color::Indexed(16)));
+        assert_eq!(buf.content[1].bg, Color::Indexed(4), "a palette colour is left as it is");
+        assert_eq!(buf.content[2].bg, Color::Indexed(244));
+        let mut buf = painted();
+        reduce(&mut buf, ColorDepth::Ansi16, ground);
+        assert_eq!((buf.content[0].fg, buf.content[0].bg), (Color::Indexed(9), Color::Indexed(0)));
+        assert_eq!(buf.content[2].bg, Color::Indexed(8));
     }
 
     #[test]

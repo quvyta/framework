@@ -156,7 +156,7 @@ mod tests {
         let mut h = Harness::new(Demo(vec![Badge::new("Degraded performance").variant("warning")]), 12, 1);
         assert_eq!(h.screen(), " ● Degrade…\n");
         h.set_glyph_mode(GlyphMode::Ascii);
-        assert_eq!(h.screen(), " * Degrade…\n");
+        assert_eq!(h.screen(), " * Degrade~\n", "the cut mark is ASCII too");
     }
 
     #[test]

@@ -19,6 +19,7 @@
 - **Her yazı kendi kuralıyla.** Çince ve Japonca boşluksuz yazılır; satır herhangi iki karakter arasında kırılabilir, ama `。` `、` `」` gibi kapanış işaretlerinden ve uzatma işareti `ー`'den önce asla, açılan `「` ya da `（`'dan sonra asla. Bölünmez boşluk (U+00A0, U+202F, U+2007) kelimenin parçasıdır: Fransızca `?` ve `:` önüne bir tane koyar ve bu işaretler hiçbir zaman satır başına düşmez. BAŞKA YAZILAR paneli üçünü seçtiğin genişlikte gösterir; ayarlanacak bir şey yok.
 - **Başlıklar ve etiketler içerik değildir.** İstenmedikçe hiçbir şey seçilemez; başlıkların ve ipuçlarının üzerinde sürüklemek bir şey seçmez. Kopyalamanın anlamlı olduğu düğümde seçimi aç.
 - **Kesme dürüsttür.** Metin sarılmayacaksa son görünen hücre üç noktadır; okuyan bir şeyin gizli olduğunu anlar.
+- **Kesme işareti glif kipine uyar.** ASCII bir terminal `…` gösteremez; bu yüzden ASCII kipinde her kesme `~` ile biter, kısaltılmış dosya adlarının eskiden beri kullandığı işaret. Aynı tek hücreyi kaplar, kip değişince hiçbir şey kaymaz.
 - **Ortadan kısaltma iki ucu da korur.** `truncate_middle`, `…`'dan sonra kalan hücreleri baş ile son arasında paylaştırır, tek kalan hücreyi sona verir; geniş bir karakteri ya da bir harfi aksanından asla ayırmaz, bir tarafın kullanamadığı hücre öbür tarafa geçer.
 - **Hiyerarşi renk ve ağırlıktır.** Tirelerden alt çizgi yok, bağıran büyük harfler yok. Başlıklar kalın yazı rengidir, ikincil metin daha soluk, silik metin daha da soluktur.
 

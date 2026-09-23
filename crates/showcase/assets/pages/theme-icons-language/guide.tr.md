@@ -37,6 +37,19 @@ accent = "#7DD3FC"
 
 Tema yüklenirken framework yazı ile zeminler arasındaki kontrastı ve vurgu ile dört durum rengi arasındaki mesafeyi ölçer. Uyarı rengi vurguya benziyorsa ya da yazı zor okunuyorsa sayılarıyla birlikte bir uyarı üretilir. Bozuk değerler uygulamayı çökertmez: girdi atlanır, dosya, satır ve sütun bildirilir. Demodaki durum satırı yüklenen dosyalarda sorun olup olmadığını gösterir.
 
+## Az renkli terminaller
+
+Framework terminale kaç renk gösterdiğini sorar (`ColorDepth::detect`) ve temanın renklerini 24 bit, 256 renklik palet ya da on altı standart renkle çizer. Tema aynı dosyadır; değişen yalnızca çizimdir.
+
+On altı standart rengin iki koyu grisi var, siyah ve parlak siyah; koyu bir tema ise biçimini birkaç adım arayla dört beş zemin tonundan kurar. En yakın renge yuvarlansalar hepsi siyaha iner, sekme şeridi, yükseltilmiş panel ya da diyalog ekrana karışırdı. Bu yüzden on altı renkli bir kare önce tam renkle çizilir, bitince iki kuralla indirilir:
+
+- **Gözün ayırdığı zemin ayrı kalır.** `canvas`'tan OKLab'de en az 0.05 uzak olup yine de canvas'ın rengine düşecek bir ton, ondan uzaklaşan yöndeki bir sonraki griye geçer. Koyu temada `canvas` ve `surface` siyah kalır, `raised`, `active` ve `overlay` parlak siyah olur; açık temada parlak beyazdan beyaza iner.
+- **Yazı zeminine gömülmez.** Arkasına karşı 1.6:1'in altında kalacak yazı, 3:1'i tutan en sessiz griyi alır: parlak siyah bir yüzeydeki soluk ya da vurgu renkli yazı beyaz olur, açık bir diyaloğun arkasındaki sayfa kaybolmaz, siyah üstünde parlak siyah olarak soluk kalır.
+
+256 renkli bir kare de önce tam renkle çizilir, bitince indirilir; böylece diyaloğun arkasındaki sayfanın karartılması, bir menünün panelden ayrılması ve sayfa geçişi gerçek renkteki gibi karışır. Bu palette her zemine yetecek kadar gri var, bu yüzden zeminler en yakın girdiyi alır. Yazı en yakın girdisini korur; o girdi arkasına karşı 1.6:1'in altına düşüyorsa kendi rengine en yakın ve 1.6:1'i tutan girdiyi alır. Böylece diyaloğun arkasındaki sayfanın en soluk yazıları kaybolmaz, soluk kalır.
+
+`Rgb::to_ansi16_on`, `Rgb::to_ansi16_text`, `Rgb::to_ansi256` ve `Rgb::to_ansi256_text` karenin verdiği cevabın aynısını verir, böylece bir test ekranı daha az renkte çizmeden denetleyebilir; `Harness::set_depth(ColorDepth::Ansi16)` ya da `ColorDepth::Ansi256` ise öyle çizer.
+
 ## İkonlar
 
 Her ikonun üç biçimi vardır: Nerd Font için `nerd`, `unicode` ve `ascii`. `auto` modunda framework terminale ve kurulu yazı tiplerine bakarak seçer; kullanıcı bir mod seçebilir, `QUVYTA_ICONS=ascii` ise bir modu zorlar. ASCII biçimleri şekil taklit etmek için asla parantez kullanmaz.

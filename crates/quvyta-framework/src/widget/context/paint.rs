@@ -11,7 +11,7 @@ use super::frame::{FocusRequest, Frame, Interaction, LayerEntry};
 use crate::color::{ColorDepth, Rgb};
 use crate::env::Env;
 use crate::geometry::{Rect, Size, clamp_u16};
-use crate::icons::PILLAR;
+use crate::icons::{GlyphMode, PILLAR};
 use crate::keymap::KeyChord;
 use crate::motion::{Easing, Tweens};
 use crate::style::{CellStyle, WidgetStyle, to_color};
@@ -34,6 +34,9 @@ pub struct PaintCx<'a> {
     pub(crate) scope: Option<WidgetId>,
     /// How long no input has arrived, for views a widget builds while it paints.
     pub(crate) idle: Duration,
+    /// Whether the widgets painted now hold the focus of the container painting them, which
+    /// forwards its keys to them without their taking focus themselves.
+    pub(crate) focus_lent: bool,
 }
 
 impl PaintCx<'_> {
@@ -105,7 +108,7 @@ impl PaintCx<'_> {
     /// Whether this widget has keyboard focus.
     #[must_use]
     pub fn is_focused(&self) -> bool {
-        self.interaction.focused == Some(self.id)
+        self.focus_lent || self.interaction.focused == Some(self.id)
     }
 
     /// Whether this widget has focus that should be shown loudly: it was reached with the
@@ -405,17 +408,18 @@ impl PaintCx<'_> {
     }
 
     /// Blends the text and background colours already drawn in `rect` towards `color` by
-    /// `amount` (0 keeps them, 1 replaces them), e.g. to dim the screen behind a dialog. Cells
-    /// drawn with reduced colour depth take `color` once `amount` passes one half.
+    /// `amount` (0 keeps them, 1 replaces them), e.g. to dim the screen behind a dialog. Every
+    /// frame is painted in full colour and reduced to the terminal's palette only once complete,
+    /// so the blend holds at every colour depth; a cell drawn directly in a palette colour cannot
+    /// be blended and takes `color` once `amount` passes one half.
     pub fn tint(&mut self, rect: Rect, color: Rgb, amount: f32) {
         let amount = amount.clamp(0.0, 1.0);
         if amount <= 0.0 {
             return;
         }
-        let depth = self.env.depth();
         let blend = |current: Color| match current {
-            Color::Rgb(r, g, b) => Some(to_color(Rgb::new(r, g, b).mix(color, amount), depth)),
-            _ if amount > 0.5 => Some(to_color(color, depth)),
+            Color::Rgb(r, g, b) => Some(to_color(Rgb::new(r, g, b).mix(color, amount))),
+            _ if amount > 0.5 => Some(to_color(color)),
             _ => None,
         };
         self.each_cell(rect, |cell| {
@@ -429,9 +433,10 @@ impl PaintCx<'_> {
     }
 
     /// Blends the background of `rect` towards `color` by `amount`, keeping every glyph and its
-    /// colour, e.g. the tone a [`Ghost`](crate::widgets::Ghost) lays over the ground. Cells drawn
-    /// with reduced colour depth cannot be blended, so they take the colour mixed into the theme's
-    /// canvas instead, and text that would no longer read on it is brightened.
+    /// colour, e.g. the tone a [`Ghost`](crate::widgets::Ghost) lays over the ground. Below true
+    /// colour a faint blend over each cell would round back to the cell's own colour, so the
+    /// cells take the colour mixed into the theme's canvas instead, and text that would no longer
+    /// read on it is brightened.
     pub(crate) fn tint_ground(&mut self, rect: Rect, color: Rgb, amount: f32) {
         let amount = amount.clamp(0.0, 1.0);
         if amount <= 0.0 {
@@ -443,10 +448,9 @@ impl PaintCx<'_> {
             self.fill_keeping_text_readable(rect, ground, readable);
             return;
         }
-        let depth = self.env.depth();
         self.each_cell(rect, |cell| {
             if let Color::Rgb(r, g, b) = cell.bg {
-                cell.bg = to_color(Rgb::new(r, g, b).mix(color, amount), depth);
+                cell.bg = to_color(Rgb::new(r, g, b).mix(color, amount));
             }
         });
     }
@@ -458,7 +462,7 @@ impl PaintCx<'_> {
 
     /// Fills `rect` with `color`, keeping text.
     pub fn fill(&mut self, rect: Rect, color: Rgb) {
-        let bg = to_color(color, self.env.depth());
+        let bg = to_color(color);
         self.each_cell(rect, |cell| cell.bg = bg);
     }
 
@@ -466,8 +470,7 @@ impl PaintCx<'_> {
     /// longer read on it (contrast below 3:1) takes `readable` instead, so faint text stays legible
     /// under a highlight such as a text selection.
     pub(crate) fn fill_keeping_text_readable(&mut self, rect: Rect, color: Rgb, readable: Rgb) {
-        let depth = self.env.depth();
-        let (bg, text) = (to_color(color, depth), to_color(readable, depth));
+        let (bg, text) = (to_color(color), to_color(readable));
         self.each_cell(rect, |cell| {
             cell.bg = bg;
             if let Color::Rgb(r, g, b) = cell.fg
@@ -484,7 +487,7 @@ impl PaintCx<'_> {
         // An empty cell reads as a space and equals a cell holding one; copying a prepared blank
         // cell is cheaper than resetting, writing and styling every cell.
         let mut blank = Cell::EMPTY;
-        blank.bg = to_color(color, self.env.depth());
+        blank.bg = to_color(color);
         // Cells inside the rectangle are all replaced; only a wide character crossing its left
         // or right edge would be cut in half.
         let area = rect.intersect(self.clip);
@@ -513,8 +516,14 @@ impl PaintCx<'_> {
 
     /// Draws `text` starting at `(x, y)`, at most `max` cells wide, clipped to the visible area.
     /// Returns the number of cells the text occupies (before clipping).
+    ///
+    /// In ASCII glyph mode an [`ELLIPSIS`](text::ELLIPSIS) is drawn as
+    /// [`ASCII_ELLIPSIS`](text::ASCII_ELLIPSIS), in the same single cell. Every widget cuts text
+    /// with [`text::truncate`] or [`text::truncate_middle`] and draws it through here, so this one
+    /// place gives every cut an ASCII mark; a `…` written by the application itself is changed
+    /// too, since an ASCII terminal could not show it either way.
     pub fn text(&mut self, x: i32, y: i32, text: &str, style: CellStyle, max: u16) -> u16 {
-        let paint = style.for_depth(self.env.depth());
+        let paint = style.paint();
         let clip = self.clip;
         let limit = x + i32::from(max);
         let mut column = x;
@@ -536,6 +545,7 @@ impl PaintCx<'_> {
             }
             return clamp_u16(column - x);
         }
+        let ascii = self.env.icons().mode() == GlyphMode::Ascii;
         for grapheme in text.graphemes(true) {
             let width = i32::from(text::grapheme_width(grapheme));
             if width == 0 {
@@ -562,6 +572,7 @@ impl PaintCx<'_> {
                         // A cell cannot hold a control character: a terminal would act on it
                         // rather than show it. It keeps the cell it is measured at, blank.
                         (0, true) if grapheme.chars().any(char::is_control) => " ",
+                        (0, true) if ascii && grapheme == text::ELLIPSIS => text::ASCII_ELLIPSIS,
                         (0, true) => grapheme,
                         (_, true) => "",
                         _ => " ",
@@ -618,6 +629,17 @@ impl PaintCx<'_> {
         let registered = self.frame.focusable.len();
         self.paint_child(node, rect);
         self.frame.focusable.truncate(registered);
+    }
+
+    /// Paints a child like [`paint_child_unfocusable`](Self::paint_child_unfocusable) while
+    /// `focused` lends it this container's focus: a container that forwards its keys to the
+    /// child's widgets paints them focused, so they draw their focus and keep what focus keeps,
+    /// such as the half-typed part of a time.
+    pub(crate) fn paint_child_lending_focus<M: 'static>(&mut self, node: &Node<M>, rect: Rect, focused: bool) {
+        let lent = self.focus_lent;
+        self.focus_lent = lent || focused;
+        self.paint_child_unfocusable(node, rect);
+        self.focus_lent = lent;
     }
 
     /// The pointer cell, when the pointer is over this widget or over a widget inside it, for

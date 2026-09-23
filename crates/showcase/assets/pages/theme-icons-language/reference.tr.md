@@ -13,6 +13,13 @@
 - Kontrast: canvas ve surface üstünde yazı en az 7; surface üstünde dim 4.5; surface üstünde muted 2.5; surface üstünde her durum rengi 4.5; accent üstünde ink 4.5.
 - accent, success, warning, danger ve info arasında en az 0.10 OKLab mesafesi.
 
+## Renk derinliği
+
+- `ColorDepth::detect(env)` — `COLORTERM`, `TERM` ve terminalin adından `TrueColor`, `Ansi256` ya da `Ansi16`; `Harness::set_depth` bir testi bunlardan biriyle çizer.
+- On altı renk: kare tam renkle çizilir, bitince indirilir. Zeminler `Rgb::to_ansi16_on(canvas)` alır: on altının en yakını; ancak canvas'tan OKLab'de en az 0.05 uzak olup canvas'ın rengine düşecek bir ton siyah, parlak siyah, beyaz, parlak beyaz sırasında bir gri uzaklaşır. Yazı `Rgb::to_ansi16_text(bg, canvas)` alır: aynısı, arkasına karşı 1.6:1'in altında kalırsa 3:1'i tutan en sessiz gri. Arkasıyla tıpatıp aynı renkteki yazıya dokunulmaz.
+- `Rgb::to_ansi16()` düz en yakın girdidir, `Rgb::from_ansi16(index)` bir girdinin xterm'deki varsayılan rengi.
+- 256 renk: kare tam renkle çizilir, bitince indirilir. Zeminler `Rgb::to_ansi256()` alır, en yakın palet girdisi. Yazı `Rgb::to_ansi256_text(bg)` alır: en yakın girdi; arkasının girdisine karşı 1.6:1'in altında kalırsa OKLab'de ona en yakın ve 1.6:1'i tutan girdi. Arkasıyla tıpatıp aynı renkteki yazıya dokunulmaz. `Rgb::from_ansi256(index)` bir girdinin xterm'deki varsayılan rengidir.
+
 ## İkon dosyası
 
 - `[meta] name` ve `anahtar = { nerd = "…", unicode = "…", ascii = "…" }` içeren `[icons]`.

@@ -5,6 +5,7 @@
 - `watch.unwatch(&Path)` — bir klasörü izlemeyi bırakır; izlenmeyen klasöre dokunulmaz.
 - `watch.changes() -> FolderChanges` — bekleyen taraf; kopyalaması ucuz, `Send`, `Command::perform` için.
 - `changes.next() -> Vec<FolderChange>` — bir şey değişene kadar bekler, saniyenin onda biri kadar toplar ve topluluğu döndürür; izleme bırakılınca boştur.
+- `changes.next_within(süre) -> Option<Vec<FolderChange>>` — aynı bekleme, ilk değişiklik için en fazla `süre`; hiçbir şey değişmediyse `None`, izleme sürer. Bekleyişi olduğu yerde çalıştıran ekran testleri için.
 - `FolderChange { folder: PathBuf, name: Option<OsString>, kind: FolderChangeKind }` — `folder`, `watch`'a verildiği gibidir; `Gone` ve `Overflow` için `name` `None`'dır.
 - `FolderChangeKind::Created`, `Removed`, `Renamed { from: OsString }`, `Modified`, `Gone`, `Overflow`.
 

@@ -371,7 +371,10 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                     let control_x = rect.right() - i32::from(CONTROL_GAP + control_width);
                     let control = Rect::new(control_x, rect.y + i32::from(lines.control_row()), control_width, 1);
                     controls[*index] = control;
-                    cx.paint_child_unfocusable(node, control);
+                    // The keys of the list's own row go to its control, so the control is painted
+                    // focused: a time or a duration keeps the part being typed only while focused.
+                    let keyboard_row = focused && selected == Some(*index) && !row.disabled;
+                    cx.paint_child_lending_focus(node, control, keyboard_row);
 
                     let raised = states.contains(&State::Hover) || states.contains(&State::Selected);
                     let shift = u16::from(slide && raised);
@@ -801,5 +804,82 @@ mod tests {
         h.resize(20, 6);
         let (nested_x, _) = h.find("Everywhere").expect("nested, narrow");
         assert_eq!(nested_x, theme_x + 2, "{}", h.screen());
+    }
+
+    /// A settings page with a time and a duration, as qfocus's settings have.
+    struct Clock {
+        turn: crate::date::TimeOfDay,
+        away: std::time::Duration,
+    }
+
+    #[derive(Clone)]
+    enum ClockMsg {
+        Turn(crate::date::TimeOfDay),
+        Away(std::time::Duration),
+    }
+
+    impl App for Clock {
+        type Msg = ClockMsg;
+        fn update(&mut self, msg: ClockMsg) -> Command<ClockMsg> {
+            match msg {
+                ClockMsg::Turn(time) => self.turn = time,
+                ClockMsg::Away(duration) => self.away = duration,
+            }
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ClockMsg>) {
+            SettingsList::show(ui, |list| {
+                list.row(SettingRow::new("Day turns at"), |ui| {
+                    ui.add(crate::widgets::TimeInput::new(self.turn).on_change(ClockMsg::Turn));
+                });
+                list.row(SettingRow::new("Away after"), |ui| {
+                    ui.add(crate::widgets::DurationInput::new(self.away).on_change(ClockMsg::Away));
+                });
+            });
+        }
+    }
+
+    fn clock() -> Harness<Clock> {
+        let app = Clock { turn: crate::date::TimeOfDay::new(4, 0, 0), away: std::time::Duration::from_secs(15 * 60) };
+        let mut h = Harness::new(app, 60, 6);
+        h.set_reduced_motion(true).render();
+        h
+    }
+
+    #[test]
+    fn two_digits_typed_into_a_time_in_a_settings_row_make_one_value() {
+        let mut h = clock();
+        let (x, y) = h.find("04").unwrap_or_else(|| panic!("the hour is on screen:\n{}", h.screen()));
+        h.click(x, y);
+        h.type_text("12");
+        assert_eq!(
+            h.app().turn,
+            crate::date::TimeOfDay::new(12, 0, 0),
+            "two digits make twelve, not two:\n{}",
+            h.screen()
+        );
+        let (x, y) = h.find("00").unwrap_or_else(|| panic!("the minute is on screen:\n{}", h.screen()));
+        h.click(x, y);
+        h.type_text("05");
+        assert_eq!(h.app().turn, crate::date::TimeOfDay::new(12, 5, 0), "the minute took the digits:\n{}", h.screen());
+    }
+
+    #[test]
+    fn the_keys_reach_the_minute_of_a_time_in_a_settings_row() {
+        let mut h = clock();
+        h.press("tab");
+        h.type_text("07");
+        h.press("right");
+        h.type_text("45");
+        assert_eq!(h.app().turn, crate::date::TimeOfDay::new(7, 45, 0), "{}", h.screen());
+    }
+
+    #[test]
+    fn two_digits_typed_into_a_duration_in_a_settings_row_go_to_the_part_clicked() {
+        let mut h = clock();
+        let (x, y) = h.find("15").unwrap_or_else(|| panic!("the minutes are on screen:\n{}", h.screen()));
+        h.click(x, y);
+        h.type_text("05");
+        assert_eq!(h.app().away, std::time::Duration::from_secs(5 * 60), "the minutes, not the hours:\n{}", h.screen());
     }
 }

@@ -37,6 +37,19 @@ accent = "#7DD3FC"
 
 When a theme loads, the framework measures contrast between text and grounds and the distance between the accent and the four status colours. A theme where warning looks like the accent, or text is hard to read, produces a warning with the numbers. Broken values never crash: the entry is skipped and the file, line and column are reported. The status line in the demo shows whether the loaded files had problems.
 
+## Terminals with fewer colours
+
+The framework asks the terminal how many colours it shows (`ColorDepth::detect`) and draws the theme's colours in 24-bit, in the 256-colour palette, or in the sixteen standard colours. The theme stays the same file; only the drawing changes.
+
+The sixteen standard colours have two dark greys, black and bright black, while a dark theme builds its shapes from four or five grounds a few steps apart. Rounded to the nearest colour they would all land on black, and a tab strip, a raised panel or a dialog would melt into the screen. So a sixteen-colour frame is painted in full colour and reduced once it is complete, with two rules:
+
+- **A ground the eye tells apart stays apart.** A tone at least 0.05 from `canvas` in OKLab that would still land on the canvas's colour takes the next grey away from it. On a dark theme `canvas` and `surface` stay black while `raised`, `active` and `overlay` become bright black; on a light theme they step down from bright white to white.
+- **Text never vanishes into its ground.** Text that would keep less than 1.6:1 against its background takes the quietest grey that keeps 3:1: muted or accent text on a bright black surface turns white, and the page behind an open dialog stays faint, bright black on black, rather than disappearing.
+
+A 256-colour frame is painted in full colour and reduced once complete too, so dimming the page behind a dialog, lifting a menu off a panel and a page transition blend as they do in true colour. Its palette has enough greys for every ground, so backgrounds take the nearest entry. Text keeps its nearest entry unless that falls under 1.6:1 against its background; then it takes the entry closest to its own colour that still keeps 1.6:1, so the faintest labels on the page behind a dialog stay faint instead of vanishing.
+
+`Rgb::to_ansi16_on`, `Rgb::to_ansi16_text`, `Rgb::to_ansi256` and `Rgb::to_ansi256_text` give the same answer the frame does, so a test can check a screen without drawing it in fewer colours; `Harness::set_depth(ColorDepth::Ansi16)` or `ColorDepth::Ansi256` draws it that way.
+
 ## Icons
 
 Every icon has three glyphs: `nerd` for Nerd Fonts, `unicode`, and `ascii`. In `auto` mode the framework picks by looking at the terminal and the installed fonts; users can choose a mode, and `QUVYTA_ICONS=ascii` forces one. ASCII glyphs never use brackets to fake shapes.

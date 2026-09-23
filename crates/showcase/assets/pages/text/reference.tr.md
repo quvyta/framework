@@ -23,6 +23,7 @@
 - Bir kontrol karakteri (`\r`, `\t`, escape, zil…) hiç çizilmez: terminal onu göstermez, onun gereğini yapar. Ölçüldüğü tek hücre boş kalır.
 - `printable(metin) -> Cow<str>` — başka bir programın terminal için bastığı bir satır, terminalin ekranda bırakacağı haliyle: yalnızca son satır başı dönüşünün bıraktığı kalır, kaçış dizileri (renk, imleç, başlık) yarım kalmış olsalar da çıkar, sekme sekizlik bir sonraki durağa kadar boşluk olur, başka kontrol karakteri kalmaz. Değişmeyen metin ödünç verilir.
 - `truncate_middle(metin, en_fazla) -> Cow<str>` — en fazla `en_fazla` hücre, ortası `…` olur; sığıyorsa değişmez, tek kalan hücre sona gider, 1'de yalnızca `…`, 0'da hiçbir şey.
+- Kesme işareti `text::ELLIPSIS` (`…`). ASCII glif kipinde `PaintCx::text` onu aynı tek hücrede `text::ASCII_ELLIPSIS` (`~`) olarak çizer; böylece orada her bileşen ASCII bir işaretle keser ve kesilmiş metin her kipte aynı genişliktedir. Uygulamanın kendi metnindeki bir `…` da ASCII kipinde `~` çizilir.
 
 ## Tema anahtarları
 

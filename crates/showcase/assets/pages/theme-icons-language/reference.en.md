@@ -13,6 +13,13 @@
 - Contrast: text on canvas and surface at least 7; dim on surface 4.5; muted on surface 2.5; each status colour on surface 4.5; ink on accent 4.5.
 - OKLab distance of at least 0.10 between accent, success, warning, danger and info.
 
+## Colour depth
+
+- `ColorDepth::detect(env)` — `TrueColor`, `Ansi256` or `Ansi16` from `COLORTERM`, `TERM` and the terminal's name; `Harness::set_depth` draws a test at one of them.
+- Sixteen colours: a frame is painted in full colour and reduced when complete. Backgrounds take `Rgb::to_ansi16_on(canvas)`: the nearest of the sixteen, except that a tone at least 0.05 from the canvas in OKLab that would land on the canvas's colour moves one grey away along black, bright black, white, bright white. Text takes `Rgb::to_ansi16_text(bg, canvas)`: the same, and under 1.6:1 against its background the quietest grey that keeps 3:1. Text in the exact colour of its background is left alone.
+- `Rgb::to_ansi16()` is the plain nearest entry and `Rgb::from_ansi16(index)` the xterm default colour of an entry.
+- 256 colours: a frame is painted in full colour and reduced when complete. Backgrounds take `Rgb::to_ansi256()`, the nearest palette entry. Text takes `Rgb::to_ansi256_text(bg)`: the nearest entry, and under 1.6:1 against its background's entry the entry closest to it in OKLab that keeps 1.6:1. Text in the exact colour of its background is left alone. `Rgb::from_ansi256(index)` is the xterm default colour of an entry.
+
 ## Icon file
 
 - `[meta] name`, and `[icons]` with `key = { nerd = "…", unicode = "…", ascii = "…" }`.

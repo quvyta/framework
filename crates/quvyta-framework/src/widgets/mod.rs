@@ -79,6 +79,8 @@ mod settings_list;
 mod setup;
 mod shimmer_text;
 mod side_panel;
+#[cfg(test)]
+mod sixteen_colours_tests;
 mod skeleton;
 mod slider;
 mod sparkline;

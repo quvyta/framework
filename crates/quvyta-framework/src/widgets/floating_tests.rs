@@ -139,13 +139,19 @@ fn a_popover_inside_a_panel_is_lifted_and_one_beside_it_is_not() {
 }
 
 #[test]
-fn reduced_colour_depth_leaves_the_palette_cells_alone() {
-    let mut h = Harness::new(Menus { in_panel: true }, 70, 14);
-    h.set_depth(crate::color::ColorDepth::Ansi256);
-    h.click_text("Pick");
-    h.advance(Duration::from_millis(300));
-    let (x, y) = h.find("Gamma").expect("the menu");
-    let cell = &h.buffer()[(u16::try_from(x + 8).unwrap_or(0), u16::try_from(y).unwrap_or(0))];
-    let overlay = h.env().theme().color("overlay").expect("overlay");
-    assert_eq!(cell.bg, ratatui_core::style::Color::Indexed(overlay.to_ansi256()));
+fn in_256_colours_a_menu_over_a_side_panel_is_lifted_apart_from_it_too() {
+    use ratatui_core::style::Color;
+    for theme in THEMES {
+        let mut h = Harness::new(Menus { in_panel: true }, 70, 14);
+        h.set_theme(theme).set_depth(crate::color::ColorDepth::Ansi256);
+        h.click_text("Pick");
+        h.advance(Duration::from_millis(300));
+        let (x, y) = h.find("Gamma").expect("the menu");
+        let menu = h.buffer()[(u16::try_from(x + 8).unwrap_or(0), u16::try_from(y).unwrap_or(0))].bg;
+        let panel = h.buffer()[(69, 13)].bg;
+        assert!(matches!(menu, Color::Indexed(_)), "{theme}: a 256-colour frame sends palette entries, not {menu:?}");
+        assert_ne!(menu, panel, "{theme}: the menu is lifted apart from the panel it opens over");
+        let overlay = h.env().theme().color("overlay").expect("overlay");
+        assert_ne!(menu, Color::Indexed(overlay.to_ansi256()), "{theme}: not left on the plain overlay tone");
+    }
 }

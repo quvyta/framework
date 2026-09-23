@@ -8,7 +8,21 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 /// The ellipsis drawn where text is cut.
+///
+/// [`truncate`] and [`truncate_middle`] always write this mark: they measure text and know
+/// nothing of the terminal. In ASCII glyph mode, where a terminal cannot show `…`, the painter
+/// ([`PaintCx::text`](crate::widget::PaintCx::text)) draws [`ASCII_ELLIPSIS`] in its cell
+/// instead, so every widget that cuts text is covered at once and the cut takes the same cell.
 pub const ELLIPSIS: &str = "…";
+
+/// The mark that stands for [`ELLIPSIS`] in ASCII glyph mode.
+///
+/// A tilde, one cell like the ellipsis it replaces, so a cut text is exactly as wide in every
+/// mode and nothing measured with [`width`] moves. It is the cut mark ASCII terminals already
+/// know from shortened file names (`PROGRA~1`, a file manager's `long~name.txt`); a period would
+/// read as the end of a sentence or, in the middle of a path, as part of the name, and `...`
+/// would take two more cells from a column that is already too narrow.
+pub const ASCII_ELLIPSIS: &str = "~";
 
 /// Display width of `text` in cells.
 #[must_use]
@@ -383,6 +397,13 @@ fn trim_end(text: &str, range: Option<Range<usize>>) -> Range<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ascii_cut_mark_is_ascii_and_as_wide_as_the_ellipsis() {
+        assert!(is_printable_ascii(ASCII_ELLIPSIS));
+        assert_eq!(width(ASCII_ELLIPSIS), width(ELLIPSIS), "a cut text is as wide in every glyph mode");
+        assert_eq!(width(ELLIPSIS), 1);
+    }
 
     #[test]
     fn measures_wide_and_combining_text() {

@@ -4,6 +4,58 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.20 - 2026-09-23
+
+### Fixed
+
+- The update notice works for an application on a pre-release. A version such as
+  `0.1.0-alpha.1` was not read at all, so a person on an alpha never heard of the next one.
+  Versions are now ordered as semver orders them; a person on a pre-release hears of the newest
+  version after it, pre-release or release, and a person on a release still never hears of a
+  pre-release.
+- Text cut in ASCII glyph mode ends in `~`, not `…`, which an ASCII terminal cannot show. A table
+  cut a long name and a column title with `…` in every mode, and so did lists, menus, badges and
+  the rest. The painter now draws the cut mark as `text::ASCII_ELLIPSIS` in ASCII mode, in the
+  same single cell, so every widget is covered and nothing moves; Unicode and Nerd Font modes keep
+  `…`. `text::truncate` and `text::truncate_middle` are unchanged.
+
+- A sixteen-colour terminal keeps the shape of a screen. Rounded to the nearest of the sixteen,
+  every dark ground of a theme landed on black: the page behind an open dialog vanished into the
+  screen, and tab strips, raised panels and dialogs melted into the canvas. A sixteen-colour frame
+  is now painted in full colour and reduced once it is complete. A ground the eye tells from the
+  canvas (0.05 in OKLab) and that would land on the canvas's colour takes the next grey away from
+  it, so `raised`, `active` and `overlay` show as bright black on black; text that would keep under
+  1.6:1 against its background takes the quietest grey that keeps 3:1, so the dimmed page behind a
+  dialog stays faint and muted text on a raised surface stays readable. `Rgb::to_ansi16_on`,
+  `Rgb::to_ansi16_text` and `Rgb::from_ansi16` give the same answer outside a frame. True colour
+  draws as before.
+- In 256 colours the page behind an open dialog stays faint but visible. Each colour was reduced
+  to the palette as it was drawn, so the dimming behind a dialog could not blend the palette
+  entries it found and gave text and ground the same entry, 1:1. A 256-colour frame is now painted
+  in full colour and reduced once it is complete, as a sixteen-colour one is, so the dimming, the
+  lift of a menu over a panel of nearly its tone and page transitions blend as in true colour
+  before they are reduced. Backgrounds keep the nearest entry; text that would keep under 1.6:1
+  against its background takes the entry closest to it that keeps 1.6:1, so the faintest dimmed
+  labels stay faint instead of vanishing (`Rgb::to_ansi256_text`). `Rgb::from_ansi256` gives the
+  colour of a palette entry. This changes how 256-colour screens draw.
+- A faint timeline block on a sixteen-colour terminal recedes towards the ground when no colour
+  between its tone and the lifted track shows apart from both, instead of looking like a full
+  block.
+- The count inside a badge reads in sixteen colours; it kept 1.18:1 against its own fill.
+
+- A time or a duration in a settings list takes two digits. The list forwarded the keys of its
+  row to the control but painted the control as unfocused, and a `TimeInput` or `DurationInput`
+  forgets the part being typed when it is not focused: typing `12` into an hour gave 02, `05`
+  into minutes gave 5 hours, and ← → never reached the minutes. The control of the list's
+  keyboard row is now painted focused.
+
+### Added
+
+- `FolderChanges::next_within(bound)`: the wait for folder changes with a limit, `None` when
+  nothing changed in time and the watch goes on. `FileManagerState::following_within(bound)`
+  follows outside changes with each wait bounded. A screen test runs a wait on the spot, so an
+  unbounded one held it for good; now a test can show a folder change arriving.
+
 ## 0.1.19 - 2026-09-23
 
 ### Fixed

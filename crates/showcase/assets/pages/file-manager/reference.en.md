@@ -47,6 +47,7 @@
 - A refusal is said in the person's own words, never in the system's: a folder nobody may look into, something that is not there any more, a full disk and a copy that was stopped each have their own sentence.
 - A mark replaces the row's folder or file icon with its sign, in its tone, and can draw the row faint. It can never make a row louder: a cut entry and a disabled manager stay faint whatever the mark says. A tone cannot be given without a sign, so a marked row is still told apart in the sixteen-colour and the ASCII mode.
 - `following(true)` watches the folders on screen. Created, removed and renamed reread that folder; modified rereads nothing; a folder that went away or an overflow rereads everything on screen. A batch of a watch that was let go is ignored.
+- `.following_within(bound)` follows like `following(true)` with each wait lasting at most `bound`, then waiting again (`FileManagerMsg::Quiet`), so a screen test sees another program's change arrive by stepping the harness.
 
 ## Theme keys
 

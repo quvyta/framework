@@ -753,9 +753,9 @@ mod tests {
         h.set_reduced_motion(true);
         h.set_glyph_mode(crate::icons::GlyphMode::Ascii);
         right_click(&mut h, 15, 0);
-        // The menu moves left to stay on screen and cuts the longest entry; the pillar of the
+        // The menu moves left to stay on screen and cuts the longest entry with an ASCII mark; the pillar of the
         // focused field is a coloured cell in ASCII.
-        assert_eq!(h.screen(), "  > hello\n  Cut     ctrl x\n  Copy    ctrl c\n  Paste   ctrl v\n  Selec…  ctrl a\n\n");
+        assert_eq!(h.screen(), "  > hello\n  Cut     ctrl x\n  Copy    ctrl c\n  Paste   ctrl v\n  Selec~  ctrl a\n\n");
         assert_ne!(h.bg(0, 0), h.bg(1, 0), "the pillar cell stands out from the field");
     }
 

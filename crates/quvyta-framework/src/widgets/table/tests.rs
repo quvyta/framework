@@ -4,6 +4,7 @@ use crate::event::{MouseButton, MouseKind};
 use crate::icons::Glyph;
 use crate::icons::GlyphMode;
 use crate::runtime::{App, Command, Harness};
+use crate::text;
 use crate::widget::{Align, Length, View};
 use crate::widgets::ContextItem;
 
@@ -291,6 +292,61 @@ fn huge_fixed_columns_scroll_instead_of_overflowing() {
     assert!(h.screen().starts_with("  Name"), "{}", h.screen());
 }
 
+/// A table whose column titles and whose one name are all wider than their columns.
+struct Cramped;
+
+impl App for Cramped {
+    type Msg = ();
+    fn update(&mut self, _: ()) -> Command<()> {
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, ()>) {
+        let columns = [
+            Column::new("Container name").width(ColumnWidth::Fixed(8)),
+            Column::new("Processor").width(ColumnWidth::Fixed(6)),
+        ];
+        let rows: Arc<[TableRow]> = vec![TableRow::new(["kubernetes-dashboard-proxy", "12%"])].into();
+        ui.add(Table::<()>::new(columns, rows)).fill();
+    }
+}
+
+/// Every character on screen that an ASCII terminal cannot show, with its cell.
+fn non_ascii_cells<A: App>(h: &Harness<A>) -> Vec<(u16, u16, String)> {
+    let buffer = h.buffer();
+    let area = buffer.area;
+    let mut found = Vec::new();
+    for y in 0..area.height {
+        for x in 0..area.width {
+            let symbol = buffer[(x, y)].symbol();
+            if !symbol.is_ascii() {
+                found.push((x, y, symbol.to_owned()));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn in_ascii_mode_a_cut_name_and_a_cut_title_end_in_an_ascii_mark() {
+    let mut h = Harness::new(Cramped, 24, 3);
+    h.set_glyph_mode(GlyphMode::Ascii);
+    let ascii = h.screen();
+    assert_eq!(non_ascii_cells(&h), [], "nothing an ASCII terminal cannot show:\n{ascii}");
+    let mut lines = ascii.lines();
+    let (header, row) = (lines.next().unwrap_or_default(), lines.next().unwrap_or_default());
+    assert!(header.contains("Cont") && header.matches(text::ASCII_ELLIPSIS).count() == 2, "{header:?}");
+    assert!(row.contains("kube") && row.contains(text::ASCII_ELLIPSIS), "the name is cut, and shows it: {row:?}");
+
+    h.set_glyph_mode(GlyphMode::Unicode);
+    let unicode = h.screen();
+    assert_eq!(unicode.matches(text::ELLIPSIS).count(), 3, "Unicode keeps the ellipsis:\n{unicode}");
+    assert_eq!(
+        unicode.replace(text::ELLIPSIS, text::ASCII_ELLIPSIS),
+        ascii,
+        "the mark takes the ellipsis's cell and nothing else moves"
+    );
+}
+
 const FIREFOX: char = '\u{e745}';
 
 /// Two rows whose names carry a glyph: a literal one and an icon of the set.
@@ -339,7 +395,8 @@ fn a_narrow_column_cuts_the_text_and_keeps_the_glyph_and_its_space() {
         let screen = h.screen();
         let row = screen.lines().nth(1).unwrap_or_default();
         assert!(row.starts_with(&format!("  {FIREFOX} fir")), "{mode:?}: {row:?}");
-        assert!(row.contains('…'), "{mode:?}: {row:?}");
+        let mark = if mode == GlyphMode::Ascii { text::ASCII_ELLIPSIS } else { text::ELLIPSIS };
+        assert!(row.contains(mark), "{mode:?}: {row:?}");
         let folder = h.env().icons().glyph("folder").into_owned();
         let row = screen.lines().nth(2).unwrap_or_default();
         assert!(row.starts_with(&format!("  {folder} pro")), "{mode:?}: {row:?}");

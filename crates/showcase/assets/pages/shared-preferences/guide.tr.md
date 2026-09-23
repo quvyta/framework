@@ -38,7 +38,7 @@ Msg::NewVersion(update) => Command::toast(update.toast()),
 - **Soramazsa sessiz.** Ağ yoksa, on saniyede cevap gelmezse ya da cevap okunamazsa hiçbir şey gösterilmez; ertesi gün yeniden sorulur.
 - **Giden yalnızca ad.** İstek paketin adını söyler; `User-Agent`'ı paketin adı ve sürümüdür. Kimlik, makine bilgisi ya da kullanım verisi gitmez.
 - **Bütün aile için kapatılır.** Anahtar kapalıyken (`quvyta.conf` içinde `update-notice = false`) hiçbir şey sorulmaz ve yazılmaz.
-- **Yalnızca gerçekten yeni bir sürüm.** Geri çekilen sürümler ve ön sürümler sayılmaz; kayıttakinden yeni bir derleme hiçbir şey söylemez.
+- **Yalnızca gerçekten yeni bir sürüm.** Geri çekilen sürümler sayılmaz, kayıttakinden yeni bir derleme hiçbir şey söylemez. Sürümler semver sırasıyla dizilir: `0.1.0-alpha.9` < `0.1.0-alpha.10` < `0.1.0-beta` < `0.1.0`. Kararlı sürümdeki kişiye ön sürüm hiç önerilmez; ön sürümdeki kişi ondan sonraki en yeni sürümü, bir sonraki alfayı ya da kararlı sürümü duyar, böylece kimse eski bir alfada kalmaz.
 - **Testler ağa hiç çıkmaz.** Bir harness soruyu kaydeder (`Harness::update_checks`) ve `Harness::set_latest_version(Some("0.2.0"))` ile cevaplar; denetimin klasörlerine dokunmaz.
 
 ## Sık yapılan hatalar

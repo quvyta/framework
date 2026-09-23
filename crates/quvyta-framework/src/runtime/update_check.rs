@@ -39,7 +39,10 @@ const LAST_ASKED: &str = "update-check";
 /// [state folder](Family::state_dir), and not at all while the family's
 /// [update notice](Family::update_notice) is off. No network, a registry that does not answer or
 /// an answer that cannot be read is silence: nothing is shown and the next day asks again. Only a
-/// newer version, not a pre-release and not a yanked one, becomes a message.
+/// newer version that is not yanked becomes a message, newer by semver's precedence. A person on
+/// a release never hears of a pre-release; a person on a pre-release, such as `0.1.0-alpha.1`,
+/// hears of the newest version after it, pre-release or release, so an alpha does not stay
+/// installed after the next one is out.
 ///
 /// A [`Harness`](super::Harness) never reaches the network: it records the question, see
 /// [`Harness::update_checks`](super::Harness::update_checks), and answers it with the version
@@ -175,14 +178,14 @@ impl<Msg: Send + 'static> UpdateCheck<Msg> {
         remember(&state_dir, now)?;
         let agent = format!("{}/{}", self.package, self.current);
         let index = fetch(&index_address(&self.registry, &self.package), &agent)?;
-        let latest = newest(&index)?;
+        let latest = newest(&index, &self.current)?;
         self.newer(&latest)
     }
 
     /// The message for `latest`, when it is newer than the running version.
     fn newer(self, latest: &str) -> Option<Msg> {
-        let (running, found) = (version(&self.current)?, version(latest)?);
-        (found > running).then(|| {
+        let (running, found) = (Version::parse(&self.current)?, Version::parse(latest)?);
+        (found.offered_to(&running) && found > running).then(|| {
             (self.on_newer)(Update {
                 family: self.family,
                 package: self.package,
@@ -315,16 +318,19 @@ fn fetch(address: &str, agent: &str) -> Option<String> {
     response.body_mut().read_to_string().ok()
 }
 
-/// The newest published version in a sparse index text: one JSON object per line, each with its
-/// `vers` and `yanked`. Yanked versions and pre-releases are passed over; a line that cannot be
-/// read is skipped.
-fn newest(index: &str) -> Option<String> {
+/// The newest published version in a sparse index text that may be offered to a person running
+/// `current`: one JSON object per line, each with its `vers` and `yanked`. Yanked versions are
+/// passed over, and pre-releases too unless `current` is one; a line that cannot be read is
+/// skipped.
+fn newest(index: &str, current: &str) -> Option<String> {
+    let running = Version::parse(current)?;
     index
         .lines()
         .filter(|line| field(line, "yanked") != Some("true"))
         .filter_map(|line| field(line, "vers"))
-        .filter_map(|text| version(text).map(|parsed| (parsed, text)))
-        .max_by_key(|(parsed, _)| *parsed)
+        .filter_map(|text| Version::parse(text).map(|parsed| (parsed, text)))
+        .filter(|(parsed, _)| parsed.offered_to(&running))
+        .max_by(|(a, _), (b, _)| a.cmp(b))
         .map(|(_, text)| text.to_owned())
 }
 
@@ -340,12 +346,77 @@ fn field<'a>(line: &'a str, name: &str) -> Option<&'a str> {
     }
 }
 
-/// `major.minor.patch` as numbers; `None` for a pre-release or anything else.
-fn version(text: &str) -> Option<(u64, u64, u64)> {
-    let text = text.split('+').next()?;
-    let mut parts = text.split('.').map(|part| part.parse::<u64>().ok());
-    let parsed = (parts.next()??, parts.next()??, parts.next()??);
-    parts.next().is_none().then_some(parsed)
+/// A version as semver orders it: `major.minor.patch`, then an optional pre-release whose
+/// dot-separated parts compare as numbers when numeric and as ASCII text otherwise. Build
+/// metadata after `+` is left out, as precedence ignores it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Version {
+    release: (u64, u64, u64),
+    pre: Vec<PrePart>,
+}
+
+/// One part of a pre-release. The order of the variants is semver's: a numeric part ranks below a
+/// word.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum PrePart {
+    Number(u64),
+    Word(String),
+}
+
+impl Version {
+    /// `None` for anything that is not a version, so an answer that cannot be read is silence.
+    fn parse(text: &str) -> Option<Self> {
+        let text = text.split('+').next()?;
+        let (release, pre) = match text.split_once('-') {
+            Some((release, pre)) => (release, Some(pre)),
+            None => (text, None),
+        };
+        let mut parts = release.split('.').map(|part| part.parse::<u64>().ok());
+        let release = (parts.next()??, parts.next()??, parts.next()??);
+        if parts.next().is_some() {
+            return None;
+        }
+        let pre = match pre {
+            None => Vec::new(),
+            Some(pre) => pre
+                .split('.')
+                .map(|part| {
+                    let valid = !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+                    valid.then(|| part.parse().map_or_else(|_| PrePart::Word(part.to_owned()), PrePart::Number))
+                })
+                .collect::<Option<Vec<_>>>()?,
+        };
+        Some(Self { release, pre })
+    }
+
+    fn is_pre_release(&self) -> bool {
+        !self.pre.is_empty()
+    }
+
+    /// Whether this version may be offered to a person running `running`: a release always, a
+    /// pre-release only to someone already on one.
+    fn offered_to(&self, running: &Self) -> bool {
+        !self.is_pre_release() || running.is_pre_release()
+    }
+}
+
+impl Ord for Version {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // A release ranks above its own pre-releases; between two pre-releases the first part
+        // that differs decides, and a longer list wins a tie.
+        self.release.cmp(&other.release).then_with(|| match (self.pre.is_empty(), other.pre.is_empty()) {
+            (true, true) => std::cmp::Ordering::Equal,
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            (false, false) => self.pre.cmp(&other.pre),
+        })
+    }
+}
+
+impl PartialOrd for Version {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[cfg(test)]
