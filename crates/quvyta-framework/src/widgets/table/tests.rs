@@ -18,6 +18,10 @@ struct Demo {
     menu: bool,
     /// The rows a menu entry was chosen on, in order.
     removed: Vec<usize>,
+    /// Whether Enter and a click open a row's menu instead of opening the row.
+    menu_on_activate: bool,
+    /// A row whose menu has nothing in it.
+    bare: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -69,10 +73,16 @@ impl App for Demo {
         }
         if self.menu {
             let rows = Arc::clone(&self.rows);
-            table = table.context_menu(move |index| {
-                let name = rows[index].cells[0].text.clone();
-                vec![ContextItem::new(format!("Remove {name}"), Msg::Remove(index))]
-            });
+            let bare = self.bare;
+            table = table
+                .context_menu(move |index| {
+                    if Some(index) == bare {
+                        return Vec::new();
+                    }
+                    let name = rows[index].cells[0].text.clone();
+                    vec![ContextItem::new(format!("Remove {name}"), Msg::Remove(index))]
+                })
+                .menu_on_activate(self.menu_on_activate);
         }
         ui.add(table).width(Length::Fill(1)).height(Length::Fill(1)).id("table");
     }
@@ -94,6 +104,8 @@ fn demo(count: usize) -> Demo {
         wide: false,
         menu: false,
         removed: Vec::new(),
+        menu_on_activate: false,
+        bare: None,
     }
 }
 
@@ -447,4 +459,75 @@ fn a_table_without_a_menu_answers_no_right_press() {
     right_click(&mut h, 4, 1);
     assert!(!h.screen().contains("Remove"), "nothing opens:\n{}", h.screen());
     assert!(h.app().removed.is_empty() && h.app().opened.is_empty(), "and the right button does nothing else");
+}
+
+/// A table whose rows' menus open on Enter and a click, row 2's menu being empty.
+fn activating_menu_demo() -> Harness<Demo> {
+    let mut demo = demo(5);
+    demo.menu = true;
+    demo.menu_on_activate = true;
+    demo.bare = Some(2);
+    let mut h = Harness::new(demo, 30, 8);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+    h
+}
+
+#[test]
+fn enter_opens_the_menu_of_the_selected_row_when_that_is_what_activating_does() {
+    let mut h = activating_menu_demo();
+    h.press("tab").press("down").press("down");
+    assert_eq!(h.app().selected, Some(1));
+    h.press("enter").render();
+    assert!(h.screen().contains("Remove svc-1"), "Enter opened the row's menu:\n{}", h.screen());
+    assert!(h.app().opened.is_empty(), "and did not open the row");
+    h.press("enter").render();
+    assert_eq!(h.app().removed, vec![1], "the first entry is chosen with Enter");
+}
+
+#[test]
+fn a_click_on_a_row_opens_its_menu_where_it_was_clicked() {
+    let mut h = activating_menu_demo();
+    let (x, y) = h.find("svc-3").expect("the row is on screen");
+    h.click(x, y).render();
+    assert!(h.screen().contains("Remove svc-3"), "the click opened the row's own menu:\n{}", h.screen());
+    assert_eq!(h.app().selected, Some(3), "the row became the selection");
+    assert!(h.app().opened.is_empty(), "the row itself was not opened");
+    h.click_text("Remove svc-3").render();
+    assert_eq!(h.app().removed, vec![3]);
+}
+
+#[test]
+fn a_row_with_an_empty_menu_opens_nothing_on_enter_or_a_click() {
+    let mut h = activating_menu_demo();
+    let before = h.screen();
+    let (x, y) = h.find("svc-2").expect("the row is on screen");
+    h.click(x, y).render();
+    assert!(!h.screen().contains("Remove"), "no layer for an empty menu:\n{}", h.screen());
+    assert_eq!(h.app().selected, Some(2), "the click still selects the row");
+    h.press("enter").render();
+    assert!(!h.screen().contains("Remove"), "nor on Enter:\n{}", h.screen());
+    assert!(h.app().opened.is_empty() && h.app().removed.is_empty(), "nothing was sent");
+    assert_ne!(before, h.screen(), "only the selection moved");
+}
+
+#[test]
+fn esc_closes_an_activated_menu_and_the_keys_go_back_to_the_rows() {
+    let mut h = activating_menu_demo();
+    h.press("tab").press("down").press("enter").render();
+    assert!(h.screen().contains("Remove svc-0"), "{}", h.screen());
+    h.press("esc").render();
+    assert!(!h.screen().contains("Remove"), "Esc closed it:\n{}", h.screen());
+    h.press("down");
+    assert_eq!(h.app().selected, Some(1), "the table has the keys again");
+}
+
+#[test]
+fn without_the_option_enter_and_a_click_open_the_row_even_with_a_menu() {
+    let mut h = menu_demo(5);
+    h.press("tab").press("down").press("enter").render();
+    assert_eq!(h.app().opened, vec![0], "Enter opens the row as before");
+    let (x, y) = h.find("svc-3").expect("the row is on screen");
+    h.click(x, y).render();
+    assert_eq!(h.app().opened, vec![0, 3], "and so does a click");
+    assert!(!h.screen().contains("Remove"), "no menu opened:\n{}", h.screen());
 }

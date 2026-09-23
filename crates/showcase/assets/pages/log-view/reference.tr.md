@@ -6,7 +6,7 @@
 - `.empty_text(metin)` — tampon boşken görünür.
 - `.on_copy(|satır| mesaj)` — `c` satırları kopyaladıktan sonra gönderilir.
 - `LogBuffer::new(kapasite)`, `.push(satır)`, `.clear()`, `.len()`, `.is_empty()`, `.capacity()`, `.get(index)`, `.iter()`.
-- `LogLine::new(seviye, metin)`, `.time(zaman)`; `.level()`, `.timestamp()`, `.text()`.
+- `LogLine::new(seviye, metin)`, `.time(zaman)`; `.level()`, `.timestamp()`, `.text()`. `new` metni bir terminalin göstereceği gibi tutar (`qframe::text::printable`), bu yüzden `.text()` hiçbir kontrol karakteri taşımaz.
 - `LogLevel::Trace | Debug | Info | Warn | Error`, `LogLevel::ALL`, `.name()`.
 
 ## Davranış
@@ -16,6 +16,7 @@
 - Fare: tıklama imleci koyar, `shift` ile tıklama ya da sürükleme genişletir, tekerlek kaydırır.
 - Kopyalanan satırlar `zaman seviye mesaj` biçimindedir, her biri ayrı satırda. Yalnızca filtrelerden geçen satırlar kopyalanır.
 - Hiçbir satır filtrelerden geçmezse görünüm `quvyta.log.no-match` metnini gösterir.
+- Terminal için basılmış metin, terminalin ekranda bırakacağı gibi görünür: `10%\r50%\r100%` `100%` diye okunur, renk dizileri düşer, sekme boşluk olur. Arama ve kopyalar da aynı metni görür.
 - Bir satıra sağ tık, o satırı içeren seçimi korur ya da o satırı seçer, sonra Kopyala ve Ham kopyala menüsünü açar; satırlar seçiliyken Shift+F10 ve menü tuşu da açar. İki kopya da satır sayısıyla `on_copy` gönderir. Dil anahtarları `quvyta.edit.copy`, `quvyta.edit.raw-copy`.
 
 ## Tema anahtarları

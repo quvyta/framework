@@ -4,6 +4,44 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.19 - 2026-09-23
+
+### Fixed
+
+- A line with a control character no longer brings an application down. A `LogView` handed
+  Docker's `Sending build context … 2.048kB\r\r` panicked in a debug build and would have sent
+  the raw character to the terminal in a release one. `LogLine::new` now keeps text as a
+  terminal would show it, and no widget draws a control character into a cell: it keeps the
+  cell it is measured at, blank.
+- The update notice's row says what it sends as it is: the application's name and its version,
+  nothing about the person or the machine. It used to say only the name went out.
+- The German texts speak to the person as `du`, as the rest of the family does; seven of them
+  still said `Sie`.
+
+### Added
+
+- `text::printable(text)`: one line printed for a terminal, as the terminal would leave it —
+  only what the last carriage return left, escape sequences removed, tabs padded to the next
+  stop of eight, no other control character.
+- `Harness` works out what each frame would send to the terminal, so a cell no terminal can
+  take fails the test that drew it.
+- `NodeMut::wrap(true)` on a row moves the children that do not fit to the next line instead of
+  drawing them past the edge, so a row of buttons that is too wide in some languages or on a narrow
+  terminal stays usable. Lines are filled in order; `gap`, `justify` and spacers work on each line;
+  a child wider than the row gets a line of its own. The row measures as tall as its lines, so the
+  widgets below it move down. A row that fits lays out exactly as before. `NodeMut::line_gap(rows)`
+  leaves empty rows between the lines.
+- `Table::menu_on_activate(true)`: Enter and a click open the row's context menu instead of
+  sending `on_activate`, for a table whose rows are acted on only through a few choices. A row
+  whose menu is empty opens nothing.
+- `ScrollView::follow_end(true)` keeps the end of growing content in view, for a conversation
+  or command output made of any widgets. It opens at the end; while the person is at the end,
+  growth glides to the new end (or jumps with reduced motion). Scrolling up with the wheel, the
+  keys or the scrollbar holds the view and a faint note counts the lines below; End, scrolling
+  back down or a click on the note follows again. A focused widget at the end, such as a reply
+  field, keeps following; focusing something higher up holds the view there. Without the option
+  nothing changes.
+
 ## 0.1.18 - 2026-09-21
 
 ### Fixed

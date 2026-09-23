@@ -13,6 +13,8 @@
 - `.id(name)` — a stable name; state and focus follow it.
 - `.width(Length)`, `.height(Length)`, `.fill()`, `.fill_width()`, `.fill_height()`.
 - `.padding(Padding)`, `.gap(cells)`, `.justify(Align)`, `.align(Align)`.
+- `.wrap(bool)` — a row moves the children that do not fit to the next line; `gap`, `justify` and spacers work on each line.
+- `.line_gap(rows)` — empty rows between the lines of a wrapping row (default 0).
 - `.selectable(bool)` — `true` makes the node a region where a mouse drag selects text; `false` keeps selection out of it and everything inside.
 
 ## Length and Align

@@ -6,6 +6,7 @@ use crate::event::{KeyEvent, MouseButton, MouseEvent, MouseKind};
 use crate::geometry::{Rect, clamp_u16};
 use crate::keymap::Key;
 use crate::style::{CellStyle, WidgetStyle};
+use crate::text;
 use crate::theme::State;
 use crate::widget::{EventCx, PaintCx};
 
@@ -179,6 +180,23 @@ pub(crate) fn scroll_mouse<Msg>(cx: &mut EventCx<'_, Msg>, mouse: &MouseEvent, b
         }
         _ => false,
     }
+}
+
+/// Paints the faint note that counts the `below` rows under a view that stopped following its
+/// end, at the bottom right of `area`, and returns where it went so a click on it can follow the
+/// end again. Style key `log-more`; text `quvyta.log.below`.
+pub(crate) fn paint_below_note(cx: &mut PaintCx<'_>, area: Rect, below: usize) -> Rect {
+    let label = crate::i18n::translate_active("quvyta.log.below", &[("n", below.into())]);
+    let glyph = cx.env().icons().glyph("arrow-down").into_owned();
+    let content = format!("{glyph} {label}");
+    let width = text::width(&content).saturating_add(2);
+    let note = Rect::new(area.right() - 2 - i32::from(width), area.bottom() - 1, width, 1);
+    let style = cx.style("log-more", None, &[]).text();
+    if let Some(bg) = style.bg {
+        cx.clear(note, bg);
+    }
+    cx.text(note.x + 1, note.y, &content, CellStyle { bg: None, ..style }, width.saturating_sub(2));
+    note
 }
 
 #[cfg(test)]

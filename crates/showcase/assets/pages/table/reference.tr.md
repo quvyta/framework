@@ -7,6 +7,7 @@
 - `.on_sort(|sütun, yön| mesaj)` — başlık tıklaması ve tuşlarla sıralamayı açar.
 - `.empty_text(metin)` — satır yokken başlığın altında görünür.
 - `.context_menu(|index| Vec<ContextItem<Msg>>)` — her satıra kendi menüsünü verir; menü, açıldığı satır için kurulur.
+- `.menu_on_activate(bool)` — Enter ve tık `on_activate` göndermek yerine satırın menüsünü açar; boş menü hiçbir şey açmaz. Varsayılan kapalı.
 - `Column::new(başlık)`, `.width(ColumnWidth::Fixed(n) | Fit | Fill(ağırlık))`, `.min(hücre)`, `.align(Align)`, `.sortable(bool)`.
 - `TableRow::new(hücreler)`, `.faint(bool)`; `TableCell::new(metin)`, `.icon(glif, renk)`, `.color(token)`; metinler hücreye dönüşür. `glif` bir ikon anahtarı (`"dot"`, `Glyph::key(..)`) ya da `Glyph::literal(..)` olur; glif, bir boşluk ve metin olarak çizilir. `Some(token)` ile o renkte, `None` ile `muted` çizilir ve satır seçiliyken satırın metin rengini alır. Kesme yalnızca metne uygulanır.
 - `SortDirection::Ascending | Descending`, `.reversed()`.

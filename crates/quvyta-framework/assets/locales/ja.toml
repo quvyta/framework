@@ -302,7 +302,7 @@ pillar-thick       = "太い"
 pillar-thin        = "細い"
 not-saved          = "適用しましたが、保存できませんでした: {reason}"
 updates            = "アップデートが出たら知らせる"
-updates-text       = "{family} のすべてのアプリに共通の設定です。各アプリが1日1回 crates.io に最新バージョンを問い合わせます。送るのは名前だけで、あなたやこのマシンの情報は送りません。"
+updates-text       = "すべての {family} アプリケーションにまとめて適用されます。各アプリケーションは 1 日に 1 回 crates.io に最新バージョンを照会します。送信されるのはアプリケーション名とバージョンのみで、あなたやこのマシンに関する情報は一切送信されません。"
 
 # The notice that a newer version is out (runtime::Update::toast); {package} is the crate,
 # {launcher} the family's launcher command.

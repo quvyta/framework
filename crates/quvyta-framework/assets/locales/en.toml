@@ -313,7 +313,7 @@ pillar-thick       = "Thick"
 pillar-thin        = "Thin"
 not-saved          = "Applied, but not saved: {reason}"
 updates            = "Say when an update is out"
-updates-text       = "For all {family} applications at once. Once a day each asks crates.io for its newest version; only its name is sent, nothing about you or this machine."
+updates-text       = "For all {family} applications at once. Once a day each asks crates.io for its newest version; only its own name and version are sent, nothing about you or this machine."
 
 # The notice that a newer version is out (runtime::Update::toast); {package} is the crate,
 # {launcher} the family's launcher command.

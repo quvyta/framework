@@ -6,10 +6,11 @@
 //! application waits for it, whether a newer version has been published, and answers with a
 //! message only when one has.
 //!
-//! What goes out is the package's name and nothing else: the request carries no identity, no
-//! machine detail and no use of the application, and its `User-Agent` is the package's name and
-//! version. The family's one switch, [`Family::update_notice`], turns the question off for every
-//! application of the family, and then nothing is asked at all.
+//! What goes out is the package's name and version and nothing else: the address names the
+//! package, the `User-Agent` is its name and version, and the request carries no identity, no
+//! machine detail and no use of the application. The family's one switch,
+//! [`Family::update_notice`], turns the question off for every application of the family, and
+//! then nothing is asked at all.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

@@ -273,7 +273,7 @@ fn the_update_notice_is_one_switch_for_the_family_kept_in_the_shared_file() {
     let mut app = Harness::new(Asking(Code { settings, appearance }), 70, 40);
     let screen = app.screen();
     assert!(screen.contains("Say when an update is out"), "{screen}");
-    assert!(screen.contains("only its name is sent"), "it says what is never sent\n{screen}");
+    assert!(screen.contains("name and version"), "it says what is sent and nothing more\n{screen}");
     assert!(family.update_notice_in(&dir), "on until someone turns it off");
     // The switch is a tone at the row's right edge; a person reaches it by the row and Space.
     app.click_text("Say when an update is out").press("space");

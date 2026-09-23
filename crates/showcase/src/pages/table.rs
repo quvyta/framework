@@ -127,6 +127,8 @@ pub struct State {
     icons: bool,
     /// Whether every row carries a menu of its own.
     menu: bool,
+    /// Whether Enter and a click open a row's menu instead of the row.
+    menu_on_activate: bool,
     /// What the row menu was last asked for, empty before it is used.
     asked: String,
 }
@@ -147,6 +149,7 @@ impl Default for State {
             narrow: false,
             icons: true,
             menu: true,
+            menu_on_activate: false,
             asked: String::new(),
         }
     }
@@ -165,6 +168,7 @@ pub enum Msg {
     Narrow(bool),
     Icons(bool),
     Menu(bool),
+    MenuOnActivate(bool),
     /// A row's own menu was used on the row of this index and name, for this action.
     RowAction(usize, String, &'static str),
 }
@@ -266,6 +270,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.menu = on;
             state.asked.clear();
             log.push(PAGE, "Playground", format!("row menu = {on}"));
+        }
+        Msg::MenuOnActivate(on) => {
+            state.menu_on_activate = on;
+            log.push(PAGE, "Playground", format!("menu on activate = {on}"));
         }
         // region: table-menu-update
         Msg::RowAction(index, name, action) => {
@@ -384,10 +392,12 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         if state.menu {
             // The rows are already shared, so the menu reads the name of the row it opens on
             // rather than being given every row's menu in advance.
-            table = table.context_menu(move |index| match names.get(index) {
-                Some(name) => row_menu(name, index),
-                None => Vec::new(),
-            });
+            table = table
+                .context_menu(move |index| match names.get(index) {
+                    Some(name) => row_menu(name, index),
+                    None => Vec::new(),
+                })
+                .menu_on_activate(state.menu_on_activate);
         }
         // endregion
         let width = if state.narrow { Length::Cells(46) } else { Length::Fill(1) };
@@ -420,6 +430,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("table.menu"), |ui| {
             ui.add(toggle(state.menu, |on| send(Msg::Menu(on)))).id("menu");
         });
+        setting(ui, t!("table.menu-on-activate"), |ui| {
+            ui.add(toggle(state.menu_on_activate, |on| send(Msg::MenuOnActivate(on)))).id("menu-on-activate");
+        });
         slide_setting(ui, PAGE);
         ui.add(Text::new(t!("table.keys")).role("faint"));
     })
@@ -430,6 +443,21 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
 mod tests {
     use super::*;
     use crate::tests::showcase_on;
+
+    #[test]
+    fn with_the_menu_as_the_action_a_click_on_a_row_opens_its_menu() {
+        let mut h = showcase_on(PAGE);
+        // The switch stands right after its label's column of 24 cells.
+        let (x, y) = h.find("Menu on Enter and click").expect("the playground row is on screen");
+        h.click(x + 25, y);
+        assert!(h.app().pages.table.menu_on_activate, "the switch turned it on");
+        h.set_reduced_motion(true).click_text("postgres").render();
+        assert_eq!(h.app().pages.table.selected, Some(1));
+        let restart = "Restart postgres";
+        assert!(h.screen().contains(restart), "the click opened the row's menu:\n{}", h.screen());
+        h.click_text(restart).render();
+        assert!(!h.app().pages.table.asked.is_empty(), "the entry acted on the clicked row");
+    }
 
     #[test]
     fn sorts_selects_and_scrolls_long_tables() {

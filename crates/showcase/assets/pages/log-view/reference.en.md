@@ -6,7 +6,7 @@
 - `.empty_text(text)` — shown while the buffer is empty.
 - `.on_copy(|lines| msg)` — sent after `c` copied lines.
 - `LogBuffer::new(capacity)`, `.push(line)`, `.clear()`, `.len()`, `.is_empty()`, `.capacity()`, `.get(index)`, `.iter()`.
-- `LogLine::new(level, text)`, `.time(stamp)`; `.level()`, `.timestamp()`, `.text()`.
+- `LogLine::new(level, text)`, `.time(stamp)`; `.level()`, `.timestamp()`, `.text()`. `new` keeps the text as a terminal would show it (`qframe::text::printable`), so `.text()` holds no control character.
 - `LogLevel::Trace | Debug | Info | Warn | Error`, `LogLevel::ALL`, `.name()`.
 
 ## Behaviour
@@ -16,6 +16,7 @@
 - Mouse: a click places the cursor, `shift` click or a drag extends it, the wheel scrolls.
 - Copied lines read `time level message`, one per line. Only lines that pass the filters are copied.
 - When no line passes the filters the view says `quvyta.log.no-match`.
+- Text printed for a terminal is shown as the terminal would leave it: `10%\r50%\r100%` reads `100%`, colour sequences are dropped, a tab becomes spaces. Search and copies see the same text.
 - A right click on a line keeps a selection that contains it or selects that line, then opens Copy and Raw copy; Shift+F10 and the menu key open it while lines are selected. Both copies send `on_copy` with the line count. Language keys `quvyta.edit.copy`, `quvyta.edit.raw-copy`.
 
 ## Theme keys

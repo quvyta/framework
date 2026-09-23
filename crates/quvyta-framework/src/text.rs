@@ -29,6 +29,64 @@ pub(crate) fn is_printable_ascii(text: &str) -> bool {
     text.bytes().all(|byte| matches!(byte, b' '..=b'~'))
 }
 
+/// Cells between a terminal's tab stops.
+const TAB_STOP: usize = 8;
+
+/// One line written for a terminal, as the terminal would leave it on screen: what a carriage
+/// return wrote over is gone, colour and cursor sequences are taken out, a tab becomes spaces up
+/// to the next stop of eight and no other control character is left.
+///
+/// Programs print for a terminal: a progress line redraws itself after `\r`, a build tool colours
+/// its words with escape sequences. A cell cannot hold a control character, so text from another
+/// program goes through this before it is drawn. Text with nothing to change is borrowed.
+///
+/// ```
+/// use qframe::text::printable;
+/// assert_eq!(printable("10%\r50%\r100%"), "100%");
+/// assert_eq!(printable("sent 2kB\r\r"), "sent 2kB");
+/// assert_eq!(printable("\u{1b}[1;32mok\u{1b}[0m done"), "ok done");
+/// assert_eq!(printable("a\tb"), "a       b");
+/// ```
+#[must_use]
+pub fn printable(text: &str) -> Cow<'_, str> {
+    if !text.chars().any(char::is_control) {
+        return Cow::Borrowed(text);
+    }
+    // A carriage return starts the line over; one at the very end leaves what came before it.
+    let shown = text.split('\r').rev().find(|part| !part.is_empty()).unwrap_or_default();
+    let mut out = String::with_capacity(shown.len());
+    let mut chars = shown.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            // `ESC [` runs to its final byte; `ESC ]` to BEL or `ESC \`; any other escape takes
+            // its intermediate bytes and one final character, as `ESC ( B` does. A sequence cut
+            // off at the end of the line takes the rest.
+            '\u{1b}' => match chars.next() {
+                Some('[') => while chars.next().is_some_and(|c| !('@'..='~').contains(&c)) {},
+                Some(']') => {
+                    while let Some(c) = chars.next() {
+                        if c == '\u{7}' || (c == '\u{1b}' && chars.next_if_eq(&'\\').is_some()) {
+                            break;
+                        }
+                    }
+                }
+                Some(' '..='/') => {
+                    while chars.next_if(|c| (' '..='/').contains(c)).is_some() {}
+                    chars.next();
+                }
+                _ => {}
+            },
+            '\t' => {
+                let column = usize::from(width(&out));
+                out.extend(std::iter::repeat_n(' ', TAB_STOP - column % TAB_STOP));
+            }
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    Cow::Owned(out)
+}
+
 /// `text` cut to at most `max` cells, ending in `…` when anything was removed.
 #[must_use]
 pub fn truncate(text: &str, max: u16) -> Cow<'_, str> {
@@ -341,6 +399,17 @@ mod tests {
         assert_eq!(truncate("界界界", 4), "界…");
         assert_eq!(truncate("abc", 0), "");
         assert_eq!(width(&truncate("quvyta-framework", 8)), 8);
+    }
+
+    #[test]
+    fn printable_leaves_what_a_terminal_would_show() {
+        assert!(matches!(printable("plain 防火墙"), Cow::Borrowed(_)), "nothing to change is borrowed");
+        assert_eq!(printable("\u{1b}]0;title\u{7}shown"), "shown", "a title sequence ends at the bell");
+        assert_eq!(printable("\u{1b}]8;;url\u{1b}\\link"), "link", "or at ESC backslash");
+        assert_eq!(printable("cut \u{1b}[38;2;1"), "cut ", "a sequence cut off takes the rest");
+        assert_eq!(printable("\u{1b}(Bx"), "x", "a two-character escape");
+        assert_eq!(printable("防\tx"), "防      x", "a tab counts the cells before it");
+        assert_eq!(printable("\r\r"), "", "nothing but returns leaves nothing");
     }
 
     #[test]

@@ -47,6 +47,16 @@ fn open<Msg: 'static>(cx: &mut EventCx<'_, Msg>, items: &RowMenuItems<Msg>, anch
     true
 }
 
+/// Opens the menu of `anchor`'s row as the row's own action, for a widget whose activation is its
+/// menu. A row whose menu has no entries opens nothing, as with the right button.
+pub(crate) fn open_as_action<Msg: 'static>(
+    cx: &mut EventCx<'_, Msg>,
+    items: Option<&RowMenuItems<Msg>>,
+    anchor: &RowAnchor,
+) -> bool {
+    items.is_some_and(|items| open(cx, items, anchor))
+}
+
 /// Offers `event` to the row menu of a widget with `count` rows; true when the menu used it.
 ///
 /// A right press asks `press` for the row under the pointer and where its menu unfolds from; the

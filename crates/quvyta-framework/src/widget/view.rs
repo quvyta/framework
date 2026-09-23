@@ -1,5 +1,6 @@
 //! Building the view tree.
 
+use std::any::Any;
 use std::time::Duration;
 
 use super::flex::{Axis, Flex};
@@ -442,6 +443,57 @@ impl<Msg: Clone + 'static> NodeMut<'_, Msg> {
             action: action.into(),
             message: Box::new(move || message.clone()),
         });
+        self
+    }
+}
+
+impl<Msg: 'static> NodeMut<'_, Msg> {
+    /// Moves the children of a row that do not fit to the next line, instead of letting them
+    /// run past the row's edge. Off by default; a row whose children fit lays out exactly as
+    /// it does without it.
+    ///
+    /// Lines are filled in order: each child takes the width it measures, and a child that
+    /// does not fit after the ones already on the line starts the next line. A child wider
+    /// than the whole row gets a line of its own and the row's width, where it narrows or cuts
+    /// as it does in any row too narrow for it. The row measures as tall as all its lines, so
+    /// the widgets after it move down.
+    ///
+    /// Every line is laid out as a row of its own: [`gap`](Self::gap) falls between the
+    /// children of a line, never at its start or end; [`justify`](Self::justify) places each
+    /// line in the room it leaves; a [`spacer`](View::spacer) or another filling child takes
+    /// what is left on its own line. A spacer stays on the line of the child before it; when
+    /// that line has no room even for the gap before it, the spacer is left out, since at the
+    /// start of the next line it would only push that line away from the edge.
+    ///
+    /// Lines touch; [`line_gap`](Self::line_gap) puts empty rows between them. The option has
+    /// no effect on anything but a row.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    ///
+    /// fn actions(ui: &mut View<'_, ()>) {
+    ///     ui.row(|ui| {
+    ///         ui.add(Button::new("Install").on_press(()));
+    ///         ui.add(Button::new("Show the command").on_press(()));
+    ///         ui.add(Button::new("Cancel").on_press(()));
+    ///     })
+    ///     .gap(1)
+    ///     .wrap(true);
+    /// }
+    /// ```
+    pub fn wrap(self, wrap: bool) -> Self {
+        if let Some(flex) = (&mut *self.node.widget as &mut dyn Any).downcast_mut::<Flex<Msg>>() {
+            flex.set_wrap(wrap);
+        }
+        self
+    }
+
+    /// Leaves `rows` empty rows between the lines of a row that [wraps](Self::wrap). A row
+    /// that fits on one line has no gap under it.
+    pub fn line_gap(self, rows: u16) -> Self {
+        if let Some(flex) = (&mut *self.node.widget as &mut dyn Any).downcast_mut::<Flex<Msg>>() {
+            flex.set_line_gap(rows);
+        }
         self
     }
 }

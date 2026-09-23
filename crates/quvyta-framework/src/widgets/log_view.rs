@@ -5,7 +5,6 @@ use std::collections::VecDeque;
 use crate::event::{Event, MouseButton, MouseKind};
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::keymap::{Key, Modifiers};
-use crate::style::CellStyle;
 use crate::text;
 use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
 
@@ -324,20 +323,6 @@ impl<Msg: 'static> LogView<Msg> {
             cx.text(x + dx, rect.y, &line.text()[start..end], match_style, budget);
         }
     }
-
-    fn paint_note(cx: &mut PaintCx<'_>, area: Rect, below: usize) -> Rect {
-        let label = crate::i18n::translate_active("quvyta.log.below", &[("n", below.into())]);
-        let glyph = cx.env().icons().glyph("arrow-down").into_owned();
-        let content = format!("{glyph} {label}");
-        let width = text::width(&content).saturating_add(2);
-        let note = Rect::new(area.right() - 2 - i32::from(width), area.bottom() - 1, width, 1);
-        let style = cx.style("log-more", None, &[]).text();
-        if let Some(bg) = style.bg {
-            cx.clear(note, bg);
-        }
-        cx.text(note.x + 1, note.y, &content, CellStyle { bg: None, ..style }, width.saturating_sub(2));
-        note
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -414,7 +399,7 @@ impl<Msg: 'static> Widget<Msg> for LogView<Msg> {
         rows::paint_scrollbar(cx, area, total, offset, None);
         let below = total - (offset + visible).min(total);
         let note = (detached && below > 0).then(|| {
-            let note = Self::paint_note(cx, Rect::new(area.x, area.y, width, area.height), below);
+            let note = rows::paint_below_note(cx, Rect::new(area.x, area.y, width, area.height), below);
             cx.register_hit(note);
             note
         });
@@ -723,5 +708,38 @@ mod tests {
         }
         assert_eq!(h.app().buffer.len(), 1000);
         assert!(h.screen().contains("request 1499 served"));
+    }
+
+    #[test]
+    fn a_line_meant_for_a_terminal_shows_what_a_terminal_would_leave() {
+        let buffer = LogBuffer::new(10);
+        let app = Demo { buffer, level: LogLevel::Trace, query: String::new(), copies: Vec::new() };
+        let mut h = Harness::new(app, 60, 6);
+        for text in [
+            "Sending build context to Docker daemon  2.048kB\r\r",
+            "10%\r50%\r100%",
+            "\u{1b}[1;32mok\u{1b}[0m done",
+            "half \u{1b}[3",
+            "lone \u{1b}",
+            "a\tb\u{7}c\u{0}d",
+        ] {
+            h.send(Msg::Push(LogLine::new(LogLevel::Info, text)));
+        }
+        let screen = h.screen();
+        let shown: Vec<&str> = screen.lines().map(str::trim_end).collect();
+        assert_eq!(
+            shown,
+            [
+                "  info   Sending build context to Docker daemon  2.048kB",
+                "  info   100%",
+                "  info   ok done",
+                "  info   half",
+                "  info   lone",
+                "  info   a       bcd",
+            ],
+            "{screen}"
+        );
+        h.press("tab").press("up").press("c");
+        assert_eq!(h.copied().last().map(String::as_str), Some("info a       bcd"), "a copy holds what is shown");
     }
 }

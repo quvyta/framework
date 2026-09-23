@@ -59,6 +59,7 @@ impl<A: App> Harness<A> {
     pub fn render(&mut self) -> &mut Self {
         self.settle_tasks();
         self.engine.render(&mut self.buffer, self.now);
+        self.write_out();
         // Settling hover or scrolling to a focused widget can ask for one more frame at once.
         for _ in 0..3 {
             let due = self.engine.deadline().is_some_and(|deadline| deadline <= self.now);
@@ -66,8 +67,17 @@ impl<A: App> Harness<A> {
                 break;
             }
             self.engine.render(&mut self.buffer, self.now);
+            self.write_out();
         }
         self
+    }
+
+    /// Works out what the terminal would be sent for this frame over a cleared screen, as the
+    /// terminal runtime does before writing, so a cell no terminal can take fails the test that
+    /// drew it instead of the application that ships it.
+    fn write_out(&self) {
+        let blank = Buffer::empty(self.buffer.area);
+        let _ = blank.diff(&self.buffer);
     }
 
     /// Runs the perform work queued so far, then lets background tasks run up to the fake clock:
@@ -574,6 +584,24 @@ mod resize_tests {
         harness.resize(40, 3);
         assert_eq!((harness.buffer().area.width, harness.buffer().area.height), (40, 3));
         assert_eq!(harness.screen(), "container engines\n\n\n");
+    }
+
+    struct Raw;
+
+    impl App for Raw {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(Text::new("bell\u{7} tab\t\u{1b}[1mé\r"));
+        }
+    }
+
+    #[test]
+    fn a_control_character_handed_to_any_widget_never_reaches_a_cell() {
+        let harness = Harness::new(Raw, 30, 1);
+        assert_eq!(harness.screen(), "bell  tab  [1mé\n", "each control character is a blank cell");
     }
 }
 

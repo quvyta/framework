@@ -53,9 +53,18 @@ pub struct LogLine {
 
 impl LogLine {
     /// A line with `level` and `text`.
+    ///
+    /// Text printed for a terminal is kept as the terminal would have shown it (see
+    /// [`printable`](crate::text::printable)): carriage returns, colour sequences and other
+    /// control characters never reach the screen, the search or a copy.
     #[must_use]
     pub fn new(level: LogLevel, text: impl Into<String>) -> Self {
-        Self { level, time: None, text: text.into() }
+        let text = text.into();
+        let text = match crate::text::printable(&text) {
+            std::borrow::Cow::Borrowed(_) => text,
+            std::borrow::Cow::Owned(clean) => clean,
+        };
+        Self { level, time: None, text }
     }
 
     /// A timestamp drawn faint before the level, e.g. `"14:02:31.118"`.

@@ -20,6 +20,8 @@
 - Çince ve Japonca ideogram ve kana arasında kırılır; kapanış işaretleri (`。` `、` `，` `！` `）` `」` `ー`, küçük kana ve tam genişlik biçimleri) satır başına, açılış parantezleri (`「` `（` `【`) satır sonuna düşmez. Korece kelimeler bütün kalır.
 - Bölünmez boşluklarda (U+00A0, U+202F, U+2007) satır kırılmaz.
 - `qframe::text::{width, grapheme_width, truncate, truncate_middle, wrap, wrap_ranges}` özel bileşenler için metni ölçer ve keser.
+- Bir kontrol karakteri (`\r`, `\t`, escape, zil…) hiç çizilmez: terminal onu göstermez, onun gereğini yapar. Ölçüldüğü tek hücre boş kalır.
+- `printable(metin) -> Cow<str>` — başka bir programın terminal için bastığı bir satır, terminalin ekranda bırakacağı haliyle: yalnızca son satır başı dönüşünün bıraktığı kalır, kaçış dizileri (renk, imleç, başlık) yarım kalmış olsalar da çıkar, sekme sekizlik bir sonraki durağa kadar boşluk olur, başka kontrol karakteri kalmaz. Değişmeyen metin ödünç verilir.
 - `truncate_middle(metin, en_fazla) -> Cow<str>` — en fazla `en_fazla` hücre, ortası `…` olur; sığıyorsa değişmez, tek kalan hücre sona gider, 1'de yalnızca `…`, 0'da hiçbir şey.
 
 ## Tema anahtarları

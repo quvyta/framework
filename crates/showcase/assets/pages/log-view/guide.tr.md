@@ -19,6 +19,7 @@ Durmadan gelen ve alttan okunan çıktılar için log görünümü kullan: bir d
 - **Büyük ve hızlı.** Satırlar paylaşılan parçalarda tutulur ve süzme artımlıdır: yeni satırlara bir kez bakılır, her karede bütün tampona değil. Yalnızca ekrandaki satırlar çizilir.
 - **İhtiyacın olanı kopyala.** ↑/↓ satır imlecini koyar, shift genişletir, tıklama ya da sürükleme seçer; `c` seçili satırların zamanını, seviyesini ve mesajını kopyalar.
 - **Kopyalamak için sağ tık.** Seçili satırlara, ya da yalnızca onu almak için herhangi bir satıra sağ tıklamak Kopyala ve Ham kopyala menüsünü açar. Kopyala, `c` gibi, satırları tek boşlukla `saat seviye mesaj` olarak yazar; Ham kopyala sütunları ekrandaki gibi hizalı tutar. Shift+F10 ve menü tuşu menüyü geçerli seçim için açar.
+- **Program çıktısı terminalde göründüğü gibi.** Derleme araçları bir ilerleme satırını satır başı dönüşüyle yeniden çizer, kelimeleri kaçış dizileriyle renklendirir. Bir satır yalnızca terminalin ekranda bırakacağı şeyi tutar; başka bir programın çıktısı geldiği gibi eklenebilir.
 
 ## Sık yapılan hatalar
 

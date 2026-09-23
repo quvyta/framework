@@ -316,7 +316,7 @@ pillar-thick       = "Épaisse"
 pillar-thin        = "Fine"
 not-saved          = "Appliqué, mais non enregistré : {reason}"
 updates            = "Signaler les mises à jour"
-updates-text       = "Un seul réglage pour toutes les applications {family}. Chacune demande une fois par jour à crates.io sa version la plus récente ; seul son nom est envoyé, rien sur vous ni sur cette machine."
+updates-text       = "Pour toutes les applications {family} à la fois. Une fois par jour, chacune interroge crates.io pour connaître sa version la plus récente ; seuls son nom et sa version sont envoyés, rien sur vous ni sur cette machine."
 
 # The notice that a newer version is out (runtime::Update::toast); {package} is the crate,
 # {launcher} the family's launcher command.

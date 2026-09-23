@@ -559,6 +559,9 @@ impl PaintCx<'_> {
                 let whole = clip.contains(column, y) && clip.contains(column + width - 1, y);
                 if let Some(cell) = self.cell_mut(cx, y) {
                     let symbol = match (offset, whole) {
+                        // A cell cannot hold a control character: a terminal would act on it
+                        // rather than show it. It keeps the cell it is measured at, blank.
+                        (0, true) if grapheme.chars().any(char::is_control) => " ",
                         (0, true) => grapheme,
                         (_, true) => "",
                         _ => " ",

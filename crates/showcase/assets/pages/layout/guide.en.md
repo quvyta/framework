@@ -20,6 +20,27 @@ Each child has a width and a height, each one of three kinds:
 
 Spacing comes from empty cells and surface colour, never from lines. Use a consistent rhythm: one row between groups, two or three columns between siblings.
 
+## Rows that wrap
+
+A row of buttons that fits in English can be too wide in German or Turkish, or on a narrow terminal. `.wrap(true)` on a row moves the children that do not fit to the next line instead of letting them run past the edge:
+
+```rust
+ui.row(|ui| {
+    ui.add(Button::new(t!("install")).on_press(Msg::Install));
+    ui.add(Button::new(t!("show-command")).on_press(Msg::ShowCommand));
+    ui.add(Button::new(t!("cancel")).on_press(Msg::Cancel));
+})
+.gap(1)
+.wrap(true);
+```
+
+- Lines are filled in order. Each child takes the width it measures; one that does not fit after the others starts the next line. A child wider than the whole row gets a line of its own and is narrowed to the row's width.
+- A row whose children fit looks exactly as it does without `wrap`.
+- Every line is a row of its own: `gap` falls between the children of a line, never before the first; `justify` places each line in the room it leaves; a `spacer` takes what is left on its own line.
+- A spacer stays on the line of the child before it. When that line has no room even for the gap before it, the spacer is left out rather than pushing the next line away from the edge.
+- The row is as tall as its lines, so what comes after it moves down. Lines touch; `.line_gap(1)` leaves an empty row between them.
+- Tab and the mouse follow the buttons where they are drawn.
+
 ## Choosing the layout from the space
 
 `ui.size()` is the room the application is drawing into: the whole terminal, in columns and rows. An application reads it in `view` and picks its arrangement, so "below 48 columns, fold the three columns" is one `if`:

@@ -18,6 +18,9 @@ const FOLD_BELOW: u16 = 110;
 /// The three pages of the router demo.
 const PAGES: [&str; 3] = ["inbox", "message", "reply"];
 
+/// The buttons of the wrapping row demo, more than a narrow terminal has room for on one line.
+const ACTIONS: [&str; 5] = ["install", "command", "log", "folder", "cancel"];
+
 /// Playground settings and the router demo.
 #[derive(Debug)]
 pub struct State {
@@ -102,6 +105,23 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         .justify(justify)
         .fill_width();
         // endregion
+    })
+    .fill_width();
+
+    ui.add_with(Panel::new().title(t!("layout.wrapping")), |ui| {
+        // region: wrap
+        ui.row(|ui| {
+            for action in ACTIONS {
+                let label = t!(&format!("layout.actions.{action}"));
+                ui.add(Button::new(label).on_press(send(Msg::Tapped(action)))).id(format!("action-{action}"));
+            }
+        })
+        .gap(state.gap)
+        .justify(justify)
+        .wrap(true)
+        .fill_width();
+        // endregion
+        ui.add(Text::new(t!("layout.wrap-hint")).role("faint"));
     })
     .fill_width();
 
@@ -230,6 +250,35 @@ mod tests {
 
         h.resize(140, 80);
         assert!(h.find("Detail").is_some(), "{}", h.screen());
+    }
+
+    #[test]
+    fn the_wrapping_row_moves_its_buttons_down_when_the_terminal_narrows() {
+        let mut h = showcase_tall(Showcase::new(), PAGE, 80);
+        let (Some(install), Some(cancel)) = (h.find("Install"), h.find("Cancel")) else {
+            panic!("the wrapping row on a wide terminal:\n{}", h.screen());
+        };
+        assert_eq!(install.1, cancel.1, "one line when there is room:\n{}", h.screen());
+
+        h.resize(100, 80);
+        let narrow = h.screen();
+        let (Some(install), Some(cancel), Some(hint)) = (h.find("Install"), h.find("Cancel"), h.find("With wrap on"))
+        else {
+            panic!("every button and the hint stay on screen:\n{narrow}");
+        };
+        assert!(cancel.1 > install.1, "the last button moves to a line below:\n{narrow}");
+        let second_line_start = ["Show the command", "Copy the log", "Open the folder", "Cancel"]
+            .into_iter()
+            .filter_map(|label| h.find(label))
+            .filter(|at| at.1 == cancel.1)
+            .map(|at| at.0)
+            .min();
+        assert_eq!(second_line_start, Some(install.0), "the new line starts where the first one does:\n{narrow}");
+        assert!(hint.1 > cancel.1, "the hint moves down with the row:\n{narrow}");
+
+        h.click_text("Cancel");
+        let last = h.app().log.recent(PAGE, 1).first().map(|entry| entry.source.clone());
+        assert_eq!(last.as_deref(), Some("Button#cancel"), "a click where the button moved presses it");
     }
 
     #[test]

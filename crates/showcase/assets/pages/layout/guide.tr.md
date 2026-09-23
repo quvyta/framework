@@ -20,6 +20,27 @@ Her çocuğun bir genişliği ve yüksekliği vardır, her biri üç türden bir
 
 Boşluk çizgilerden değil, boş hücrelerden ve yüzey renginden gelir. Tutarlı bir ritim kullan: gruplar arasında bir satır, kardeşler arasında iki üç sütun.
 
+## Sarılan satırlar
+
+İngilizcede sığan bir düğme satırı Almancada, Türkçede ya da dar bir terminalde fazla geniş gelebilir. Bir satıra `.wrap(true)` verilince sığmayan çocuklar kenarın dışına taşmak yerine alt satıra geçer:
+
+```rust
+ui.row(|ui| {
+    ui.add(Button::new(t!("install")).on_press(Msg::Install));
+    ui.add(Button::new(t!("show-command")).on_press(Msg::ShowCommand));
+    ui.add(Button::new(t!("cancel")).on_press(Msg::Cancel));
+})
+.gap(1)
+.wrap(true);
+```
+
+- Satırlar sırayla doldurulur. Her çocuk ölçtüğü genişliği alır; öncekilerin ardına sığmayan çocuk yeni satırı başlatır. Satırın tamamından geniş bir çocuk tek başına bir satır alır ve satırın genişliğine daraltılır.
+- Çocukları sığan bir satır, `wrap` olmadan nasıl görünüyorsa tam öyle görünür.
+- Her satır kendi başına bir satır gibi yerleşir: `gap` bir satırdaki çocukların arasına düşer, ilkinin önüne asla; `justify` her satırı kendi bıraktığı boşlukta yerleştirir; `spacer` kendi satırında kalan yeri alır.
+- Bir spacer kendinden önceki çocuğun satırında kalır. O satırda önündeki boşluğa bile yer yoksa spacer bir sonraki satırı kenardan itmek yerine dışarıda bırakılır.
+- Satır, satırlarının toplamı kadar uzundur; ardından gelen her şey aşağı kayar. Satırlar birbirine değer; `.line_gap(1)` aralarında boş bir satır bırakır.
+- Tab ve fare düğmeleri çizildikleri yerde bulur.
+
 ## Yerleşimi alana göre seçmek
 
 `ui.size()`, uygulamanın çizdiği alandır: sütun ve satır olarak terminalin tamamı. Uygulama bunu `view` içinde okuyup dizilişini seçer; "48 sütunun altında üç sütunu katla" tek bir `if` olur:

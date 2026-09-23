@@ -13,6 +13,8 @@
 - `.id(isim)` — kalıcı bir isim; durum ve odak onu takip eder.
 - `.width(Length)`, `.height(Length)`, `.fill()`, `.fill_width()`, `.fill_height()`.
 - `.padding(Padding)`, `.gap(hücre)`, `.justify(Align)`, `.align(Align)`.
+- `.wrap(bool)` — satır sığmayan çocuklarını alt satıra alır; `gap`, `justify` ve spacer'lar her satırda ayrı çalışır.
+- `.line_gap(satır)` — sarılan bir satırın satırları arasındaki boş satır sayısı (varsayılan 0).
 - `.selectable(bool)` — `true` düğümü fareyle sürükleyince metin seçilen bir bölge yapar; `false` seçimi düğümün ve içindeki her şeyin dışında tutar.
 
 ## Length ve Align

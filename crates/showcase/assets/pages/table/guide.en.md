@@ -21,6 +21,7 @@ Use a table when every row has the same few facts that people compare: container
 - **Any number of rows.** Only the rows on screen are painted; `Fit` widths are measured once per set of rows.
 - **A glyph before a name is quiet.** Without a colour it is `muted`, a step below the name, and takes the name's colour on the selected row, so the eye reads the name first and meaning never rides on the glyph's colour. It is drawn as the glyph, one space, then the text, in every glyph mode. A narrow column cuts only the text with `…`; the glyph and its space always stay. The demo's names carry their program's Nerd Font glyph in Nerd mode and the set's project icon otherwise; the playground turns them off.
 - **A menu belongs to a row, not to the table.** `.context_menu(|index| ..)` builds the entries for the row the menu opens on, and the row stays raised while it is open. A single menu wrapped around the table would act on whatever the cursor rests on, which in a file list means deleting the wrong file.
+- **When the menu is the action.** Some tables are acted on only through a few choices per row. `.menu_on_activate(true)` makes Enter open the selected row's menu below it and a click open the clicked row's menu where it was clicked, instead of sending `on_activate`: a right click is not what most people try in a terminal, and many keyboards have no menu key. A row whose menu is empty opens nothing.
 - **Your data, your order.** The table never reorders rows. It asks for a sort and shows the arrow you give it back.
 
 ## Common mistakes

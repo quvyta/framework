@@ -2,6 +2,7 @@
 
 use super::context::{MeasureCx, PaintCx};
 use super::place::{Placed, with_spill};
+use super::wrap::{self, Piece};
 use super::{Align, LayoutProps, Length, Node, Widget};
 use crate::geometry::{Rect, Size, clamp_u16};
 
@@ -17,11 +18,25 @@ pub(crate) enum Axis {
 pub(crate) struct Flex<Msg> {
     axis: Axis,
     children: Vec<Node<Msg>>,
+    /// Whether a row moves children that do not fit to the next line.
+    wrap: bool,
+    /// Empty rows between the lines of a wrapping row.
+    line_gap: u16,
 }
 
 impl<Msg> Flex<Msg> {
     pub(crate) fn new(axis: Axis, children: Vec<Node<Msg>>) -> Self {
-        Self { axis, children }
+        Self { axis, children, wrap: false, line_gap: 0 }
+    }
+
+    /// Makes a row move children that do not fit to the next line.
+    pub(crate) fn set_wrap(&mut self, wrap: bool) {
+        self.wrap = wrap;
+    }
+
+    /// Leaves `rows` empty rows between the lines of a wrapping row.
+    pub(crate) fn set_line_gap(&mut self, rows: u16) {
+        self.line_gap = rows;
     }
 }
 
@@ -55,6 +70,15 @@ fn offset(align: Align, free: u16) -> u16 {
     }
 }
 
+/// The cells `gap` takes between `count` children.
+fn gaps(count: usize, gap: u16) -> u16 {
+    gap.saturating_mul(clamp_u16(i32::try_from(count).unwrap_or(i32::MAX) - 1))
+}
+
+fn is_fill<Msg>(axis: Axis, child: &Node<Msg>) -> bool {
+    matches!(lengths(axis, child.layout).0, Length::Fill(_))
+}
+
 impl<Msg: 'static> Flex<Msg> {
     /// Cross-axis extent available to a child given its cross length.
     fn cross_available(cross: Length, available: u16) -> u16 {
@@ -64,24 +88,19 @@ impl<Msg: 'static> Flex<Msg> {
         }
     }
 
-    /// The cells `gap` takes between all children.
-    fn gaps(&self, gap: u16) -> u16 {
-        gap.saturating_mul(clamp_u16(i32::try_from(self.children.len()).unwrap_or(i32::MAX) - 1))
-    }
-
-    /// Sizes of every child along the main axis within `main` cells.
+    /// Sizes along the main axis of `children`, laid out in a run of `main` cells.
     fn main_sizes(
         &self,
+        children: &[&Node<Msg>],
         measure: &mut dyn FnMut(&Node<Msg>, Size) -> Size,
         main: u16,
         cross: u16,
         gap: u16,
     ) -> Vec<u16> {
-        let gaps = self.gaps(gap);
-        let mut sizes = vec![0u16; self.children.len()];
-        let mut used = gaps;
+        let mut sizes = vec![0u16; children.len()];
+        let mut used = gaps(children.len(), gap);
         let mut weights = 0u32;
-        for (i, child) in self.children.iter().enumerate() {
+        for (i, child) in children.iter().enumerate() {
             let (main_len, cross_len) = lengths(self.axis, child.layout);
             match main_len {
                 Length::Cells(cells) => sizes[i] = cells,
@@ -98,7 +117,7 @@ impl<Msg: 'static> Flex<Msg> {
         let remaining = u32::from(main.saturating_sub(used));
         let mut given = 0u32;
         let mut last_fill = None;
-        for (i, child) in self.children.iter().enumerate() {
+        for (i, child) in children.iter().enumerate() {
             if let (Length::Fill(weight), _) = lengths(self.axis, child.layout)
                 && let Some(share) = (remaining * u32::from(weight.max(1))).checked_div(weights)
             {
@@ -113,37 +132,19 @@ impl<Msg: 'static> Flex<Msg> {
         }
         sizes
     }
-}
 
-impl<Msg: 'static> Widget<Msg> for Flex<Msg> {
-    fn measure(&self, cx: &mut MeasureCx<'_>, available: Size) -> Size {
-        let layout = cx.layout();
+    /// The main and cross extent `children` want side by side along the axis.
+    fn measure_run(&self, cx: &mut MeasureCx<'_>, children: &[&Node<Msg>], available: Size, gap: u16) -> (u16, u16) {
         let (main_avail, cross_avail) = split(self.axis, available);
-        if self.axis == Axis::Stack {
-            let mut size = Size::default();
-            for child in &self.children {
-                // A placed child reaches as far as its rectangle does, from the stack's corner.
-                let child_size = match Placed::of(child) {
-                    Some(rect) => Size::new(
-                        clamp_u16(rect.right().max(0)).min(available.width),
-                        clamp_u16(rect.bottom().max(0)).min(available.height),
-                    ),
-                    None => cx.measure_child(child, available),
-                };
-                size = Size::new(size.width.max(child_size.width), size.height.max(child_size.height));
-            }
-            return size;
-        }
-        let gaps = self.gaps(layout.gap);
+        let gaps = gaps(children.len(), gap);
         let mut main_total = gaps;
         let mut cross_max = 0u16;
         let mut remaining = main_avail.saturating_sub(gaps);
-        let is_fill = |child: &Node<Msg>| matches!(lengths(self.axis, child.layout).0, Length::Fill(_));
         // Sized children first and filling ones after, with what the others leave, as paint lays
         // them out: a filling child measured first would take the room of the siblings after it,
         // and a sibling squeezed to nothing may wrap to many lines and make the row tall.
-        let sized = self.children.iter().filter(|child| !is_fill(child));
-        let filling = self.children.iter().filter(|child| is_fill(child));
+        let sized = children.iter().filter(|child| !is_fill(self.axis, child));
+        let filling = children.iter().filter(|child| is_fill(self.axis, child));
         for (fill, child) in sized.map(|child| (false, child)).chain(filling.map(|child| (true, child))) {
             let (main_len, cross_len) = lengths(self.axis, child.layout);
             let child_avail = join(self.axis, remaining, Self::cross_available(cross_len, cross_avail));
@@ -162,7 +163,106 @@ impl<Msg: 'static> Widget<Msg> for Flex<Msg> {
             }
             cross_max = cross_max.max(cross_size);
         }
-        join(self.axis, main_total.min(main_avail), cross_max)
+        (main_total.min(main_avail), cross_max)
+    }
+
+    /// Paints `children` side by side along the axis in `area`.
+    fn paint_run(&self, cx: &mut PaintCx<'_>, children: &[&Node<Msg>], area: Rect, layout: LayoutProps) {
+        let (main, cross) = split(self.axis, area.size());
+        let sizes = {
+            let mut measure = |node: &Node<Msg>, available: Size| cx.measure_child(node, available);
+            self.main_sizes(children, &mut measure, main, cross, layout.gap)
+        };
+        let total = sizes.iter().fold(gaps(children.len(), layout.gap), |sum, size| sum.saturating_add(*size));
+        let mut position = i32::from(offset(layout.justify, main.saturating_sub(total)));
+        for (child, main_size) in children.iter().zip(sizes) {
+            let (_, cross_len) = lengths(self.axis, child.layout);
+            let cross_size = match cross_len {
+                Length::Fill(_) => cross,
+                Length::Cells(cells) => cells.min(cross),
+                Length::Auto => {
+                    let available = join(self.axis, main_size, cross);
+                    split(self.axis, cx.measure_child(child, available)).1
+                }
+            };
+            let cross_offset = i32::from(offset(layout.align, cross - cross_size));
+            let rect = match self.axis {
+                Axis::Row => Rect::new(area.x + position, area.y + cross_offset, main_size, cross_size),
+                Axis::Column | Axis::Stack => {
+                    Rect::new(area.x + cross_offset, area.y + position, cross_size, main_size)
+                }
+            };
+            cx.paint_child(child, rect);
+            position += i32::from(main_size) + i32::from(layout.gap);
+        }
+    }
+
+    /// The lines of a wrapping row `available.width` cells wide, or `None` when every child
+    /// fits on one line and the row lays out as any other.
+    fn lines(
+        &self,
+        measure: &mut dyn FnMut(&Node<Msg>, Size) -> Size,
+        available: Size,
+        gap: u16,
+    ) -> Option<Vec<Vec<&Node<Msg>>>> {
+        if !self.wrap || self.axis != Axis::Row {
+            return None;
+        }
+        let pieces: Vec<Piece> = self
+            .children
+            .iter()
+            .map(|child| {
+                let width = match child.layout.width {
+                    Length::Cells(cells) => cells,
+                    Length::Auto | Length::Fill(_) => {
+                        let height = Self::cross_available(child.layout.height, available.height);
+                        measure(child, Size::new(available.width, height)).width
+                    }
+                };
+                Piece { width: width.min(available.width), spacer: width == 0 && is_fill(self.axis, child) }
+            })
+            .collect();
+        let lines = wrap::break_lines(&pieces, available.width, gap);
+        (lines.len() > 1)
+            .then(|| lines.into_iter().map(|line| line.into_iter().map(|i| &self.children[i]).collect()).collect())
+    }
+}
+
+impl<Msg: 'static> Widget<Msg> for Flex<Msg> {
+    fn measure(&self, cx: &mut MeasureCx<'_>, available: Size) -> Size {
+        let layout = cx.layout();
+        if self.axis == Axis::Stack {
+            let mut size = Size::default();
+            for child in &self.children {
+                // A placed child reaches as far as its rectangle does, from the stack's corner.
+                let child_size = match Placed::of(child) {
+                    Some(rect) => Size::new(
+                        clamp_u16(rect.right().max(0)).min(available.width),
+                        clamp_u16(rect.bottom().max(0)).min(available.height),
+                    ),
+                    None => cx.measure_child(child, available),
+                };
+                size = Size::new(size.width.max(child_size.width), size.height.max(child_size.height));
+            }
+            return size;
+        }
+        let lines = {
+            let mut measure = |node: &Node<Msg>, available: Size| cx.measure_child(node, available);
+            self.lines(&mut measure, available, layout.gap)
+        };
+        if let Some(lines) = lines {
+            let (mut width, mut height) = (0u16, 0u16);
+            for (i, line) in lines.iter().enumerate() {
+                let (line_width, line_height) = self.measure_run(cx, line, available, layout.gap);
+                width = width.max(line_width);
+                let before = if i == 0 { 0 } else { self.line_gap };
+                height = height.saturating_add(before).saturating_add(line_height);
+            }
+            return Size::new(width, height.min(available.height));
+        }
+        let children: Vec<&Node<Msg>> = self.children.iter().collect();
+        let (main, cross) = self.measure_run(cx, &children, available, layout.gap);
+        join(self.axis, main, cross)
     }
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
@@ -195,35 +295,25 @@ impl<Msg: 'static> Widget<Msg> for Flex<Msg> {
             }
             return;
         }
-
-        let (main, cross) = split(self.axis, area.size());
-        let sizes = {
-            let mut measure_cx = MeasureCx::for_frame(cx.env, &mut cx.frame.measures);
-            let mut measure = |node: &Node<Msg>, available: Size| measure_cx.measure_child(node, available);
-            self.main_sizes(&mut measure, main, cross, layout.gap)
+        let lines = {
+            let mut measure = |node: &Node<Msg>, available: Size| cx.measure_child(node, available);
+            self.lines(&mut measure, area.size(), layout.gap)
         };
-        let total = sizes.iter().fold(self.gaps(layout.gap), |sum, size| sum.saturating_add(*size));
-        let mut position = i32::from(offset(layout.justify, main.saturating_sub(total)));
-        for (child, main_size) in self.children.iter().zip(sizes) {
-            let (_, cross_len) = lengths(self.axis, child.layout);
-            let cross_size = match cross_len {
-                Length::Fill(_) => cross,
-                Length::Cells(cells) => cells.min(cross),
-                Length::Auto => {
-                    let available = join(self.axis, main_size, cross);
-                    split(self.axis, cx.measure_child(child, available)).1
-                }
-            };
-            let cross_offset = i32::from(offset(layout.align, cross - cross_size));
-            let rect = match self.axis {
-                Axis::Row => Rect::new(area.x + position, area.y + cross_offset, main_size, cross_size),
-                Axis::Column | Axis::Stack => {
-                    Rect::new(area.x + cross_offset, area.y + position, cross_size, main_size)
-                }
-            };
-            cx.paint_child(child, rect);
-            position += i32::from(main_size) + i32::from(layout.gap);
+        if let Some(lines) = lines {
+            let mut top = area.y;
+            for line in &lines {
+                let room = clamp_u16(area.bottom() - top);
+                let height = {
+                    let mut measure_cx = MeasureCx::for_frame(cx.env, &mut cx.frame.measures);
+                    self.measure_run(&mut measure_cx, line, Size::new(area.width, room), layout.gap).1
+                };
+                self.paint_run(cx, line, Rect::new(area.x, top, area.width, height.min(room)), layout);
+                top += i32::from(height) + i32::from(self.line_gap);
+            }
+            return;
         }
+        let children: Vec<&Node<Msg>> = self.children.iter().collect();
+        self.paint_run(cx, &children, area, layout);
     }
 
     fn children(&self) -> &[Node<Msg>] {

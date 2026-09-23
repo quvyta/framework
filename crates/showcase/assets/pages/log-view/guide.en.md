@@ -19,6 +19,7 @@ Use a log view for output that keeps arriving and is read from the bottom: a dep
 - **Big and fast.** Lines are stored in shared chunks and filtered incrementally: new lines are checked once, not the whole buffer every frame. Only the lines on screen are painted.
 - **Copy what you need.** ↑/↓ place a line cursor, shift extends it, a click or a drag selects, and `c` copies time, level and message of the selected lines.
 - **Right click to copy.** A right click on the selected lines, or on any line to take just that one, opens Copy and Raw copy. Copy writes `time level message` with single spaces, like `c`; Raw copy keeps the columns lined up as shown. Shift+F10 and the menu key open it for the current selection.
+- **Program output as a terminal shows it.** Build tools redraw a progress line after a carriage return and colour words with escape sequences. A line keeps only what a terminal would have left on screen, so output from another program can be pushed as it comes.
 
 ## Common mistakes
 

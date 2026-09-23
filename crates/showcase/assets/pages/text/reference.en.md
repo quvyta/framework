@@ -20,6 +20,8 @@
 - Chinese and Japanese break between ideographs and kana; closing marks (`。` `、` `，` `！` `）` `」` `ー`, small kana and their fullwidth forms) never start a line and opening brackets (`「` `（` `【`) never end one. Korean keeps its words whole.
 - No-break spaces (U+00A0, U+202F, U+2007) never break a line.
 - `qframe::text::{width, grapheme_width, truncate, truncate_middle, wrap, wrap_ranges}` measure and cut text for custom widgets.
+- A control character (`\r`, `\t`, escape, bell…) is never drawn: a terminal would act on it rather than show it. It keeps the one cell it is measured at, blank.
+- `printable(text) -> Cow<str>` — one line another program printed for a terminal, as the terminal would leave it: only what the last carriage return left, escape sequences (colour, cursor, title) removed even when cut off, a tab padded to the next stop of eight, no other control character. Unchanged text is borrowed.
 - `truncate_middle(text, max) -> Cow<str>` — at most `max` cells, the middle replaced by `…`; unchanged when it fits, the end gets the odd cell, `…` alone at 1 and nothing at 0.
 
 ## Theme keys

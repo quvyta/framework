@@ -69,6 +69,7 @@ pub struct Table<Msg> {
     on_toggle: Option<IndexMessage<Msg>>,
     on_sort: Option<SortMessage<Msg>>,
     menu: Option<RowMenuItems<Msg>>,
+    menu_on_activate: bool,
 }
 
 #[derive(Debug, Default)]
@@ -100,6 +101,7 @@ impl<Msg: 'static> Table<Msg> {
             on_toggle: None,
             on_sort: None,
             menu: None,
+            menu_on_activate: false,
         }
     }
 
@@ -175,6 +177,20 @@ impl<Msg: 'static> Table<Msg> {
         self
     }
 
+    /// Makes a row's [context menu](Self::context_menu) its action: Enter opens the menu of the
+    /// selected row below it and a click opens the menu of the clicked row where it was clicked,
+    /// instead of sending [`on_activate`](Self::on_activate).
+    ///
+    /// For a table whose rows are acted on only through a few choices: a right click is not what
+    /// most people try in a terminal and many keyboards have no menu key, so the menu is also
+    /// reached the way any row is opened. A row whose menu has no entries opens nothing. Off by
+    /// default; without a context menu it does nothing.
+    #[must_use]
+    pub fn menu_on_activate(mut self, on: bool) -> Self {
+        self.menu_on_activate = on;
+        self
+    }
+
     /// The cells the rows have to themselves: the scrollbar column is not part of a row.
     fn rows_width(area: Rect, overflows: bool) -> u16 {
         area.width.saturating_sub(u16::from(overflows))
@@ -206,19 +222,33 @@ impl<Msg: 'static> Table<Msg> {
                 }
                 Some(RowAnchor { row, at: Rect::new(x, y, 1, 1), keyboard: false })
             },
-            |cx| {
-                let row = self.selected.filter(|row| *row < total)?;
-                let memory = cx.memory::<RowScroll>();
-                if row < memory.offset {
-                    memory.offset = row;
-                } else if visible > 0 && row >= memory.offset + visible {
-                    memory.offset = row + 1 - visible;
-                }
-                let y = body.y + i32::try_from(row - memory.offset).unwrap_or(0);
-                let at = Rect::new(area.x, y, Self::rows_width(area, overflows), 1);
-                Some(RowAnchor { row, at, keyboard: true })
-            },
+            |cx| self.selected_anchor(cx),
         )
+    }
+
+    /// Where the menu of the selected row unfolds from for the keyboard: below the whole row,
+    /// scrolled into view first.
+    fn selected_anchor(&self, cx: &mut EventCx<'_, Msg>) -> Option<RowAnchor> {
+        let area = cx.area();
+        let body_y = area.y + 1;
+        let total = self.rows.len();
+        let visible = usize::from(area.height.saturating_sub(1));
+        let overflows = total > visible;
+        let row = self.selected.filter(|row| *row < total)?;
+        let memory = cx.memory::<RowScroll>();
+        if row < memory.offset {
+            memory.offset = row;
+        } else if visible > 0 && row >= memory.offset + visible {
+            memory.offset = row + 1 - visible;
+        }
+        let y = body_y + i32::try_from(row - memory.offset).unwrap_or(0);
+        let at = Rect::new(area.x, y, Self::rows_width(area, overflows), 1);
+        Some(RowAnchor { row, at, keyboard: true })
+    }
+
+    /// Whether Enter and a click open the row's menu rather than the row.
+    fn activation_is_menu(&self) -> bool {
+        self.menu_on_activate && self.menu.is_some()
     }
 
     fn lead(&self) -> u16 {
@@ -394,6 +424,11 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
                     return Self::scroll_columns(cx, key.is_plain(Key::Right));
                 }
                 if key.is_plain(Key::Enter) {
+                    if self.activation_is_menu() {
+                        return self
+                            .selected_anchor(cx)
+                            .is_some_and(|anchor| row_menu::open_as_action(cx, self.menu.as_ref(), &anchor));
+                    }
                     return self.selected.is_some_and(|index| self.activate(cx, index));
                 }
                 if key.is_plain(Key::Space) {
@@ -443,7 +478,12 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
                     return true;
                 }
                 self.select(cx, index);
-                self.activate(cx, index);
+                if self.activation_is_menu() {
+                    let anchor = RowAnchor { row: index, at: Rect::new(mouse.x, mouse.y, 1, 1), keyboard: false };
+                    row_menu::open_as_action(cx, self.menu.as_ref(), &anchor);
+                } else {
+                    self.activate(cx, index);
+                }
                 true
             }
             _ => false,

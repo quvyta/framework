@@ -7,6 +7,7 @@
 - `.on_sort(|column, direction| msg)` — turns on sorting by title clicks and keys.
 - `.empty_text(text)` — shown under the header when there are no rows.
 - `.context_menu(|index| Vec<ContextItem<Msg>>)` — gives every row a menu of its own, built for the row it opens on.
+- `.menu_on_activate(bool)` — Enter and a click open the row's menu instead of sending `on_activate`; an empty menu opens nothing. Off by default.
 - `Column::new(title)`, `.width(ColumnWidth::Fixed(n) | Fit | Fill(weight))`, `.min(cells)`, `.align(Align)`, `.sortable(bool)`.
 - `TableRow::new(cells)`, `.faint(bool)`; `TableCell::new(text)`, `.icon(glyph, color)`, `.color(token)`; strings convert into cells. `glyph` is an icon key (`"dot"`, `Glyph::key(..)`) or `Glyph::literal(..)`, drawn as the glyph, a space and the text; with `Some(token)` it is drawn in that colour, with `None` it is `muted` and takes the row's text colour when the row is selected. Truncation cuts the text only.
 - `SortDirection::Ascending | Descending`, `.reversed()`.

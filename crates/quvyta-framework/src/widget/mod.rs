@@ -15,6 +15,9 @@ mod mapped_rules;
 mod memory;
 mod place;
 mod view;
+mod wrap;
+#[cfg(test)]
+mod wrap_rules;
 
 use std::any::{Any, type_name};
 

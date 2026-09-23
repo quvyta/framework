@@ -8,7 +8,7 @@ use crate::keymap::Key;
 use crate::motion::Easing;
 use crate::widget::{Axis, Container, EventCx, Flex, Length, MeasureCx, Node, PaintCx, Widget, WidgetId};
 
-use super::rows::WHEEL_ROWS;
+use super::rows::{self, WHEEL_ROWS};
 use super::scrollbar::{self, ScrollMetrics, ScrollbarStyle};
 
 /// Shows content taller than its area and scrolls it with the wheel, the scrollbar or the
@@ -17,10 +17,16 @@ use super::scrollbar::{self, ScrollMetrics, ScrollbarStyle};
 /// with [`PaintCx::reveal`], such as a code view going to a line, the view glides just far
 /// enough to show it, or jumps there when motion is reduced.
 ///
-/// Style keys: `scrollbar` (`style`, `track`, `thumb`) with `hover`, and `scrollbar.<style>`.
+/// With [`ScrollView::follow_end`] the view keeps the end of growing content in view, for a
+/// conversation or command output that arrives while the person watches.
+///
+/// Style keys: `scrollbar` (`style`, `track`, `thumb`) with `hover`, and `scrollbar.<style>`;
+/// `log-more` for the rows-below note of a view that stopped following. Framework string:
+/// `quvyta.log.below`.
 pub struct ScrollView<Msg> {
     content: Vec<Node<Msg>>,
     scrollbar: Option<ScrollbarStyle>,
+    follow_end: bool,
 }
 
 #[derive(Debug, Default)]
@@ -29,8 +35,28 @@ struct ScrollMemory {
     content_height: u16,
     revealed: Option<WidgetId>,
     dragging: bool,
-    /// A move towards an area a widget asked to reveal, while it runs.
+    /// A move towards an area a widget asked to reveal, or towards the end, while it runs.
     glide: Option<Glide>,
+    /// Whether the person moved away from the end, so growth no longer follows it.
+    detached: bool,
+    /// Whether a frame was painted yet: the first one opens at the end without gliding.
+    painted: bool,
+    /// Where the rows-below note was painted in the last frame; a click on it follows the end.
+    note: Option<Rect>,
+}
+
+impl ScrollMemory {
+    /// Records a move from offset `from` to offset `to`, where `max` is the end: reaching the
+    /// end follows it again, and any move up from `from` stops following. A move down that
+    /// stops short of the end changes nothing, so a key pressed while the view glides to the
+    /// end keeps following.
+    fn moved(&mut self, from: u16, to: u16, max: u16) {
+        if to >= max {
+            self.detached = false;
+        } else if to < from {
+            self.detached = true;
+        }
+    }
 }
 
 /// A scroll from one offset to another that started at `start`.
@@ -58,13 +84,61 @@ impl<Msg: 'static> ScrollView<Msg> {
     /// An empty scroll view; add content with [`View::add_with`](crate::widget::View::add_with).
     #[must_use]
     pub fn new() -> Self {
-        Self { content: vec![Node::new(Flex::new(Axis::Column, Vec::new()), 0)], scrollbar: None }
+        Self { content: vec![Node::new(Flex::new(Axis::Column, Vec::new()), 0)], scrollbar: None, follow_end: false }
     }
 
     /// Draws the scrollbar in `style` whatever the theme chooses.
     #[must_use]
     pub fn scrollbar(mut self, style: ScrollbarStyle) -> Self {
         self.scrollbar = Some(style);
+        self
+    }
+
+    /// Keeps the end of the content in view while it grows, as long as the person is at the end.
+    ///
+    /// The first frame opens at the end. When the content grows, the view glides to the new end
+    /// over the theme's `page` duration, or jumps there when motion is reduced. Scrolling up with
+    /// the wheel, the keys or the scrollbar stops following, and a faint note at the bottom
+    /// counts the rows below; End, scrolling back to the bottom or a click on the note follows
+    /// again. Content that fits the view always counts as at the end.
+    ///
+    /// Focus keeps its usual pull: a widget inside that takes focus is scrolled into view. When
+    /// that move leaves the end, it stops following just as scrolling up does, so focusing
+    /// something earlier in the content holds it in view; when the focused widget sits at the
+    /// end, such as a reply field below a conversation, the view keeps following and the field
+    /// stays in view as the content grows. An area a widget asks to reveal follows the same rule.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    /// use qframe::widgets::ScrollView;
+    ///
+    /// struct Chat(Vec<String>);
+    ///
+    /// impl App for Chat {
+    ///     type Msg = String;
+    ///     fn update(&mut self, line: String) -> Command<String> {
+    ///         self.0.push(line);
+    ///         Command::none()
+    ///     }
+    ///     fn view(&self, ui: &mut View<'_, String>) {
+    ///         ui.add_with(ScrollView::new().follow_end(true), |ui| {
+    ///             for line in &self.0 {
+    ///                 ui.add(Text::new(line.clone()));
+    ///             }
+    ///         })
+    ///         .fill();
+    ///     }
+    /// }
+    ///
+    /// let lines = (1..=9).map(|n| format!("line {n}")).collect();
+    /// let mut h = Harness::new(Chat(lines), 20, 3);
+    /// assert!(h.screen().contains("line 9"), "the first frame opens at the end");
+    /// h.set_reduced_motion(true).send("line 10".to_owned());
+    /// assert!(h.screen().contains("line 10"));
+    /// ```
+    #[must_use]
+    pub fn follow_end(mut self, follow: bool) -> Self {
+        self.follow_end = follow;
         self
     }
 
@@ -80,8 +154,32 @@ impl<Msg: 'static> ScrollView<Msg> {
         let area = cx.area();
         let memory = cx.memory::<ScrollMemory>();
         let max = memory.content_height.saturating_sub(area.height);
+        let from = memory.offset;
         memory.offset = clamp_u16(offset).min(max);
         memory.glide = None;
+        memory.moved(from, memory.offset, max);
+    }
+
+    /// Heads for the end `max` unless the person moved away from it: at once on the first frame
+    /// or with reduced motion, otherwise as a glide from where the view is.
+    fn follow(cx: &mut PaintCx<'_>, max: u16) {
+        let reduced = cx.reduced_motion();
+        let now = cx.now();
+        let memory = cx.memory::<ScrollMemory>();
+        let first = !std::mem::replace(&mut memory.painted, true);
+        if max == 0 || memory.glide.is_none() && memory.offset >= max {
+            memory.detached = false;
+        }
+        let heading = memory.glide.map_or(memory.offset, |glide| glide.to);
+        if memory.detached || heading == max {
+            return;
+        }
+        if first || reduced {
+            memory.offset = max;
+            memory.glide = None;
+        } else {
+            memory.glide = Some(Glide { from: memory.offset, to: max, start: now });
+        }
     }
 
     /// Moves along a running glide and returns the offset to paint at.
@@ -120,6 +218,7 @@ impl<Msg: 'static> ScrollView<Msg> {
         let reduced = cx.reduced_motion();
         let now = cx.now();
         let memory = cx.memory::<ScrollMemory>();
+        memory.moved(offset, target, max);
         if reduced {
             memory.offset = target;
             memory.glide = None;
@@ -168,6 +267,12 @@ impl<Msg: 'static> Widget<Msg> for ScrollView<Msg> {
             memory.offset = memory.offset.min(max);
             memory.offset
         };
+        let offset = if self.follow_end {
+            Self::follow(cx, max);
+            cx.memory::<ScrollMemory>().offset
+        } else {
+            offset
+        };
         let offset = Self::glide(cx, offset, max);
         let content_rect = Rect::new(area.x, area.y - i32::from(offset), width, height);
         cx.with_clip(area, |cx| cx.paint_child(content, content_rect));
@@ -184,11 +289,24 @@ impl<Msg: 'static> Widget<Msg> for ScrollView<Msg> {
             let top = rect.y - content_rect.y;
             let new_offset = offset_showing(top, top + i32::from(rect.height), offset, area.height);
             if new_offset != offset {
+                memory.moved(offset, new_offset, max);
                 memory.offset = new_offset;
                 memory.glide = None;
                 cx.request_frame_in(Duration::ZERO);
             }
         }
+
+        let note = {
+            let memory = cx.memory::<ScrollMemory>();
+            let below = max.saturating_sub(memory.offset);
+            (self.follow_end && memory.detached && below > 0).then_some(below)
+        };
+        let note = note.map(|below| {
+            let note = rows::paint_below_note(cx, Rect::new(area.x, area.y, width, area.height), below.into());
+            cx.register_hit(note);
+            note
+        });
+        cx.memory::<ScrollMemory>().note = note;
 
         if overflows {
             let metrics = Self::metrics(cx.memory::<ScrollMemory>(), area);
@@ -230,7 +348,12 @@ impl<Msg: 'static> Widget<Msg> for ScrollView<Msg> {
             }
             Event::Mouse(mouse) => {
                 let on_bar = metrics.overflows() && mouse.x == area.right() - 1;
+                let on_note = cx.memory::<ScrollMemory>().note.is_some_and(|note| note.contains(mouse.x, mouse.y));
                 match mouse.kind {
+                    MouseKind::Down(MouseButton::Left) if on_note => {
+                        Self::scroll_to(cx, i32::MAX);
+                        true
+                    }
                     MouseKind::ScrollUp if metrics.overflows() => {
                         Self::scroll_to(cx, offset - i32::from(WHEEL_ROWS));
                         true
@@ -399,3 +522,7 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 }
+
+#[cfg(test)]
+#[path = "scroll_view_follow_tests.rs"]
+mod follow_tests;
