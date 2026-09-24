@@ -25,7 +25,8 @@ pub fn child_key(parent: &str, name: &str) -> String {
     if parent.is_empty() { name.to_owned() } else { format!("{parent}/{name}") }
 }
 
-/// One entry of a folder, as a file manager reads it: a name and whether it can be opened.
+/// One entry of a folder, as a file manager reads it: a name, whether it can be opened and whether
+/// it is a program.
 ///
 /// A tree row shows nothing else, so nothing else is read. Size, date and permissions each mean
 /// another call to the system for every entry, which a folder of ten thousand entries cannot
@@ -37,6 +38,13 @@ pub struct FolderEntry {
     /// Whether it is a folder, and so can be opened. A symbolic link is never a folder: opening
     /// one would leave the tree it is drawn in.
     pub folder: bool,
+    /// Whether it is a file that may be run, which gives it a program's icon.
+    ///
+    /// Only asked of a file whose name says nothing of its kind, since the name wins where it
+    /// does (see [`file_kind`](crate::icons::file_kind)): a folder of ten thousand photos asks the
+    /// system nothing more, and a folder of programs asks once for each of them. Always `false`
+    /// where the system has no such permission.
+    pub executable: bool,
 }
 
 impl FolderEntry {
@@ -49,7 +57,8 @@ impl FolderEntry {
             let entry = entry.map_err(ops::read_error)?;
             let name = entry.file_name().to_string_lossy().into_owned();
             let folder = entry.file_type().is_ok_and(|kind| kind.is_dir());
-            entries.push(Self { name, folder });
+            let executable = !folder && runs(&entry, &name);
+            entries.push(Self { name, folder, executable });
         }
         entries.sort_by(|a, b| b.folder.cmp(&a.folder).then_with(|| a.name.cmp(&b.name)));
         Ok(entries)
@@ -81,11 +90,35 @@ impl FolderEntry {
             // `file_type` does not follow a link, so a link to a folder is an entry and not a way
             // out of the tree.
             let folder = entry.file_type().is_ok_and(|kind| kind.is_dir());
-            entries.push(Self { name, folder });
+            let executable = !folder && runs(&entry, &name);
+            entries.push(Self { name, folder, executable });
         }
         entries.sort_by(|a, b| b.folder.cmp(&a.folder).then_with(|| a.name.cmp(&b.name)));
         Ok(entries)
     }
+}
+
+/// Whether the file `entry`, called `name`, is a program: one whose name says nothing of its kind
+/// and that may be run. A link answers for what it points to, since its own permissions are
+/// always all of them.
+fn runs(entry: &std::fs::DirEntry, name: &str) -> bool {
+    if crate::icons::file_kind(name, false, false).family() != crate::icons::KindFamily::File {
+        return false;
+    }
+    may_run(&entry.path())
+}
+
+/// Whether the file at `path` may be run by someone.
+#[cfg(unix)]
+fn may_run(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|data| data.is_file() && data.permissions().mode() & 0o111 != 0)
+}
+
+/// Whether the file at `path` may be run: never known here, so never said.
+#[cfg(not(unix))]
+fn may_run(_path: &Path) -> bool {
+    false
 }
 
 /// What the name the dialog asks for is for.

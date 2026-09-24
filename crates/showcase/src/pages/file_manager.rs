@@ -66,6 +66,12 @@ fn make_demo(demo: &Path) {
     let _ = std::fs::write(files.join("src").join("main.rs"), "fn main() {}\n");
     let _ = std::fs::write(files.join("it's $HOME.txt"), "a name with room for trouble\n");
     let _ = std::fs::write(files.join(".hidden.txt"), "the platform hides this one\n");
+    // A file of each of a few kinds, so icons by kind have something to tell apart. Their kind is
+    // in their names, which is all the manager reads.
+    let _ = std::fs::write(files.join("Cargo.toml"), "[package]\nname = \"harbour\"\n");
+    let _ = std::fs::write(files.join("harbour.png"), "not a picture, only its name\n");
+    let _ = std::fs::write(files.join("tides.csv"), "time,height\n06:00,4.2\n");
+    let _ = std::fs::write(files.join("logbook.tar.gz"), "not an archive, only its name\n");
     // A file big enough that copying it takes a moment, so the progress of a long operation can be
     // seen. It is made of one repeated byte, so it costs nothing to write.
     let _ = std::fs::write(files.join("big.bin"), vec![b'q'; BIG]);
@@ -100,6 +106,10 @@ pub struct State {
     trashing: bool,
     /// Whether the entries the platform hides are shown.
     hidden: bool,
+    /// Whether each row's icon follows the kind of its entry.
+    kinds: bool,
+    /// Whether those icons take their family's colour.
+    tones: bool,
     /// The latest things the application was asked for, newest last.
     asked: Vec<String>,
 }
@@ -121,6 +131,8 @@ impl Default for State {
             marked: false,
             trashing: false,
             hidden: false,
+            kinds: false,
+            tones: false,
             asked: Vec::new(),
         };
         // The showcase builds page states once at start-up, before any view; the root is read here
@@ -189,6 +201,8 @@ pub enum Msg {
     Mark(bool),
     Trash(bool),
     Hidden(bool),
+    Kinds(bool),
+    Tones(bool),
 }
 
 fn send(message: FileManagerMsg) -> AppMsg {
@@ -287,6 +301,16 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             // Hidden entries were read with the rest, so showing them goes nowhere near the disk.
             state.manager.update(FileManagerMsg::ShowHidden(on), send)
         }
+        Msg::Kinds(on) => {
+            state.kinds = on;
+            log.push(PAGE, "Playground", format!("kind icons = {on}"));
+            Command::none()
+        }
+        Msg::Tones(on) => {
+            state.tones = on;
+            log.push(PAGE, "Playground", format!("kind tones = {on}"));
+            Command::none()
+        }
     }
 }
 
@@ -330,6 +354,10 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             .view(VIEWS[state.view])
             .root_label(t!("file-manager.root"))
             .on_open(|path| send_page(Msg::Open(path.to_path_buf())))
+            // Each icon says what its file is before the name is read: a Rust file, a picture,
+            // an archive. The colours are a further layer on top, and a mark wins over the kind.
+            .kind_icons(state.kinds)
+            .kind_tones(state.tones)
             .disabled(state.disabled);
         if state.extras {
             manager = manager.on_open_terminal(|path| send_page(Msg::Terminal(path.to_path_buf()))).menu_items(
@@ -387,6 +415,12 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         });
         setting(ui, t!("file-manager.hidden"), |ui| {
             ui.add(toggle(state.hidden, |on| send_page(Msg::Hidden(on)))).id("hidden");
+        });
+        setting(ui, t!("file-manager.kinds"), |ui| {
+            ui.add(toggle(state.kinds, |on| send_page(Msg::Kinds(on)))).id("kinds");
+        });
+        setting(ui, t!("file-manager.tones"), |ui| {
+            ui.add(toggle(state.tones, |on| send_page(Msg::Tones(on)))).id("tones");
         });
         setting(ui, t!("file-manager.marks"), |ui| {
             ui.add(toggle(state.marked, |on| send_page(Msg::Mark(on)))).id("marks");
@@ -531,6 +565,37 @@ mod tests {
         assert!(h.screen().contains("README.md"), "the icons show the same folder:\n{}", h.screen());
         h.send(send_page(Msg::View(0))).advance(MOMENT);
         assert!(h.screen().contains("README.md"), "{}", h.screen());
+    }
+
+    /// The line of the screen the text `text` is on.
+    fn line_of(h: &qframe::runtime::Harness<crate::app::Showcase>, text: &str) -> String {
+        let (_, y) = h.find(text).unwrap_or_else(|| panic!("`{text}` is on screen:\n{}", h.screen()));
+        h.screen().lines().nth(usize::try_from(y).expect("a row")).expect("the line").to_owned()
+    }
+
+    #[test]
+    fn icons_by_kind_are_switched_on_and_coloured_by_family() {
+        let mut h = showcase_on(PAGE);
+        let picture = '\u{25e9}';
+        assert!(!line_of(&h, "harbour.png").contains(picture), "plain icons to begin with:\n{}", h.screen());
+        // The playground's switches stand after their labels' column of 24 cells.
+        let switch = |h: &mut qframe::runtime::Harness<crate::app::Showcase>, label: &str| {
+            let (x, y) = h.find(label).unwrap_or_else(|| panic!("{label} is on screen:\n{}", h.screen()));
+            h.click(x + 25, y).advance(MOMENT);
+        };
+        switch(&mut h, "Icons by kind of file");
+        assert!(h.app().pages.file_manager.kinds, "the click turned kind icons on");
+        assert!(line_of(&h, "harbour.png").contains(picture), "a picture's shape:\n{}", h.screen());
+        assert!(line_of(&h, "logbook.tar.gz").contains('\u{25a3}'), "an archive's:\n{}", h.screen());
+        assert!(line_of(&h, "tides.csv").contains('\u{25a6}'), "a table's:\n{}", h.screen());
+
+        let (x, y) = h.find("harbour.png").expect("the row");
+        let icon = (u16::try_from(x - 2).expect("a column"), u16::try_from(y).expect("a row"));
+        let quiet = h.fg(icon.0, icon.1);
+        switch(&mut h, "Colour icons by kind");
+        let toned = h.fg(icon.0, icon.1);
+        assert_ne!(toned, quiet, "the picture takes its family's tone");
+        assert_eq!(toned, h.env().theme().color("series-3"));
     }
 
     #[test]

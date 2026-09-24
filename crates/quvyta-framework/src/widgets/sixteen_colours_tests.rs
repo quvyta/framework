@@ -162,3 +162,58 @@ fn in_256_colours_text_on_a_raised_surface_still_reads() {
         every_glyph_reads(&today_in(theme, ColorDepth::Ansi256), theme);
     }
 }
+
+/// A page with a legend under it and a button that opens a dialog, as a day's timeline shows its
+/// categories.
+#[derive(Default)]
+struct Legended {
+    asking: bool,
+}
+
+impl App for Legended {
+    type Msg = Msg;
+    fn update(&mut self, msg: Msg) -> Command<Msg> {
+        self.asking = matches!(msg, Msg::Ask);
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, Msg>) {
+        ui.column(|ui| {
+            ui.add(crate::widgets::Legend::new(["Work", "Rest"]));
+            ui.add(Button::new("Quit").on_press(Msg::Ask));
+            if self.asking {
+                ui.add_with(Modal::new().title("Quit?").width(30).on_close(Msg::Close), |ui| {
+                    ui.add(Text::new("The timer keeps running."));
+                });
+            }
+        });
+    }
+}
+
+/// Contrast of the cell at `x`, `y` in whatever depth it was drawn in.
+fn any_contrast(h: &Harness<Legended>, x: u16, y: u16) -> f64 {
+    let colour = |color: Color| match color {
+        Color::Rgb(r, g, b) => Rgb::new(r, g, b),
+        Color::Indexed(index) if index < 16 => Rgb::from_ansi16(index),
+        Color::Indexed(index) => Rgb::from_ansi256(index),
+        other => panic!("{other:?} is not a colour a frame sends"),
+    };
+    let cell = &h.buffer()[(x, y)];
+    colour(cell.fg).contrast_ratio(colour(cell.bg))
+}
+
+#[test]
+fn a_legend_s_names_keep_a_colour_of_their_own_behind_a_dialog() {
+    for depth in [ColorDepth::TrueColor, ColorDepth::Ansi256, ColorDepth::Ansi16] {
+        for theme in THEMES {
+            let mut h = Harness::new(Legended::default(), 60, 12);
+            h.set_theme(theme).set_depth(depth);
+            let (x, y) = h.find("Work").expect("the legend's name");
+            let (x, y) = (u16::try_from(x).expect("x"), u16::try_from(y).expect("y"));
+            assert!(any_contrast(&h, x, y) > READABLE, "{theme} {depth:?}: the name reads before the dialog");
+            h.click_text("Quit").advance(Duration::from_secs(1));
+            assert!(h.screen().contains("The timer keeps running."), "{theme} {depth:?}: the dialog is open");
+            let ratio = any_contrast(&h, x, y);
+            assert!(ratio > READABLE, "{theme} {depth:?}: behind the dialog the name keeps {ratio:.2}:1");
+        }
+    }
+}

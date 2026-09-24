@@ -120,6 +120,11 @@ impl<Msg: 'static> Widget<Msg> for Legend {
         }
         let mut style = cx.style("legend", None, &[]).text();
         style.bg = None;
+        // A theme without the key still gives the names a colour of their own: a cell with none
+        // takes whatever the terminal defaults to, and a dialog dims it into the ground.
+        if style.fg.is_none() {
+            style.fg = Some(cx.color("dim"));
+        }
         let tones: Vec<crate::color::Rgb> =
             (0..self.names.len()).map(|index| cx.env().theme().series_color(self.tone_index(index))).collect();
         for ((x, y), (name, tone)) in self.places(area.width).into_iter().zip(self.names.iter().zip(tones)) {

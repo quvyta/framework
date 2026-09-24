@@ -14,6 +14,8 @@ mod mapped;
 mod mapped_rules;
 mod memory;
 mod place;
+#[cfg(test)]
+mod sized_rules;
 mod view;
 mod wrap;
 #[cfg(test)]

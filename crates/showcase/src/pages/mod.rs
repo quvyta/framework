@@ -51,6 +51,7 @@ pub mod modal;
 pub mod motion;
 pub mod nerd_font;
 pub mod number_input;
+pub mod open_with;
 pub mod page_transitions;
 pub mod panel;
 pub mod popover;
@@ -228,6 +229,7 @@ pub const PAGES: &[PageContent] = &[
     page!("shared-preferences", "shared_preferences"),
     page!("setup-wizard", "setup_wizard"),
     page!("folder-watch", "folder_watch"),
+    page!("open-with", "open_with"),
     page!("date-time", "date_time"),
     page!("document", "document"),
     page!("page-transitions", "page_transitions"),
@@ -321,6 +323,7 @@ pub struct Pages {
     pub nerd_font: nerd_font::State,
     pub storage: storage::State,
     pub folder_watch: folder_watch::State,
+    pub open_with: open_with::State,
     pub shared_preferences: shared_preferences::State,
     pub setup_wizard: setup_wizard::State,
     pub date_time: date_time::State,
@@ -410,6 +413,7 @@ pub enum PageMsg {
     NerdFont(nerd_font::Msg),
     Storage(storage::Msg),
     FolderWatch(folder_watch::Msg),
+    OpenWith(open_with::Msg),
     SharedPreferences(shared_preferences::Msg),
     SetupWizard(setup_wizard::Msg),
     DateTime(date_time::Msg),
@@ -505,6 +509,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::NerdFont(m) => nerd_font::update(&mut pages.nerd_font, m, log),
         PageMsg::Storage(m) => storage::update(&mut pages.storage, m, log),
         PageMsg::FolderWatch(m) => folder_watch::update(&mut pages.folder_watch, m, log),
+        PageMsg::OpenWith(m) => open_with::update(&mut pages.open_with, m, log),
         PageMsg::SharedPreferences(m) => shared_preferences::update(&mut pages.shared_preferences, m, log),
         PageMsg::SetupWizard(m) => setup_wizard::update(&mut pages.setup_wizard, m, log),
         PageMsg::DateTime(m) => date_time::update(&mut pages.date_time, m, log),
@@ -600,6 +605,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "nerd-font" => nerd_font::view(&pages.nerd_font, ui),
         "storage" => storage::view(&pages.storage, ui),
         "folder-watch" => folder_watch::view(&pages.folder_watch, ui),
+        "open-with" => open_with::view(&pages.open_with, ui),
         "shared-preferences" => shared_preferences::view(&pages.shared_preferences, ui),
         "setup-wizard" => setup_wizard::view(&pages.setup_wizard, ui),
         "date-time" => date_time::view(&pages.date_time, ui),

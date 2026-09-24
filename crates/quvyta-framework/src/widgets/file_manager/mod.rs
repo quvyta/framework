@@ -2,6 +2,7 @@
 
 mod details;
 mod flat;
+mod kinds;
 mod mark;
 mod ops;
 mod state;
@@ -9,11 +10,14 @@ mod trash;
 mod watch;
 
 #[cfg(test)]
+mod kinds_tests;
+#[cfg(test)]
 mod tests;
 
 use std::path::Path;
 use std::rc::Rc;
 
+use crate::icons::UserFolders;
 use crate::widget::{Length, NodeMut, View};
 
 use super::{Button, ContextItem, Field, Form, FormErrors, Modal, ProgressBar, Text, TextInput, Tree, TreeNode};
@@ -73,6 +77,9 @@ const NAMING_WIDTH: u16 = 48;
 /// file to open it, Space and Ctrl to select several, Home and End, the menu key on the row the
 /// cursor is on).
 ///
+/// What it can add: each row's icon by the kind of the entry, see [`kind_icons`](Self::kind_icons),
+/// and those icons in the colours of their families, see [`kind_tones`](Self::kind_tones).
+///
 /// Style keys: the tree's (`list-item`, `tree-chevron`, `tree-drop`, `list-detail`, `spinner`),
 /// the context menu's and the dialog's. Texts: `quvyta.file-manager.*`.
 pub struct FileManager<'a, Msg> {
@@ -85,6 +92,11 @@ pub struct FileManager<'a, Msg> {
     marks: Option<Marks>,
     view: FileView,
     disabled: bool,
+    kind_icons: bool,
+    kind_tones: bool,
+    user_folders: Option<&'a UserFolders>,
+    /// How kinds are drawn on this screen, worked out when it is shown.
+    kinds: kinds::KindLook<'a>,
 }
 
 impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
@@ -104,6 +116,10 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
             marks: None,
             view: FileView::Tree,
             disabled: false,
+            kind_icons: false,
+            kind_tones: false,
+            user_folders: None,
+            kinds: kinds::KindLook::default(),
         }
     }
 
@@ -182,6 +198,54 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         self
     }
 
+    /// Draws each row's icon by the kind of its entry: the Rust logo on a Rust file, a zipper on
+    /// an archive, a folder with a branch on `.git`, the downloads folder in the home. Off, every
+    /// row is a plain `folder` or `file`.
+    ///
+    /// A person knows what a file is from its icon before reading its name. The kind comes from
+    /// the name alone, see [`file_kind`](crate::icons::file_kind), so no file is opened to draw
+    /// it; whether a file whose name says nothing may be run is the one thing read, with the
+    /// folder. Outside a Nerd Font each icon is its family's shape, so code, pictures and archives
+    /// are still told apart.
+    ///
+    /// The icons have no colour of their own, as the plain ones have none: they are drawn in the
+    /// row's quiet colour and take the selected row's colour with the rest of it. A sign an
+    /// application gives with [`row_mark`](Self::row_mark) says something the kind cannot, so it
+    /// wins over the kind. Colours by kind are a further layer, [`kind_tones`](Self::kind_tones).
+    ///
+    /// The folders of the home are found by the names the person's language gives them, read from
+    /// `user-dirs.dirs` once the home is on screen; [`user_folders`](Self::user_folders) gives them
+    /// instead.
+    #[must_use]
+    pub fn kind_icons(mut self, on: bool) -> Self {
+        self.kind_icons = on;
+        self
+    }
+
+    /// Colours the icons of [`kind_icons`](Self::kind_icons) by their family: folders take the
+    /// accent and the files the theme's series tones, see
+    /// [`KindFamily::tone`](crate::icons::KindFamily::tone). A file whose kind is not known keeps
+    /// the row's colour.
+    ///
+    /// The colour only repeats what the shape says, so it adds nothing where tones cannot be told
+    /// apart: in sixteen colours and in ASCII it is not drawn. It does nothing without
+    /// [`kind_icons`](Self::kind_icons).
+    #[must_use]
+    pub fn kind_tones(mut self, on: bool) -> Self {
+        self.kind_tones = on;
+        self
+    }
+
+    /// The home and its folders [`kind_icons`](Self::kind_icons) recognises, in place of the
+    /// person's own, [`UserFolders::current`].
+    ///
+    /// For a manager showing another person's home, or a test that means a home of its own.
+    #[must_use]
+    pub fn user_folders(mut self, folders: &'a UserFolders) -> Self {
+        self.user_folders = Some(folders);
+        self
+    }
+
     /// Draws the rows faint and answers nothing: no click, key, drag or menu, while the
     /// application has taken the folder away from the person.
     #[must_use]
@@ -194,8 +258,9 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
     ///
     /// The dialog that asks for a name is added too while one is asked for; it is a layer and
     /// takes no room of its own.
-    pub fn show<'v>(self, ui: &'v mut View<'_, Msg>) -> NodeMut<'v, Msg> {
+    pub fn show<'v>(mut self, ui: &'v mut View<'_, Msg>) -> NodeMut<'v, Msg> {
         let state = self.state;
+        self.kinds = self.kind_look(ui.env());
         if let Some(problem) = state.error() {
             ui.add(Text::new(crate::t!("quvyta.file-manager.unreadable")).role("secondary"));
             return ui.add(Text::new(problem.to_owned()).role("faint")).selectable(true);
@@ -296,7 +361,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         let state = self.state;
         let label = self.root_label.clone().unwrap_or_else(|| root_name(state.root()));
         let mark = self.mark_of(ROOT);
-        let (icon, tone) = self.sign_of(&mark, "folder");
+        let (icon, tone) = self.sign_of(&mark, ROOT, &root_name(state.root()), true, false);
         let mut root = TreeNode::new(ROOT, label).icon(icon, tone.as_deref()).faint(self.disabled || mark.is_faint());
         // An unread folder is not an empty one, so it never says "empty" before it is known.
         if state.shown_children(ROOT).is_some_and(|entries| entries.is_empty()) {
@@ -314,7 +379,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
             .map(|entry| {
                 let child = child_key(key, &entry.name);
                 let mark = self.mark_of(&child);
-                let (icon, tone) = self.sign_of(&mark, if entry.folder { "folder" } else { "file" });
+                let (icon, tone) = self.sign_of(&mark, &child, &entry.name, entry.folder, entry.executable);
                 // What was cut is drawn faint until it is pasted or let go, with everything in it.
                 let faint = self.disabled || state.is_cut(&child) || mark.is_faint();
                 let mut node =
@@ -342,12 +407,20 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         self.marks.as_ref().map(|mark| mark(key)).unwrap_or_default()
     }
 
-    /// The icon and the colour a row is drawn with: the mark's sign when it has one, and the
-    /// manager's own folder or file icon in the row's own colour otherwise.
-    fn sign_of(&self, mark: &RowMark, own: &'static str) -> (String, Option<String>) {
+    /// The icon and the colour the row `key` is drawn with: the mark's sign when it has one, and
+    /// the manager's own icon for the entry called `name` otherwise, in the row's own colour
+    /// unless kinds are coloured.
+    fn sign_of(
+        &self,
+        mark: &RowMark,
+        key: &str,
+        name: &str,
+        folder: bool,
+        executable: bool,
+    ) -> (String, Option<String>) {
         match mark.icon() {
             Some(icon) => (icon.to_owned(), mark.tone().map(str::to_owned)),
-            None => (own.to_owned(), None),
+            None => self.own_icon(key, name, folder, executable),
         }
     }
 

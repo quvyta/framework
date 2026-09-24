@@ -66,6 +66,7 @@
 ## Belgeler klasörü
 
 - `documents_dir()` — Linux ve diğer Unix sistemleri: ayar kökündeki (mutlaksa `$XDG_CONFIG_HOME`, değilse `$HOME/.config`) `user-dirs.dirs` dosyasının `XDG_DOCUMENTS_DIR` satırı; değer çift tırnak içinde `"$HOME/…"` ya da mutlak bir yoldur, `#` bir yorum satırı başlatır, ters bölü sonraki karakteri kaçırır, başka hiçbir şey genişletilmez ve son geçerli satır kazanır. Eksik, okunamayan ya da bozuk dosya ve ev klasörünün kendisi olan değer (dosya bir klasörü böyle kapatır) `$HOME/Documents` verir.
+- `user_dir(UserDir::Desktop)` — kişinin klasörlerinden herhangi biri, aynı kurallarla ve masaüstünün ona verdiği adla: `Desktop`, `Documents`, `Downloads`, `Music`, `Pictures`, `Videos`, `Public`, `Templates` (`UserDir::ALL`); Türkçe bir Linux masaüstünde masaüstü `~/Masaüstü`. Dosya adını vermiyorsa evdeki İngilizce ad. `user_dir_in(hangisi, ev, ayar)` yalnızca verilen klasörleri okur, test içindir. `documents_dir()`, `user_dir(UserDir::Documents)`'tır.
 - macOS: `$HOME/Documents`. Windows: `dirs` crate'i üzerinden Belgeler Bilinen Klasörü, olmazsa `%USERPROFILE%\Documents`.
 - Mutlak bir ev klasörü yoksa `None`. Oluşturulmaz.
 

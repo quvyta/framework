@@ -26,7 +26,8 @@
 //! Applications made to be used together keep their settings in one folder: an [`Ecosystem`] names
 //! it, gives each application its `<app>.conf` file and a folder beside it, and
 //! [`Ecosystem::adopt`] moves an application's settings there from the folder it used on its own.
-//! [`documents_dir`] and [`Ecosystem::workspace_dir`] say where the user's own work goes.
+//! [`user_dir`] (the desktop, documents, downloads and the rest, by their names in the person's
+//! language), [`documents_dir`] and [`Ecosystem::workspace_dir`] say where the user's own work goes.
 //! [`Ecosystem::preferences`] resolves the language, theme and icons the ecosystem's applications share,
 //! and [`Ecosystem::set`] changes one of them for every application or for one.
 //!
@@ -39,7 +40,6 @@
 
 mod atomic;
 mod dirs;
-mod documents;
 mod ecosystem;
 mod folder_watch;
 #[cfg(test)]
@@ -51,6 +51,7 @@ mod migrate;
 mod preferences;
 mod schema;
 mod update_notice;
+mod user_dirs;
 mod value;
 
 use std::fs;
@@ -61,8 +62,9 @@ use toml::de::{DeTable, DeValue};
 
 pub use atomic::{WriteStep, atomic_write, atomic_write_reporting};
 pub use dirs::{cache_dir, config_dir, data_dir, state_dir};
-pub use documents::documents_dir;
 pub use ecosystem::Ecosystem;
+pub(crate) use user_dirs::user_dir_line;
+pub use user_dirs::{UserDir, documents_dir, user_dir, user_dir_in};
 /// The former name of [`Ecosystem`]. It still works so applications can move over at their own
 /// pace; a later release marks it deprecated, and the one after removes it. New code uses
 /// [`Ecosystem`].

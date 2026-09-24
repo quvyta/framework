@@ -147,7 +147,13 @@ impl<Msg: 'static> Flex<Msg> {
         let filling = children.iter().filter(|child| is_fill(self.axis, child));
         for (fill, child) in sized.map(|child| (false, child)).chain(filling.map(|child| (true, child))) {
             let (main_len, cross_len) = lengths(self.axis, child.layout);
-            let child_avail = join(self.axis, remaining, Self::cross_available(cross_len, cross_avail));
+            // A child with a width of its own is measured at that width, the one paint gives it;
+            // measured at the whole room, text inside it wraps to fewer lines than it is drawn in.
+            let main_room = match main_len {
+                Length::Cells(cells) => cells.min(remaining),
+                Length::Auto | Length::Fill(_) => remaining,
+            };
+            let child_avail = join(self.axis, main_room, Self::cross_available(cross_len, cross_avail));
             let measured = split(self.axis, cx.measure_child(child, child_avail));
             let main_size = match main_len {
                 Length::Cells(cells) => cells.min(remaining),

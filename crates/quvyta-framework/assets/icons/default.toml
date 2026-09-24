@@ -105,6 +105,181 @@ info             = { nerd = "\uf05a", unicode = "ℹ", ascii = "i" }
 # wherever the ecosystem is read, so all three modes draw the same character.
 help             = { nerd = "?", unicode = "?", ascii = "?" }
 
+# ---- Kinds of file
+# What a file or folder is, told by its icon before its name is read: see
+# `qframe::icons::file_kind`, which picks the key from the name. Nerd Font draws each kind's own
+# glyph, named in the comment after it (Nerd Fonts v3), so a changed code point still says what
+# was meant. Unicode and ASCII draw the kind's family, so a list without a Nerd Font still tells
+# code from pictures from archives: Unicode stays inside Geometric Shapes, one cell everywhere,
+# and ASCII borrows a character that reads as the family without ever wrapping anything.
+# Folders: ■ and # outside Nerd Font.
+folder-build      = { nerd = "\U000f107f", unicode = "■", ascii = "#" }   # nf-md-folder_cog
+folder-cache      = { nerd = "\U000f0aba", unicode = "■", ascii = "#" }   # nf-md-folder_clock
+folder-config     = { nerd = "\ue5fc", unicode = "■", ascii = "#" }   # nf-custom-folder_config
+folder-desktop    = { nerd = "\U000f0379", unicode = "■", ascii = "#" }   # nf-md-monitor
+folder-docs       = { nerd = "\U000f0c82", unicode = "■", ascii = "#" }   # nf-md-folder_text
+folder-documents  = { nerd = "\U000f19f6", unicode = "■", ascii = "#" }   # nf-md-folder_file
+folder-downloads  = { nerd = "\U000f024d", unicode = "■", ascii = "#" }   # nf-md-folder_download
+folder-git        = { nerd = "\ue5fb", unicode = "■", ascii = "#" }   # nf-custom-folder_git_branch
+folder-github     = { nerd = "\ue5fd", unicode = "■", ascii = "#" }   # nf-custom-folder_github
+folder-hidden     = { nerd = "\U000f179e", unicode = "■", ascii = "#" }   # nf-md-folder_hidden
+folder-home       = { nerd = "\U000f10b5", unicode = "■", ascii = "#" }   # nf-md-folder_home
+folder-keys       = { nerd = "\U000f08ac", unicode = "■", ascii = "#" }   # nf-md-folder_key
+folder-music      = { nerd = "\U000f1359", unicode = "■", ascii = "#" }   # nf-md-folder_music
+folder-packages   = { nerd = "\ue5fa", unicode = "■", ascii = "#" }   # nf-custom-folder_npm
+folder-pictures   = { nerd = "\U000f024f", unicode = "■", ascii = "#" }   # nf-md-folder_image
+folder-public     = { nerd = "\U000f024c", unicode = "■", ascii = "#" }   # nf-md-folder_account
+folder-source     = { nerd = "\U000f0d09", unicode = "■", ascii = "#" }   # nf-md-folder_pound
+folder-templates  = { nerd = "\U000f08de", unicode = "■", ascii = "#" }   # nf-md-folder_edit
+folder-tests      = { nerd = "\U000f197e", unicode = "■", ascii = "#" }   # nf-md-folder_check
+folder-trash      = { nerd = "\U000f0a79", unicode = "■", ascii = "#" }   # nf-md-trash_can
+folder-videos     = { nerd = "\U000f19fa", unicode = "■", ascii = "#" }   # nf-md-folder_play
+
+# Text: ▤ and = outside Nerd Font.
+file-diff         = { nerd = "\uf4d2", unicode = "▤", ascii = "=" }   # nf-oct-file_diff
+file-license      = { nerd = "\ue60a", unicode = "▤", ascii = "=" }   # nf-seti-license
+file-log          = { nerd = "\U000f12e2", unicode = "▤", ascii = "=" }   # nf-md-file_clock_outline
+file-markdown     = { nerd = "\ue609", unicode = "▤", ascii = "=" }   # nf-seti-markdown
+file-org          = { nerd = "\ue633", unicode = "▤", ascii = "=" }   # nf-custom-orgmode
+file-readme       = { nerd = "\U000f14f7", unicode = "▤", ascii = "=" }   # nf-md-book_open_variant
+file-text         = { nerd = "\U000f09ee", unicode = "▤", ascii = "=" }   # nf-md-file_document_outline
+
+# Documents: ▥ and = outside Nerd Font.
+file-calendar     = { nerd = "\U000f00ed", unicode = "▥", ascii = "=" }   # nf-md-calendar
+file-contact      = { nerd = "\U000f05d2", unicode = "▥", ascii = "=" }   # nf-md-card_account_details
+file-ebook        = { nerd = "\U000f00ba", unicode = "▥", ascii = "=" }   # nf-md-book
+file-email        = { nerd = "\U000f01ee", unicode = "▥", ascii = "=" }   # nf-md-email
+file-pdf          = { nerd = "\ue67d", unicode = "▥", ascii = "=" }   # nf-seti-pdf
+file-tex          = { nerd = "\ue69b", unicode = "▥", ascii = "=" }   # nf-seti-tex
+file-word         = { nerd = "\ue6a5", unicode = "▥", ascii = "=" }   # nf-seti-word
+
+# Spreadsheets and slides: ▦ and = outside Nerd Font.
+file-csv          = { nerd = "\ue64a", unicode = "▦", ascii = "=" }   # nf-seti-csv
+file-sheet        = { nerd = "\ue6a6", unicode = "▦", ascii = "=" }   # nf-seti-xls
+file-slides       = { nerd = "\U000f0228", unicode = "▦", ascii = "=" }   # nf-md-file_powerpoint_box
+
+# Code: ◇ and & outside Nerd Font.
+file-asm          = { nerd = "\ue637", unicode = "◇", ascii = "&" }   # nf-seti-asm
+file-astro        = { nerd = "\ue6b3", unicode = "◇", ascii = "&" }   # nf-custom-astro
+file-batch        = { nerd = "\ue629", unicode = "◇", ascii = "&" }   # nf-custom-msdos
+file-c            = { nerd = "\ue649", unicode = "◇", ascii = "&" }   # nf-seti-c
+file-clojure      = { nerd = "\ue642", unicode = "◇", ascii = "&" }   # nf-seti-clojure
+file-cmake        = { nerd = "\ue794", unicode = "◇", ascii = "&" }   # nf-dev-cmake
+file-coffee       = { nerd = "\ue61b", unicode = "◇", ascii = "&" }   # nf-seti-coffee
+file-cpp          = { nerd = "\ue646", unicode = "◇", ascii = "&" }   # nf-seti-cpp
+file-crystal      = { nerd = "\ue62f", unicode = "◇", ascii = "&" }   # nf-seti-crystal
+file-csharp       = { nerd = "\ue648", unicode = "◇", ascii = "&" }   # nf-seti-c_sharp
+file-css          = { nerd = "\ue614", unicode = "◇", ascii = "&" }   # nf-seti-css
+file-d            = { nerd = "\ue651", unicode = "◇", ascii = "&" }   # nf-seti-d
+file-dart         = { nerd = "\ue64c", unicode = "◇", ascii = "&" }   # nf-seti-dart
+file-docker       = { nerd = "\ue650", unicode = "◇", ascii = "&" }   # nf-seti-docker
+file-elixir       = { nerd = "\ue62d", unicode = "◇", ascii = "&" }   # nf-seti-elixir
+file-elm          = { nerd = "\ue62c", unicode = "◇", ascii = "&" }   # nf-seti-elm
+file-emacs        = { nerd = "\ue632", unicode = "◇", ascii = "&" }   # nf-custom-emacs
+file-erlang       = { nerd = "\ue7b1", unicode = "◇", ascii = "&" }   # nf-dev-erlang
+file-fortran      = { nerd = "\ue7de", unicode = "◇", ascii = "&" }   # nf-dev-fortran
+file-fsharp       = { nerd = "\ue65a", unicode = "◇", ascii = "&" }   # nf-seti-f_sharp
+file-git          = { nerd = "\ue65d", unicode = "◇", ascii = "&" }   # nf-seti-git_ignore
+file-go           = { nerd = "\ue627", unicode = "◇", ascii = "&" }   # nf-seti-go
+file-godot        = { nerd = "\ue65f", unicode = "◇", ascii = "&" }   # nf-seti-godot
+file-gradle       = { nerd = "\ue660", unicode = "◇", ascii = "&" }   # nf-seti-gradle
+file-graphql      = { nerd = "\ue662", unicode = "◇", ascii = "&" }   # nf-seti-graphql
+file-groovy       = { nerd = "\ue775", unicode = "◇", ascii = "&" }   # nf-dev-groovy
+file-haskell      = { nerd = "\ue61f", unicode = "◇", ascii = "&" }   # nf-seti-haskell
+file-html         = { nerd = "\ue60e", unicode = "◇", ascii = "&" }   # nf-seti-html
+file-java         = { nerd = "\ue66d", unicode = "◇", ascii = "&" }   # nf-seti-java
+file-javascript   = { nerd = "\ue60c", unicode = "◇", ascii = "&" }   # nf-seti-javascript
+file-julia        = { nerd = "\ue624", unicode = "◇", ascii = "&" }   # nf-seti-julia
+file-kotlin       = { nerd = "\ue634", unicode = "◇", ascii = "&" }   # nf-seti-kotlin
+file-less         = { nerd = "\ue60b", unicode = "◇", ascii = "&" }   # nf-seti-less
+file-lisp         = { nerd = "\ue6b0", unicode = "◇", ascii = "&" }   # nf-custom-common_lisp
+file-lua          = { nerd = "\ue620", unicode = "◇", ascii = "&" }   # nf-seti-lua
+file-makefile     = { nerd = "\ue673", unicode = "◇", ascii = "&" }   # nf-seti-makefile
+file-matlab       = { nerd = "\ue82a", unicode = "◇", ascii = "&" }   # nf-dev-matlab
+file-nim          = { nerd = "\ue677", unicode = "◇", ascii = "&" }   # nf-seti-nim
+file-nix          = { nerd = "\U000f1105", unicode = "◇", ascii = "&" }   # nf-md-nix
+file-node         = { nerd = "\U000f0399", unicode = "◇", ascii = "&" }   # nf-md-nodejs
+file-notebook     = { nerd = "\ue678", unicode = "◇", ascii = "&" }   # nf-seti-notebook
+file-objc         = { nerd = "\ue84d", unicode = "◇", ascii = "&" }   # nf-dev-objectivec
+file-ocaml        = { nerd = "\ue67a", unicode = "◇", ascii = "&" }   # nf-seti-ocaml
+file-perl         = { nerd = "\ue67e", unicode = "◇", ascii = "&" }   # nf-seti-perl
+file-php          = { nerd = "\ue608", unicode = "◇", ascii = "&" }   # nf-seti-php
+file-powershell   = { nerd = "\ue683", unicode = "◇", ascii = "&" }   # nf-seti-powershell
+file-prolog       = { nerd = "\ue685", unicode = "◇", ascii = "&" }   # nf-seti-prolog
+file-purescript   = { nerd = "\ue630", unicode = "◇", ascii = "&" }   # nf-seti-purescript
+file-python       = { nerd = "\ue606", unicode = "◇", ascii = "&" }   # nf-seti-python
+file-r            = { nerd = "\ue68a", unicode = "◇", ascii = "&" }   # nf-seti-r
+file-react        = { nerd = "\ue625", unicode = "◇", ascii = "&" }   # nf-seti-react
+file-ruby         = { nerd = "\ue605", unicode = "◇", ascii = "&" }   # nf-seti-ruby
+file-rust         = { nerd = "\ue68b", unicode = "◇", ascii = "&" }   # nf-seti-rust
+file-sass         = { nerd = "\ue603", unicode = "◇", ascii = "&" }   # nf-seti-sass
+file-scala        = { nerd = "\ue68e", unicode = "◇", ascii = "&" }   # nf-seti-scala
+file-scheme       = { nerd = "\ue6b1", unicode = "◇", ascii = "&" }   # nf-custom-scheme
+file-shell        = { nerd = "\ue691", unicode = "◇", ascii = "&" }   # nf-seti-shell
+file-solidity     = { nerd = "\ue8a6", unicode = "◇", ascii = "&" }   # nf-dev-solidity
+file-svelte       = { nerd = "\ue697", unicode = "◇", ascii = "&" }   # nf-seti-svelte
+file-swift        = { nerd = "\ue699", unicode = "◇", ascii = "&" }   # nf-seti-swift
+file-terraform    = { nerd = "\ue69a", unicode = "◇", ascii = "&" }   # nf-seti-terraform
+file-typescript   = { nerd = "\ue628", unicode = "◇", ascii = "&" }   # nf-seti-typescript
+file-v            = { nerd = "\ue6ac", unicode = "◇", ascii = "&" }   # nf-custom-v_lang
+file-vala         = { nerd = "\ue69e", unicode = "◇", ascii = "&" }   # nf-seti-vala
+file-vim          = { nerd = "\ue62b", unicode = "◇", ascii = "&" }   # nf-custom-vim
+file-vue          = { nerd = "\ue6a0", unicode = "◇", ascii = "&" }   # nf-seti-vue
+file-wasm         = { nerd = "\ue6a1", unicode = "◇", ascii = "&" }   # nf-seti-wasm
+file-zig          = { nerd = "\ue6a9", unicode = "◇", ascii = "&" }   # nf-seti-zig
+
+# Data and settings: ◆ and : outside Nerd Font.
+file-cargo        = { nerd = "\ue7a8", unicode = "◆", ascii = ":" }   # nf-dev-rust
+file-config       = { nerd = "\ue615", unicode = "◆", ascii = ":" }   # nf-seti-config
+file-database     = { nerd = "\U000f01bc", unicode = "◆", ascii = ":" }   # nf-md-database
+file-editorconfig = { nerd = "\ue652", unicode = "◆", ascii = ":" }   # nf-seti-editorconfig
+file-json         = { nerd = "\ue60b", unicode = "◆", ascii = ":" }   # nf-seti-less
+file-lock         = { nerd = "\ue672", unicode = "◆", ascii = ":" }   # nf-seti-lock
+file-npm          = { nerd = "\ue71e", unicode = "◆", ascii = ":" }   # nf-dev-npm
+file-sql          = { nerd = "\U000f01bc", unicode = "◆", ascii = ":" }   # nf-md-database
+file-toml         = { nerd = "\ue6b2", unicode = "◆", ascii = ":" }   # nf-custom-toml
+file-torrent      = { nerd = "\U000f0347", unicode = "◆", ascii = ":" }   # nf-md-magnet
+file-xml          = { nerd = "\ue619", unicode = "◆", ascii = ":" }   # nf-seti-xml
+file-yaml         = { nerd = "\ue6a8", unicode = "◆", ascii = ":" }   # nf-seti-yml
+
+# Images: ◩ and % outside Nerd Font.
+file-blender      = { nerd = "\ue766", unicode = "◩", ascii = "%" }   # nf-dev-blender
+file-design       = { nerd = "\ue67f", unicode = "◩", ascii = "%" }   # nf-seti-photoshop
+file-gimp         = { nerd = "\uf338", unicode = "◩", ascii = "%" }   # nf-linux-gimp
+file-image        = { nerd = "\ue60d", unicode = "◩", ascii = "%" }   # nf-seti-image
+file-krita        = { nerd = "\uf33d", unicode = "◩", ascii = "%" }   # nf-linux-krita
+file-svg          = { nerd = "\ue698", unicode = "◩", ascii = "%" }   # nf-seti-svg
+
+# Sound: ◗ and ~ outside Nerd Font.
+file-audio        = { nerd = "\U000f075a", unicode = "◗", ascii = "~" }   # nf-md-music
+
+# Video: ◭ and > outside Nerd Font.
+file-video        = { nerd = "\U000f0381", unicode = "◭", ascii = ">" }   # nf-md-movie
+
+# Archives: ▣ and @ outside Nerd Font.
+file-archive      = { nerd = "\U000f05c4", unicode = "▣", ascii = "@" }   # nf-md-zip_box
+
+# Packages and disk images: ◰ and + outside Nerd Font.
+file-arch         = { nerd = "\uf303", unicode = "◰", ascii = "+" }   # nf-linux-archlinux
+file-deb          = { nerd = "\uf306", unicode = "◰", ascii = "+" }   # nf-linux-debian
+file-disk         = { nerd = "\U000f05ee", unicode = "◰", ascii = "+" }   # nf-md-disc
+file-flatpak      = { nerd = "\uf324", unicode = "◰", ascii = "+" }   # nf-linux-flathub
+file-package      = { nerd = "\U000f03d6", unicode = "◰", ascii = "+" }   # nf-md-package_variant
+file-rpm          = { nerd = "\uf316", unicode = "◰", ascii = "+" }   # nf-linux-redhat
+file-snap         = { nerd = "\uf32c", unicode = "◰", ascii = "+" }   # nf-linux-snappy
+
+# Programs and libraries: ◈ and * outside Nerd Font.
+file-executable   = { nerd = "\U000f1577", unicode = "◈", ascii = "*" }   # nf-md-application_cog_outline
+file-library      = { nerd = "\U000f08d6", unicode = "◈", ascii = "*" }   # nf-md-cogs
+file-windows      = { nerd = "\ue62a", unicode = "◈", ascii = "*" }   # nf-custom-windows
+
+# Keys and certificates: ◎ and ! outside Nerd Font.
+file-certificate  = { nerd = "\U000f0124", unicode = "◎", ascii = "!" }   # nf-md-certificate
+file-key          = { nerd = "\U000f0306", unicode = "◎", ascii = "!" }   # nf-md-key
+
+# Fonts: ◫ and f outside Nerd Font.
+file-font         = { nerd = "\ue659", unicode = "◫", ascii = "f" }   # nf-seti-font
+
 # ---- Application main menu
 # The rows every application in the ecosystem shows: a project, who you are, the settings and the way
 # out. Nerd Font draws the thing itself (cube, person, cog, power); Unicode stays inside Geometric

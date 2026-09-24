@@ -4,6 +4,61 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.22 - 2026-09-24
+
+### Added
+
+- The person's own folders by their real names: `storage::user_dir(UserDir::Desktop)` reads the
+  desktop's line of `user-dirs.dirs`, so a Turkish desktop gives `~/Masaüstü` and a German one
+  `~/Schreibtisch`, and falls back to the English name in the home. Every XDG user folder is
+  there (`UserDir::ALL`), `user_dir_in(which, home, config)` reads only the folders it is given,
+  and `documents_dir()` is now the Documents case of it. The file-kind icons read the same file
+  by the same rules.
+- Icons by kind of file, so a person knows what a file is before reading its name.
+  `icons::file_kind(name, folder, executable)` answers with a `FileKind`: its icon key and its
+  `KindFamily`. The name alone decides, in order: the whole name (`Cargo.toml`, `Dockerfile`,
+  `PKGBUILD`, a `README` or `LICENSE` however it goes on), an ending of several parts
+  (`.tar.gz`, `.pkg.tar.zst`), the extension, a folder's telling name (`.git`, `node_modules`),
+  and only then the executable bit. Letter case never matters and nothing is read from disk.
+  More than a hundred whole names, nearly five hundred extensions and nearly forty folder
+  names; a hidden folder that says nothing more has an icon of its own.
+- The built-in icon set has a `file-*` or `folder-*` key for each of 140 kinds. In a Nerd Font
+  each draws its own glyph, named in a comment; in Unicode and ASCII each draws its family's shape
+  (`◇` `&` code, `◩` `%` pictures, `▣` `@` archives and so on), one cell and never bracketed.
+- `icons::UserFolders` knows the folders of a home (Desktop, Downloads, Music…) by the names the
+  person's language gives them, from `user-dirs.dirs`, and only where they are: in the home.
+- `FileManager::kind_icons(true)` draws each row's icon by its kind, in the tree, the list and the
+  icons. The icon has no colour of its own, as the plain ones have none, and a `RowMark` sign
+  still wins over it. `FileManager::kind_tones(true)` colours the icons by family, folders in the
+  accent; it is not drawn in sixteen colours or in ASCII. `FileManager::user_folders` gives the
+  home whose folders it knows.
+- `FolderEntry::executable`: whether a file whose name says nothing of its kind may be run. It is
+  the one thing read with a folder beyond the names, and only for such files.
+- `qframe::desktop`: which program opens a file, read from the desktop's own databases as the
+  freedesktop specifications describe them, so every Quvyta application gives the answer the
+  person's file manager gives. `MimeDb` names a file's kind from shared-mime-info's `globs2`
+  (weight, then case-sensitive, then the longest pattern) and from its first 4 KiB when no pattern
+  knows the name, and follows `subclasses` and `aliases`, so Rust source is plain text. `Apps`
+  reads the installed programs' desktop entries and every `mimeapps.list`; `for_mime` and
+  `default_for` list a kind's programs and the one to use, and `Openers::for_file` answers both for
+  one file. `DesktopApp::command` fills the `Exec` line in without a shell, so a quote or a space in
+  a file name stays in its one argument. `DesktopApp::launch` starts a terminal program through a
+  `Handoff` and a graphical one through `Open::program`, and says there is no graphical session
+  instead of trying when `DISPLAY` and `WAYLAND_DISPLAY` are empty. `XdgDirs` is built by hand in
+  tests, so they never read the system's folders. Broken files and lines are skipped with a
+  diagnostic. The showcase has an Open with page.
+
+### Fixed
+
+- A child given a width in cells is measured at that width, the one it is drawn at. A column
+  `.width(Length::Cells(80))` was measured with the whole row's room, so a paragraph in it seemed
+  to take fewer lines than it was drawn in, and a centred page cut its last rows: on a wide screen
+  the button under the text was not drawn at all.
+- A legend's names keep their colour behind a dialog. The style key `legend` was defined in no
+  theme, so the names were drawn with no colour of their own and a dialog dimmed them into the
+  ground, in true colour as well. The built-in themes now give them the dim text colour, and a
+  theme without the key falls back to it.
+
 ## 0.1.21 - 2026-09-23
 
 ### Changed

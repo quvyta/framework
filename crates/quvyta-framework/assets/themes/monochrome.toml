@@ -1787,6 +1787,9 @@ fill = "$info"
 [style.bar-chart-label]
 fg = "$dim"
 
+[style.legend]
+fg = "$dim"
+
 [style.bar-chart-value]
 fg   = "$text"
 bold = true

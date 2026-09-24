@@ -133,3 +133,21 @@ fn every_character_the_framework_can_draw_has_a_glyph() {
         .collect();
     assert!(missing.is_empty(), "no embedded font can draw: {}", missing.join(", "));
 }
+
+#[test]
+fn every_kind_of_file_has_its_own_nerd_glyph_one_cell_wide() {
+    // A kind's Nerd glyph is its whole point: a code point the Nerd Font lacks would fall back to
+    // another face or to a box, and the Rust file would look like any other.
+    let icons = qframe::env::Env::builtin().icons().clone();
+    let kinds: Vec<&str> = icons.keys().filter(|key| key.starts_with("file-") || key.starts_with("folder-")).collect();
+    assert!(kinds.len() > 100, "only {} kinds of file in the icon set", kinds.len());
+    for key in kinds {
+        let nerd = &icons.glyphs(key).expect("a listed key").nerd;
+        let mut chars = nerd.chars();
+        let (Some(c), None) = (chars.next(), chars.next()) else { panic!("{key}: `{nerd}` is not one character") };
+        let (found, advance) =
+            font::glyph(c, false).unwrap_or_else(|| panic!("{key}: no face draws U+{:04X}", u32::from(c)));
+        assert_eq!(found.source, Source::Regular, "{key}: U+{:04X} is not in the Nerd Font", u32::from(c));
+        assert!((advance - crate::geometry::CELL_W).abs() < 0.01, "{key}: U+{:04X} is {advance} px wide", u32::from(c));
+    }
+}

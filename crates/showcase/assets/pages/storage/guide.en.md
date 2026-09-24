@@ -71,4 +71,5 @@ Moving is careful because a lost settings file cannot be fixed afterwards. Each 
 - **Renaming over a link yourself.** A rename replaces a symbolic link with a plain file and cuts a settings file off from the dotfiles repository it was linked from. `atomic_write` follows the link and replaces the file it points at, in that file's folder.
 - **Loading before adopting.** `load_member` before `adopt` starts from an empty file, and the first save takes the place the old settings were meant to move to; from then on they stay behind as a conflict.
 - **Hard-coding `~/Documents`.** On a desktop in another language the folder has another name; ask `documents_dir()`.
+- **Guessing `~/Desktop`.** The desktop, downloads and the rest have their names in the person's language too; ask `user_dir(UserDir::Desktop)`.
 - **Treating settings as the source of truth while running.** Keep the live value in your state and store it on change, as the showcase header does.

@@ -6,6 +6,7 @@ Bir klasör uygulamanın konusunun parçasıysa dosya yöneticisi kullanılır: 
 - **Açmak senin işin.** Yönetici yalnızca "şu yol açılmak istendi" der. Sekme, pencere, önizleme ya da bir diyaloğun cevabı olması senin kararın.
 - **Klasörün ne olduğunu söyle.** Çıkılmaması gereken bir klasör için `confined()`; onsuz yönetici kendisine verilen kökü gösterir, bütün dosya sistemi de olabilir.
 - **Biçimi seç.** `view(FileView::Tree | List | Icons)`: klasör içinde klasör; tek klasör, boyut, tarih ve izinleriyle satır satır; ya da tek klasör, simge ızgarası olarak. Hiçbir şey söylemezsen ağaç gelir.
+- **Dosyanın ne olduğunu ikonu söylesin.** `kind_icons(true)` her satırın ikonunu girdinin türüne göre çizer; kişi bir Rust dosyasını, bir resmi ya da bir arşivi adını okumadan tanır. `kind_tones(true)` bunların üstüne aileye göre renk ekler.
 
 ## Adım adım
 
@@ -13,7 +14,7 @@ Bir klasör uygulamanın konusunun parçasıysa dosya yöneticisi kullanılır: 
 2. Yönetici ekrana gelince kökü oku: `self.manager.load(Msg::Files)`, `init`'ten ya da ekrana girildiğinde. İlk seferinde kökü, sonrasında açık her klasörü yeniden okur.
 3. Her mesajı ona ver: `Msg::Files(m) => self.manager.update(m, Msg::Files)`. Okumalar ve dosya işlemleri arka planda çalışır; çizim onları beklemez.
 4. Çiz: `FileManager::new(&self.manager, Msg::Files).on_open(|yol| Msg::Open(yol.to_path_buf())).show(ui).fill()`.
-5. Yalnızca senin bildiğini ekle: "burada terminal aç" için `on_open_terminal`, satırın menüsündeki kendi öğelerin için `menu_items(|key, targets| …)`, bir girdinin senin için ne anlama geldiği için `row_mark(|key| …)`.
+5. Yalnızca senin bildiğini ekle: "burada terminal aç" için `on_open_terminal`, satırın menüsündeki kendi öğelerin için `menu_items(|key, targets| …)`, bir girdinin senin için ne anlama geldiği için `row_mark(|key| …)`. Her dosyanın türü kişi için önemliyse `kind_icons(true)`; bir dosya yöneticisinde neredeyse her zaman önemlidir.
 6. Silinen girdinin nereye gideceğini söyle: kişinin kendi çöp kutusu için `.trashing()`, kalıcı silme için hiçbir şey. Nokta dosyalarını gösteren bir yönetici için `.showing_hidden(true)`.
 7. Başka programları takip etmek için durumda `.following(true)`, ya da yönetici ekrandayken `set_following(true)`, ekrandan çıkınca `false`.
 
@@ -27,6 +28,9 @@ Bir klasör uygulamanın konusunun parçasıysa dosya yöneticisi kullanılır: 
 - **Yol değil, anahtar.** Her girdinin bir anahtarı vardır: köke göre yolu, her platformda `/` ile yazılmış. İşlemler anahtar alır ve yolu kendileri kurar; bu yüzden kökten çıkan bir anahtar (`..`, boş parça, NUL) nereden gelirse gelsin reddedilir — oturum dosyası dahil.
 - **Kısıtlı yönetici bağı reddeder.** Yolun üzerindeki sembolik bağ olan bir klasör reddedilir, çünkü bağ her yeri gösterebilir. Bağın kendisi yine bir girdidir: adını değiştirmek, taşımak ya da silmek bağa işler, gösterdiği şeye dokunmaz.
 - **İşaret, yöneticinin bilemediğini söyleme yoludur.** `row_mark(|key| RowMark::new().sign("warning", "warning").faint(true))` bir satıra tonlu bir işaret ve solgun bir ad verir: yedeğe girmeyen bir girdi, sürüm denetiminin yok saydığı bir dosya, kaydedilmemiş bir şey. İşaret ile ton bilerek birlikte gelir, böylece renkler kapalıyken de satır ayırt edilir. İşaret satırı yöneticinin kendi hâllerinden daha gür yapamaz: kesilmiş girdi ve pasif yönetici solgun kalır.
+- **Tür addan gelir.** `kind_icons(true)` her satır için `qframe::icons::file_kind(ad, klasör, yürütülebilir)`'e sorar: önce tam ad (`Cargo.toml`, `Dockerfile`, `PKGBUILD`, nasıl devam ederse etsin bir `README` ya da `LICENSE`), sonra birkaç parçalı uzantı (`.tar.gz`, `.pkg.tar.zst`), sonra uzantı, sonra ne tuttuğunu adıyla söyleyen klasör (`.git`, `node_modules`, `src`). İkonunu çizmek için hiçbir dosya açılmaz; on bin girdilik klasörü ucuz tutan budur. Klasörle birlikte okunan tek şey, adı hiçbir şey söylemeyen bir dosyanın çalıştırılabilir olup olmadığıdır; öyleyse program ikonunu alır. Her girdinin bir ikonu vardır: hiçbir şeyin tanımadığı düz dosya ya da klasördür.
+- **Ev klasörünün klasörleri kişinin kendi adlarıdır.** Masaüstü, İndirilenler, Müzik ve ötekiler her dilde başka adla anılır ve `İndirilenler` adlı bir klasör yalnızca ev klasöründeyse indirilenler klasörüdür. Bu yüzden nerede olduklarıyla, `user-dirs.dirs`'ten ve yalnızca ev klasörü ekrandayken tanınırlar. Başka bir ev klasörü ya da bir testin kendi evi için `user_folders(&UserFolders)`.
+- **Türün kendi rengi yoktur.** İkonlar düz olanlar gibi çizilir: listede sessiz tonda, seçili satırda satırın renginde; türü şekil söyler. Nerd Font olmayan terminalde her tür ailesinin şeklini çizer (kod ◇, resim ◩, arşiv ▣; ASCII'de `&`, `%` ve `@`), aileler yine ayırt edilir. `kind_tones(true)` tonların ayırt edilebildiği yerde aile rengini ekler; on altı renkte ve ASCII'de asla. Uygulamanın işareti yine türün önüne geçer: adın söyleyemediği bir şeyi söyler.
 - **Çöpe atmak bir yeniden adlandırmadır, bu yüzden bir sınırı var.** Girdi çöpün içine yeniden adlandırılarak gider ve bu yalnızca çöpün bulunduğu dosya sisteminde çalışır. Çalışmadığında yönetici girdiyi sessizce silmez ve olmuş gibi de yapmaz: adı ve sebebiyle, tehlike renginde, kalıcı silmeyi sorar. Çöp kutulu bir yöneticinin kalıcı sildiği tek yer o sorudur.
 - **Kopyalama beklemek değil, bir iştir.** Framework'ün iş düzeneğinde çalışır: yönetici ne yaptığını, nereye geldiğini ve bir Durdur düğmesini bir satırda gösterir, satırlar altında okunur kalır. Durdurmak yarı yazılmış girdiyi geri alır — yarım dosya, hiç dosyadan kötüdür — ve kopyalanmış olan kalır. Aynı işi kendi `Tasks` listene koymak için `work()`'ü oku.
 - **Kopyalamak taşımak değildir.** `Copy` girdileri `Cut` gibi kenara koyar, `Paste` onları kopyalar; kopyalanan yerinde kalır, bu yüzden onda solgun bir şey olmaz ve bağ izlenmek yerine bağ olarak kopyalanır.
@@ -37,7 +41,8 @@ Bir klasör uygulamanın konusunun parçasıysa dosya yöneticisi kullanılır: 
 ## Tuzaklar
 
 - **Zamanlayıcıyla yeniden okuma.** Kendi işlemin bitince, yönetici ekrana dönünce ve bir izleme değişiklik dediğinde yenile.
-- **Dosyanın ne olduğuna karar verme.** Uzantılar, görüntüleyiciler ve programlar uygulamanın işidir; yönetici yalnızca yolu verir.
+- **Dosyanın ne olduğuna karar verme.** Görüntüleyiciler ve programlar uygulamanın işidir; yönetici yalnızca yolu verir. Türe göre ikon bir görünüştür, içerik hakkında bir söz değil.
+- **Kendi tür tablonu çizme.** `file_kind`'a sor ya da `kind_icons`'ı aç; böylece bir Rust dosyası ekosistemin her uygulamasında aynı görünür. Bir türü işaretle değil, ikon kümesinde anahtar anahtar yeniden biçimlendir.
 - **Girdi çöpe gitmediği hâlde gitti deme.** `Trash`'ı ver ve gerisini yöneticinin sorusuna bırak; yeniden adlandırmanın olup olmadığını o bilir.
 - **Kaybolmuş olabilecek bir anahtarı saklama.** Bir değişiklikten sonra yönetici klasörde artık olmayanı unutur, senin sakladığın anahtar hiçbir şeyi adlandırmıyor olabilir. Duruma sor.
 - **Takip etmek bir bekleyen iş parçacığı demektir.** Kimsenin bakmadığı yöneticide kapat ve bunun bir Linux izlemesi olduğunu unutma: başka yerde satırları dürüst tutan şey senin kendi yeniden okumalarındır.

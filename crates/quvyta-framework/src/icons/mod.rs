@@ -21,6 +21,7 @@
 //! replace single animations the way they replace single icons.
 
 mod detect;
+mod kinds;
 pub mod nerd_font;
 mod sample;
 
@@ -34,6 +35,7 @@ use toml::de::DeTable;
 use unicode_segmentation::UnicodeSegmentation;
 
 pub use detect::{default_font_dirs, detect_glyph_mode};
+pub use kinds::{FileKind, KindFamily, UserFolders, file_kind};
 pub use sample::GlyphSample;
 
 use crate::animation::{self, CellAnimation};

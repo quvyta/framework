@@ -20,8 +20,8 @@
 use std::path::{Path, PathBuf};
 
 use super::dirs::{cache_root, config_root, env_lookup, state_root};
-use super::documents::documents_dir;
 use super::migrate::{self, Migration};
+use super::user_dirs::documents_dir;
 
 /// The extension every settings file of an ecosystem carries.
 const EXTENSION: &str = "conf";

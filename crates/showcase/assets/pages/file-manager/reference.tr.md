@@ -6,6 +6,9 @@
 - `.on_open_terminal(|yol| Msg)` — klasör menüsüne "Burada terminal aç" ekler, o klasörün yoluyla.
 - `.menu_items(|key, targets| Vec<ContextItem<Msg>>)` — kendi öğelerin, kendi grubunda; `targets` o satırdaki bir işlemin neye işlediğidir.
 - `.row_mark(|key| RowMark)` — uygulamanın o satırın görünüşü hakkında söyledikleri; söyleyecek bir şeyi olmayan satır için `RowMark::new()`.
+- `.kind_icons(bool)` — her satırın ikonu girdinin türüne göre, satırın kendi renginde; varsayılan kapalı. İşaretin ikonu onun önüne geçer.
+- `.kind_tones(bool)` — bu ikonlar ailelerinin renginde; `kind_icons` olmadan hiçbir şey yapmaz, on altı renkte ve ASCII'de çizilmez.
+- `.user_folders(&UserFolders)` — `kind_icons`'ın klasörlerini adıyla tanıdığı ev klasörü; kişinin kendisininkinin yerine.
 - `.view(FileView::Tree | List | Icons)` — klasörün çizildiği biçim; varsayılanı ağaç.
 - `.disabled(bool)` — her satır solgun; tık, tuş, sürükleme ve menü yok.
 - `.show(ui)` — yöneticiyi ekler ve ağacın düğümünü döner; `.fill()` ve `.id(ad)` için. Ad soran diyalog açıkken o da eklenir; bir katmandır ve yer tutmaz.
@@ -13,7 +16,7 @@
 - `.load(sar)` — ilk seferinde kökü, sonrasında açık her klasörü yeniden okur. `.update(mesaj, sar)` — mesajı uygular ve istediği işi döner. `sar` arka plandaki iş parçacıklarına taşınır: herhangi bir `Fn(FileManagerMsg) -> Msg + Send + Sync + 'static`.
 - Durumu okumak: `root()`, `path(key)`, `children(key)`, `work()`, `shown_children(key)`, `copied()`, `pending()`, `is_copying()`, `is_open(key)`, `is_loading(key)`, `is_folder(key)`, `folder_keys()`, `visible_folders()`, `selected()`, `chosen()`, `targets(key)`, `cut()`, `is_cut(key)`, `error()`, `naming()`, `naming_problem()`, `select(key)`.
 - `FileManagerState::ROOT` — kökün anahtarı, boş dizge.
-- `FolderEntry { name, folder }` ve `FolderEntry::read_folder(yol) -> Result<Vec<FolderEntry>, String>`; bir klasörü kendi yolundan okuyan uygulama için.
+- `FolderEntry { name, folder, executable }` (`executable` yalnızca adı türü hakkında bir şey söylemeyen dosyada okunur) ve `FolderEntry::read_folder(yol) -> Result<Vec<FolderEntry>, String>`; bir klasörü kendi yolundan okuyan uygulama için.
 - `FileManagerMsg::Select | Choose | Expand | Read | NewFile | NewFolder | Rename | Cut | Paste | DropCut | Drop | Delete | DeleteConfirmed | Refresh | Name | Submit | CloseNaming | Done | Changed | Detail | Detailed | Enter | Leave`.
 - Ayrıntılar: `details(key) -> Option<Option<&FileDetails>>` (hiç istenmedi / istendi ve orada bir şey yok), `has_details(key)`, tam bir aralık için `detail(anahtarlar, sar)`, imlecin çevresindeki sayfa için `detail_page(klasör, sar)`, sayfada hâlâ eksik olanlar için `detail_gaps(klasör)`. `FileDetails { size, modified, mode, readonly }`; `size_text(klasör_mü)`, `modified_text()`, `permissions_text(klasör_mü)` ve `FileDetails::read(yol)`.
 - Düz görünümler: `folder()` — liste ve simgelerin gösterdiği klasör; `FileManagerMsg::Enter(key)` bir klasöre girer, `FileManagerMsg::Leave` ondan çıkar.
@@ -22,6 +25,7 @@
 - `copy_into(kök, key, into, confined)` — bir yolu kendi yöntemiyle kopyalayan uygulama için.
 - `FileWork` — şu an süren uzun işlem: `id()` (kendi `Tasks` modelinde göstermek ya da kendin durdurmak için `TaskId`), `done()`, `note()`, `entries()`.
 - `FolderEntry::is_hidden()` — adı noktayla başlayan girdi.
+- `qframe::icons::file_kind(ad, klasör, yürütülebilir) -> FileKind`, `.icon()` (ikon anahtarı, örneğin `file-rust`) ve `.family()` ile; `KindFamily::Folder | Text | Document | Sheet | Code | Data | Image | Audio | Video | Archive | Package | Executable | Key | Font | File`, `.tone()` ile. `UserFolders::english(ev)`, `::parse(ev, metin)`, `::read(ev, ayar_klasörü)`, `::current()`, `.home()`, `.kind(yol)`.
 - `RowMark::new()`, `.sign(ikon, ton)` (ikisi her zaman birlikte), `.faint(bool)`; okumak için: `icon()`, `tone()`, `is_faint()`, `is_empty()`.
 - `NameProblem::Empty | Slash | Nul | Dots | Taken` ve `.message()`; `Naming { purpose, folder, value, tried }`; `NameFor::File | Folder | Rename(key)`.
 - Kimlik olarak anahtarlar: `child_key(üst, ad)`, `parent_key(key)`, `name_of(key)`, `is_within(key, klasör)`, `is_inside(key)`.
@@ -42,6 +46,8 @@
 - İşlemler verilen sırada, her biri kendi başına çalışır. Ret girdiyi ve sebebini söyler; yapılabilen yapılır. Değişiklikten sonra dokunulan klasörler yeniden okunur ve imleç oluşana ya da taşınana gider.
 - `confined()` kökten çıkan anahtarı ve yolun üzerindeki sembolik bağ olan klasörü reddeder. Onsuz da o parçalar reddedilir; yalnızca bağ izlenir.
 - Taşıma bir yeniden adlandırmadır: başka dosya sistemindeki hedef reddedilir ve söylenir, hiçbir şey kopyalanmaz, zaten orada olan hiçbir şeyin üstüne yazılmaz.
+- `kind_icons(true)` ile satırın ikonu türünündür: önce tam ad, sonra birkaç parçalı uzantı, sonra uzantı, sonra klasörün ne tuttuğunu söyleyen adı ya da başka bir şey söylemeyen gizli klasör için `folder-hidden`, sonra çalıştırılabilir dosya, hiçbiri değilse `file` ya da `folder`. Büyük küçük harfe bakılmaz. Kök satırı, `root_label` ne derse desin kökün kendi adının türünü alır. Ev klasörü ve klasörleri (`folder-home`, `folder-downloads`…) nerede olduklarıyla, ev klasörü kökün içindeyken tanınır. İkonun kendi rengi yoktur: listede sessiz tonda, seçiliyken satırın renginde, düz ikonlar gibi.
+- `kind_tones(true)` klasörlere vurgu rengini, dosyalara dört dizi tonunu verir: kod ve yazı `series-2`; resim, ses, video ve yazı tipi `series-3`; veri ve anahtar `series-4`; arşiv, paket ve program `series-5`. Türü bilinmeyen dosya satırın rengini korur.
 - İşaret satırın klasör ya da dosya ikonunun yerine kendi işaretini, kendi tonunda koyar ve satırı solgun çizebilir. Satırı asla daha gür yapamaz: kesilmiş bir girdi ve pasif bir yönetici, işaret ne derse desin solgun kalır. Ton işaretsiz verilemez, böylece işaretli satır on altı renk ve ASCII kipinde de ayırt edilir.
 - Kopyalama tutulan bir iş parçacığı değil bir `Task` olarak çalışır: nereye geldiğini söyler, satırların üstündeki bir satır işi adlandırır, ilerleme çubuğunu çizer ve Durdur sunar. Durdurmak yarı yazılmış girdiyi geri alır ve klasörleri yeniden okur, çünkü kopyalanmış olan diskte kalır. Aynı anda tek kopyalama çalışır; sürerken istenen ikincisi hiçbir şey yapmaz.
 - Kopyalama taşımanın yanındaki işlemdir: `Copy` girdileri `Cut` gibi kenara koyar, `Paste` onları taşımak yerine kopyalar; klasör içindeki her şeyle. Kopyalanan yerinde kalır, bu yüzden onda solgun bir şey yoktur. Bağ, bağ olarak kopyalanır. Hedef klasörde aynı ad varsa reddedilir; hiçbir şeyin üstüne yazılmaz.
@@ -55,5 +61,5 @@
 
 - Yönetici ağacın biçimlerini kullanır: `list-item` (`faint` ile), `tree-chevron`, `tree-drop`, `list-detail`, `spinner` ve kaydırma çubuğunun biçimleri.
 - Menü ve diyalog `context-menu`, `context-item` (`danger`, `disabled` ile), `modal`, `modal-title`, `text-input`, `field-error`, `button.primary` kullanır.
-- İkonlar: `folder`, `file`, `tree-expanded`, `tree-collapsed`.
+- İkonlar: `folder`, `file`, `tree-expanded`, `tree-collapsed`; `kind_icons` ile ikon kümesinin `file-*` ve `folder-*` anahtarları, örneğin `file-rust`, `file-archive`, `folder-git`, `folder-downloads`.
 - Metinler: `quvyta.file-manager.*`.

@@ -60,6 +60,8 @@ pub(super) struct FlatRow {
     pub(super) name: String,
     /// Whether it can be stepped into.
     pub(super) folder: bool,
+    /// Whether it is a file that may be run.
+    pub(super) executable: bool,
     /// Whether it is the row of the shown folder itself, which steps out of it.
     pub(super) itself: bool,
 }
@@ -74,12 +76,14 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         } else {
             super::name_of(shown).to_owned()
         };
-        let mut rows = vec![FlatRow { key: shown.to_owned(), name: label, folder: true, itself: true }];
+        let mut rows =
+            vec![FlatRow { key: shown.to_owned(), name: label, folder: true, executable: false, itself: true }];
         if let Some(entries) = state.shown_children(shown) {
             rows.extend(entries.into_iter().map(|entry| FlatRow {
                 key: child_key(shown, &entry.name),
                 name: entry.name.clone(),
                 folder: entry.folder,
+                executable: entry.executable,
                 itself: false,
             }));
         }
@@ -89,8 +93,9 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
     /// The icon and the colour a flat row is drawn with, and whether it is drawn faint.
     fn flat_look(&self, row: &FlatRow) -> (String, Option<String>, bool) {
         let mark = self.mark_of(&row.key);
-        let own = if row.folder { "folder" } else { "file" };
-        let (icon, tone) = self.sign_of(&mark, own);
+        // The kind goes by the entry's own name, not by a label the application gave the root.
+        let name = if row.key == ROOT { root_name(self.state.root()) } else { super::name_of(&row.key).to_owned() };
+        let (icon, tone) = self.sign_of(&mark, &row.key, &name, row.folder, row.executable);
         // The row of the folder itself is never faint for being cut: it is where the person is.
         let cut = !row.itself && self.state.is_cut(&row.key);
         (icon, tone, self.disabled || cut || mark.is_faint())

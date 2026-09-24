@@ -66,6 +66,7 @@
 ## Documents folder
 
 - `documents_dir()` — Linux and other Unix: the `XDG_DOCUMENTS_DIR` line of `user-dirs.dirs` in the config root (`$XDG_CONFIG_HOME` when absolute, else `$HOME/.config`); the value is `"$HOME/…"` or an absolute path in double quotes, `#` starts a comment line, a backslash escapes the next character, nothing else is expanded, and the last valid line wins. A missing, unreadable or broken file, and a value that is the home folder itself (how the file turns a folder off), give `$HOME/Documents`.
+- `user_dir(UserDir::Desktop)` — any of the person's folders by the same rules, under the name the desktop gave it: `Desktop`, `Documents`, `Downloads`, `Music`, `Pictures`, `Videos`, `Public`, `Templates` (`UserDir::ALL`); `~/Masaüstü` for the desktop on a Turkish Linux desktop. The English name in the home when the file does not name it. `user_dir_in(which, home, config)` reads only the given folders, for a test. `documents_dir()` is `user_dir(UserDir::Documents)`.
 - macOS: `$HOME/Documents`. Windows: the Documents Known Folder through the `dirs` crate, else `%USERPROFILE%\Documents`.
 - `None` without an absolute home folder. Not created.
 

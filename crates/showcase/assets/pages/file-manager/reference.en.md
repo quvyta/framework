@@ -7,6 +7,9 @@
 - `.menu_items(|key, targets| Vec<ContextItem<Msg>>)` — your own items, in a group of their own; `targets` is what an action on that row acts on.
 - `.row_mark(|key| RowMark)` — what the application says about a row's look; `RowMark::new()` for a row with nothing to say.
 - `.view(FileView::Tree | List | Icons)` — the shape the folder is drawn in; the tree by default.
+- `.kind_icons(bool)` — each row's icon by the kind of its entry, in the row's own colour; off by default. A mark's sign wins over it.
+- `.kind_tones(bool)` — those icons in their family's colour; nothing without `kind_icons`, and not drawn in sixteen colours or in ASCII.
+- `.user_folders(&UserFolders)` — the home whose folders `kind_icons` knows by name, in place of the person's own.
 - `.disabled(bool)` — every row faint, no click, key, drag or menu.
 - `.show(ui)` — adds the manager and returns the tree's node, for `.fill()` and `.id(name)`. The naming dialog is added too while one is open; it is a layer and takes no room.
 - `FileManagerState::new(root)`, `.confined()`, `.following(bool)`, `.trashing()`, `.trashing_in(folder)`, `.showing_hidden(bool)`; `set_following(bool)`, `set_showing_hidden(bool)`, `is_confined()`, `follows_changes()`, `is_trashing()`, `shows_hidden()`.
@@ -15,12 +18,13 @@
 - `FileManagerState::ROOT` — the root's key, the empty string.
 - Details: `details(key) -> Option<Option<&FileDetails>>` (nothing asked for / asked for and nothing there), `has_details(key)`, `detail(keys, wrap)` for an exact range, `detail_page(folder, wrap)` for a page around the cursor, `detail_gaps(folder)` for what a page still lacks. `FileDetails { size, modified, mode, readonly }` with `size_text(folder)`, `modified_text()`, `permissions_text(folder)` and `FileDetails::read(path)`.
 - Flat views: `folder()` — the folder the list and the icons show; `FileManagerMsg::Enter(key)` steps into a folder, `FileManagerMsg::Leave` steps out of it.
-- `FolderEntry { name, folder }` with `.is_hidden()`, and `FolderEntry::read_folder(path) -> Result<Vec<FolderEntry>, String>`, for an application that reads a folder its own way.
+- `FolderEntry { name, folder, executable }` with `.is_hidden()`; `executable` is only read for a file whose name says nothing of its kind, and `FolderEntry::read_folder(path) -> Result<Vec<FolderEntry>, String>`, for an application that reads a folder its own way.
 - `FileManagerMsg::Select | Choose | Expand | Read | Listed | NewFile | NewFolder | Rename | Cut | Copy | Paste | DropCut | Drop | Delete | DeleteConfirmed | Trash | ShowHidden | Refresh | Name | Submit | CloseNaming | Done | Changed | Detail | Detailed | Enter | Leave`. `Read` is what an application's own read answers with, in the system's words; `Listed` is the manager's own and keeps a `FileError`, so the words are chosen where the language is known.
 - `copy_into(root, key, into, confined) -> Result<FileChange, FileError>`, for an application that copies a path its own way.
 - `FileWork` — the long operation running now: `id()` (its `TaskId`, to show it in a `Tasks` model or stop it yourself), `done()`, `note()`, `entries()`.
 - `FileChange::Created(key) | Moved(from, to) | Deleted(key) | Copied(key) | Trashed(key)`; `FileError::Name | Outside | IntoItself | Taken(name) | CrossDevice | Denied | NotReadable | Missing | NoTrash | NoRoom | Stopped | System(text)`, each with `.message()`.
 - `RowMark::new()`, `.sign(icon, tone)` (the two always together), `.faint(bool)`; reading it: `icon()`, `tone()`, `is_faint()`, `is_empty()`.
+- `qframe::icons::file_kind(name, folder, executable) -> FileKind` with `.icon()` (the icon key, such as `file-rust`) and `.family()`; `KindFamily::Folder | Text | Document | Sheet | Code | Data | Image | Audio | Video | Archive | Package | Executable | Key | Font | File` with `.tone()`. `UserFolders::english(home)`, `::parse(home, text)`, `::read(home, config)`, `::current()`, `.home()`, `.kind(path)`.
 - `NameProblem::Empty | Slash | Nul | Dots | Taken` with `.message()`; `Naming { purpose, folder, value, tried }`; `NameFor::File | Folder | Rename(key)`.
 - Keys as identities: `child_key(parent, name)`, `parent_key(key)`, `name_of(key)`, `is_within(key, folder)`, `is_inside(key)`.
 
@@ -45,6 +49,8 @@
 - `trashing()` and `trashing_in(folder)` make deleting put an entry in a trash: the folder takes the place of Delete on every menu and nothing is asked, because the trash can be looked in again. The trash is written the way the freedesktop specification says: `files/` holds the entry, `info/<name>.trashinfo` says where it came from and when, the note is written first with `create_new` so it reserves the name, and a name already there takes the next number. An entry the trash cannot take — on another file system, or no trash at all — is never deleted quietly: the manager asks whether to delete it for good, in the danger colour, as its own question.
 - `showing_hidden(bool)` shows the entries whose name starts with a dot. They are read either way, so turning it on goes nowhere near the disk, and a new name is checked against a hidden one that is already there whether it is shown or not.
 - A refusal is said in the person's own words, never in the system's: a folder nobody may look into, something that is not there any more, a full disk and a copy that was stopped each have their own sentence.
+- With `kind_icons(true)` a row's icon is its kind's: the whole name, then an ending of several parts, then the extension, then a folder's telling name or, for a hidden folder that says nothing more, `folder-hidden`, then a file that may be run, and otherwise `file` or `folder`. Letter case never matters. The root row takes the kind of the root's own name, whatever `root_label` says. The home and its folders (`folder-home`, `folder-downloads`…) are known by where they are, while the home is inside the root. The icon has no colour of its own: quiet in the list, the row's colour when selected, as the plain icons are.
+- `kind_tones(true)` gives folders the accent and files four series tones: code and writing `series-2`; pictures, sound, video and fonts `series-3`; data and keys `series-4`; archives, packages and programs `series-5`. A file of no kind keeps the row's colour.
 - A mark replaces the row's folder or file icon with its sign, in its tone, and can draw the row faint. It can never make a row louder: a cut entry and a disabled manager stay faint whatever the mark says. A tone cannot be given without a sign, so a marked row is still told apart in the sixteen-colour and the ASCII mode.
 - `following(true)` watches the folders on screen. Created, removed and renamed reread that folder; modified rereads nothing; a folder that went away or an overflow rereads everything on screen. A batch of a watch that was let go is ignored.
 - `.following_within(bound)` follows like `following(true)` with each wait lasting at most `bound`, then waiting again (`FileManagerMsg::Quiet`), so a screen test sees another program's change arrive by stepping the harness.
@@ -53,5 +59,5 @@
 
 - The manager uses the tree's styles: `list-item` (with `faint`), `tree-chevron`, `tree-drop`, `list-detail`, `spinner`, and the scrollbar's.
 - The menu and the dialog use `context-menu`, `context-item` (with `danger`, `disabled`), `modal`, `modal-title`, `text-input`, `field-error`, `button.primary`.
-- Icons: `folder`, `file`, `tree-expanded`, `tree-collapsed`.
+- Icons: `folder`, `file`, `tree-expanded`, `tree-collapsed`; with `kind_icons`, the `file-*` and `folder-*` keys of the icon set, such as `file-rust`, `file-archive`, `folder-git`, `folder-downloads`.
 - Strings: `quvyta.file-manager.*`.

@@ -71,4 +71,5 @@ Taşıma dikkatlidir, çünkü kaybolan bir ayar dosyası sonradan düzeltilemez
 - **Bağın üzerine kendin taşımak.** Yeniden adlandırma sembolik bağı düz bir dosyayla değiştirir ve ayar dosyasını bağlandığı dotfiles deposundan koparır. `atomic_write` bağı izler ve gösterdiği dosyayı, o dosyanın klasöründe değiştirir.
 - **Taşımadan önce yüklemek.** `adopt`'tan önce `load_member` boş bir dosyayla başlar ve ilk kayıt eski ayarların taşınacağı yeri alır; o andan sonra eski ayarlar bir çakışma olarak geride kalır.
 - **`~/Documents`'ı sabit yazmak.** Başka dilde bir masaüstünde klasörün adı başkadır; `documents_dir()`'e sor.
+- **`~/Desktop`'u tahmin etmek.** Masaüstü, İndirilenler ve ötekiler de kişinin dilinde adlanır; `user_dir(UserDir::Desktop)`'a sor.
 - **Çalışırken ayarları asıl kaynak saymak.** Canlı değeri durumunda tut ve değişince sakla; showcase'in üst çubuğu böyle yapar.
