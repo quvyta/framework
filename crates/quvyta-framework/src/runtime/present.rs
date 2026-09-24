@@ -10,7 +10,9 @@
 //! arrow over an edge while painting, and the frame writes OSC 22 only when the shape under the
 //! pointer changed, only to a terminal known to understand it. Pictures a kitty terminal draws
 //! itself travel the same way: after the cells, only what changed about them (see
-//! [`KittyPictures`](super::kitty::KittyPictures)). A frame that changed no cell, no shape and no
+//! [`KittyPictures`](super::kitty::KittyPictures)). Sixel pictures are painted into the cells, so
+//! they come after the cells too, whenever a cell under them was written (see
+//! [`SixelPictures`](super::sixel::SixelPictures)). A frame that changed no cell, no shape and no
 //! picture still writes nothing.
 
 use std::io::{self, Write};
@@ -32,12 +34,15 @@ const POINTER_SHAPES_VAR: &str = "QUVYTA_POINTER_SHAPES";
 pub(crate) struct Painted {
     /// The pointer's shape.
     pub(crate) shape: PointerShape,
-    /// The pictures a kitty terminal draws itself, where it shows them.
+    /// The pictures the terminal draws itself, where it shows them.
     #[cfg(feature = "image")]
     pub(crate) pictures: Vec<crate::widgets::image::PicturePlacement>,
     /// The identities of every picture painted for the terminal to draw, placed or not.
     #[cfg(feature = "image")]
     pub(crate) painted: Vec<u64>,
+    /// Whether the terminal draws those pictures with sixel rather than the kitty protocol.
+    #[cfg(feature = "image")]
+    pub(crate) sixel: bool,
 }
 
 impl From<PointerShape> for Painted {
@@ -48,9 +53,15 @@ impl From<PointerShape> for Painted {
             pictures: Vec::new(),
             #[cfg(feature = "image")]
             painted: Vec::new(),
+            #[cfg(feature = "image")]
+            sixel: false,
         }
     }
 }
+
+/// Asks the terminal the size of a cell in pixels; `None` when it does not say.
+#[cfg(feature = "image")]
+type MeasureCell = fn() -> Option<(u16, u16)>;
 
 /// The terminal an application draws on, and the frame it shows.
 pub(crate) struct Screen<W: Write> {
@@ -64,9 +75,15 @@ pub(crate) struct Screen<W: Write> {
     shape: PointerShape,
     /// The size the last frame was drawn at; the terminal was cleared when it changes.
     area: Option<Rect>,
-    /// The pictures the terminal draws itself, and what it holds of them.
+    /// The pictures a kitty terminal draws itself, and what it holds of them.
     #[cfg(feature = "image")]
     pictures: super::kitty::KittyPictures,
+    /// The pictures painted with sixel, and where.
+    #[cfg(feature = "image")]
+    sixels: super::sixel::SixelPictures,
+    /// Asks the terminal the size of a cell in pixels, at the first frame and at every new size.
+    #[cfg(feature = "image")]
+    measure_cell: Option<MeasureCell>,
 }
 
 impl<W: Write> Screen<W> {
@@ -79,7 +96,20 @@ impl<W: Write> Screen<W> {
             area: None,
             #[cfg(feature = "image")]
             pictures: super::kitty::KittyPictures::default(),
+            #[cfg(feature = "image")]
+            sixels: super::sixel::SixelPictures::default(),
+            #[cfg(feature = "image")]
+            measure_cell: None,
         }
+    }
+
+    /// Asks `measure` the size of a cell in pixels at the first frame and at every new size, for
+    /// shrinking sixel pictures to the pixels their cells cover. Without it, or when it answers
+    /// `None`, a cell is taken to be 10 × 20 pixels.
+    #[cfg(feature = "image")]
+    pub(crate) fn measure_cell(mut self, measure: MeasureCell) -> Self {
+        self.measure_cell = Some(measure);
+        self
     }
 
     /// Tells the terminal the pointer's shape, for a terminal that understands OSC 22.
@@ -89,8 +119,9 @@ impl<W: Write> Screen<W> {
     }
 
     /// Paints a frame with `render`, which answers what the frame asks beyond its cells, and
-    /// writes what changed inside one synchronized update: the cells, the pointer's shape when it
-    /// is not the one the terminal shows, then the pictures when their places changed. Returns
+    /// writes what changed inside one synchronized update: the cells, the cells a sixel picture no
+    /// longer shown still covers, the pointer's shape when it is not the one the terminal shows,
+    /// then the pictures when their places changed or a cell under a sixel was written. Returns
     /// whether anything was written: a frame equal to the one shown, with the same shape and the
     /// same pictures, writes nothing.
     pub(crate) fn present(&mut self, render: impl FnOnce(&mut Buffer) -> Painted) -> io::Result<bool> {
@@ -98,47 +129,69 @@ impl<W: Write> Screen<W> {
         let mut frame = self.terminal.get_frame();
         let area = frame.area();
         let painted = render(frame.buffer_mut());
-        if self.area.replace(area).is_some_and(|before| before != area) {
+        let before = self.area.replace(area);
+        if before != Some(area) {
+            #[cfg(feature = "image")]
+            if let Some(measure) = self.measure_cell {
+                self.sixels.set_cell(measure().unwrap_or(super::sixel::CELL));
+            }
             // A new size clears the terminal, and pictures with it in some terminals.
             #[cfg(feature = "image")]
-            self.pictures.resized();
+            if before.is_some() {
+                self.pictures.resized();
+            }
         }
         let reshape = Some(painted.shape).filter(|shape| self.pointer_shapes && *shape != self.shape);
+        // The pictures go to one of the two ways of drawing them; the other is told there are none,
+        // so switching between them leaves nothing of the other behind.
         #[cfg(feature = "image")]
-        let pictures = self.pictures.commands(&painted.pictures, &painted.painted);
+        let (kitty, sixel) = {
+            let (kitty, sixel): (&[_], &[_]) =
+                if painted.sixel { (&[], &painted.pictures) } else { (&painted.pictures, &[]) };
+            let (kitty_painted, sixel_painted): (&[u64], &[u64]) =
+                if painted.sixel { (&[], &painted.painted) } else { (&painted.painted, &[]) };
+            let kitty = self.pictures.commands(kitty, kitty_painted);
+            let sixel =
+                self.sixels.frame(sixel, sixel_painted, self.shown.as_ref(), self.terminal.current_buffer_mut());
+            (kitty, sixel)
+        };
         #[cfg(not(feature = "image"))]
-        let pictures: Vec<u8> = Vec::new();
+        let (kitty, sixel): (Vec<u8>, Vec<u8>) = (Vec::new(), Vec::new());
+        #[cfg(feature = "image")]
+        let (repaint, sixel) = (sixel.repaint, sixel.bytes);
+        #[cfg(not(feature = "image"))]
+        let repaint: Vec<(u16, u16)> = Vec::new();
         let buffer = self.terminal.current_buffer_mut();
-        if self.shown.as_ref() == Some(&*buffer) {
-            // The buffer painted this time is reused by the next frame, which paints every cell
-            // again, so it is left as it is and no cell reaches the terminal.
-            if reshape.is_none() && pictures.is_empty() {
-                return Ok(false);
-            }
-            if pictures.is_empty() {
-                if let Some(shape) = reshape {
-                    self.write_shape(shape)?;
-                }
-                self.terminal.backend_mut().flush()?;
-                return Ok(true);
-            }
-            execute!(self.terminal.backend_mut(), BeginSynchronizedUpdate)?;
-            if let Some(shape) = reshape {
-                self.write_shape(shape)?;
-            }
-            self.terminal.backend_mut().write_all(&pictures)?;
-            execute!(self.terminal.backend_mut(), EndSynchronizedUpdate)?;
+        // The buffer painted this time is reused by the next frame, which paints every cell
+        // again, so when it equals the one shown it is left as it is and no cell is written.
+        let changed = (self.shown.as_ref() != Some(&*buffer)).then(|| buffer.clone());
+        // Read now: writing the cells hands the next frame this buffer, emptied.
+        let repaint: Vec<(u16, u16, ratatui_core::buffer::Cell)> =
+            repaint.into_iter().map(|(x, y)| (x, y, buffer[(x, y)].clone())).collect();
+        let pictures = !kitty.is_empty() || !sixel.is_empty() || !repaint.is_empty();
+        if changed.is_none() && !pictures {
+            let Some(shape) = reshape else { return Ok(false) };
+            self.write_shape(shape)?;
+            self.terminal.backend_mut().flush()?;
             return Ok(true);
         }
-        let buffer = buffer.clone();
         execute!(self.terminal.backend_mut(), BeginSynchronizedUpdate)?;
-        self.terminal.apply_buffer_with_cursor(None)?;
+        if changed.is_some() {
+            self.terminal.apply_buffer_with_cursor(None)?;
+        }
+        if !repaint.is_empty() {
+            let backend = self.terminal.backend_mut();
+            ratatui_core::backend::Backend::draw(backend, repaint.iter().map(|(x, y, cell)| (*x, *y, cell)))?;
+        }
         if let Some(shape) = reshape {
             self.write_shape(shape)?;
         }
-        self.terminal.backend_mut().write_all(&pictures)?;
+        self.terminal.backend_mut().write_all(&kitty)?;
+        self.terminal.backend_mut().write_all(&sixel)?;
         execute!(self.terminal.backend_mut(), EndSynchronizedUpdate)?;
-        self.shown = Some(buffer);
+        if let Some(buffer) = changed {
+            self.shown = Some(buffer);
+        }
         Ok(true)
     }
 
@@ -146,6 +199,7 @@ impl<W: Write> Screen<W> {
     /// left: their pixels would otherwise stay in its memory.
     #[cfg(feature = "image")]
     pub(crate) fn release_pictures(&mut self) -> io::Result<()> {
+        self.sixels.release();
         let bytes = self.pictures.release();
         if !bytes.is_empty() {
             self.terminal.backend_mut().write_all(&bytes)?;

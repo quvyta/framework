@@ -36,14 +36,15 @@ The conversion can be a variant such as `Msg::Folder`, or a closure that capture
 
 ## The lifecycle: start-up, size and quitting
 
-Four optional `App` methods follow the application through its life. Each has a default, so an application writes only the ones it needs. The Lifecycle panel above shows all four; the showcase itself implements them.
+Five optional `App` methods follow the application through its life. Each has a default, so an application writes only the ones it needs. The Lifecycle panel above shows `init`, `resized`, `before_quit` and `terminating`; the showcase itself implements them.
 
 - **`init(&mut self) -> Command<Msg>`** runs once, at the start of the first frame, before its view is built. Return the first work: `Command::focus("menu")` so the first key already reaches the list, a tick to start, a dialog to open. Focus lands as soon as that frame is painted, before any input is read, and the frame is drawn again with the widget focused. The showcase's menu has the keyboard this way: the first ↓ moves in it.
 - **`resized(&self, size: Size) -> Option<Msg>`** hears the terminal size when the application starts (just before `init`) and after every resize. Its message goes through `update`, which is where work that needs the size begins, such as `Process::pty(cols, rows)`. It is the same size `ui.size()` reports in `view`, applied before that frame is built, so the two never disagree.
+- **`graphics(&self, graphics: Graphics) -> Option<Msg>`** hears how the terminal draws pictures, `env.graphics()`, right after the first size and again whenever it changes, for instance when the glyph mode is switched to ASCII and back. Its message goes through `update`, which is where a picture is decoded at the size the terminal shows (about 10 × 20 pixels a cell for kitty, one by two for half blocks), or not at all where `graphics.can_draw()` is false. A value already reported is not reported again.
 - **`before_quit(&self) -> Option<Msg>`** is asked whenever the runtime is about to quit for the user: the `ctrl q` binding, and the quit action run from the command palette. `None` quits. A message keeps the application running and is delivered instead, e.g. to ask "finish and quit, keep running or cancel". When the application has decided it returns `Command::quit()`, which is its own decision and is not asked about again. Turn on "Ask before quitting" above and press `ctrl q`.
 - **`terminating(&self, cause: Termination) -> Option<Msg>`** hears that the system, not the user, is ending the application. It is the one chance to save. `None` quits at once; a message keeps the application running while `update` saves and returns `Command::quit()`. The default answers `Termination::Terminate` with `before_quit` and quits at once on `Termination::Hangup`, so an application that writes neither hook still quits cleanly.
 
-Hooks that only report something (`resized`, `before_quit`, `terminating`, `action`, `clipboard`) read the state and answer with a message; the one that starts work (`init`) returns a command, like `update`. The harness runs all of them where the terminal does: `Harness::new(app, 120, 30)` reports 120 × 30 and runs `init`, `resize(60, 20)` reports 60 × 20, `press("ctrl+q")` asks `before_quit`, and `terminate(Termination::Hangup)` tells `terminating`.
+Hooks that only report something (`resized`, `graphics`, `before_quit`, `terminating`, `action`, `clipboard`) read the state and answer with a message; the one that starts work (`init`) returns a command, like `update`. The harness runs all of them where the terminal does: `Harness::new(app, 120, 30)` reports 120 × 30 and half blocks and runs `init`, `resize(60, 20)` reports 60 × 20, `set_graphics(Graphics::Kitty)` reports kitty, `press("ctrl+q")` asks `before_quit`, and `terminate(Termination::Hangup)` tells `terminating`.
 
 ## When the system ends the application
 
@@ -86,7 +87,7 @@ An application reads `Env::remote` for its own decisions too: fewer animations, 
 
 `Env::graphics` says how a picture can be drawn here: `Graphics::Kitty` and `Graphics::Sixel` for real pixels, `Graphics::HalfBlock` for two coloured pixels in every cell, which every terminal with 256 colours shows over any link, and `Graphics::None` where no picture should be drawn at all.
 
-The runtime asks the terminal once, right after it takes it: a kitty graphics query, which only asks and stores nothing, followed by a request for the terminal's device attributes. Every terminal answers the second one, in order, so its answer marks the end: a terminal that answers is done in a few milliseconds, and one that does not is given 150 ms at most. The answers are read straight from the terminal before the input parser starts, so none of them ever arrives as a key; an answer that comes later than that is picked out of the input all the same.
+The runtime asks the terminal once, right after it takes it: a kitty graphics query, which only asks and stores nothing, followed by a request for the terminal's device attributes. Every terminal answers the second one, in order, so its answer marks the end: a terminal that answers is done in a few milliseconds, and one that does not is given 150 ms at most, so starting never waits on the network. The answers are read straight from the terminal before the input parser starts, so none of them ever arrives as a key; an answer that comes later than that is picked out of the input all the same, and a kitty `OK` that comes late still turns pictures to kitty from the next frame, with `App::graphics` hearing it.
 
 A kitty `OK` means kitty, attributes that list `4` mean sixel, and anything else, silence included, means half blocks. Then the environment has its say. 16 colours or ASCII glyphs give `Graphics::None`. Inside tmux or GNU screen (`TMUX` or `STY` set) kitty and sixel become half blocks, because the multiplexer does not pass them through; the terminal is not even asked there. The `QUVYTA_GRAPHICS` environment variable, set to `kitty`, `sixel`, `halfblock` or `none`, decides over all of it, for a terminal the question misjudges; any other value is ignored and reported in `Env::diagnostics`.
 
@@ -97,7 +98,7 @@ match ui.env().graphics() {
 }
 ```
 
-Tests ask no terminal: `Env::builtin` gives half blocks, and `Harness::set_graphics` answers as another terminal would, with the same rules applied.
+Tests ask no terminal: `Env::builtin` gives half blocks, and `Harness::set_graphics` answers as another terminal would, with the same rules applied. A harness is local; `Harness::set_remote(true)` draws the screen a remote connection gets.
 
 ## Testing without a terminal
 

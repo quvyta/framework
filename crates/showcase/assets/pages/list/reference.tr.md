@@ -5,6 +5,7 @@
 - `.selected(Option<usize>)` — seçili satır.
 - `.on_select(|sıra| msg)` — seçim değişti.
 - `.on_activate(|sıra| msg)` — bir satır Enter ya da tıklamayla açıldı.
+- `.activate_on(Click)` — varsayılan `Click::Single`: tık seçer ve açar. `Click::Double`: tık yalnızca seçer (satır zaten seçiliyse de onu `on_select` ile bildirir), `Click::INTERVAL` içindeki çift tık açar.
 - `.checked(Vec<bool>)` ve `.on_toggle(|sıra| msg)` — çoklu seçim.
 - `.empty_text(metin)` — öğe yokken gösterilir.
 - `.scrollbar(ScrollbarStyle)` — temanın yerine sabit bir kaydırma çubuğu stili kullanır.

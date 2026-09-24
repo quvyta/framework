@@ -5,6 +5,7 @@ use super::command::Command;
 use super::frame_limit::FrameLimit;
 use super::termination::Termination;
 use crate::geometry::Size;
+use crate::graphics::Graphics;
 use crate::widget::View;
 
 /// An application built with quvyta-framework: data, a function that draws it and a function that
@@ -50,17 +51,20 @@ use crate::widget::View;
 ///
 /// # Lifecycle
 ///
-/// Besides `update` and `view`, four optional hooks follow the application through its life.
+/// Besides `update` and `view`, five optional hooks follow the application through its life.
 /// Each has a default, so an application implements only the ones it needs:
 ///
 /// 1. [`App::resized`] hears the size of the screen: first when the application starts, then
 ///    whenever it changes.
-/// 2. [`App::init`] runs once, right after that first size, before the first frame is built.
-/// 3. [`App::before_quit`] is asked whenever the runtime is about to quit on the user's behalf.
-/// 4. [`App::terminating`] hears that the system is ending the application: a `SIGTERM` or a
+/// 2. [`App::graphics`] hears the way the terminal draws pictures, right after that first size
+///    and whenever it changes, so a picture is decoded at the size it will be shown.
+/// 3. [`App::init`] runs once, right after the first size and graphics, before the first frame
+///    is built.
+/// 4. [`App::before_quit`] is asked whenever the runtime is about to quit on the user's behalf.
+/// 5. [`App::terminating`] hears that the system is ending the application: a `SIGTERM` or a
 ///    `SIGHUP`, when the SSH connection or the terminal went away. It is the one chance to save.
 ///
-/// The hooks that only report something ([`App::resized`], [`App::before_quit`],
+/// The hooks that only report something ([`App::resized`], [`App::graphics`], [`App::before_quit`],
 /// [`App::terminating`], like
 /// [`App::action`] and [`App::clipboard`]) read the state and answer with a message, which then
 /// goes through `update` like every other; the one that starts work ([`App::init`]) returns a
@@ -169,6 +173,27 @@ pub trait App: 'static {
     ///
     /// The default ignores the size.
     fn resized(&self, _size: Size) -> Option<Self::Msg> {
+        None
+    }
+
+    /// Hears the way this terminal draws pictures, [`Env::graphics`](crate::env::Env::graphics):
+    /// when the application starts, after [`App::resized`] and before [`App::init`], and
+    /// afterwards whenever it changes, such as when the glyph mode is switched to ASCII or back
+    /// while the application runs, or when the terminal's kitty answer arrives late over a slow
+    /// link. The message it returns goes through [`App::update`], which is where a picture is
+    /// decoded at the size the terminal shows: about ten by twenty pixels a cell for
+    /// [`Graphics::Kitty`], one pixel wide and two tall for half blocks, and not at all where
+    /// [`Graphics::can_draw`] is false.
+    ///
+    /// Like the size, the message is applied before the frame whose view first sees the new
+    /// value is built, and a value already reported is not reported again.
+    /// [`Harness::set_graphics`](super::Harness::set_graphics),
+    /// [`Harness::set_depth`](super::Harness::set_depth) and
+    /// [`Harness::set_glyph_mode`](super::Harness::set_glyph_mode) report a change the way the
+    /// runtime does.
+    ///
+    /// The default ignores it.
+    fn graphics(&self, _graphics: Graphics) -> Option<Self::Msg> {
         None
     }
 

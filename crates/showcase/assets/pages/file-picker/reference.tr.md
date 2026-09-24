@@ -2,6 +2,7 @@
 
 - `FilePicker::new(&tarayıcı, sar)` — `sar` bir `FilePickerMsg`'yi senin mesajına çevirir: `Msg::Picker` gibi bir fonksiyon ya da ihtiyacını yakalayan bir kapanış, örneğin bir ekranın kendi dönüşümü (`move |m| Msg::Tab(sıra, m)`). Herhangi bir `Fn(FilePickerMsg) -> Msg + 'static`.
 - `.show(ui)` — seçiciyi bir sütun olarak ekler ve boyutlandırmak için düğümünü döndürür.
+- `.open_on(Click)` — varsayılan `Click::Double`: tık seçer, çift tık klasörü açar ya da dosyayı seçer. `Click::Single`: tek tık yapar.
 - `FileBrowser::new(klasör, PickMode)`, `.extensions(liste)`.
 - `.open(klasör, sar)` ve `.update(mesaj, sar)` — ikisi de klasörleri okuyan komutu döndürür. `sar` klasörü okuyan iş parçacığında bir kez çalışır: herhangi bir `FnOnce(FilePickerMsg) -> Msg + Send + 'static`, seçicinin aldığı aynı fonksiyon ya da kapanış.
 - `.folder()` (gösterilen klasör), `.loading()` (okunmakta olan klasör, varsa), `.shows_hidden()`, `.selected_path()`.
@@ -10,7 +11,7 @@
 
 ## Davranış
 
-- Liste, List'in tuşlarını izler: `up` `down`, `home` `end`, `pgup` `pgdn`; `enter` ya da tıklama bir klasörü ya da üst klasör satırını açar, dosya modunda dosyayı seçer.
+- Liste, List'in tuşlarını izler: `up` `down`, `home` `end`, `pgup` `pgdn`; `enter` ya da çift tık (`Click::INTERVAL`, 400 ms içinde aynı girdiye iki basış) bir klasörü ya da üst klasör satırını açar, dosya modunda dosyayı seçer; tek tık yalnızca seçer. `.open_on(Click::Single)` ile tık açar ve seçer. Klasör modunda imlecin kendiliğinden durduğu girdiye tıklamak onu göstermek sayılır.
 - `tab` süzgeç, liste, gizli dosyalar anahtarı ve seçme düğmesi arasında gezer.
 - Yoldaki bir parçaya tıklamak o klasörü açar; açık klasörün parçası bir düğme değildir.
 - Bir klasör okunurken gösterilen klasörün yolu, süzgeci, listesi, seçimi ve odağı olduğu gibi kalır ve çalışmaya devam eder; yeni klasör cevabı gelince tek karede onların yerine geçer. Bu sırada başka bir klasör açmak önceki cevabı geçersiz kılar.

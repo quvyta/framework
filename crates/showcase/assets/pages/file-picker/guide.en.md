@@ -8,9 +8,11 @@ Use the picker when the user must point at a file or a folder: a project to open
 2. Start reading with `self.browser.open(start, Msg::Picker)` and return the command it gives you.
 3. Show it: `FilePicker::new(&self.browser, Msg::Picker).show(ui)`, sized like any node.
 4. In `update`, catch `FilePickerMsg::Chosen(path)` yourself and hand every other picker message to `self.browser.update(message, Msg::Picker)`, returning its command.
-5. For folders use `PickMode::Folders`: files turn faint and the button chooses the open folder, or a folder inside it the user moved the cursor to. The entry the cursor starts on when a folder opens is not a choice, so opening `myapp` and pressing the button chooses `myapp`, never its first subfolder.
+5. For folders use `PickMode::Folders`: files turn faint and the button chooses the open folder, or a folder inside it the user clicked or moved the cursor to. The entry the cursor starts on when a folder opens is not a choice, so opening `myapp` and pressing the button chooses `myapp`, never its first subfolder.
 
 ## How it works
+
+- **A click selects, two open.** As in a desktop file explorer, a click on an entry only selects it, so a person can look before choosing; a double click, or Enter, opens a folder or chooses a file. `.open_on(Click::Single)` makes one click do it, for a picker where every click is already a choice. The path above the list opens a folder with one click either way.
 
 - **Reading never blocks drawing.** Folders are read in a background command. An answer for a folder the user no longer waits for is ignored.
 - **Nothing flashes while a folder is read.** The folder on screen stays exactly as it is, still usable, and the new one replaces it in a single frame when it has been read. Most reads take a few milliseconds, and showing "loading" for them would only blink.
@@ -26,4 +28,5 @@ Use the picker when the user must point at a file or a folder: a project to open
 - **Calling `read_folder` in `view`.** It touches the disk; use it only inside a command.
 - **Forgetting to return the command** from `update`: the folder then never changes (and the path line spins after 300 ms).
 - **Clearing your own view while loading.** If you build a similar screen yourself, keep the last answer on screen until the next arrives instead of swapping it for a loading state.
+- **Testing with one click.** A test that clicks an entry once now only selects it; click twice, press Enter, or build the picker with `.open_on(Click::Single)`.
 - **Treating `Chosen` as another update.** It is the result; close the dialog or open the file there.

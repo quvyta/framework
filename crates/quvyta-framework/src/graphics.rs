@@ -39,6 +39,18 @@ impl Graphics {
         }
     }
 
+    /// Whether a picture is drawn at all: true for everything but [`Graphics::None`].
+    ///
+    /// It is the question the `Image` widget asks itself before it draws, so an
+    /// application that would rather show nothing than the image's "cannot show" state, such as
+    /// a wallpaper, asks it first and gets the same answer. Read it from
+    /// [`Env::graphics`](crate::env::Env::graphics) in `view`, or from
+    /// [`App::graphics`](crate::runtime::App::graphics) before decoding.
+    #[must_use]
+    pub fn can_draw(self) -> bool {
+        self != Self::None
+    }
+
     /// The value `name` stands for, as [`Graphics::name`] writes it; case and surrounding space
     /// do not matter. `None` for any other name.
     #[must_use]

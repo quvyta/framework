@@ -53,6 +53,10 @@ mod signals;
 #[cfg(not(unix))]
 #[path = "signals_other.rs"]
 mod signals;
+#[cfg(feature = "image")]
+mod sixel;
+#[cfg(all(test, feature = "image"))]
+mod sixel_rules;
 mod task;
 mod terminal;
 mod terminal_clipboard;

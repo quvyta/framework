@@ -51,6 +51,10 @@ pub(crate) struct Frame {
     /// them before anything was painted over them.
     #[cfg(feature = "image")]
     pub(crate) pictures: Vec<crate::widgets::image::Picture>,
+    /// Blends painted over pictures, in paint order; see
+    /// [`PaintCx::tint`](crate::widget::PaintCx::tint).
+    #[cfg(feature = "image")]
+    pub(crate) dims: Vec<crate::widgets::image::Dim>,
     /// Where the terminal shows those pictures once the frame is painted: only the parts nothing
     /// was painted over. See [`resolve`](crate::widgets::image::resolve).
     #[cfg(feature = "image")]
@@ -114,6 +118,8 @@ impl Frame {
             #[cfg(feature = "image")]
             pictures,
             #[cfg(feature = "image")]
+            dims,
+            #[cfg(feature = "image")]
             placements,
         } = self;
         rects.clear();
@@ -138,6 +144,7 @@ impl Frame {
         #[cfg(feature = "image")]
         {
             pictures.clear();
+            dims.clear();
             placements.clear();
         }
     }

@@ -36,14 +36,15 @@ Dönüşüm `Msg::Folder` gibi bir varyant ya da ihtiyacını yakalayan bir kapa
 
 ## Yaşam döngüsü: açılış, ölçü ve çıkış
 
-`App`'in dört isteğe bağlı metodu uygulamaya ömrü boyunca eşlik eder. Her birinin bir varsayılanı vardır; uygulama yalnızca gerekenleri yazar. Yukarıdaki Yaşam döngüsü paneli dördünü de gösterir; showcase'in kendisi onları uygular.
+`App`'in beş isteğe bağlı metodu uygulamaya ömrü boyunca eşlik eder. Her birinin bir varsayılanı vardır; uygulama yalnızca gerekenleri yazar. Yukarıdaki Yaşam döngüsü paneli `init`, `resized`, `before_quit` ve `terminating`'i gösterir; showcase'in kendisi onları uygular.
 
 - **`init(&mut self) -> Command<Msg>`** bir kez, ilk karenin başında, görünümü kurulmadan önce çalışır. İlk işi döndür: ilk tuş listeye ulaşsın diye `Command::focus("menu")`, başlayacak bir tik, açılacak bir diyalog. Odak o kare çizilir çizilmez, hiçbir girdi okunmadan yerine oturur ve kare, bileşen odaklı halde yeniden çizilir. Showcase'in menüsü klavyeyi bu yolla alır: ilk ↓ onun içinde ilerler.
 - **`resized(&self, ölçü: Size) -> Option<Msg>`** terminalin ölçüsünü uygulama açılırken (`init`'ten hemen önce) ve her yeniden boyutlanmada duyar. Mesajı `update`'ten geçer; ölçüye ihtiyaç duyan iş, örneğin `Process::pty(sütun, satır)`, orada başlar. `view` içinde `ui.size()`'ın bildirdiği ölçünün aynısıdır ve o kare kurulmadan önce uygulanır, bu yüzden ikisi hiç ayrışmaz.
+- **`graphics(&self, grafik: Graphics) -> Option<Msg>`** terminalin resmi nasıl çizdiğini, `env.graphics()`'i, ilk ölçünün hemen ardından ve her değiştiğinde duyar; örneğin glif kipi ASCII'ye geçip geri dönünce. Mesajı `update`'ten geçer; resim orada terminalin gösterdiği boyutta çözülür (kitty için hücre başına yaklaşık 10 × 20 piksel, yarım blok için bire iki) ya da `graphics.can_draw()` yanlışsa hiç çözülmez. Bildirilmiş bir değer yeniden bildirilmez.
 - **`before_quit(&self) -> Option<Msg>`** çalışma motoru kullanıcı adına çıkmak üzereyken her seferinde sorulur: `ctrl q` bağı ve komut paletinden çalıştırılan çıkış eylemi. `None` çıkar. Bir mesaj uygulamayı açık tutar ve onun yerine teslim edilir; örneğin "bitir ve çık, çalışır bırak ya da vazgeç" diye sormak için. Uygulama kararını verince `Command::quit()` döndürür; bu kendi kararıdır ve yeniden sorulmaz. Yukarıdaki "Çıkmadan önce sor"u aç ve `ctrl q`'ya bas.
 - **`terminating(&self, sebep: Termination) -> Option<Msg>`** uygulamayı kullanıcının değil sistemin kapattığını duyar. Kaydetmek için tek şanstır. `None` hemen çıkar; bir mesaj uygulamayı açık tutar, `update` kaydeder ve `Command::quit()` döndürür. Varsayılan, `Termination::Terminate`'e `before_quit` ile cevap verir ve `Termination::Hangup`'ta hemen çıkar; iki kancayı da yazmayan uygulama yine temiz çıkar.
 
-Yalnızca bir şey bildiren kancalar (`resized`, `before_quit`, `terminating`, `action`, `clipboard`) durumu okur ve bir mesajla cevap verir; iş başlatan kanca (`init`) `update` gibi bir komut döndürür. Test düzeneği hepsini terminalin çalıştırdığı yerde çalıştırır: `Harness::new(app, 120, 30)` 120 × 30'u bildirir ve `init`'i çalıştırır, `resize(60, 20)` 60 × 20'yi bildirir, `press("ctrl+q")` `before_quit`'e sorar, `terminate(Termination::Hangup)` `terminating`'e haber verir.
+Yalnızca bir şey bildiren kancalar (`resized`, `graphics`, `before_quit`, `terminating`, `action`, `clipboard`) durumu okur ve bir mesajla cevap verir; iş başlatan kanca (`init`) `update` gibi bir komut döndürür. Test düzeneği hepsini terminalin çalıştırdığı yerde çalıştırır: `Harness::new(app, 120, 30)` 120 × 30'u ve yarım bloğu bildirir, `init`'i çalıştırır, `resize(60, 20)` 60 × 20'yi bildirir, `set_graphics(Graphics::Kitty)` kitty'yi bildirir, `press("ctrl+q")` `before_quit`'e sorar, `terminate(Termination::Hangup)` `terminating`'e haber verir.
 
 ## Uygulamayı sistem kapatınca
 
@@ -86,7 +87,7 @@ Uygulama `Env::remote`'u kendi kararları için de okur: yavaş bağlantıda dah
 
 `Env::graphics` bu terminalde bir resmin nasıl çizilebileceğini söyler: gerçek pikseller için `Graphics::Kitty` ve `Graphics::Sixel`, her hücrede iki renkli piksel için `Graphics::HalfBlock` (256 renkli her terminal bunu her bağlantıda gösterir) ve hiç resim çizilmemesi gereken yerde `Graphics::None`.
 
-Runtime terminali devraldığı anda ona bir kez sorar: yalnızca soran, hiçbir şey saklamayan bir kitty grafik sorgusu ve ardından terminalin aygıt özelliklerini isteyen bir soru. Her terminal ikincisine sırasıyla cevap verir, bu yüzden onun cevabı sonu gösterir: cevap veren bir terminal birkaç milisaniyede biter, vermeyene en çok 150 ms tanınır. Cevaplar girdi ayrıştırıcısı başlamadan doğrudan terminalden okunur, böylece hiçbiri tuş olarak gelmez; bundan geç gelen bir cevap da girdiden ayıklanır.
+Runtime terminali devraldığı anda ona bir kez sorar: yalnızca soran, hiçbir şey saklamayan bir kitty grafik sorgusu ve ardından terminalin aygıt özelliklerini isteyen bir soru. Her terminal ikincisine sırasıyla cevap verir, bu yüzden onun cevabı sonu gösterir: cevap veren bir terminal birkaç milisaniyede biter, vermeyene en çok 150 ms tanınır, açılış ağı beklemez. Cevaplar girdi ayrıştırıcısı başlamadan doğrudan terminalden okunur, böylece hiçbiri tuş olarak gelmez; bundan geç gelen bir cevap da girdiden ayıklanır ve yavaş bir SSH bağlantısından geç gelen bir kitty `OK`'i resimleri bir sonraki kareden başlayarak yine kitty'ye çevirir, `App::graphics` de bunu duyar.
 
 Kitty'den `OK` gelirse kitty, `4`'ü sayan aygıt özellikleri sixel, geri kalan her şey (sessizlik dahil) yarım blok demektir. Sonra ortam söz alır. 16 renk ya da ASCII glifler `Graphics::None` verir. tmux ya da GNU screen içinde (`TMUX` ya da `STY` dolu) kitty ve sixel yarım bloğa döner, çünkü çoklayıcı onları geçirmez; orada terminale sorulmaz bile. `kitty`, `sixel`, `halfblock` ya da `none` değerini alan `QUVYTA_GRAPHICS` ortam değişkeni, sorunun yanlış tanıdığı bir terminal için hepsinin üstünde karar verir; başka bir değer yok sayılır ve `Env::diagnostics`'e yazılır.
 
@@ -97,7 +98,7 @@ match ui.env().graphics() {
 }
 ```
 
-Testler hiçbir terminale sormaz: `Env::builtin` yarım blok verir, `Harness::set_graphics` aynı kurallarla başka bir terminal gibi cevap verir.
+Testler hiçbir terminale sormaz: `Env::builtin` yarım blok verir, `Harness::set_graphics` aynı kurallarla başka bir terminal gibi cevap verir. Test düzeneği yereldir; `Harness::set_remote(true)` uzak bir bağlantının göreceği ekranı çizer.
 
 ## Terminal olmadan test
 

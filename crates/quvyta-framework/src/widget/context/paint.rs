@@ -428,7 +428,9 @@ impl PaintCx<'_> {
     /// `amount` (0 keeps them, 1 replaces them), e.g. to dim the screen behind a dialog. Every
     /// frame is painted in full colour and reduced to the terminal's palette only once complete,
     /// so the blend holds at every colour depth; a cell drawn directly in a palette colour cannot
-    /// be blended and takes `color` once `amount` passes one half.
+    /// be blended and takes `color` once `amount` passes one half. Over a picture a terminal
+    /// draws itself, an `Image` on a kitty terminal, the blend is recorded, so the picture
+    /// shows dimmed beneath it rather than hidden.
     pub fn tint(&mut self, rect: Rect, color: Rgb, amount: f32) {
         let amount = amount.clamp(0.0, 1.0);
         if amount <= 0.0 {
@@ -439,6 +441,15 @@ impl PaintCx<'_> {
             _ if amount > 0.5 => Some(to_color(color)),
             _ => None,
         };
+        // A picture beneath learns it was dimmed from this record, not from its colours.
+        #[cfg(feature = "image")]
+        if !self.frame.pictures.is_empty() {
+            let reached = rect.intersect(self.clip);
+            if !reached.is_empty() {
+                let over = self.frame.pictures.len();
+                self.frame.dims.push(crate::widgets::image::Dim::new(reached, color, amount, over));
+            }
+        }
         self.each_cell(rect, |cell| {
             if let Some(fg) = blend(cell.fg) {
                 cell.fg = fg;

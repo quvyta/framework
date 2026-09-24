@@ -121,11 +121,16 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         // region: path
         let drawn = match ui.env().graphics() {
             Graphics::Kitty => "image.drawn-kitty",
-            Graphics::Sixel | Graphics::HalfBlock => "image.drawn-halfblock",
+            Graphics::Sixel => "image.drawn-sixel",
+            Graphics::HalfBlock => "image.drawn-halfblock",
             Graphics::None => "image.drawn-none",
         };
         // endregion
         ui.add(Text::new(t!(drawn)).role("faint")).id("drawn");
+        // region: extensions
+        let reads = ImageData::EXTENSIONS.join(", ");
+        // endregion
+        ui.add(Text::new(t!("image.reads", list = reads)).role("faint")).id("reads");
         ui.spacer().height(Length::Cells(1));
         ui.row(|ui| {
             for (fit, caption) in
@@ -233,6 +238,21 @@ mod tests {
         let screen = h.screen();
         assert!(screen.contains("kitty graphics protocol"), "{screen}");
         assert!(!screen.contains('▀'), "the terminal draws the pixels, not the cells:\n{screen}");
+    }
+
+    #[test]
+    fn a_sixel_terminal_is_named_as_the_way_pictures_are_drawn() {
+        let mut h = showcase_on(PAGE);
+        h.set_graphics(qframe::graphics::Graphics::Sixel);
+        let screen = h.screen();
+        assert!(screen.contains("sixel"), "{screen}");
+        assert!(!screen.contains("Drawn with half blocks"), "{screen}");
+    }
+
+    #[test]
+    fn the_page_lists_the_types_the_decoder_reads() {
+        let h = showcase_on(PAGE);
+        assert!(h.screen().contains("png, jpg, jpeg, gif, webp"), "{}", h.screen());
     }
 
     #[test]

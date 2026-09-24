@@ -151,6 +151,13 @@ pub(super) fn cells(data: &ImageData, columns: u16, rows: u16, fit: Fit) -> Vec<
     out
 }
 
+/// The pixels of `crop` (left, top, width, height in the picture's pixels) of `data`, shrunk or
+/// stretched to `width` × `height` with the same box filter as half blocks, row after row.
+pub(crate) fn crop_pixels(data: &ImageData, crop: (u32, u32, u32, u32), width: u32, height: u32) -> Vec<Rgb> {
+    let source = (f64::from(crop.0), f64::from(crop.1), f64::from(crop.2), f64::from(crop.3));
+    resample(data, source, width, height)
+}
+
 /// The picture's pixels in `source` (x, y, width, height in its own pixels), resampled to
 /// `width` × `height` pixels with a box filter: every new pixel is the average of the pixels it
 /// covers, each counted by how much of it is covered. A shrunk photo then keeps its tones instead

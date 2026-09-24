@@ -1,5 +1,5 @@
 //! Pictures in the terminal: decoded pixels drawn by a terminal that speaks the kitty graphics
-//! protocol, and with half blocks in any terminal with 256 colours or more, over SSH too.
+//! protocol or sixel, and with half blocks in any terminal with 256 colours or more, over SSH too.
 
 mod data;
 mod kitty;
@@ -8,16 +8,14 @@ mod resample;
 mod tests;
 
 pub use data::{ImageData, ImageError};
-pub(crate) use kitty::{Halves, Picture, PicturePlacement, resolve};
+pub(crate) use kitty::{Dim, Halves, Picture, PicturePlacement, Placing, resolve};
 use resample::Half;
+pub(crate) use resample::crop_pixels;
 
 use super::EmptyState;
-use crate::color::ColorDepth;
-use crate::env::Env;
 use crate::geometry::{Rect, Size};
 use crate::graphics::Graphics;
 use crate::i18n::translate_active;
-use crate::icons::GlyphMode;
 use crate::style::to_color;
 use crate::widget::{MeasureCx, PaintCx, Widget};
 
@@ -37,13 +35,20 @@ pub enum Fit {
 
 /// A picture, drawn by the terminal itself where it can and with half blocks elsewhere.
 ///
-/// Where [`Env::graphics`] is [`Graphics::Kitty`], the terminal draws the picture in real
-/// pixels: its cells get the theme's `canvas` ground and the terminal places the picture over
-/// them, under text. The pixels are sent once, at the size [`ImageData`] keeps, and every later
-/// frame only places them; a frame whose pictures did not move writes nothing for them. What is
-/// painted over the picture hides it: along one side, the picture is cut to the part left
-/// showing; in the middle or a corner, or under a dialog's dimmed backdrop, that frame draws it
-/// with half blocks.
+/// Where [`Env::graphics`](crate::env::Env::graphics) is [`Graphics::Kitty`], the terminal draws
+/// the picture in real pixels: its cells get the theme's `canvas` ground and the terminal places
+/// the picture over them, under text. The pixels are sent once, at the size [`ImageData`] keeps,
+/// and every later frame only places them; a frame whose pictures did not move writes nothing for
+/// them. What is painted over the picture hides it: along one side, the picture is cut to the part
+/// left showing; in the middle or a corner, or under a dialog's dimmed backdrop, that frame draws
+/// it with half blocks.
+///
+/// Where it is [`Graphics::Sixel`], the terminal paints the picture into the cells, shrunk to the
+/// pixels they cover (a cell is taken to be 10 × 20 pixels where the terminal does not report its
+/// size) and reduced to 252 colours. Text written over a sixel wipes it, so the picture is drawn
+/// this way only while nothing at all is painted over it: a menu, a dialog's backdrop or anything
+/// else over any of it draws it with half blocks for those frames, and it is painted again once
+/// uncovered. A frame that changes nothing under it writes nothing for it.
 ///
 /// Everywhere else every cell shows two pixels, one above the other: `▀` in the upper pixel's
 /// colour on the lower pixel's. A cell is about twice as tall as it is wide, so these pixels are close to square and
@@ -53,10 +58,12 @@ pub enum Fit {
 /// frame that repaints the same picture only copies them. Cells the picture does not reach keep
 /// what is under it, so a picture can be the ground other widgets are drawn on.
 ///
-/// At [`ColorDepth::Ansi256`] every half takes its nearest palette entry. With the sixteen
-/// standard colours, or in ASCII glyph mode, pixels cannot be shown and are never drawn with
-/// characters: the widget says instead what the picture is (the file's name, its format and
-/// size) and that this terminal cannot show pictures.
+/// At [`ColorDepth::Ansi256`](crate::color::ColorDepth::Ansi256) every half takes its nearest palette entry. Where
+/// [`Graphics::can_draw`] is false (the sixteen standard colours, ASCII glyph mode, or
+/// `QUVYTA_GRAPHICS=none`), pixels are not shown and are never drawn with characters: the widget
+/// says instead what the picture is (the file's name, its format and size) and that this
+/// terminal cannot show pictures. An application that would rather show nothing asks
+/// [`Graphics::can_draw`] first.
 ///
 /// Decoding is the application's work, in the background with
 /// [`Command::perform`](crate::runtime::Command::perform), and so are the states before a picture
@@ -103,12 +110,6 @@ impl Image {
     }
 }
 
-/// Whether `env`'s terminal can show pixels as half blocks: 256 colours or more, and block
-/// elements to draw with.
-pub(crate) fn can_draw(env: &Env) -> bool {
-    env.depth() != ColorDepth::Ansi16 && env.glyph_mode() != GlyphMode::Ascii
-}
-
 /// The cells last worked out, and what they were worked out for.
 #[derive(Default)]
 struct Cells {
@@ -130,7 +131,7 @@ fn resamples() -> u32 {
 
 impl<Msg: 'static> Widget<Msg> for Image {
     fn measure(&self, cx: &mut MeasureCx<'_>, available: Size) -> Size {
-        if cx.env().graphics() != Graphics::Kitty && !can_draw(cx.env()) {
+        if !cx.env().graphics().can_draw() {
             return Widget::<()>::measure(&self.cannot_show(), cx, available);
         }
         let (width, height) = resample::measure(&self.data, (available.width, available.height), self.fit);
@@ -141,13 +142,16 @@ impl<Msg: 'static> Widget<Msg> for Image {
         if area.is_empty() {
             return;
         }
-        if cx.env().graphics() == Graphics::Kitty {
-            self.paint_for_terminal(cx, area);
-            return;
-        }
-        if !can_draw(cx.env()) {
-            Widget::<()>::paint(&self.cannot_show(), cx, area);
-            return;
+        match cx.env().graphics() {
+            Graphics::Kitty | Graphics::Sixel => {
+                self.paint_for_terminal(cx, area);
+                return;
+            }
+            Graphics::None => {
+                Widget::<()>::paint(&self.cannot_show(), cx, area);
+                return;
+            }
+            Graphics::HalfBlock => {}
         }
         let key = (self.data.id(), area.width, area.height, self.fit);
         let memory = cx.memory::<Cells>();

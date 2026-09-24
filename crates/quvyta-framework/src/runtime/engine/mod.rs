@@ -177,6 +177,8 @@ pub(crate) struct Engine<A: App> {
     started: bool,
     /// The screen size last reported through [`App::resized`].
     screen: Option<Size>,
+    /// The graphics last reported through [`App::graphics`].
+    told_graphics: Option<crate::graphics::Graphics>,
     pub(crate) dirty: bool,
     pub(crate) quit: bool,
     /// A termination the application was told about, until the run ends.
@@ -244,6 +246,7 @@ impl<A: App> Engine<A> {
             idle: Idle::default(),
             started: false,
             screen: None,
+            told_graphics: None,
             dirty: true,
             quit: false,
             ending: None,
@@ -333,8 +336,11 @@ impl<A: App> Engine<A> {
         // Before colours are reduced, while the marks pictures left are still as painted.
         #[cfg(feature = "image")]
         {
-            let halves = crate::widgets::image::can_draw(&self.env);
-            frame.placements = crate::widgets::image::resolve(buf, &frame.pictures, &mut self.picture_halves, halves);
+            use crate::widgets::image::{Placing, resolve};
+            let graphics = self.env.graphics();
+            let placing = if graphics == crate::graphics::Graphics::Sixel { Placing::Whole } else { Placing::Split };
+            frame.placements =
+                resolve(buf, &frame.pictures, &frame.dims, &mut self.picture_halves, graphics.can_draw(), placing);
         }
         style::reduce(buf, self.env.depth(), canvas);
         self.memory.end_frame();
@@ -365,19 +371,32 @@ impl<A: App> Engine<A> {
             pictures: self.frame.placements.clone(),
             #[cfg(feature = "image")]
             painted: self.frame.pictures.iter().map(crate::widgets::image::Picture::image).collect(),
+            #[cfg(feature = "image")]
+            sixel: self.env.graphics() == crate::graphics::Graphics::Sixel,
         }
     }
 
-    /// The lifecycle hooks due before a frame of `size` is built: the size when it is new, then,
-    /// on the first frame only, [`App::init`]. Both come before the view, so the frame already
-    /// shows what they changed, and before any input is read, so a focus `init` asks for is in
-    /// place for the first key.
+    /// The lifecycle hooks due before a frame of `size` is built: the size when it is new, the
+    /// graphics when they are new, then, on the first frame only, [`App::init`]. All come before
+    /// the view, so the frame already shows what they changed, and before any input is read, so a
+    /// focus `init` asks for is in place for the first key.
     fn begin_frame(&mut self, size: Size) {
         if self.screen != Some(size) {
             self.screen = Some(size);
             let message = {
                 let app = &self.app;
                 i18n::scope(self.env.i18n_arc(), || app.resized(size))
+            };
+            if let Some(message) = message {
+                self.update(message);
+            }
+        }
+        let graphics = self.env.graphics();
+        if self.told_graphics != Some(graphics) {
+            self.told_graphics = Some(graphics);
+            let message = {
+                let app = &self.app;
+                i18n::scope(self.env.i18n_arc(), || app.graphics(graphics))
             };
             if let Some(message) = message {
                 self.update(message);

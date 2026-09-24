@@ -8,9 +8,11 @@ Kullanıcının bir dosyayı ya da klasörü göstermesi gerektiğinde seçiciyi
 2. Okumayı `self.browser.open(başlangıç, Msg::Picker)` ile başlat ve verdiği komutu döndür.
 3. Göster: `FilePicker::new(&self.browser, Msg::Picker).show(ui)`; her düğüm gibi boyutlandırılır.
 4. `update` içinde `FilePickerMsg::Chosen(yol)` mesajını kendin yakala, diğer bütün seçici mesajlarını `self.browser.update(mesaj, Msg::Picker)` ile ilet ve komutunu döndür.
-5. Klasör seçmek için `PickMode::Folders` kullan: dosyalar silikleşir, düğme açık klasörü ya da kullanıcının imleci götürdüğü bir alt klasörü seçer. Bir klasör açılınca imlecin kendiliğinden durduğu girdi seçim sayılmaz: `myapp`'i açıp düğmeye basan `myapp`'i seçer, ilk alt klasörünü değil.
+5. Klasör seçmek için `PickMode::Folders` kullan: dosyalar silikleşir, düğme açık klasörü ya da kullanıcının tıkladığı ya da imleci götürdüğü bir alt klasörü seçer. Bir klasör açılınca imlecin kendiliğinden durduğu girdi seçim sayılmaz: `myapp`'i açıp düğmeye basan `myapp`'i seçer, ilk alt klasörünü değil.
 
 ## Nasıl çalışır
+
+- **Tık seçer, çift tık açar.** Masaüstündeki bir dosya gezgininde olduğu gibi bir girdiye tıklamak onu yalnızca seçer, kişi seçmeden önce bakabilir; çift tık ya da Enter klasörü açar ya da dosyayı seçer. `.open_on(Click::Single)` bunu tek tıkla yaptırır; her tıkın zaten bir seçim olduğu seçiciler için. Listenin üstündeki yol her iki durumda da klasörü tek tıkla açar.
 
 - **Okuma çizimi asla bekletmez.** Klasörler arka plan komutunda okunur. Kullanıcının artık beklemediği bir klasörün cevabı yok sayılır.
 - **Klasör okunurken hiçbir şey yanıp sönmez.** Ekrandaki klasör olduğu gibi, kullanılabilir halde kalır; yenisi okununca tek karede onun yerine geçer. Okumaların çoğu birkaç milisaniye sürer; bunlar için "yükleniyor" göstermek ekranı yalnızca kırpıştırır.
@@ -23,6 +25,7 @@ Kullanıcının bir dosyayı ya da klasörü göstermesi gerektiğinde seçiciyi
 
 ## Sık yapılan hatalar
 
+- **Tek tıkla test etmek.** Bir girdiye bir kez tıklayan test artık onu yalnızca seçer; iki kez tıkla, Enter'a bas ya da seçiciyi `.open_on(Click::Single)` ile kur.
 - **`read_folder`'ı `view` içinde çağırmak.** Diske dokunur; yalnızca bir komutun içinde kullan.
 - **`update`'ten komutu döndürmeyi unutmak.** Klasör o zaman hiç değişmez (300 ms sonra da yol satırı dönmeye başlar).
 - **Yüklenirken kendi görünümünü temizlemek.** Benzer bir ekranı kendin kuruyorsan, son cevabı yükleniyor durumuyla değiştirme; yenisi gelene kadar ekranda tut.

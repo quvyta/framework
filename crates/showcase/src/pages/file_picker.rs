@@ -1,13 +1,13 @@
 //! File and folder picker: browsing the showcase's own folders, extension filters, folder mode,
-//! the states of folders that cannot be read, and a slow disk that shows the delayed reading
-//! indicator.
+//! one click or two to open, the states of folders that cannot be read, and a slow disk that
+//! shows the delayed reading indicator.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use qframe::prelude::*;
 use qframe::runtime::Task;
-use qframe::widgets::{FileBrowser, FilePicker, FilePickerMsg, PickMode, Select, read_folder};
+use qframe::widgets::{Click, FileBrowser, FilePicker, FilePickerMsg, PickMode, Select, read_folder};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -30,6 +30,8 @@ pub struct State {
     folders: bool,
     extensions: bool,
     slow: bool,
+    /// Whether one click opens a folder or chooses a file, instead of two.
+    single: bool,
     start: usize,
 }
 
@@ -56,7 +58,7 @@ impl Default for State {
         let folder = browser.folder().to_path_buf();
         let listing = read_folder(&folder);
         let _ = browser.update(FilePickerMsg::Loaded(folder, listing), send);
-        Self { browser, chosen: None, folders: false, extensions: false, slow: false, start: 0 }
+        Self { browser, chosen: None, folders: false, extensions: false, slow: false, single: false, start: 0 }
     }
 }
 
@@ -67,6 +69,7 @@ pub enum Msg {
     Folders(bool),
     Extensions(bool),
     Slow(bool),
+    SingleClick(bool),
     Start(usize),
 }
 
@@ -148,6 +151,11 @@ fn apply(state: &mut State, message: Msg, log: &mut EventLog) -> Command<AppMsg>
             log.push(PAGE, "Playground", format!("slow disk = {on}"));
             Command::none()
         }
+        Msg::SingleClick(on) => {
+            state.single = on;
+            log.push(PAGE, "Playground", format!("open_on = {}", if on { "Single" } else { "Double" }));
+            Command::none()
+        }
         Msg::Start(index) => {
             state.start = index;
             log.push(PAGE, "Playground", format!("start = {}", STARTS[index]));
@@ -160,7 +168,12 @@ fn apply(state: &mut State, message: Msg, log: &mut EventLog) -> Command<AppMsg>
 pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     ui.add_with(Panel::new().title(t!("demo.live")).gap(0), |ui| {
         // region: picker-view
-        FilePicker::new(&state.browser, send).show(ui).width(Length::Fill(1)).height(Length::Cells(18));
+        let open_on = if state.single { Click::Single } else { Click::Double };
+        FilePicker::new(&state.browser, send)
+            .open_on(open_on)
+            .show(ui)
+            .width(Length::Fill(1))
+            .height(Length::Cells(18));
         // endregion
         let chosen = state.chosen.as_ref().map_or_else(|| t!("file-picker.none"), |path| path.display().to_string());
         ui.add(
@@ -183,6 +196,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("file-picker.extensions"), |ui| {
             ui.add(toggle(state.extensions, |on| send_page(Msg::Extensions(on)))).id("extensions");
         });
+        setting(ui, t!("file-picker.single"), |ui| {
+            ui.add(toggle(state.single, |on| send_page(Msg::SingleClick(on)))).id("single");
+        });
         setting(ui, t!("file-picker.slow"), |ui| {
             ui.add(toggle(state.slow, |on| send_page(Msg::Slow(on)))).id("slow");
         });
@@ -193,19 +209,32 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
 
 #[cfg(test)]
 mod tests {
+    use qframe::runtime::Harness;
+
     use super::*;
-    use crate::tests::showcase_on;
+    use crate::app::Showcase;
+    use crate::tests::showcase_tall;
+
+    /// Clicks the switch of the playground row labelled `label`; the switch stands after the
+    /// label's column of 24 cells.
+    fn click_setting(h: &mut Harness<Showcase>, label: &str) {
+        let (x, y) = h.find(label).unwrap_or_else(|| panic!("the {label} row:\n{}", h.screen()));
+        h.click(x + 25, y);
+    }
 
     #[test]
     fn browses_chooses_and_shows_errors() {
-        let mut h = showcase_on(PAGE);
+        let mut h = showcase_tall(Showcase::new(), PAGE, 60);
         let screen = h.screen();
         assert!(screen.contains("assets") && screen.contains("Cargo.toml"), "{screen}");
         h.click_text("Cargo.toml");
-        assert_eq!(h.app().pages.file_picker.chosen, Some(start_folder(0).join("Cargo.toml")));
-        h.click_text("src");
+        assert_eq!(h.app().pages.file_picker.chosen, None, "a click only selects");
+        h.click_text("Cargo.toml");
+        assert_eq!(h.app().pages.file_picker.chosen, Some(start_folder(0).join("Cargo.toml")), "two choose");
+        h.click_text("src").click_text("src");
         assert!(h.screen().contains("main.rs"), "{}", h.screen());
-        h.send(send_page(Msg::Folders(true)));
+        click_setting(&mut h, "Choose folders");
+        assert!(h.app().pages.file_picker.folders, "the switch turned folder mode on");
         // Nothing inside was pointed at, so the folder shown is the one chosen.
         h.click_text("Choose folder");
         assert_eq!(h.app().pages.file_picker.chosen, Some(start_folder(0)));
@@ -221,12 +250,24 @@ mod tests {
     }
 
     #[test]
-    fn a_quick_disk_never_shows_reading_and_a_slow_one_does_without_clearing() {
-        let mut h = showcase_on(PAGE);
+    fn one_click_opens_when_the_playground_asks_for_it() {
+        let mut h = showcase_tall(Showcase::new(), PAGE, 60);
+        click_setting(&mut h, "One click opens");
+        assert!(h.app().pages.file_picker.single, "the switch turned it on");
+        h.click_text("Cargo.toml");
+        assert_eq!(h.app().pages.file_picker.chosen, Some(start_folder(0).join("Cargo.toml")), "one click chose");
         h.click_text("src");
+        assert!(h.screen().contains("main.rs"), "one click opened:\n{}", h.screen());
+    }
+
+    #[test]
+    fn a_quick_disk_never_shows_reading_and_a_slow_one_does_without_clearing() {
+        let mut h = showcase_tall(Showcase::new(), PAGE, 60);
+        h.click_text("src").click_text("src");
         assert!(h.screen().contains("main.rs") && !spinning(&h.screen()), "{}", h.screen());
-        h.send(send_page(Msg::Slow(true)));
-        h.click_text("Parent folder");
+        click_setting(&mut h, "Slow disk");
+        assert!(h.app().pages.file_picker.slow, "the switch turned the slow disk on");
+        h.click_text("Parent folder").click_text("Parent folder");
         // The slow read is on its way: the src listing stays, and no spinner before 300 ms.
         h.advance(Duration::from_millis(299));
         assert!(h.screen().contains("main.rs") && !spinning(&h.screen()), "{}", h.screen());

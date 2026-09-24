@@ -12,6 +12,7 @@ use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
 
 use super::IndexMessage;
 use super::cells;
+use super::click::{Click, LastPress};
 use super::row;
 use super::rows::{self, RowScroll};
 use super::scrollbar::ScrollbarStyle;
@@ -98,7 +99,9 @@ impl ListItem {
 ///
 /// Keys while focused: ↑/↓ or k/j move, Home/End and PgUp/PgDn jump, Enter activates, Space
 /// toggles in multi-select lists and activates otherwise. A click on a row selects and activates
-/// it; in a multi-select list a click on the check mark (or the cell after it) only toggles.
+/// it, or with [`activate_on(Click::Double)`](Self::activate_on) only selects it and a double
+/// click activates; in a multi-select list a click on the check mark (or the cell after it) only
+/// toggles.
 /// Style keys: `list-item` with `hover`, `selected`, `focus`, `pressed`; `list-item.faint`,
 /// `list-header`, `list-detail`, `scrollbar`.
 pub struct List<Msg> {
@@ -110,7 +113,12 @@ pub struct List<Msg> {
     on_activate: Option<IndexMessage<Msg>>,
     on_toggle: Option<IndexMessage<Msg>>,
     scrollbar: Option<ScrollbarStyle>,
+    activate_on: Click,
 }
+
+/// The last press on a row, to tell a double click in a list that activates on two.
+#[derive(Default)]
+struct Presses(LastPress<usize>);
 
 /// The rows of a list: built for this frame, or shared with the application's state.
 enum Items {
@@ -153,6 +161,7 @@ impl<Msg: 'static> List<Msg> {
             on_activate: None,
             on_toggle: None,
             scrollbar: None,
+            activate_on: Click::Single,
         }
     }
 
@@ -195,6 +204,19 @@ impl<Msg: 'static> List<Msg> {
     #[must_use]
     pub fn on_activate(mut self, message: impl Fn(usize) -> Msg + 'static) -> Self {
         self.on_activate = Some(Box::new(message));
+        self
+    }
+
+    /// How many clicks activate a row: [`Click::Single`], the default, selects and activates at
+    /// once; [`Click::Double`] only selects on a click and activates on a second press on the same
+    /// row within [`Click::INTERVAL`]. Enter activates either way.
+    ///
+    /// With [`Click::Double`] a click reports its row through [`List::on_select`] even when that
+    /// row is selected already, so the application can tell a row the person pointed at from one
+    /// it selected by itself.
+    #[must_use]
+    pub fn activate_on(mut self, click: Click) -> Self {
+        self.activate_on = click;
         self
     }
 
@@ -383,7 +405,19 @@ impl<Msg: 'static> Widget<Msg> for List<Msg> {
                 if let (Some(_), Some(toggle)) = (&self.checked, &self.on_toggle)
                     && mouse.x < area.x + i32::from(Self::check_column(cx.env()))
                 {
+                    cx.memory::<Presses>().0.forget();
                     cx.emit(toggle(index));
+                    return true;
+                }
+                if self.activate_on == Click::Double {
+                    let now = cx.now();
+                    let double = cx.memory::<Presses>().0.press(index, now);
+                    if double {
+                        self.select(cx, Some(index));
+                        self.activate(cx, index);
+                    } else if let Some(message) = &self.on_select {
+                        cx.emit(message(index));
+                    }
                     return true;
                 }
                 self.select(cx, Some(index));
@@ -410,6 +444,8 @@ mod tests {
         selected: Option<usize>,
         opened: Vec<usize>,
         checked: Option<Vec<bool>>,
+        /// Whether rows activate on a double click.
+        double: bool,
     }
 
     #[derive(Clone)]
@@ -444,12 +480,15 @@ mod tests {
             if let Some(checked) = &self.checked {
                 list = list.checked(checked.clone());
             }
+            if self.double {
+                list = list.activate_on(Click::Double);
+            }
             ui.add(list).fill().id("list");
         }
     }
 
     fn demo(count: usize) -> Demo {
-        Demo { count, selected: None, opened: Vec::new(), checked: None }
+        Demo { count, selected: None, opened: Vec::new(), checked: None, double: false }
     }
 
     #[test]
@@ -514,6 +553,23 @@ mod tests {
         assert_eq!(h.app().opened, vec![3]);
         h.mouse(MouseKind::ScrollDown, 3, 2);
         assert!(!h.screen().contains("CONTAINERS"));
+    }
+
+    #[test]
+    fn activating_on_a_double_click_selects_with_one_and_opens_with_two() {
+        let mut h = Harness::new(Demo { double: true, ..demo(5) }, 24, 7);
+        h.click_text("item 2");
+        assert_eq!((h.app().selected, h.app().opened.as_slice()), (Some(3), &[][..]), "one click selects");
+        h.advance(Click::INTERVAL).click_text("item 2");
+        assert!(h.app().opened.is_empty(), "two clicks further apart than the interval are two clicks");
+        h.click_text("item 2");
+        assert_eq!(h.app().opened, [3], "a double click opens");
+        h.click_text("item 2");
+        assert_eq!(h.app().opened, [3], "a third press starts over");
+        h.click_text("item 0").click_text("item 2");
+        assert_eq!(h.app().opened, [3], "presses on two rows are no double click");
+        h.press("enter");
+        assert_eq!(h.app().opened, [3, 3], "Enter opens the selected row");
     }
 
     fn multi(count: usize) -> Demo {

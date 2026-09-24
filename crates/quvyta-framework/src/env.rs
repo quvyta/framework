@@ -262,7 +262,8 @@ impl Env {
     /// True when `SSH_CONNECTION` or `SSH_TTY` is set and not empty, which is how an SSH server
     /// marks the session it started; an empty value counts as unset, the way an empty variable
     /// left over from another program does. Detected once by [`Env::load`], so it cannot change
-    /// under a running application; [`Env::builtin`], the environment of tests, is never remote.
+    /// under a running application; [`Env::builtin`], the environment of tests, is never remote
+    /// until [`Harness::set_remote`](crate::runtime::Harness::set_remote) says so.
     ///
     /// The runtime already uses it for the [`FrameLimit`](crate::runtime::FrameLimit) an
     /// application does not set. An application reads it to spend less on a slow link: fewer
@@ -272,12 +273,33 @@ impl Env {
         self.remote
     }
 
+    /// Whether this process runs in a remote session, by the rule [`Env::remote`] uses, without
+    /// loading an environment.
+    ///
+    /// It reads `SSH_CONNECTION` and `SSH_TTY` and nothing else, so it costs no file reads. An
+    /// application calls it before [`Runtime::run`](crate::runtime::Runtime::run), where no
+    /// `Env` is handed out yet, to choose what depends on the connection between frames, such as
+    /// the size a picture is decoded at. In a view, [`Env::remote`] gives the same answer, and
+    /// [`Harness::set_remote`](crate::runtime::Harness::set_remote) sets it in a test.
+    #[must_use]
+    pub fn remote_session() -> bool {
+        detect_remote(|name: &str| std::env::var(name).ok())
+    }
+
+    /// Draws as a remote session would, instead of what was detected; see
+    /// [`Harness::set_remote`](crate::runtime::Harness::set_remote).
+    pub(crate) fn set_remote(&mut self, remote: bool) {
+        self.remote = remote;
+    }
+
     /// The way a picture can be drawn in this terminal.
     ///
     /// The runtime asks the terminal once, as it starts: a kitty graphics query and a request
-    /// for its device attributes, with a wait of 150 ms at most. A kitty `OK` gives
-    /// [`Graphics::Kitty`], attributes that list sixel give [`Graphics::Sixel`], and anything
-    /// else, silence included, gives [`Graphics::HalfBlock`]. The answers never reach the
+    /// for its device attributes, with a wait of 150 ms at most that the attributes end, so a
+    /// local terminal answers in milliseconds and starting never waits on the network. A kitty `OK` gives [`Graphics::Kitty`], attributes
+    /// that list sixel give [`Graphics::Sixel`], and anything else, silence included, gives
+    /// [`Graphics::HalfBlock`]. A kitty `OK` that arrives after the wait, over a very slow link,
+    /// still gives [`Graphics::Kitty`] from then on. The answers never reach the
     /// application as keys. The terminal is not asked when its answer could not change the
     /// result, and never when it is not a terminal.
     ///
@@ -599,6 +621,12 @@ mod tests {
             "{:?}",
             env.diagnostics()
         );
+    }
+
+    #[test]
+    fn the_session_is_asked_by_the_same_rule_the_environment_uses() {
+        let lookup = |name: &str| std::env::var(name).ok();
+        assert_eq!(Env::remote_session(), detect_remote(lookup), "no file is read, the variables alone decide");
     }
 
     #[test]

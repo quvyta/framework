@@ -43,6 +43,13 @@ struct Scene {
     cover: Option<Rect>,
     /// A dialog's dimmed backdrop over the whole screen.
     backdrop: bool,
+    /// Flat tiles painted right over the pictures, as icons on a desktop.
+    icons: Vec<Rect>,
+    /// A surface with grey words on a grey ground painted over the pictures, as a window's
+    /// description lines: `(95, 95, 105)` on `(29, 29, 35)`, spaces between the words included.
+    grey: Option<Rect>,
+    /// A shadow darkening this rectangle, as a window casts one.
+    shadow: Option<Rect>,
 }
 
 impl App for Scene {
@@ -66,6 +73,20 @@ impl Widget<Scene> for Stage {
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
         for (data, at) in &self.0.pictures {
             Widget::<Scene>::paint(&Image::new(data).fit(Fit::Cover), cx, *at);
+        }
+        for icon in &self.0.icons {
+            cx.clear(*icon, Rgb::new(60, 60, 70));
+        }
+        if let Some(grey) = self.0.grey {
+            cx.clear(grey, Rgb::new(29, 29, 35));
+            let words = crate::style::CellStyle { fg: Some(Rgb::new(95, 95, 105)), ..Default::default() };
+            for y in grey.y..grey.bottom() {
+                let line = "Every Quvyta application  reads   it ".repeat(4);
+                cx.text(grey.x, y, &line, words, grey.width);
+            }
+        }
+        if let Some(shadow) = self.0.shadow {
+            cx.tint(shadow, Rgb::new(0, 0, 0), 0.3);
         }
         if self.0.cover.is_some() || self.0.backdrop {
             cx.request_overlay(area);
@@ -106,11 +127,17 @@ fn square() -> ImageData {
 /// An engine for `scene` on a 12 × 6 screen whose terminal answered `graphics`, and the wire
 /// its screen writes to.
 fn running(scene: Scene, graphics: Graphics) -> (Engine<Scene>, Screen<Wire>, Wire) {
+    running_on(scene, graphics, (12, 6))
+}
+
+/// An engine for `scene` on a screen of `size` whose terminal answered `graphics`, and the wire
+/// its screen writes to.
+fn running_on(scene: Scene, graphics: Graphics, size: (u16, u16)) -> (Engine<Scene>, Screen<Wire>, Wire) {
     let mut env = Env::builtin();
     env.set_terminal_graphics(graphics);
     let engine = Engine::new(scene, env, TaskMode::Inline);
     let wire = Wire::default();
-    let options = TerminalOptions { viewport: Viewport::Fixed(BufferRect::new(0, 0, 12, 6)) };
+    let options = TerminalOptions { viewport: Viewport::Fixed(BufferRect::new(0, 0, size.0, size.1)) };
     let terminal = Terminal::with_options(CrosstermBackend::new(wire.clone()), options).expect("a terminal");
     (engine, Screen::new(terminal), wire)
 }
@@ -312,34 +339,132 @@ fn a_layer_along_one_side_cuts_the_picture_to_the_part_left_showing() {
     );
 }
 
-#[test]
-fn a_layer_in_the_middle_turns_the_picture_into_half_blocks() {
-    let data = square();
-    let middle = Scene { cover: Some(Rect::new(4, 2, 2, 1)), ..with(&[(data, Rect::new(2, 1, 6, 3))]) };
-    let (mut engine, mut screen, wire) = running(middle, Graphics::Kitty);
-    let written = frame(&mut engine, &mut screen, &wire);
-    assert!(!written.contains("\x1b_G"), "no picture command: {written:?}");
-    let buffer = engine_buffer(&mut engine);
-    assert_eq!(buffer[(2, 1)].symbol(), "▀", "the picture around the layer in half blocks");
-    assert_eq!(buffer[(7, 3)].symbol(), "▀");
-    assert_eq!(buffer[(4, 2)].symbol(), "O", "the layer itself");
-    assert_eq!(buffer[(1, 1)].symbol(), " ", "nothing outside the picture");
+/// The places `written` asks for, as their keys.
+fn places(written: &str) -> Vec<String> {
+    commands(written).into_iter().map(|(keys, _)| keys).filter(|keys| keys.starts_with("a=p")).collect()
+}
+
+/// The cells of `buffer` drawn with half blocks.
+fn half_blocks(buffer: &ratatui_core::buffer::Buffer) -> Vec<(u16, u16)> {
+    let area = buffer.area;
+    (area.y..area.bottom())
+        .flat_map(|y| (area.x..area.right()).map(move |x| (x, y)))
+        .filter(|&(x, y)| matches!(buffer[(x, y)].symbol(), "▀" | "▄"))
+        .collect()
 }
 
 #[test]
-fn a_picture_drawn_with_half_blocks_for_a_while_keeps_its_pixels_in_the_terminal() {
-    let data = square();
+fn an_icon_in_the_middle_splits_the_picture_into_places_around_it() {
+    let data = noise(24);
     let id = number(&data);
-    let open = with(&[(data.clone(), Rect::new(2, 1, 6, 3))]);
-    let (mut engine, mut screen, wire) = running(open.clone(), Graphics::Kitty);
+    let icon = Scene { icons: vec![Rect::new(5, 2, 2, 2)], ..with(&[(data, Rect::new(0, 0, 12, 6))]) };
+    let (mut engine, mut screen, wire) = running(icon, Graphics::Kitty);
+    let written = frame(&mut engine, &mut screen, &wire);
+    let placed = places(&written);
+    let cells: Vec<String> = placed
+        .iter()
+        .map(|keys| {
+            let keep = |key: &str| keys.split(',').find(|part| part.starts_with(key)).expect("a key").to_owned();
+            [keep("p="), keep("c="), keep("r=")].join(",")
+        })
+        .collect();
+    assert_eq!(
+        cells,
+        ["p=1,c=12,r=2", "p=2,c=5,r=2", "p=3,c=5,r=2", "p=4,c=12,r=2"],
+        "above, left of, right of and below the icon: {written:?}"
+    );
+    assert!(placed.iter().all(|keys| keys.starts_with(&format!("a=p,i={id},"))));
+    for (place, at) in [(1, "\x1b[1;1H"), (2, "\x1b[3;1H"), (3, "\x1b[3;8H"), (4, "\x1b[5;1H")] {
+        assert!(written.contains(&format!("{at}\x1b_Ga=p,i={id},p={place},")), "place {place} at {at:?}");
+    }
+    assert_eq!(half_blocks(&engine_buffer(&mut engine)), [], "no half blocks at all");
+}
+
+#[test]
+fn moving_a_window_over_a_picture_only_places_it_again() {
+    let data = noise(24);
+    let picture = with(&[(data, Rect::new(0, 0, 12, 6))]);
+    let (mut engine, mut screen, wire) =
+        running(Scene { icons: vec![Rect::new(2, 2, 3, 2)], ..picture.clone() }, Graphics::Kitty);
     frame(&mut engine, &mut screen, &wire);
-    engine.update(Scene { cover: Some(Rect::new(4, 2, 2, 1)), ..open.clone() });
+    engine.update(Scene { icons: vec![Rect::new(6, 1, 3, 2)], ..picture });
+    let moved = frame(&mut engine, &mut screen, &wire);
+    let sent = commands(&moved);
+    assert!(!sent.is_empty(), "the places change");
+    for (keys, payload) in &sent {
+        assert!(keys.starts_with("a=p,") || keys.starts_with("a=d,d=i,"), "only places: {keys}");
+        assert!(payload.is_empty(), "no pixels: {keys}");
+    }
+    assert!(moved.len() < 1000, "a few commands, {} bytes", moved.len());
+}
+
+#[test]
+fn an_idle_frame_with_a_split_picture_is_not_a_byte() {
+    let icon = Scene { icons: vec![Rect::new(5, 2, 2, 2)], ..with(&[(noise(24), Rect::new(0, 0, 12, 6))]) };
+    let (mut engine, mut screen, wire) = running(icon, Graphics::Kitty);
+    assert!(places(&frame(&mut engine, &mut screen, &wire)).len() > 1);
+    assert_eq!(frame(&mut engine, &mut screen, &wire), "", "an idle screen stays silent");
+    assert_eq!(frame(&mut engine, &mut screen, &wire), "");
+}
+
+#[test]
+fn a_picture_cut_into_too_many_pieces_is_drawn_with_half_blocks_and_keeps_its_pixels() {
+    let data = noise(24);
+    let id = number(&data);
+    let open = with(&[(data, Rect::new(0, 0, 20, 10))]);
+    let (mut engine, mut screen, wire) = running_on(open.clone(), Graphics::Kitty, (20, 10));
+    frame(&mut engine, &mut screen, &wire);
+    // Every other cell covered: a hundred free cells, none touching another.
+    let board: Vec<Rect> =
+        (0..10).flat_map(|y| (0..20).filter(move |x| (x + y) % 2 == 0).map(move |x| Rect::new(x, y, 1, 1))).collect();
+    engine.update(Scene { icons: board, ..open.clone() });
     let covered = commands(&frame(&mut engine, &mut screen, &wire));
     assert_eq!(covered, vec![(format!("a=d,d=i,i={id},p=1,q=2"), String::new())], "only its place goes");
+    let mut buffer = ratatui_core::buffer::Buffer::empty(BufferRect::new(0, 0, 20, 10));
+    engine.render(&mut buffer, Duration::from_secs(5));
+    assert_eq!(half_blocks(&buffer).len(), 100, "every free cell in half blocks");
     engine.update(open);
     let back = commands(&frame(&mut engine, &mut screen, &wire));
     assert_eq!(back.len(), 1, "placed again, not sent again: {back:?}");
     assert!(back[0].0.starts_with(&format!("a=p,i={id},p=1,")), "{back:?}");
+}
+
+#[test]
+fn grey_words_on_a_grey_surface_cover_the_picture_as_half_blocks_do() {
+    let surface = Rect::new(2, 1, 8, 3);
+    let scene = Scene { grey: Some(surface), ..with(&[(noise(24), Rect::new(0, 0, 12, 6))]) };
+    let (mut halves, _, _) = running(scene.clone(), Graphics::HalfBlock);
+    let under_halves = half_blocks(&engine_buffer(&mut halves));
+    let (mut engine, mut screen, wire) = running(scene, Graphics::Kitty);
+    let written = frame(&mut engine, &mut screen, &wire);
+    let under_kitty = half_blocks(&engine_buffer(&mut engine));
+    let inside = |&(x, y): &(u16, u16)| surface.contains(i32::from(x), i32::from(y));
+    assert!(!under_halves.iter().any(inside), "the surface covers the half blocks");
+    assert_eq!(under_kitty.iter().filter(|cell| inside(cell)).count(), 0, "nor does the picture leak into it");
+    assert!(!places(&written).is_empty(), "the rest of the picture is pixels: {written:?}");
+    let buffer = engine_buffer(&mut engine);
+    let placed = engine.painted().pictures;
+    for placement in placed {
+        let (x, y, w, h) = placement.cells;
+        let rect = Rect::new(i32::from(x), i32::from(y), w, h);
+        assert!(rect.intersect(surface).is_empty(), "no place under the surface: {rect:?}");
+    }
+    assert_eq!(buffer[(3, 1)].symbol(), "v", "the surface's words are on top");
+}
+
+#[test]
+fn a_shadow_dims_its_cells_in_half_blocks_while_the_rest_stays_pixels() {
+    let data = square();
+    let shadow = Rect::new(2, 3, 6, 1);
+    let scene = Scene { shadow: Some(shadow), ..with(&[(data, Rect::new(2, 1, 6, 3))]) };
+    let (mut engine, mut screen, wire) = running(scene, Graphics::Kitty);
+    let written = frame(&mut engine, &mut screen, &wire);
+    assert_eq!(places(&written).len(), 1, "the rows above the shadow are pixels: {written:?}");
+    let buffer = engine_buffer(&mut engine);
+    let dimmed: Vec<(u16, u16)> = half_blocks(&buffer);
+    assert_eq!(dimmed, (2..8).map(|x| (x, 3)).collect::<Vec<_>>(), "only the shadow's row in half blocks");
+    let ratatui_core::style::Color::Rgb(r, g, b) = buffer[(3, 3)].fg else { panic!("a colour") };
+    assert_eq!((r, g, b), (140, 84, 28), "darkened as the shadow darkens: 200 120 40 at 70 %");
 }
 
 #[test]

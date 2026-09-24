@@ -6,6 +6,7 @@ use ratatui_core::style::Color;
 
 use super::*;
 use crate::color::{ColorDepth, Rgb};
+use crate::env::{AssetDirs, Env};
 use crate::icons::GlyphMode;
 use crate::runtime::{App, Command, Harness};
 use crate::widget::View;
@@ -411,4 +412,116 @@ fn a_kitty_terminal_gets_plain_ground_cells_to_draw_the_picture_on() {
     }
     assert_eq!(resamples(), before, "no half blocks are worked out for a picture the terminal draws");
     assert!(words_of(&h).is_empty(), "nothing a text selection or a screen reader would read");
+}
+
+/// Whether the picture's area shows pixels, of either kind, rather than what the picture is.
+fn draws_pixels(h: &Harness<Shown>) -> bool {
+    !words_of(h).contains("This terminal cannot show pictures")
+}
+
+/// A harness whose environment reads `QUVYTA_GRAPHICS=<forced>` on a 256-colour terminal.
+fn forced(graphics: Graphics) -> Harness<Shown> {
+    let lookup = move |name: &str| match name {
+        "LANG" => Some("en_US.UTF-8".to_owned()),
+        "TERM" => Some("xterm-256color".to_owned()),
+        "QUVYTA_ICONS" => Some("unicode".to_owned()),
+        "QUVYTA_GRAPHICS" => Some(graphics.name().to_owned()),
+        _ => None,
+    };
+    let env = Env::load_with(&AssetDirs::default(), lookup).expect("the built-in files load");
+    Harness::with_env(Shown { data: quadrants(), fit: Fit::Contain }, env, 60, 12)
+}
+
+#[test]
+fn can_draw_answers_what_the_image_itself_does() {
+    let mut h = shown(quadrants(), Fit::Contain, 60, 12);
+    let agrees = |h: &Harness<Shown>, case: &str| {
+        let graphics = h.env().graphics();
+        assert_eq!(graphics.can_draw(), draws_pixels(h), "{case}: {graphics:?}\n{}", h.screen());
+    };
+    agrees(&h, "half blocks");
+    assert!(h.env().graphics().can_draw(), "half blocks draw");
+    h.set_graphics(Graphics::Kitty);
+    agrees(&h, "kitty");
+    h.set_graphics(Graphics::HalfBlock).set_depth(ColorDepth::Ansi16);
+    agrees(&h, "16 colours");
+    assert!(!h.env().graphics().can_draw(), "16 colours draw nothing");
+    h.set_depth(ColorDepth::TrueColor).set_glyph_mode(GlyphMode::Ascii);
+    agrees(&h, "ASCII");
+    assert!(!h.env().graphics().can_draw(), "ASCII draws nothing");
+    // The variable wins over the terminal: a picture refused on a terminal that could draw it
+    // says so, and the check says the same.
+    let none = forced(Graphics::None);
+    agrees(&none, "QUVYTA_GRAPHICS=none");
+    assert!(!none.env().graphics().can_draw());
+    let mut half = forced(Graphics::HalfBlock);
+    half.set_depth(ColorDepth::Ansi16);
+    agrees(&half, "QUVYTA_GRAPHICS=halfblock at 16 colours");
+    assert!(half.env().graphics().can_draw());
+}
+
+/// A PNG of `width` × `height` pixels coloured by `colour`, made in memory.
+fn png_bytes(width: u32, height: u32, colour: impl Fn(u32, u32) -> Rgb) -> Vec<u8> {
+    let buffer = ::image::RgbImage::from_raw(width, height, bytes(width, height, colour)).expect("pixel buffer");
+    let mut out = std::io::Cursor::new(Vec::new());
+    buffer.write_to(&mut out, ::image::ImageFormat::Png).expect("the PNG is encoded");
+    out.into_inner()
+}
+
+#[test]
+fn a_picture_in_memory_decodes_and_shrinks_as_a_file_does() {
+    let png = png_bytes(3, 2, |x, y| {
+        [RED, GREEN, BLUE, WHITE, Rgb::new(10, 20, 30), Rgb::new(200, 100, 50)][(y * 3 + x) as usize]
+    });
+    let data = ImageData::decode_bytes(&png, (100, 100)).expect("the PNG decodes");
+    assert_eq!((data.width(), data.height()), (3, 2));
+    assert_eq!(data.pixel(0, 0), Some(RED));
+    assert_eq!(data.pixel(2, 1), Some(Rgb::new(200, 100, 50)));
+    assert_eq!(data.name(), None, "no file, no name");
+
+    let wide = png_bytes(1200, 600, |x, _| if x < 600 { RED } else { BLUE });
+    let small = ImageData::decode_bytes(&wide, (300, 200)).expect("the PNG decodes");
+    assert_eq!((small.width(), small.height()), (300, 150));
+    assert_eq!(small.original_size(), (1200, 600));
+    let dir = scratch("from-memory");
+    let path = dir.join("wide.png");
+    std::fs::write(&path, &wide).expect("the same PNG as a file");
+    let from_file = ImageData::decode_file(&path, (300, 200)).expect("the PNG decodes");
+    assert_eq!(from_file.pixels(), small.pixels(), "the same bytes shrink to the same pixels");
+    assert_eq!(from_file.name(), Some("wide.png"));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn unknown_and_broken_bytes_say_so_without_panicking() {
+    assert_eq!(
+        ImageData::decode_bytes(b"these are words, not a picture", (10, 10)).err(),
+        Some(ImageError::UnknownFormat)
+    );
+    assert_eq!(ImageData::decode_bytes(&[], (10, 10)).err(), Some(ImageError::UnknownFormat), "nothing at all");
+    let mut cut = png_bytes(40, 40, |x, y| Rgb::new((x * 6) as u8, (y * 6) as u8, 90));
+    cut.truncate(cut.len() / 2);
+    assert_eq!(ImageData::decode_bytes(&cut, (10, 10)).err(), Some(ImageError::Broken));
+}
+
+#[test]
+fn the_extensions_are_exactly_the_formats_the_decoder_reads() {
+    use std::collections::BTreeSet;
+    // Every format the image crate was built to read, with every extension it knows for it: a
+    // feature turned on or off there changes this side, and the list must follow.
+    let compiled: BTreeSet<&str> = ::image::ImageFormat::all()
+        .filter(::image::ImageFormat::reading_enabled)
+        .inspect(|format| assert!(data::Kind::from_format(*format).is_some(), "{format:?} reads but has no kind"))
+        .flat_map(|format| format.extensions_str().iter().copied())
+        .collect();
+    let listed: BTreeSet<&str> = ImageData::EXTENSIONS.iter().copied().collect();
+    assert_eq!(listed, compiled);
+    assert_eq!(listed.len(), ImageData::EXTENSIONS.len(), "no extension twice");
+    for extension in ImageData::EXTENSIONS {
+        assert_eq!(extension.to_lowercase(), *extension, "lower case, as FileBrowser::extensions keeps them");
+    }
+    assert!(ImageData::reads(std::path::Path::new("/pictures/Harbour.JPG")));
+    assert!(ImageData::reads(std::path::Path::new("dusk.webp")));
+    assert!(!ImageData::reads(std::path::Path::new("notes.txt")));
+    assert!(!ImageData::reads(std::path::Path::new("png")), "a name without an extension");
 }

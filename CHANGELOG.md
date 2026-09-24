@@ -4,6 +4,84 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.26 - 2026-09-24
+
+### Added
+
+- `Harness::set_remote(bool)`: a screen test draws what a remote connection gets, as
+  `Env::remote()` answers it in every view that follows; a harness stays local until told.
+- `Env::remote_session()`: whether this process runs over SSH, by the rule `Env::remote` uses,
+  read from `SSH_CONNECTION` and `SSH_TTY` alone, so an application can ask before the runtime
+  starts without loading a second environment.
+- Sixel pictures: where `Env::graphics()` is `Graphics::Sixel`, `Image` is painted by the
+  terminal in real pixels while nothing at all is painted over it, shrunk with the box filter to
+  the pixels of its cells on screen (the cell size the terminal reports for its window, or 10 × 20)
+  and reduced to a fixed 6 × 7 × 6 palette, so it suits SSH too. Its height is cut to whole
+  six-pixel bands so it never reaches below its last row. A menu, a dialog's backdrop or anything
+  else over any of it draws it with half blocks for that frame, and it is painted again once
+  uncovered, moved, when a cell under it changes and after a handoff; cells a vanished sixel
+  covered are written again. An idle screen writes nothing, and the encoding is kept while the
+  picture is painted. Switching between kitty and sixel at runtime leaves nothing of the other
+  behind. The showcase's image page names sixel as the way pictures are drawn.
+- `App::graphics(&self, Graphics) -> Option<Msg>`, a lifecycle hook like `App::resized`: it hears
+  `Env::graphics()` before the first frame (after the first size, before `init`) and again
+  whenever it changes, such as when the glyph mode is switched to ASCII and back, so an
+  application decodes a picture at the size the terminal shows and decodes again when that
+  changes. A value already reported is not reported again; the harness's `set_graphics`,
+  `set_depth` and `set_glyph_mode` report a change as the runtime does. The method has a default,
+  so existing applications compile unchanged.
+- `Graphics::can_draw()`: whether a picture is drawn at all, true for everything but
+  `Graphics::None`. It is the question `Image` asks itself, so an application that would rather
+  show nothing than the image's "cannot show" state (a wallpaper) asks it first instead of
+  keeping its own copy of the rule.
+- `ImageData::decode_bytes(&bytes, max)`: a picture held in memory, such as one built in with
+  `include_bytes!`, decoded and shrunk exactly as `decode_file` does; it has no name.
+- `ImageData::EXTENSIONS` (`png`, `jpg`, `jpeg`, `gif`, `webp`) and `ImageData::reads(path)`: the
+  file types the decoder reads, for `FileBrowser::extensions`. A test holds the list to the
+  formats compiled in. The showcase's image page lists them.
+- `List::activate_on(Click)`, as `Table`, `Tree` and `CardGrid` have it: with `Click::Double` a
+  click only selects a row and a double click within `Click::INTERVAL` activates it; Enter
+  activates either way.
+- `FilePicker::open_on(Click)`: `Click::Single` keeps the picker opening and choosing with one
+  click. The showcase's file picker page has a switch for it.
+
+### Fixed
+
+- `Image` follows `Env::graphics()` alone. With `QUVYTA_GRAPHICS=none` it drew half blocks on a
+  terminal that could, and with `QUVYTA_GRAPHICS=halfblock` it refused to draw at 16 colours,
+  although the variable is meant to win over everything; now `none` shows what the picture is and
+  a forced `halfblock` draws.
+- `FilePicker` no longer chooses a file, or opens a folder, the moment it is clicked. A click now
+  selects the entry, the way the file manager and a desktop file explorer do; a double click or
+  Enter opens or chooses. In folder mode a click on the entry a folder selected by itself when it
+  opened counts as pointing at it, so Choose folder takes that entry. An application whose tests
+  click an entry once to choose it clicks twice, presses Enter, or asks for
+  `open_on(Click::Single)`.
+- A kitty picture no longer shows through windows, launchers and help panels in half blocks.
+  Whether a cell under a picture was dimmed by a backdrop was guessed from its colours, and any
+  grey space on a grey ground (the gaps between words in a window) passed for a dimmed picture.
+  `PaintCx::tint`, which paints dialog backdrops and window shadows, now records where it blended
+  and by how much; a cell counts as dimmed only when those records turn the picture's mark and
+  ground into exactly its colours, and anything else painted there covers the picture.
+
+### Changed
+
+- A kitty picture with something in its middle (an icon, a window, a desktop gadget) stays in
+  real pixels around it. The cells left showing are split into rectangles, each row's runs merged
+  downward while they line up, and the picture is placed once in each with its own crop and
+  placement number; neighbouring crops meet at the same pixel, so no seam shows. Cells under a
+  backdrop or a shadow are drawn with half blocks in the same frame, dimmed, while the rest stays
+  pixels. Only a picture cut into more than 64 rectangles falls back to half blocks for that
+  frame. Moving a window over a picture writes only placement commands, and an idle frame still
+  writes nothing.
+- Over a slow SSH link a kitty terminal is no longer taken for half blocks for good. The graphics
+  probe still waits 150 ms at most, so starting never waits on the network; a kitty `OK` that
+  arrives later is no longer only swallowed: it switches `Env::graphics()` to `Graphics::Kitty`
+  from the next frame, and `App::graphics` hears it.
+- The image guide advises decoding smaller over a remote connection (`Env::remote()`): about
+  twice the half-block density, since every pixel crosses the link and a grainy photo hardly
+  compresses.
+
 ## 0.1.25 - 2026-09-24
 
 ### Added

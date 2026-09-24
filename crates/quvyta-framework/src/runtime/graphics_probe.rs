@@ -5,7 +5,8 @@
 //! has read a single byte from it. The answers are then read straight from the terminal device,
 //! with a bounded wait, up to the device attributes that end them, so the parser never sees them.
 //! A terminal that answers after the wait is over has its kitty answer picked out of the input by
-//! [`LateAnswer`]; the parser drops a late device attributes answer by itself.
+//! [`LateAnswer`], and a kitty `OK` that arrives so still turns pictures to kitty from then on;
+//! the parser drops a late device attributes answer by itself.
 
 use std::io;
 use std::time::{Duration, Instant};
@@ -16,7 +17,10 @@ use crossterm::event as ct;
 use crate::graphics::{self, Graphics};
 
 /// How long the terminal gets to answer. Every terminal answers the device attributes request,
-/// at once, so this is only ever waited in full over a slow link or by a terminal that is not one.
+/// and its answer ends the wait, so a local terminal answers in a few milliseconds. A terminal that
+/// never answers holds the first frame for this long at most, so it stays short: starting never
+/// waits on the network. A slow link's kitty answer that comes after it is still heard through
+/// [`LateAnswer`] and turns pictures to kitty from the next frame on.
 #[cfg(unix)]
 pub(super) const PROBE_WAIT: Duration = Duration::from_millis(150);
 
@@ -98,6 +102,8 @@ pub(super) struct LateAnswer {
     held: Vec<ct::Event>,
     /// The characters after the introducer.
     text: String,
+    /// Whether an answer picked out said `OK`: the terminal draws kitty pictures after all.
+    kitty: bool,
 }
 
 impl LateAnswer {
@@ -127,7 +133,8 @@ impl LateAnswer {
             }
             ct::KeyCode::Char('\\') if alt && self.text.starts_with("Gi=31") => {
                 // The one answer the probe asked for; nothing more is expected.
-                *self = Self::default();
+                let kitty = self.text.ends_with(";OK");
+                *self = Self { kitty, ..Self::default() };
                 Vec::new()
             }
             ct::KeyCode::Char(c) if plain && !self.held.is_empty() && self.text.len() < 256 => {
@@ -141,6 +148,12 @@ impl LateAnswer {
             }
             _ => self.pass(event),
         }
+    }
+
+    /// Whether a late answer said the terminal draws kitty pictures; `true` once, so the caller
+    /// switches when it hears it.
+    pub(super) fn take_kitty(&mut self) -> bool {
+        std::mem::take(&mut self.kitty)
     }
 
     fn pass(&mut self, event: ct::Event) -> Vec<ct::Event> {
@@ -197,6 +210,19 @@ mod tests {
     }
 
     #[test]
+    fn a_late_kitty_ok_says_the_terminal_draws_kitty_pictures_once() {
+        let now = Instant::now();
+        let mut late = late_from(now);
+        assert!(!late.take_kitty(), "nothing heard yet");
+        assert!(handled(&mut late, keys("\x1b_Gi=31;OK\x1b\\"), now).is_empty());
+        assert!(late.take_kitty(), "the OK is heard");
+        assert!(!late.take_kitty(), "and only once");
+        let mut late = late_from(now);
+        handled(&mut late, keys("\x1b_Gi=31;ENOTSUPPORTED:not here\x1b\\"), now);
+        assert!(!late.take_kitty(), "a refusal is not kitty");
+    }
+
+    #[test]
     fn keys_that_only_look_like_an_answer_are_handed_back() {
         let now = Instant::now();
         let mut late = late_from(now);
@@ -220,7 +246,7 @@ mod tests {
 
     #[cfg(unix)]
     mod unix {
-        use std::io::Write;
+        use std::io::{Read, Write};
         use std::os::fd::AsFd;
 
         use super::super::*;
@@ -256,6 +282,30 @@ mod tests {
                 assert_eq!(found, Probe { graphics, answered: true }, "{answer:?}");
                 assert!(started.elapsed() < Duration::from_secs(30), "the attributes ended the wait");
             }
+        }
+
+        #[test]
+        fn a_slow_link_does_not_hold_the_first_frame_and_its_late_kitty_answer_still_counts() {
+            let (mut reader, mut writer) = std::io::pipe().expect("a pipe");
+            let answering = std::thread::spawn(move || {
+                // A long SSH round trip: the answers come 600 ms after the question.
+                std::thread::sleep(Duration::from_millis(600));
+                writer.write_all(b"\x1b_Gi=31;OK\x1b\\\x1b[?62;c").expect("the answer");
+            });
+            let found = probe(reader.as_fd(), &mut Vec::new(), PROBE_WAIT).expect("the probe runs");
+            // Had the probe waited for the answer, it would have read kitty here.
+            assert_eq!(
+                found,
+                Probe { graphics: Graphics::HalfBlock, answered: false },
+                "the first frame is drawn with half blocks, without waiting for the link"
+            );
+            answering.join().expect("the answering side");
+            let mut late_bytes = Vec::new();
+            reader.read_to_end(&mut late_bytes).expect("the late answer");
+            let now = Instant::now();
+            let mut late = late_from(now);
+            super::handled(&mut late, super::keys(&String::from_utf8(late_bytes).expect("text")), now);
+            assert!(late.take_kitty(), "the answer that came late turns pictures to kitty");
         }
 
         #[test]

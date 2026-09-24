@@ -1,4 +1,5 @@
-//! Pictures decoded into pixels: from a file, shrunk while it is read, or from raw RGB bytes.
+//! Pictures decoded into pixels: from a file or from memory, shrunk while they are read, or from
+//! raw RGB bytes.
 
 use std::fmt;
 use std::fs::File;
@@ -24,7 +25,7 @@ pub(super) enum Kind {
 }
 
 impl Kind {
-    fn from_format(format: ::image::ImageFormat) -> Option<Self> {
+    pub(super) fn from_format(format: ::image::ImageFormat) -> Option<Self> {
         match format {
             ::image::ImageFormat::Png => Some(Self::Png),
             ::image::ImageFormat::Jpeg => Some(Self::Jpeg),
@@ -60,8 +61,9 @@ struct Inner {
 /// A decoded picture: its pixels in RGB, shared, so a clone costs a reference count.
 ///
 /// Make one with [`ImageData::decode_file`], which reads PNG, JPEG, GIF (its first frame) and
-/// WebP and shrinks a large picture while it is read, or with [`ImageData::from_rgb`] from pixels
-/// an application already has. [`Image`](super::Image) draws it.
+/// WebP and shrinks a large picture while it is read, with [`ImageData::decode_bytes`] from such a
+/// picture held in memory, or with [`ImageData::from_rgb`] from pixels an application already
+/// has. [`Image`](super::Image) draws it.
 ///
 /// Transparency is not kept: a transparent pixel takes the colour stored under it, often black.
 #[derive(Clone)]
@@ -133,10 +135,48 @@ impl ImageData {
                 Err(error) => return Err(ImageError::from_io(&error)),
             }
         }
-        let format = ::image::guess_format(&header[..read]).map_err(|_| ImageError::UnknownFormat)?;
-        let kind = Kind::from_format(format).ok_or(ImageError::UnknownFormat)?;
+        let (format, kind) = Self::format_of(&header[..read])?;
         file.seek(SeekFrom::Start(0)).map_err(|error| ImageError::from_io(&error))?;
-        let reader = ::image::ImageReader::with_format(BufReader::new(file), format);
+        let name = path.file_name().map(|name| name.to_string_lossy().into_owned());
+        Self::decode(BufReader::new(file), format, kind, max, name)
+    }
+
+    /// Decodes a picture held in memory, such as one built into the application with
+    /// `include_bytes!`, shrunk to fit within `max` pixels (width, height) the way
+    /// [`ImageData::decode_file`] shrinks it; a picture already that small keeps its size.
+    ///
+    /// The format is read from the bytes themselves. The picture has no [name](ImageData::name),
+    /// since no file is known. Decoding a large picture is slow, so the advice of
+    /// [`ImageData::decode_file`] holds here too: call it from
+    /// [`Command::perform`](crate::runtime::Command::perform), and ask for the size the terminal
+    /// shows.
+    ///
+    /// # Errors
+    ///
+    /// [`ImageError::UnknownFormat`] when the bytes are not a PNG, JPEG, GIF or WebP picture,
+    /// [`ImageError::Broken`] when they are one but damaged or cut short, and
+    /// [`ImageError::Unreadable`] when the picture is too large to decode.
+    pub fn decode_bytes(bytes: &[u8], max: (u32, u32)) -> Result<Self, ImageError> {
+        let (format, kind) = Self::format_of(bytes)?;
+        Self::decode(io::Cursor::new(bytes), format, kind, max, None)
+    }
+
+    /// The format the first bytes of a picture show, when it is one this decoder reads.
+    fn format_of(header: &[u8]) -> Result<(::image::ImageFormat, Kind), ImageError> {
+        let format = ::image::guess_format(header).map_err(|_| ImageError::UnknownFormat)?;
+        let kind = Kind::from_format(format).ok_or(ImageError::UnknownFormat)?;
+        Ok((format, kind))
+    }
+
+    /// Decodes the picture `reader` holds in `format`, shrunk to fit within `max`.
+    fn decode(
+        reader: impl io::BufRead + Seek,
+        format: ::image::ImageFormat,
+        kind: Kind,
+        max: (u32, u32),
+        name: Option<String>,
+    ) -> Result<Self, ImageError> {
+        let reader = ::image::ImageReader::with_format(reader, format);
         let mut picture = reader.decode().map_err(|error| ImageError::from_decoding(&error))?;
         let original = (picture.width(), picture.height());
         if original.0 == 0 || original.1 == 0 {
@@ -153,10 +193,27 @@ impl ImageData {
         let pixels = rgb.pixels().map(|p| Rgb::new(p.0[0], p.0[1], p.0[2])).collect();
         let mut data = Self::new(width, height, pixels, original);
         if let Some(inner) = Arc::get_mut(&mut data.inner) {
-            inner.name = path.file_name().map(|name| name.to_string_lossy().into_owned());
+            inner.name = name;
             inner.kind = Some(kind);
         }
         Ok(data)
+    }
+
+    /// The file extensions of the pictures this decoder reads, in lower case and without the
+    /// dot: `png`, `jpg`, `jpeg`, `gif` and `webp`.
+    ///
+    /// Hand it to [`FileBrowser::extensions`](crate::widgets::FileBrowser::extensions) so a
+    /// picker offers only pictures. The decoder itself goes by a file's first bytes, never by its
+    /// name, so a picture is known whatever it is called; this list is for choosing files.
+    pub const EXTENSIONS: &'static [&'static str] = &["png", "jpg", "jpeg", "gif", "webp"];
+
+    /// Whether `path`'s extension is one of [`ImageData::EXTENSIONS`], in any case: whether a file
+    /// by that name is likely a picture this decoder reads.
+    #[must_use]
+    pub fn reads(path: &Path) -> bool {
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| Self::EXTENSIONS.iter().any(|known| known.eq_ignore_ascii_case(extension)))
     }
 
     /// Width in pixels, as kept.
@@ -178,7 +235,8 @@ impl ImageData {
         self.inner.original
     }
 
-    /// The name of the file it was decoded from, e.g. `"harbour.png"`.
+    /// The name of the file it was decoded from, e.g. `"harbour.png"`; `None` for a picture
+    /// decoded from memory or made from raw pixels.
     #[must_use]
     pub fn name(&self) -> Option<&str> {
         self.inner.name.as_deref()

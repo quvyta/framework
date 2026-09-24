@@ -245,7 +245,10 @@ impl<A: App> Runtime<A> {
         guard.enhance_keyboard()?;
         install_panic_hook();
         let shapes = pointer_shapes_supported(|name| std::env::var(name).ok());
-        let mut screen = Screen::new(Terminal::new(CrosstermBackend::new(io::stdout()))?).pointer_shapes(shapes);
+        let screen = Screen::new(Terminal::new(CrosstermBackend::new(io::stdout()))?).pointer_shapes(shapes);
+        #[cfg(feature = "image")]
+        let screen = screen.measure_cell(cell_pixels);
+        let mut screen = screen;
         let engine = Engine::new(self.app, env, TaskMode::Threads);
         let result = event_loop(&mut screen, engine, &guard, &signals, late);
         if !guard.abandoned.get() {
@@ -445,11 +448,33 @@ fn read_input<A: App>(
                 }
             }
         }
+        if input.late.take_kitty() {
+            heard_kitty_late(engine);
+        }
         if more.is_none() {
             return Ok(true);
         }
     }
     Ok(false)
+}
+
+/// The size of a cell in pixels, from the window size the terminal reports; `None` where it
+/// reports no pixels, as some terminals and serial lines do. SSH carries the pixels across.
+#[cfg(feature = "image")]
+fn cell_pixels() -> Option<(u16, u16)> {
+    let size = crossterm::terminal::window_size().ok()?;
+    if size.columns == 0 || size.rows == 0 || size.width == 0 || size.height == 0 {
+        return None;
+    }
+    Some((size.width / size.columns, size.height / size.rows))
+}
+
+/// Takes a kitty `OK` that arrived after the probe stopped waiting, as over a slow link: from the
+/// next frame on pictures are drawn the kitty way, and [`App::graphics`] hears it, unless the
+/// environment rules otherwise.
+fn heard_kitty_late<A: App>(engine: &mut Engine<A>) {
+    engine.env.set_terminal_graphics(crate::graphics::Graphics::Kitty);
+    engine.dirty = true;
 }
 
 /// Whether crossterm has an event to read, or `None` when the terminal hung up. Crossterm is
@@ -803,6 +828,37 @@ fn translate_mouse(mouse: ct::MouseEvent) -> Option<MouseEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Keeps every way of drawing pictures it hears.
+    struct Told(Vec<crate::graphics::Graphics>);
+
+    impl App for Told {
+        type Msg = crate::graphics::Graphics;
+        fn update(&mut self, graphics: Self::Msg) -> crate::runtime::Command<Self::Msg> {
+            self.0.push(graphics);
+            crate::runtime::Command::none()
+        }
+        fn view(&self, _ui: &mut crate::widget::View<'_, Self::Msg>) {}
+        fn graphics(&self, graphics: crate::graphics::Graphics) -> Option<Self::Msg> {
+            Some(graphics)
+        }
+    }
+
+    #[test]
+    fn a_late_kitty_answer_turns_pictures_to_kitty_and_the_application_hears_it() {
+        use crate::graphics::Graphics;
+        let mut engine = Engine::new(Told(Vec::new()), Env::builtin(), TaskMode::Inline);
+        let area = ratatui_core::layout::Rect::new(0, 0, 10, 4);
+        let mut buffer = ratatui_core::buffer::Buffer::empty(area);
+        engine.render(&mut buffer, Duration::ZERO);
+        assert_eq!(engine.app.0, [Graphics::HalfBlock], "no answer in time");
+        engine.dirty = false;
+        heard_kitty_late(&mut engine);
+        assert!(engine.dirty, "a frame is due");
+        engine.render(&mut buffer, Duration::from_secs(1));
+        assert_eq!(engine.app.0, [Graphics::HalfBlock, Graphics::Kitty]);
+        assert_eq!(engine.env.graphics(), Graphics::Kitty);
+    }
 
     #[test]
     fn panics_on_other_threads_leave_the_terminal_alone() {

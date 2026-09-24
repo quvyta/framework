@@ -240,3 +240,63 @@ fn an_application_without_hooks_behaves_as_before() {
     h.press("ctrl+q");
     assert!(h.quit_requested(), "the quit key quits at once");
 }
+
+/// Records every graphics value it is told, and whether `init` had run by then.
+#[derive(Default)]
+struct Pictures {
+    told: Vec<crate::graphics::Graphics>,
+    started: bool,
+    /// Whether the first value was told before `init` ran.
+    told_before_init: Option<bool>,
+}
+
+impl App for Pictures {
+    type Msg = crate::graphics::Graphics;
+
+    fn init(&mut self) -> Command<Self::Msg> {
+        self.started = true;
+        Command::none()
+    }
+
+    fn graphics(&self, graphics: crate::graphics::Graphics) -> Option<Self::Msg> {
+        Some(graphics)
+    }
+
+    fn update(&mut self, graphics: Self::Msg) -> Command<Self::Msg> {
+        self.told_before_init.get_or_insert(!self.started);
+        self.told.push(graphics);
+        Command::none()
+    }
+
+    fn view(&self, ui: &mut View<'_, Self::Msg>) {
+        let told = self.told.last().map_or("nothing", |graphics| graphics.name());
+        ui.add(Text::new(format!("told {told}")));
+    }
+}
+
+#[test]
+fn the_application_is_told_the_graphics_at_start_and_whenever_they_change() {
+    use crate::color::ColorDepth;
+    use crate::graphics::Graphics;
+    use crate::icons::GlyphMode;
+
+    let mut h = Harness::new(Pictures::default(), 30, 3);
+    assert_eq!(h.app().told, [Graphics::HalfBlock], "a harness answers half blocks");
+    assert_eq!(h.app().told_before_init, Some(true), "told before init, so init can decode");
+    assert!(h.screen().contains("told halfblock"), "the first frame already knows:\n{}", h.screen());
+
+    h.set_depth(ColorDepth::Ansi16);
+    assert_eq!(h.app().told, [Graphics::HalfBlock, Graphics::None], "16 colours draw no picture");
+    assert!(h.screen().contains("told none"), "{}", h.screen());
+    h.set_depth(ColorDepth::TrueColor).set_graphics(Graphics::Kitty);
+    assert_eq!(h.app().told[2..], [Graphics::HalfBlock, Graphics::Kitty]);
+    h.set_glyph_mode(GlyphMode::Ascii);
+    assert_eq!(h.app().told.last(), Some(&Graphics::None), "ASCII glyphs draw no picture");
+    h.set_glyph_mode(GlyphMode::Unicode);
+    assert_eq!(h.app().told.last(), Some(&Graphics::Kitty), "and switching back tells it again");
+
+    let before = h.app().told.len();
+    h.resize(24, 3).set_theme("amber").press("tab").advance(Duration::from_secs(1));
+    h.set_graphics(Graphics::Kitty).set_glyph_mode(GlyphMode::Nerd);
+    assert_eq!(h.app().told.len(), before, "nothing is told when nothing changed: {:?}", h.app().told);
+}

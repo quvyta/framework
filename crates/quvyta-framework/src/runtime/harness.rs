@@ -73,6 +73,20 @@ impl<A: App> Harness<A> {
         self
     }
 
+    /// Paints the current view onto `screen` as the terminal runtime paints a frame, for the tests
+    /// that read what a screen writes. Answers whether anything was written.
+    #[cfg(all(test, feature = "image"))]
+    pub(crate) fn present_to<W: std::io::Write>(&mut self, screen: &mut super::present::Screen<W>) -> bool {
+        let now = self.now;
+        let engine = &mut self.engine;
+        screen
+            .present(|buffer| {
+                engine.render(buffer, now);
+                engine.painted()
+            })
+            .expect("a frame")
+    }
+
     /// Works out what the terminal would be sent for this frame over a cleared screen, as the
     /// terminal runtime does before writing, so a cell no terminal can take fails the test that
     /// drew it instead of the application that ships it.
@@ -286,6 +300,15 @@ impl<A: App> Harness<A> {
     /// 16 colours or [`Harness::set_glyph_mode`] at ASCII no picture is drawn, whatever is set here.
     pub fn set_graphics(&mut self, graphics: crate::graphics::Graphics) -> &mut Self {
         self.engine.env.set_terminal_graphics(graphics);
+        self.render()
+    }
+
+    /// Draws as a terminal at the other end of a remote connection would:
+    /// [`Env::remote`](crate::env::Env::remote) answers `remote` in every view that follows. A
+    /// harness is local until this is called, so a test draws the same wherever it runs, over
+    /// SSH included.
+    pub fn set_remote(&mut self, remote: bool) -> &mut Self {
+        self.engine.env.set_remote(remote);
         self.render()
     }
 
@@ -834,5 +857,28 @@ mod graphics_tests {
         assert_eq!(harness.screen(), "none\n", "ASCII glyphs show no picture");
         harness.set_glyph_mode(GlyphMode::Unicode);
         assert_eq!(harness.screen(), "kitty\n");
+    }
+
+    /// Says whether its view is drawn for a remote connection.
+    struct Link;
+
+    impl App for Link {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(Text::new(if ui.env().remote() { "remote" } else { "local" }));
+        }
+    }
+
+    #[test]
+    fn a_harness_draws_a_remote_screen_when_told_so() {
+        let mut harness = Harness::new(Link, 20, 1);
+        assert_eq!(harness.screen(), "local\n", "a test draws the same wherever it runs");
+        harness.set_remote(true);
+        assert_eq!(harness.screen(), "remote\n");
+        harness.set_remote(false);
+        assert_eq!(harness.screen(), "local\n");
     }
 }

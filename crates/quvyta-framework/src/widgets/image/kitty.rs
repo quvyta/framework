@@ -2,15 +2,16 @@
 //! in the frame while it paints, and how the finished frame decides what of each picture shows.
 //!
 //! A picture is not painted into cells. Its cells get the canvas ground and a mark (a space in an
-//! unusual, invisible text colour), and the frame records a [`Picture`]. Once everything is
-//! painted, [`resolve`] looks at those cells again. A cell that still holds the mark is one
-//! nothing was painted over; one whose two colours were blended toward another colour lies under
-//! the dimmed backdrop of a dialog; anything else was painted over. When the cells nothing was
-//! painted over form one rectangle, the terminal is asked to place the picture there with its
-//! source cut to match, so a menu along one side of a picture is never hidden under it. When they
-//! do not (something in the middle, or a corner), or the picture lies under a backdrop, the
-//! picture is drawn with half blocks for that frame, as a terminal without pictures shows it,
-//! dimmed as the backdrop dims it.
+//! unusual, invisible text colour), and the frame records a [`Picture`]. Blends painted over the
+//! screen afterwards, a dialog's backdrop or a window's shadow, are recorded too, as [`Dim`]s.
+//! Once everything is painted, [`resolve`] looks at those cells again. A cell that still holds
+//! the mark is one nothing was painted over; one whose colours are exactly what the recorded
+//! blends over it make of the mark and the ground lies under a backdrop or a shadow; anything
+//! else was painted over. The cells nothing was painted over are split into rectangles and the
+//! terminal places the picture once in each, its source cut to match, so a window, an icon or a
+//! menu over a picture is never hidden under it. Dimmed cells are drawn with half blocks in the
+//! same frame, dimmed as the blend dims them. A picture cut into too many pieces is drawn with
+//! half blocks for that frame, as a terminal without pictures shows it.
 
 use ratatui_core::buffer::Buffer;
 use ratatui_core::style::{Color, Modifier};
@@ -73,63 +74,60 @@ impl PartialEq for PicturePlacement {
 impl Eq for PicturePlacement {}
 
 /// The text colour that marks a picture's cells on `ground`. A space shows no text colour, so
-/// the mark is invisible. Each channel is far from the ground's, so a blend of the two toward a
-/// backdrop colour can be undone (see [`Tint`]), and a little off the extremes, so it is not a
-/// text colour a theme would paint a space with.
+/// the mark is invisible. Each channel is far from the ground's and a little off the extremes, so
+/// it is not a text colour a theme would paint a space with.
 fn marker(ground: Rgb) -> Rgb {
     let far = |channel: u8, offset: u8| if channel < 128 { 255 - offset } else { offset };
     Rgb::new(far(ground.r, 3), far(ground.g, 7), far(ground.b, 4))
 }
 
-/// A blend of every colour toward one colour by the same amount, as a dialog's backdrop dims the
-/// screen: `channel × keep + add`.
+/// A blend of the colours already painted in a rectangle toward one colour, as
+/// [`PaintCx::tint`] paints it for a dialog's backdrop or a window's shadow, recorded so a
+/// picture beneath knows it was dimmed and by how much, instead of guessing it from colours.
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct Tint {
-    keep: f32,
-    add: [f32; 3],
+pub(crate) struct Dim {
+    /// The cells blended, already cut to what the painter could reach.
+    rect: Rect,
+    color: Rgb,
+    amount: f32,
+    /// How many pictures were recorded before it: only those lie beneath it.
+    over: usize,
 }
 
-impl Tint {
-    /// The blend that turned `marker` into `fg` and `ground` into `bg`, if one blend explains
-    /// both: two colours known before and after are enough to find it.
-    fn between(marker: Rgb, ground: Rgb, fg: Rgb, bg: Rgb) -> Option<Self> {
-        let pairs =
-            [(marker.r, ground.r, fg.r, bg.r), (marker.g, ground.g, fg.g, bg.g), (marker.b, ground.b, fg.b, bg.b)];
-        let keeps = pairs.map(|(m, g, f, b)| (f32::from(f) - f32::from(b)) / (f32::from(m) - f32::from(g)));
-        let keep = keeps.iter().sum::<f32>() / 3.0;
-        // Rounding moves each channel by at most one step in over a hundred.
-        if !(-0.02..=1.02).contains(&keep) || keeps.iter().any(|each| (each - keep).abs() > 0.03) {
-            return None;
-        }
-        let keep = keep.clamp(0.0, 1.0);
-        let add = pairs.map(|(_, g, _, b)| f32::from(b) - keep * f32::from(g));
-        Some(Self { keep, add })
+impl Dim {
+    /// A blend of `rect` toward `color` by `amount`, painted after the first `over` pictures.
+    pub(crate) fn new(rect: Rect, color: Rgb, amount: f32, over: usize) -> Self {
+        Self { rect, color, amount, over }
     }
+}
 
-    fn apply(self, colour: Rgb) -> Rgb {
-        let channel = |value: u8, add: f32| {
-            // Within 0..=255 once clamped.
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let channel = (f32::from(value) * self.keep + add).round().clamp(0.0, 255.0) as u8;
-            channel
-        };
-        Rgb::new(channel(colour.r, self.add[0]), channel(colour.g, self.add[1]), channel(colour.b, self.add[2]))
-    }
+/// The blends painted over the cell at `x`, `y` after the picture numbered `index`, in the order
+/// they were painted.
+fn dims_over(dims: &[Dim], index: usize, x: i32, y: i32) -> impl Iterator<Item = &Dim> + Clone {
+    dims.iter().filter(move |dim| dim.over > index && dim.rect.contains(x, y))
+}
+
+/// `colour` after every blend in `dims`, blended exactly as [`PaintCx::tint`] blends it.
+fn dimmed<'a>(colour: Rgb, dims: impl Iterator<Item = &'a Dim>) -> Rgb {
+    dims.fold(colour, |colour, dim| colour.mix(dim.color, dim.amount))
 }
 
 /// What became of one of a picture's cells by the end of the frame.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Fate {
     /// Nothing was painted over it.
     Free,
-    /// A backdrop dimmed it.
-    Tinted(Tint),
+    /// Only recorded blends were painted over it.
+    Dimmed,
     /// Something was painted over it.
     Covered,
 }
 
-/// What became of `cell`, which `picture` marked.
-fn fate(cell: &ratatui_core::buffer::Cell, picture: &Picture) -> Fate {
+/// What became of `cell`, at `x`, `y`, which the picture numbered `index` marked. A cell is
+/// dimmed only when blends were recorded over it and they turn the mark and the ground into
+/// exactly the cell's colours; any other change covers it, however much its colours look like a
+/// blend.
+fn fate(cell: &ratatui_core::buffer::Cell, picture: &Picture, dims: &[Dim], index: usize, x: i32, y: i32) -> Fate {
     if cell.symbol() != " " || !cell.modifier.is_empty() {
         return Fate::Covered;
     }
@@ -140,7 +138,13 @@ fn fate(cell: &ratatui_core::buffer::Cell, picture: &Picture) -> Fate {
     if fg == picture.marker && bg == picture.ground {
         return Fate::Free;
     }
-    Tint::between(picture.marker, picture.ground, fg, bg).map_or(Fate::Covered, Fate::Tinted)
+    let over = dims_over(dims, index, x, y);
+    if over.clone().next().is_some() && dimmed(picture.marker, over.clone()) == fg && dimmed(picture.ground, over) == bg
+    {
+        Fate::Dimmed
+    } else {
+        Fate::Covered
+    }
 }
 
 impl Image {
@@ -218,61 +222,100 @@ impl Halves {
     }
 }
 
-/// Decides, once a frame is painted, where the terminal shows each of its `pictures`.
+/// The most places one picture is split into in a frame. A picture whose free cells take more
+/// rectangles than this is drawn with half blocks for that frame instead.
+pub(crate) const MOST_PLACES: usize = 64;
+
+/// How the terminal can show part of a picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Placing {
+    /// The terminal keeps the picture apart from the text and can show it in pieces, each cut to
+    /// its own rectangle, under text: kitty.
+    Split,
+    /// The picture is painted into the cells and whatever is written over it later wipes it, so
+    /// it is shown only where all of it that may show does: sixel.
+    Whole,
+}
+
+/// Decides, once a frame is painted, where the terminal shows each of its `pictures`, given the
+/// blends `dims` painted over them.
+///
+/// With [`Placing::Whole`] a picture is shown only when every cell it may paint still holds its
+/// mark and no later picture lies over any of them; a picture cut by its clip is shown on the
+/// part within the clip. Anything else, a dialog's backdrop included, draws it with half blocks
+/// for that frame. What follows describes [`Placing::Split`].
 ///
 /// A picture takes the cells that still hold its mark and nothing else; a picture painted later
-/// over an earlier one takes its cells. When those cells form one rectangle, the terminal shows
-/// the part of the picture that falls in it. When they do not, or a backdrop dimmed any of the
-/// picture's cells, the picture is drawn with half blocks in its free and dimmed cells instead,
-/// the dimmed ones blended as the backdrop blended them. `halves` is whether the terminal can
-/// show half blocks; where it cannot, those cells keep the ground.
+/// over an earlier one takes its cells. Those cells are split into rectangles, row runs merged
+/// down while they line up, and the terminal shows the part of the picture that falls in each,
+/// every one its own place. Cells a recorded blend dimmed are drawn with half blocks in the same
+/// frame, blended as the blend blended them, while the rest stays pixels. When the free cells
+/// need more than [`MOST_PLACES`] rectangles, the whole picture is drawn with half blocks for
+/// that frame. `halves` is whether the terminal can show half blocks; where it cannot, those
+/// cells keep the ground.
 pub(crate) fn resolve(
     buf: &mut Buffer,
     pictures: &[Picture],
+    dims: &[Dim],
     cache: &mut Halves,
     halves: bool,
+    placing: Placing,
 ) -> Vec<PicturePlacement> {
     let mut placements: Vec<PicturePlacement> = Vec::new();
     let screen = Rect::new(i32::from(buf.area.x), i32::from(buf.area.y), buf.area.width, buf.area.height);
     for (index, picture) in pictures.iter().enumerate() {
         let above = &pictures[index + 1..];
         let visible = picture.visible.intersect(screen);
-        let mut shown = Vec::new();
-        let mut dimmed = false;
+        let mut free = Vec::new();
+        let mut blended = Vec::new();
         for y in visible.y..visible.bottom() {
             for x in visible.x..visible.right() {
                 if above.iter().any(|later| later.visible.contains(x, y)) {
                     continue;
                 }
                 let Some(cell) = buf.cell(cell_at(x, y)) else { continue };
-                match fate(cell, picture) {
-                    Fate::Free => shown.push((x, y, None)),
-                    Fate::Tinted(tint) => {
-                        dimmed = true;
-                        shown.push((x, y, Some(tint)));
-                    }
+                match fate(cell, picture, dims, index, x, y) {
+                    Fate::Free => free.push((x, y)),
+                    Fate::Dimmed => blended.push((x, y)),
                     Fate::Covered => {}
                 }
             }
         }
-        let Some(bounds) = bounds(shown.iter().map(|&(x, y, _)| (x, y))) else { continue };
-        if !dimmed && shown.len() == usize::from(bounds.width) * usize::from(bounds.height) {
-            let number = 1 + placements.iter().filter(|placed| placed.data.id() == picture.data.id()).count();
-            placements.push(PicturePlacement {
-                data: picture.data.clone(),
-                number: u32::try_from(number).unwrap_or(u32::MAX),
-                cells: (
-                    u16::try_from(bounds.x).unwrap_or(0),
-                    u16::try_from(bounds.y).unwrap_or(0),
-                    bounds.width,
-                    bounds.height,
-                ),
-                crop: crop(picture, bounds),
-            });
-        } else if halves {
+        // Cells under a later picture, dimmed or covered are not free, so every cell is free only
+        // when nothing at all lies over the picture.
+        let whole = !free.is_empty() && free.len() == usize::from(visible.width) * usize::from(visible.height);
+        let rects = match placing {
+            Placing::Split => rectangles(&free, MOST_PLACES),
+            Placing::Whole if whole => Some(vec![visible]),
+            Placing::Whole => None,
+        };
+        let halved = match rects {
+            Some(rects) => {
+                let before = placements.iter().filter(|placed| placed.data.id() == picture.data.id()).count();
+                for (offset, rect) in rects.into_iter().enumerate() {
+                    placements.push(PicturePlacement {
+                        data: picture.data.clone(),
+                        number: u32::try_from(before + offset + 1).unwrap_or(u32::MAX),
+                        cells: (
+                            u16::try_from(rect.x).unwrap_or(0),
+                            u16::try_from(rect.y).unwrap_or(0),
+                            rect.width,
+                            rect.height,
+                        ),
+                        crop: crop(picture, rect),
+                    });
+                }
+                blended
+            }
+            None => {
+                blended.extend(free);
+                blended
+            }
+        };
+        if halves && !halved.is_empty() {
             let cells = cache.cells(picture);
             let columns = usize::from(picture.area.width);
-            for (x, y, tint) in shown {
+            for (x, y) in halved {
                 let (Ok(column), Ok(row)) = (usize::try_from(x - picture.area.x), usize::try_from(y - picture.area.y))
                 else {
                     continue;
@@ -280,12 +323,12 @@ pub(crate) fn resolve(
                 let (Some(half), Some(cell)) = (cells.get(row * columns + column), buf.cell_mut(cell_at(x, y))) else {
                     continue;
                 };
-                let half = match (*half, tint) {
-                    (half, None) => half,
-                    (Half::Empty, Some(_)) => Half::Empty,
-                    (Half::Top(top), Some(tint)) => Half::Top(tint.apply(top)),
-                    (Half::Bottom(bottom), Some(tint)) => Half::Bottom(tint.apply(bottom)),
-                    (Half::Both(top, bottom), Some(tint)) => Half::Both(tint.apply(top), tint.apply(bottom)),
+                let over = dims_over(dims, index, x, y);
+                let half = match *half {
+                    Half::Empty => Half::Empty,
+                    Half::Top(top) => Half::Top(dimmed(top, over)),
+                    Half::Bottom(bottom) => Half::Bottom(dimmed(bottom, over)),
+                    Half::Both(top, bottom) => Half::Both(dimmed(top, over.clone()), dimmed(bottom, over)),
                 };
                 paint_half(cell, half);
             }
@@ -295,38 +338,71 @@ pub(crate) fn resolve(
     placements
 }
 
+/// `cells`, listed row by row and left to right within a row, as rectangles that cover exactly
+/// them: each row's runs of neighbouring cells, a run merged into the rectangle above it when
+/// that rectangle ended on the row before with the same left edge and width. `None` when that
+/// takes more than `most` rectangles.
+fn rectangles(cells: &[(i32, i32)], most: usize) -> Option<Vec<Rect>> {
+    let mut done: Vec<Rect> = Vec::new();
+    // Rectangles that reach down to the row before the one being read.
+    let mut open: Vec<Rect> = Vec::new();
+    let mut row: Vec<Rect> = Vec::new();
+    let mut index = 0;
+    while index < cells.len() {
+        let (_, y) = cells[index];
+        row.clear();
+        while index < cells.len() && cells[index].1 == y {
+            let (x, _) = cells[index];
+            match row.last_mut() {
+                Some(run) if run.right() == x => run.width = run.width.saturating_add(1),
+                _ => row.push(Rect::new(x, y, 1, 1)),
+            }
+            index += 1;
+        }
+        let mut next = Vec::with_capacity(row.len());
+        for run in &row {
+            let above = open.iter().position(|rect| rect.x == run.x && rect.width == run.width && rect.bottom() == y);
+            next.push(match above {
+                Some(at) => {
+                    let mut rect = open.swap_remove(at);
+                    rect.height = rect.height.saturating_add(1);
+                    rect
+                }
+                None => *run,
+            });
+        }
+        done.append(&mut open);
+        open = next;
+        if done.len() + open.len() > most {
+            return None;
+        }
+    }
+    done.append(&mut open);
+    done.sort_by_key(|rect| (rect.y, rect.x));
+    Some(done)
+}
+
 /// A screen cell's position in the buffer; cells off screen never hold a mark, so they are
 /// never asked for.
 fn cell_at(x: i32, y: i32) -> (u16, u16) {
     (u16::try_from(x).unwrap_or(u16::MAX), u16::try_from(y).unwrap_or(u16::MAX))
 }
 
-/// The smallest rectangle around `cells`; `None` when there are none.
-fn bounds(mut cells: impl Iterator<Item = (i32, i32)>) -> Option<Rect> {
-    let (x, y) = cells.next()?;
-    let (mut left, mut top, mut right, mut bottom) = (x, y, x, y);
-    for (x, y) in cells {
-        left = left.min(x);
-        top = top.min(y);
-        right = right.max(x);
-        bottom = bottom.max(y);
-    }
-    let width = u16::try_from(right - left + 1).ok()?;
-    let height = u16::try_from(bottom - top + 1).ok()?;
-    Some(Rect::new(left, top, width, height))
-}
-
 /// The part of `picture`'s pixels that lands in `shown`, a part of its cells: the source is
 /// stretched evenly over the cells, so a cut at a cell is a cut at the same share of the source.
+///
+/// Each edge of the crop is worked out from the cell edge alone, the same way whichever side of
+/// it a rectangle lies on, so two rectangles that meet at a cell edge meet at the same pixel:
+/// the parts of one picture placed side by side neither miss nor repeat a pixel.
 fn crop(picture: &Picture, shown: Rect) -> (u32, u32, u32, u32) {
     let (sx, sy, sw, sh) = picture.source;
     let cells = picture.cells;
     let along = |from: i32, to: i32, start: f64, length: f64, cells_start: i32, cells: u16, limit: u32| {
         let per_cell = length / f64::from(cells.max(1));
-        let begin = start + f64::from(from - cells_start) * per_cell;
-        let end = start + f64::from(to - cells_start) * per_cell;
-        let first = pixels(begin).min(limit.saturating_sub(1));
-        let last = pixels(end).clamp(first + 1, limit.max(first + 1));
+        let edge = |cell: i32| pixels(start + f64::from(cell - cells_start) * per_cell);
+        let first = edge(from).min(limit.saturating_sub(1));
+        // At least one pixel, even where a cell is narrower than a pixel of the source.
+        let last = edge(to).clamp(first + 1, limit.max(first + 1));
         (first, last - first)
     };
     let (x, width) = along(shown.x, shown.right(), sx, sw, cells.x, cells.width, picture.data.width());
@@ -341,3 +417,7 @@ fn pixels(length: f64) -> u32 {
     let pixels = length.round().max(0.0) as u32;
     pixels
 }
+
+#[cfg(test)]
+#[path = "kitty_tests.rs"]
+mod tests;

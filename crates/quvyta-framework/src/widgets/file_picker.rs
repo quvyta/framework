@@ -11,6 +11,7 @@ use crate::theme::State;
 use crate::widget::{Align, EventCx, Length, MeasureCx, NodeMut, PaintCx, View, Widget};
 
 use super::cells;
+use super::click::Click;
 use super::delayed::DelayedIndicator;
 use super::file_browser::{FileBrowser, FilePickerMsg, FolderState, ListingError, PickMode};
 use super::{Button, List, ListItem, SpinnerStyle, Switch, Text, TextInput};
@@ -57,6 +58,10 @@ use super::{Button, List, ListItem, SpinnerStyle, Switch, Text, TextInput};
 /// }
 /// ```
 ///
+/// A click on an entry selects it, the way a desktop file explorer does; a double click, or Enter,
+/// opens a folder or chooses a file. [`open_on(Click::Single)`](Self::open_on) opens and chooses
+/// with one click instead. The path above the list opens a folder with one click either way.
+///
 /// Keys: the list's keys (↑/↓, Enter opens a folder or chooses a file) and Tab between the
 /// filter, the list, the switch and the button. Style keys: `path-segment` (`fg`, `bg`) with
 /// `hover` and `selected` for the current folder; `path-separator`; `spinner` and
@@ -66,6 +71,7 @@ use super::{Button, List, ListItem, SpinnerStyle, Switch, Text, TextInput};
 pub struct FilePicker<'a, Msg> {
     browser: &'a FileBrowser,
     wrap: Wrap<Msg>,
+    open_on: Click,
 }
 
 /// Turns picker messages into the application's; shared by every widget of one picker.
@@ -80,13 +86,24 @@ impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
     /// picker shares it among its widgets, so it need not be `Clone`.
     #[must_use]
     pub fn new(browser: &'a FileBrowser, wrap: impl Fn(FilePickerMsg) -> Msg + 'static) -> Self {
-        Self { browser, wrap: Rc::new(wrap) }
+        Self { browser, wrap: Rc::new(wrap), open_on: Click::Double }
+    }
+
+    /// How many clicks open a folder or choose a file: [`Click::Double`], the default, so a click
+    /// only selects and a person can look before choosing; or [`Click::Single`], where a click
+    /// opens or chooses at once. A double click is two presses on the same entry within
+    /// [`Click::INTERVAL`]. Enter opens or chooses the selected entry either way.
+    #[must_use]
+    pub fn open_on(mut self, click: Click) -> Self {
+        self.open_on = click;
+        self
     }
 
     /// Adds the picker to `ui` as a column.
     pub fn show<'v>(self, ui: &'v mut View<'_, Msg>) -> NodeMut<'v, Msg> {
         let browser = self.browser;
         let wrap = self.wrap;
+        let open_on = self.open_on;
         ui.column(|ui| {
             let failed = matches!(browser.state, FolderState::Failed(_));
             let busy = browser.loading.is_some();
@@ -105,7 +122,7 @@ impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
                     ui.add(Text::new("")).height(Length::Fill(1));
                 }
                 FolderState::Failed(error) => Self::failure(ui, error, &browser.folder),
-                FolderState::Ready(_) => Self::entries(ui, browser, &wrap),
+                FolderState::Ready(_) => Self::entries(ui, browser, &wrap, open_on),
             }
             Self::footer(ui, browser, &wrap);
         })
@@ -137,7 +154,7 @@ impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
         .fill_width();
     }
 
-    fn entries(ui: &mut View<'_, Msg>, browser: &FileBrowser, wrap: &Wrap<Msg>) {
+    fn entries(ui: &mut View<'_, Msg>, browser: &FileBrowser, wrap: &Wrap<Msg>, open_on: Click) {
         let parent = browser.folder.parent().map(Path::to_path_buf);
         let visible = browser.visible();
         let mut items = Vec::new();
@@ -177,6 +194,7 @@ impl<'a, Msg: Clone + Send + 'static> FilePicker<'a, Msg> {
         let (select, activate) = (Rc::clone(wrap), Rc::clone(wrap));
         let list = List::new(items)
             .selected(selected)
+            .activate_on(open_on)
             .on_select(move |index| select(FilePickerMsg::Select(names.get(index).cloned().flatten())))
             .on_activate(move |index| activate(actions.get(index).cloned().unwrap_or(FilePickerMsg::Refresh)));
         if nothing {
@@ -462,11 +480,11 @@ mod tests {
         let screen = h.screen();
         assert!(screen.contains("■ deploy") && screen.contains("compose.yaml"), "{screen}");
         assert!(screen.contains("Parent folder"), "{screen}");
-        h.click_text("deploy");
+        h.click_text("deploy").click_text("deploy");
         let screen = h.screen();
         assert!(screen.contains("release.sh") && screen.contains("2.0 KiB"), "{screen}");
         assert!(screen.contains("scripts"), "{screen}");
-        h.click_text("release.sh");
+        h.click_text("release.sh").click_text("release.sh");
         assert_eq!(h.app().chosen.as_deref(), Some(dir.join("deploy/release.sh").as_path()));
         let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         h.click_text(&name);
@@ -481,7 +499,7 @@ mod tests {
         // opened `deploy` and pressed Choose folder.
         let dir = scratch("entered");
         let mut h = harness(&dir, PickMode::Folders);
-        h.click_text("deploy");
+        h.click_text("deploy").click_text("deploy");
         assert!(h.screen().contains("scripts"), "{}", h.screen());
         h.click_text("Choose folder");
         assert_eq!(h.app().chosen.as_deref(), Some(dir.join("deploy").as_path()));
@@ -502,6 +520,65 @@ mod tests {
         assert_eq!(h.app().chosen.as_deref(), Some(dir.join("deploy").as_path()));
         h.send(Msg::Picker(FilePickerMsg::Filter("zzz".into())));
         assert!(h.screen().contains("Nothing matches"), "{}", h.screen());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_click_selects_and_a_double_click_or_enter_chooses() {
+        let dir = scratch("clicks");
+        let mut h = harness(&dir, PickMode::Files);
+        h.click_text("compose.yaml");
+        assert_eq!(h.app().chosen, None, "one click chooses nothing");
+        assert_eq!(h.app().browser.selected.as_deref(), Some("compose.yaml"), "it selects");
+        h.advance(Click::INTERVAL).click_text("compose.yaml");
+        assert_eq!(h.app().chosen, None, "a second click after the interval is another single click");
+        h.click_text("compose.yaml");
+        assert_eq!(h.app().chosen.as_deref(), Some(dir.join("compose.yaml").as_path()), "a double click chooses");
+
+        let mut h = harness(&dir, PickMode::Files);
+        h.click_text("deploy");
+        assert!(!h.screen().contains("release.sh"), "one click does not open a folder:\n{}", h.screen());
+        // The click focused the list, so Enter reaches it.
+        h.click_text("compose.yaml").advance(Click::INTERVAL).press("enter");
+        assert_eq!(h.app().chosen.as_deref(), Some(dir.join("compose.yaml").as_path()), "Enter chooses");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_click_on_the_entry_a_folder_selected_by_itself_points_at_it() {
+        // Opening a folder puts the cursor on its first entry without it counting as pointed at;
+        // a click on that very entry is the person pointing, so Choose folder takes it.
+        let dir = scratch("pointed");
+        let mut h = harness(&dir, PickMode::Folders);
+        assert_eq!(h.app().browser.selected.as_deref(), Some("deploy"), "{}", h.screen());
+        h.click_text("deploy");
+        assert!(!h.screen().contains("scripts"), "the click did not open it:\n{}", h.screen());
+        h.click_text("Choose folder");
+        assert_eq!(h.app().chosen.as_deref(), Some(dir.join("deploy").as_path()));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn open_on_single_opens_and_chooses_with_one_click() {
+        struct Quick(Demo);
+        impl App for Quick {
+            type Msg = Msg;
+            fn update(&mut self, msg: Msg) -> Command<Msg> {
+                self.0.update(msg)
+            }
+            fn view(&self, ui: &mut View<'_, Msg>) {
+                FilePicker::new(&self.0.browser, Msg::Picker).open_on(Click::Single).show(ui).fill();
+            }
+        }
+        let dir = scratch("single");
+        let browser = FileBrowser::new(&dir, PickMode::Files);
+        let mut h = Harness::new(Quick(Demo { browser, chosen: None }), 60, 14);
+        h.set_glyph_mode(GlyphMode::Unicode);
+        h.send(Msg::Picker(FilePickerMsg::Open(dir.clone())));
+        h.click_text("deploy");
+        assert!(h.screen().contains("release.sh"), "{}", h.screen());
+        h.click_text("release.sh");
+        assert_eq!(h.app().0.chosen.as_deref(), Some(dir.join("deploy/release.sh").as_path()));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -552,7 +629,7 @@ mod tests {
         // `update` hands the closure to `open`, whose read delivers `Loaded` through it.
         h.send(TabMsg::Picker(3, FilePickerMsg::Open(dir.clone())));
         assert!(h.screen().contains("compose.yaml"), "{}", h.screen());
-        h.click_text("deploy").click_text("release.sh");
+        h.click_text("deploy").click_text("deploy").click_text("release.sh").click_text("release.sh");
         assert_eq!(h.app().chosen, [(3, dir.join("deploy/release.sh"))]);
         std::fs::remove_dir_all(dir).ok();
     }
@@ -586,7 +663,7 @@ mod tests {
         assert!(h.screen().contains("compose.yaml"), "{}", h.screen());
         // `Demo` shows its picker with the variant `Msg::Picker`; a pointer is accepted as well.
         let _ = FilePicker::new(&h.app().browser, pointer);
-        h.click_text("compose.yaml");
+        h.click_text("compose.yaml").click_text("compose.yaml");
         assert_eq!(h.app().chosen.as_deref(), Some(dir.join("compose.yaml").as_path()));
         std::fs::remove_dir_all(dir).ok();
     }

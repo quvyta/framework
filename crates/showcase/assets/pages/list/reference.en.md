@@ -5,6 +5,7 @@
 - `.selected(Option<usize>)` — the selected row.
 - `.on_select(|index| msg)` — the selection moved.
 - `.on_activate(|index| msg)` — a row was opened with Enter or a click.
+- `.activate_on(Click)` — `Click::Single`, the default: a click selects and opens. `Click::Double`: a click only selects (and reports its row through `on_select` even when it is selected already), a double click within `Click::INTERVAL` opens.
 - `.checked(Vec<bool>)` and `.on_toggle(|index| msg)` — multiple selection.
 - `.empty_text(text)` — shown when there are no items.
 - `.scrollbar(ScrollbarStyle)` — pins a scrollbar style instead of the theme's.
