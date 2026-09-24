@@ -4,6 +4,28 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.25 - 2026-09-24
+
+### Added
+
+- `Image` on a terminal that speaks the kitty graphics protocol (`Env::graphics()` is
+  `Graphics::Kitty`): the terminal draws the picture itself, in real pixels, and the widget paints
+  no half blocks, only the plain `canvas` ground under it. The pixels are sent once, zlib
+  compressed, at the size `ImageData` keeps; every later frame only places them, so a screen where
+  nothing moved still writes nothing. A place no longer used is deleted and a picture shown nowhere
+  is freed from the terminal's memory; after a handoff everything is sent and placed again, and
+  leaving the application frees them all. Every command carries `q=2`, so no answer can arrive as
+  keys. The picture sits under text: what is painted over one side of it (a menu, a panel) cuts it
+  to the part left showing, and something in its middle, or a dialog's dimmed backdrop, draws it
+  with half blocks for that frame. The showcase's image page says which way it draws.
+
+### Fixed
+
+- The parts of an `AppShell` (header, sidebar, body, footer) and the two panes of a `Splitter`
+  are separate widgets again. All of them took the same place, so they and the first widget in
+  each shared one identity: a key the body claimed, such as a file list's Ctrl+C, was looked for
+  in the header instead, and state kept for one part could land on another.
+
 ## 0.1.24 - 2026-09-24
 
 ### Added

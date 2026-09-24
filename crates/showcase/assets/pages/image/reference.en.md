@@ -1,6 +1,6 @@
 ## Feature
 
-- `image` on `quvyta-framework`, off by default. It brings the decoders for PNG, JPEG, GIF and WebP and nothing else.
+- `image` on `quvyta-framework`, off by default. It brings the decoders for PNG, JPEG, GIF and WebP, and zlib to compress pictures sent to a kitty terminal, and nothing else.
 
 ## ImageData
 
@@ -30,6 +30,8 @@
 - Measures the cells its fit needs within the room given: all of it for `Cover`, the picture's shape for `Contain`, its own size for `Center`, where a cell is one pixel wide and two tall.
 - Every cell is `▀` with the upper pixel as its colour and the lower one as its background; a half cell at the picture's edge is `▀` or `▄` over what is under it. Cells the picture does not reach are left alone.
 - Resamples with a box filter. The cells are kept in the widget's memory and recomputed only when the area's size, the fit or the picture changes.
+- `Env::graphics()` is `Graphics::Kitty`: no half blocks. The picture's cells get the theme's `canvas` ground and a space, and the terminal draws the picture over them at `z=-1`, under text and over the cells' ground. The pixels are sent once as RGB (`a=t,f=24,o=z`, base64 in chunks of 4096 bytes) under a number of their own; every frame after only places them (`a=p` with the source rectangle and the cells), deletes a place no longer used (`a=d,d=i`) and frees a picture shown nowhere (`a=d,d=I`). A frame whose places did not change writes nothing. Every command carries `q=2`, so the terminal never answers. After a program had the terminal, everything is sent and placed again.
+- What is painted over a kitty picture hides it: when the cells left showing form one rectangle (a menu along one side), the picture is cut to it; otherwise (something in the middle or a corner, a dialog's dimmed backdrop) that frame draws it with half blocks, dimmed like the backdrop. `Graphics::Sixel` draws half blocks for now.
 - Marks its cells as decoration: a clean copy of a text selection leaves them out.
 - `ColorDepth::Ansi256`: both halves take their nearest palette entry. `ColorDepth::Ansi16` and `GlyphMode::Ascii`: draws an empty state with the file name (or "Picture"), the format, the original size and "This terminal cannot show pictures."
 - Not focusable; sends no messages.

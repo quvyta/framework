@@ -22,6 +22,10 @@ mod frame_limit;
 mod graphics_probe;
 pub(crate) mod handoff;
 mod harness;
+#[cfg(feature = "image")]
+mod kitty;
+#[cfg(all(test, feature = "image"))]
+mod kitty_rules;
 #[cfg(test)]
 mod layer_rules;
 #[cfg(test)]

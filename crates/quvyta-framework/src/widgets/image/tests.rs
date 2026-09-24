@@ -396,3 +396,19 @@ fn a_tiny_area_draws_nothing_outside_itself() {
     assert_eq!(h.fg(0, 0), Some(Rgb::new(128, 128, 0)), "red and green averaged");
     assert_eq!(h.bg(0, 0), Some(Rgb::new(128, 128, 255)), "blue and white averaged");
 }
+
+#[test]
+fn a_kitty_terminal_gets_plain_ground_cells_to_draw_the_picture_on() {
+    let mut h = Harness::new(Shown { data: quadrants(), fit: Fit::Cover }, 4, 2);
+    let before = resamples();
+    h.set_graphics(crate::graphics::Graphics::Kitty).render();
+    let canvas = h.env().theme().color("canvas");
+    for y in 0..2 {
+        for x in 0..4 {
+            assert_eq!(h.buffer()[(x, y)].symbol(), " ", "no half block at {x},{y}:\n{}", h.screen());
+            assert_eq!(h.bg(x, y), canvas, "the ground at {x},{y}");
+        }
+    }
+    assert_eq!(resamples(), before, "no half blocks are worked out for a picture the terminal draws");
+    assert!(words_of(&h).is_empty(), "nothing a text selection or a screen reader would read");
+}

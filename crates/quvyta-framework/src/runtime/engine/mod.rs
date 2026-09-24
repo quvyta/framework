@@ -30,6 +30,7 @@ use super::confirm::{Confirm, ConfirmLayer};
 use super::debug;
 use super::detached::{DetachedHandoff, DetachedOutcome};
 use super::handoff::{Handoff, HandoffOutcome, HandoffRequest};
+use super::present::Painted;
 use super::selection::{Press, Selection};
 use super::selection_menu::{self, SelectionMenu};
 use super::task::{self, Delivery, TaskClock};
@@ -95,6 +96,10 @@ pub(crate) struct Engine<A: App> {
     pub(crate) frame: Frame,
     /// The frame before `frame`, emptied and painted into next, so its memory is reused.
     spare_frame: Frame,
+    /// Half blocks of pictures the terminal cannot draw whole this frame; see
+    /// [`resolve`](crate::widgets::image::resolve).
+    #[cfg(feature = "image")]
+    picture_halves: crate::widgets::image::Halves,
     pub(crate) interaction: Interaction,
     tree: Option<Node<A::Msg>>,
     pointer: Option<(i32, i32)>,
@@ -188,6 +193,8 @@ impl<A: App> Engine<A> {
             memory: Memory::default(),
             frame: Frame::default(),
             spare_frame: Frame::default(),
+            #[cfg(feature = "image")]
+            picture_halves: crate::widgets::image::Halves::default(),
             interaction: Interaction::default(),
             tree: None,
             pointer: None,
@@ -323,6 +330,12 @@ impl<A: App> Engine<A> {
                 }
             });
         }
+        // Before colours are reduced, while the marks pictures left are still as painted.
+        #[cfg(feature = "image")]
+        {
+            let halves = crate::widgets::image::can_draw(&self.env);
+            frame.placements = crate::widgets::image::resolve(buf, &frame.pictures, &mut self.picture_halves, halves);
+        }
         style::reduce(buf, self.env.depth(), canvas);
         self.memory.end_frame();
         self.tree = Some(root);
@@ -340,6 +353,18 @@ impl<A: App> Engine<A> {
         self.stats.paint_time = started.elapsed();
         if let Some(text) = selection_copy.filter(|text| !text.is_empty()) {
             self.copy_from_ui(text);
+        }
+    }
+
+    /// What the last painted frame asks of the terminal beyond its cells: the pointer's shape
+    /// where the pointer is now, and the pictures it draws itself.
+    pub(crate) fn painted(&self) -> Painted {
+        Painted {
+            shape: self.pointer_shape(),
+            #[cfg(feature = "image")]
+            pictures: self.frame.placements.clone(),
+            #[cfg(feature = "image")]
+            painted: self.frame.pictures.iter().map(crate::widgets::image::Picture::image).collect(),
         }
     }
 

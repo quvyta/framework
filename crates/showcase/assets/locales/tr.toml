@@ -1165,7 +1165,10 @@ rows = "Satırlar"
 
 [image]
 fits = "ÜÇ YERLEŞİM"
-fits-hint = "160 x 100 piksellik tek bir resim, yarım bloklarla çizilir: her hücre üst üste iki piksel gösterir."
+fits-hint = "160 x 100 piksellik tek bir resim, üç yerleşimin her birinde."
+drawn-kitty = "Bu terminal resimleri kitty grafik protokolüyle kendisi çiziyor: gerçek pikseller, bir kez gönderilir, sonra numarasıyla yeniden yerleştirilir."
+drawn-halfblock = "Yarım bloklarla çizilir: her hücre üst üste iki piksel gösterir."
+drawn-none = "Bu terminal resim göstermiyor; her resim onun yerine ne olduğunu söylüyor."
 contain = "Sığdır"
 cover = "Doldur"
 center = "Ortala"

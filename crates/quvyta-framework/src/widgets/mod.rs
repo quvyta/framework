@@ -50,7 +50,7 @@ mod icon_button;
 #[cfg(test)]
 mod icon_button_tests;
 #[cfg(feature = "image")]
-mod image;
+pub(crate) mod image;
 mod key_hints;
 mod layer;
 mod legend;

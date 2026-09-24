@@ -252,6 +252,9 @@ impl<A: App> Runtime<A> {
             // A resize arrow left behind would follow the user into the shell. Leaving is under
             // way whatever happens here, so a failed write only leaves the arrow.
             let _ = screen.reset_pointer_shape();
+            // Pictures left in the terminal's memory would stay there after the application.
+            #[cfg(feature = "image")]
+            let _ = screen.release_pictures();
         }
         let terminal = screen.into_terminal();
         if guard.abandoned.get() {
@@ -387,7 +390,7 @@ fn draw<A: App>(
     if engine.frame_due(now) {
         terminal.present(|buffer| {
             engine.render(buffer, start.elapsed());
-            engine.pointer_shape()
+            engine.painted()
         })?;
         for text in engine.clipboard.drain(..) {
             execute!(io::stdout(), CopyToClipboard::to_clipboard_from(text))?;
@@ -504,6 +507,9 @@ fn run_handoffs<A: App>(
         // The program gets the terminal's usual pointer, not the arrow of an edge the pointer
         // was on. Should the write fail, giving the screen back below fails too and says so.
         let _ = terminal.reset_pointer_shape();
+        // Nor does it inherit the pictures; they are sent again when the screen comes back.
+        #[cfg(feature = "image")]
+        let _ = terminal.release_pictures();
         let prompt = engine.env.i18n().translate("quvyta.handoff.pause", &[]);
         let deliveries = engine.deliveries();
         let message = {

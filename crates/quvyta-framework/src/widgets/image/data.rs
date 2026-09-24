@@ -108,7 +108,10 @@ impl ImageData {
     /// 267 × 200 pixels, about 160 KB. Decoding still passes through the full picture once, so
     /// this is slow for large files: call it from [`Command::perform`](crate::runtime::Command::perform),
     /// never from `view`. For an [`Image`](super::Image) filling an area, ask for the area's width in
-    /// cells and twice its height: a cell shows two pixels, one above the other.
+    /// cells and twice its height: a cell shows two pixels, one above the other. Where
+    /// [`Env::graphics`](crate::env::Env::graphics) is [`Graphics::Kitty`](crate::graphics::Graphics::Kitty)
+    /// the terminal shows every pixel it is sent, which is the size kept here and never more, so
+    /// ask for about ten times the width and twenty times the height.
     ///
     /// # Errors
     ///
@@ -192,12 +195,12 @@ impl ImageData {
     }
 
     /// Every pixel, row after row.
-    pub(super) fn pixels(&self) -> &[Rgb] {
+    pub(crate) fn pixels(&self) -> &[Rgb] {
         &self.inner.pixels
     }
 
     /// This picture's identity: clones share it, every picture made has its own.
-    pub(super) fn id(&self) -> u64 {
+    pub(crate) fn id(&self) -> u64 {
         self.inner.id
     }
 

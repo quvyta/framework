@@ -93,6 +93,35 @@ pub(super) fn measure(data: &ImageData, room: (u16, u16), fit: Fit) -> (u16, u16
     }
 }
 
+/// Where the terminal draws `data` itself in an area of `columns` × `rows` cells, both non-zero,
+/// for `fit`: the cells the picture covers (column, row, width and height, from the area's top
+/// left) and the part of the picture shown there, in the picture's pixels.
+///
+/// The picture lands where half blocks would put it, widened to whole cells: a picture that
+/// would end half way down a cell covers that cell, stretched by less than half a row, since the
+/// terminal places a picture on whole cells only.
+pub(super) fn terminal_cells(data: &ImageData, columns: u16, rows: u16, fit: Fit) -> OnTerminal {
+    let area = (u32::from(columns), u32::from(rows) * 2);
+    let placed = place((data.width(), data.height()), area, fit);
+    let top = placed.y / 2;
+    let bottom = (placed.y + placed.height).div_ceil(2);
+    let cells = (
+        u16::try_from(placed.x).unwrap_or(0),
+        u16::try_from(top).unwrap_or(0),
+        u16::try_from(placed.width).unwrap_or(columns).min(columns),
+        u16::try_from(bottom - top).unwrap_or(rows).min(rows),
+    );
+    OnTerminal { cells, source: placed.source }
+}
+
+/// Where the terminal draws a picture in an area; see [`terminal_cells`].
+pub(super) struct OnTerminal {
+    /// Column, row, columns and rows, from the area's top left.
+    pub(super) cells: (u16, u16, u16, u16),
+    /// Left, top, width and height in the picture's pixels.
+    pub(super) source: (f64, f64, f64, f64),
+}
+
 /// The cells of an area of `columns` × `rows` cells showing `data` with `fit`, row after row.
 pub(super) fn cells(data: &ImageData, columns: u16, rows: u16, fit: Fit) -> Vec<Half> {
     let area = (u32::from(columns), u32::from(rows) * 2);

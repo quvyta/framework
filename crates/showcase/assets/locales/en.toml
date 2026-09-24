@@ -1164,7 +1164,10 @@ rows = "Rows"
 
 [image]
 fits = "THREE FITS"
-fits-hint = "One picture, 160 by 100 pixels, drawn with half blocks: every cell shows two pixels, one above the other."
+fits-hint = "One picture, 160 by 100 pixels, in each of the three fits."
+drawn-kitty = "This terminal draws the pictures itself, with the kitty graphics protocol: real pixels, sent once and placed again by number."
+drawn-halfblock = "Drawn with half blocks: every cell shows two pixels, one above the other."
+drawn-none = "This terminal shows no pictures, so each one says what it is instead."
 contain = "Contain"
 cover = "Cover"
 center = "Center"

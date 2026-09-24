@@ -1,5 +1,7 @@
-//! Image: a picture drawn with half blocks, in the three fits, at a size the playground chooses.
+//! Image: a picture in the three fits, at a size the playground chooses, drawn the way this
+//! terminal can: by the terminal itself over the kitty graphics protocol, or with half blocks.
 
+use qframe::graphics::Graphics;
 use qframe::prelude::*;
 use qframe::widgets::{Fit, Image, ImageData, Segmented, Slider};
 
@@ -116,6 +118,14 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
 pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     ui.add_with(Panel::new().title(t!("image.fits")).gap(0), |ui| {
         ui.add(Text::new(t!("image.fits-hint")).role("secondary"));
+        // region: path
+        let drawn = match ui.env().graphics() {
+            Graphics::Kitty => "image.drawn-kitty",
+            Graphics::Sixel | Graphics::HalfBlock => "image.drawn-halfblock",
+            Graphics::None => "image.drawn-none",
+        };
+        // endregion
+        ui.add(Text::new(t!(drawn)).role("faint")).id("drawn");
         ui.spacer().height(Length::Cells(1));
         ui.row(|ui| {
             for (fit, caption) in
@@ -213,6 +223,16 @@ mod tests {
         assert!(picture_rows(&h.screen()) > before, "a larger picture takes more rows:\n{}", h.screen());
         click_fit(&mut h, "Center");
         assert_eq!(h.app().pages.image.fit, 2);
+    }
+
+    #[test]
+    fn a_kitty_terminal_draws_the_pictures_itself_and_the_page_says_so() {
+        let mut h = showcase_on(PAGE);
+        assert!(h.screen().contains("Drawn with half blocks"), "{}", h.screen());
+        h.set_graphics(qframe::graphics::Graphics::Kitty);
+        let screen = h.screen();
+        assert!(screen.contains("kitty graphics protocol"), "{screen}");
+        assert!(!screen.contains('▀'), "the terminal draws the pixels, not the cells:\n{screen}");
     }
 
     #[test]

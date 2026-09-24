@@ -88,18 +88,21 @@ impl<'a, Msg: 'static> AppShell<'a, Msg> {
 
     /// Adds the shell to `ui`, filling the space it gets.
     pub fn show<'v>(self, ui: &'v mut View<'_, Msg>) -> NodeMut<'v, Msg> {
-        let build = |part: Option<Part<'a, Msg>>| {
+        // Each part takes its own place among the shell's children: with one place for all four,
+        // the four parts, and the first widget of each, had one identity, and a key or a stored
+        // state meant for the body reached the header instead.
+        let build = |part: Option<Part<'a, Msg>>, place: usize| {
             let mut children = Vec::new();
             if let Some(part) = part {
                 part(&mut ui.nested(&mut children));
             }
-            let mut node = Node::new(Flex::new(Axis::Column, children), 0);
+            let mut node = Node::new(Flex::new(Axis::Column, children), place);
             node.layout.width = Length::Fill(1);
             node.layout.height = Length::Fill(1);
             node
         };
         let shell = Shell {
-            parts: vec![build(self.header), build(self.sidebar), build(self.body), build(self.footer)],
+            parts: vec![build(self.header, 0), build(self.sidebar, 1), build(self.body, 2), build(self.footer, 3)],
             sidebar_width: self.sidebar_width,
             collapse_below: self.collapse_below,
             sidebar_open: self.sidebar_open,
@@ -269,5 +272,59 @@ mod tests {
         assert_eq!(closed.screen(), "head\nbody\n\nfoot\n");
         let open = Harness::new(Demo { open: true }, 20, 4);
         assert_eq!(open.screen(), "head\nmenu\n\nfoot\n");
+    }
+
+    /// A shell whose header holds a row and whose body claims the copy key, as a file explorer's
+    /// does with its file list.
+    #[derive(Default)]
+    struct Explorer {
+        copied: u32,
+        pressed: u32,
+    }
+
+    #[derive(Clone)]
+    enum Go {
+        Copied,
+        Pressed,
+    }
+
+    impl App for Explorer {
+        type Msg = Go;
+        fn update(&mut self, go: Go) -> Command<Go> {
+            match go {
+                Go::Copied => self.copied += 1,
+                Go::Pressed => self.pressed += 1,
+            }
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, Go>) {
+            AppShell::new()
+                .header(|ui| {
+                    ui.row(|ui| {
+                        ui.add(Text::new("~/Documents"));
+                    });
+                })
+                .body(|ui| {
+                    ui.column(|ui| {
+                        ui.add(crate::widgets::Button::new("notes.txt").on_press(Go::Pressed));
+                    })
+                    .on_clipboard(crate::widget::ClipboardKey::Copy, Go::Copied);
+                })
+                .footer(|ui| {
+                    ui.row(|ui| {
+                        ui.add(Text::new("1 item"));
+                    });
+                })
+                .show(ui);
+        }
+    }
+
+    #[test]
+    fn a_key_the_body_claims_reaches_it_while_the_header_holds_a_row() {
+        let mut h = Harness::new(Explorer::default(), 60, 10);
+        h.click_text("notes.txt");
+        assert_eq!(h.app().pressed, 1, "the body's button has the keyboard");
+        h.press("ctrl+c");
+        assert_eq!(h.app().copied, 1, "the body's claim on ctrl+c answered, not the header's row");
     }
 }

@@ -1,18 +1,21 @@
-//! Pictures in the terminal: decoded pixels drawn with half blocks, in any terminal with 256
-//! colours or more, over SSH too.
+//! Pictures in the terminal: decoded pixels drawn by a terminal that speaks the kitty graphics
+//! protocol, and with half blocks in any terminal with 256 colours or more, over SSH too.
 
 mod data;
+mod kitty;
 mod resample;
 #[cfg(test)]
 mod tests;
 
 pub use data::{ImageData, ImageError};
+pub(crate) use kitty::{Halves, Picture, PicturePlacement, resolve};
 use resample::Half;
 
 use super::EmptyState;
 use crate::color::ColorDepth;
 use crate::env::Env;
 use crate::geometry::{Rect, Size};
+use crate::graphics::Graphics;
 use crate::i18n::translate_active;
 use crate::icons::GlyphMode;
 use crate::style::to_color;
@@ -32,10 +35,18 @@ pub enum Fit {
     Center,
 }
 
-/// A picture, drawn with half blocks.
+/// A picture, drawn by the terminal itself where it can and with half blocks elsewhere.
 ///
-/// Every cell shows two pixels, one above the other: `▀` in the upper pixel's colour on the lower
-/// pixel's. A cell is about twice as tall as it is wide, so these pixels are close to square and
+/// Where [`Env::graphics`] is [`Graphics::Kitty`], the terminal draws the picture in real
+/// pixels: its cells get the theme's `canvas` ground and the terminal places the picture over
+/// them, under text. The pixels are sent once, at the size [`ImageData`] keeps, and every later
+/// frame only places them; a frame whose pictures did not move writes nothing for them. What is
+/// painted over the picture hides it: along one side, the picture is cut to the part left
+/// showing; in the middle or a corner, or under a dialog's dimmed backdrop, that frame draws it
+/// with half blocks.
+///
+/// Everywhere else every cell shows two pixels, one above the other: `▀` in the upper pixel's
+/// colour on the lower pixel's. A cell is about twice as tall as it is wide, so these pixels are close to square and
 /// a picture keeps its shape. Shrinking averages every pixel it covers (a box filter), so a photo
 /// does not flicker into noise. The cells are worked out once and kept in the widget's memory;
 /// they are worked out again only when the area's size, the fit or the picture changes, so a
@@ -94,7 +105,7 @@ impl Image {
 
 /// Whether `env`'s terminal can show pixels as half blocks: 256 colours or more, and block
 /// elements to draw with.
-fn can_draw(env: &Env) -> bool {
+pub(crate) fn can_draw(env: &Env) -> bool {
     env.depth() != ColorDepth::Ansi16 && env.glyph_mode() != GlyphMode::Ascii
 }
 
@@ -119,7 +130,7 @@ fn resamples() -> u32 {
 
 impl<Msg: 'static> Widget<Msg> for Image {
     fn measure(&self, cx: &mut MeasureCx<'_>, available: Size) -> Size {
-        if !can_draw(cx.env()) {
+        if cx.env().graphics() != Graphics::Kitty && !can_draw(cx.env()) {
             return Widget::<()>::measure(&self.cannot_show(), cx, available);
         }
         let (width, height) = resample::measure(&self.data, (available.width, available.height), self.fit);
@@ -128,6 +139,10 @@ impl<Msg: 'static> Widget<Msg> for Image {
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
         if area.is_empty() {
+            return;
+        }
+        if cx.env().graphics() == Graphics::Kitty {
+            self.paint_for_terminal(cx, area);
             return;
         }
         if !can_draw(cx.env()) {
@@ -147,20 +162,26 @@ impl<Msg: 'static> Widget<Msg> for Image {
         cx.decoration(area);
         let columns = usize::from(area.width);
         cx.each_cell_within(area, |column, row, cell| {
-            let Some(half) = cells.get(usize::from(row) * columns + usize::from(column)) else { return };
-            let (symbol, fg, bg) = match *half {
-                Half::Empty => return,
-                Half::Top(top) => ("▀", top, None),
-                Half::Bottom(bottom) => ("▄", bottom, None),
-                Half::Both(top, bottom) => ("▀", top, Some(bottom)),
-            };
-            cell.set_symbol(symbol);
-            cell.fg = to_color(fg);
-            if let Some(bg) = bg {
-                cell.bg = to_color(bg);
+            if let Some(half) = cells.get(usize::from(row) * columns + usize::from(column)) {
+                paint_half(cell, *half);
             }
-            cell.modifier = ratatui_core::style::Modifier::empty();
         });
         cx.memory::<Cells>().cells = cells;
     }
+}
+
+/// Paints what one cell shows of a picture with half blocks; an empty half keeps what is under it.
+fn paint_half(cell: &mut ratatui_core::buffer::Cell, half: Half) {
+    let (symbol, fg, bg) = match half {
+        Half::Empty => return,
+        Half::Top(top) => ("▀", top, None),
+        Half::Bottom(bottom) => ("▄", bottom, None),
+        Half::Both(top, bottom) => ("▀", top, Some(bottom)),
+    };
+    cell.set_symbol(symbol);
+    cell.fg = to_color(fg);
+    if let Some(bg) = bg {
+        cell.bg = to_color(bg);
+    }
+    cell.modifier = ratatui_core::style::Modifier::empty();
 }

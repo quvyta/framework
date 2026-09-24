@@ -82,12 +82,13 @@ impl<'a, Msg: 'static> Splitter<'a, Msg> {
 
     /// Adds the splitter to `ui`, filling the space it gets.
     pub fn show<'v>(self, ui: &'v mut View<'_, Msg>) -> NodeMut<'v, Msg> {
-        let build = |pane: Option<Pane<'a, Msg>>| {
+        // Each pane takes its own place, so the two panes and their widgets never share an identity.
+        let build = |pane: Option<Pane<'a, Msg>>, place: usize| {
             let mut children = Vec::new();
             if let Some(pane) = pane {
                 pane(&mut ui.nested(&mut children));
             }
-            let mut node = Node::new(Flex::new(FlexAxis::Column, children), 0);
+            let mut node = Node::new(Flex::new(FlexAxis::Column, children), place);
             node.layout.width = Length::Fill(1);
             node.layout.height = Length::Fill(1);
             node
@@ -98,7 +99,7 @@ impl<'a, Msg: 'static> Splitter<'a, Msg> {
             min: self.min,
             max: self.max,
             on_resize: self.on_resize,
-            panes: vec![build(self.first), build(self.second)],
+            panes: vec![build(self.first, 0), build(self.second, 1)],
         };
         ui.add(split).fill()
     }
@@ -322,5 +323,42 @@ mod tests {
     fn narrow_area_keeps_the_second_pane() {
         let h = Harness::new(Demo { size: 12, rows: false, resizable: true, max: Some(12) }, 8, 1);
         assert_eq!(h.screen(), "left   r\n");
+    }
+
+    /// Two panes whose first widgets are both rows, the second pane claiming the copy key.
+    #[derive(Default)]
+    struct TwoPanes {
+        copied: u32,
+    }
+
+    impl App for TwoPanes {
+        type Msg = bool;
+        fn update(&mut self, copied: bool) -> Command<bool> {
+            self.copied += u32::from(copied);
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, bool>) {
+            Splitter::columns(20)
+                .first(|ui| {
+                    ui.row(|ui| {
+                        ui.add(Text::new("places"));
+                    });
+                })
+                .second(|ui| {
+                    ui.row(|ui| {
+                        ui.add(crate::widgets::Button::new("notes.txt").on_press(false));
+                    })
+                    .on_clipboard(crate::widget::ClipboardKey::Copy, true);
+                })
+                .show(ui);
+        }
+    }
+
+    #[test]
+    fn a_key_the_second_pane_claims_reaches_it_and_not_the_first() {
+        let mut h = Harness::new(TwoPanes::default(), 60, 6);
+        h.click_text("notes.txt");
+        h.press("ctrl+c");
+        assert_eq!(h.app().copied, 1, "the second pane's claim answered");
     }
 }

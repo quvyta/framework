@@ -8,8 +8,10 @@
 //!
 //! The pointer's shape travels with the frame but outside the cells: a widget asks for a resize
 //! arrow over an edge while painting, and the frame writes OSC 22 only when the shape under the
-//! pointer changed, only to a terminal known to understand it. A frame that changed no cell and
-//! no shape still writes nothing.
+//! pointer changed, only to a terminal known to understand it. Pictures a kitty terminal draws
+//! itself travel the same way: after the cells, only what changed about them (see
+//! [`KittyPictures`](super::kitty::KittyPictures)). A frame that changed no cell, no shape and no
+//! picture still writes nothing.
 
 use std::io::{self, Write};
 
@@ -25,6 +27,31 @@ use crate::widget::PointerShape;
 /// The variable that turns pointer shapes on or off whatever the terminal is: `on` or `off`.
 const POINTER_SHAPES_VAR: &str = "QUVYTA_POINTER_SHAPES";
 
+/// What a painted frame asks of the terminal beyond its cells.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Painted {
+    /// The pointer's shape.
+    pub(crate) shape: PointerShape,
+    /// The pictures a kitty terminal draws itself, where it shows them.
+    #[cfg(feature = "image")]
+    pub(crate) pictures: Vec<crate::widgets::image::PicturePlacement>,
+    /// The identities of every picture painted for the terminal to draw, placed or not.
+    #[cfg(feature = "image")]
+    pub(crate) painted: Vec<u64>,
+}
+
+impl From<PointerShape> for Painted {
+    fn from(shape: PointerShape) -> Self {
+        Self {
+            shape,
+            #[cfg(feature = "image")]
+            pictures: Vec::new(),
+            #[cfg(feature = "image")]
+            painted: Vec::new(),
+        }
+    }
+}
+
 /// The terminal an application draws on, and the frame it shows.
 pub(crate) struct Screen<W: Write> {
     terminal: Terminal<CrosstermBackend<W>>,
@@ -35,11 +62,24 @@ pub(crate) struct Screen<W: Write> {
     pointer_shapes: bool,
     /// The pointer's shape on the terminal now. A terminal starts with its usual pointer.
     shape: PointerShape,
+    /// The size the last frame was drawn at; the terminal was cleared when it changes.
+    area: Option<Rect>,
+    /// The pictures the terminal draws itself, and what it holds of them.
+    #[cfg(feature = "image")]
+    pictures: super::kitty::KittyPictures,
 }
 
 impl<W: Write> Screen<W> {
     pub(crate) fn new(terminal: Terminal<CrosstermBackend<W>>) -> Self {
-        Self { terminal, shown: None, pointer_shapes: false, shape: PointerShape::Default }
+        Self {
+            terminal,
+            shown: None,
+            pointer_shapes: false,
+            shape: PointerShape::Default,
+            area: None,
+            #[cfg(feature = "image")]
+            pictures: super::kitty::KittyPictures::default(),
+        }
     }
 
     /// Tells the terminal the pointer's shape, for a terminal that understands OSC 22.
@@ -48,35 +88,70 @@ impl<W: Write> Screen<W> {
         self
     }
 
-    /// Paints a frame with `render`, which answers the pointer shape the frame asks for, and
-    /// writes what changed inside one synchronized update: the cells, and the shape when it is
-    /// not the one the terminal shows. Returns whether anything was written: a frame equal to
-    /// the one shown, with the same shape, writes nothing.
-    pub(crate) fn present(&mut self, render: impl FnOnce(&mut Buffer) -> PointerShape) -> io::Result<bool> {
+    /// Paints a frame with `render`, which answers what the frame asks beyond its cells, and
+    /// writes what changed inside one synchronized update: the cells, the pointer's shape when it
+    /// is not the one the terminal shows, then the pictures when their places changed. Returns
+    /// whether anything was written: a frame equal to the one shown, with the same shape and the
+    /// same pictures, writes nothing.
+    pub(crate) fn present(&mut self, render: impl FnOnce(&mut Buffer) -> Painted) -> io::Result<bool> {
         self.terminal.autoresize()?;
         let mut frame = self.terminal.get_frame();
-        let shape = render(frame.buffer_mut());
-        let reshape = Some(shape).filter(|shape| self.pointer_shapes && *shape != self.shape);
-        let painted = self.terminal.current_buffer_mut();
-        if self.shown.as_ref() == Some(&*painted) {
+        let area = frame.area();
+        let painted = render(frame.buffer_mut());
+        if self.area.replace(area).is_some_and(|before| before != area) {
+            // A new size clears the terminal, and pictures with it in some terminals.
+            #[cfg(feature = "image")]
+            self.pictures.resized();
+        }
+        let reshape = Some(painted.shape).filter(|shape| self.pointer_shapes && *shape != self.shape);
+        #[cfg(feature = "image")]
+        let pictures = self.pictures.commands(&painted.pictures, &painted.painted);
+        #[cfg(not(feature = "image"))]
+        let pictures: Vec<u8> = Vec::new();
+        let buffer = self.terminal.current_buffer_mut();
+        if self.shown.as_ref() == Some(&*buffer) {
             // The buffer painted this time is reused by the next frame, which paints every cell
             // again, so it is left as it is and no cell reaches the terminal.
-            let Some(shape) = reshape else {
+            if reshape.is_none() && pictures.is_empty() {
                 return Ok(false);
-            };
-            self.write_shape(shape)?;
-            self.terminal.backend_mut().flush()?;
+            }
+            if pictures.is_empty() {
+                if let Some(shape) = reshape {
+                    self.write_shape(shape)?;
+                }
+                self.terminal.backend_mut().flush()?;
+                return Ok(true);
+            }
+            execute!(self.terminal.backend_mut(), BeginSynchronizedUpdate)?;
+            if let Some(shape) = reshape {
+                self.write_shape(shape)?;
+            }
+            self.terminal.backend_mut().write_all(&pictures)?;
+            execute!(self.terminal.backend_mut(), EndSynchronizedUpdate)?;
             return Ok(true);
         }
-        let painted = painted.clone();
+        let buffer = buffer.clone();
         execute!(self.terminal.backend_mut(), BeginSynchronizedUpdate)?;
         self.terminal.apply_buffer_with_cursor(None)?;
         if let Some(shape) = reshape {
             self.write_shape(shape)?;
         }
+        self.terminal.backend_mut().write_all(&pictures)?;
         execute!(self.terminal.backend_mut(), EndSynchronizedUpdate)?;
-        self.shown = Some(painted);
+        self.shown = Some(buffer);
         Ok(true)
+    }
+
+    /// Frees every picture the terminal holds, for before the terminal is handed to a program or
+    /// left: their pixels would otherwise stay in its memory.
+    #[cfg(feature = "image")]
+    pub(crate) fn release_pictures(&mut self) -> io::Result<()> {
+        let bytes = self.pictures.release();
+        if !bytes.is_empty() {
+            self.terminal.backend_mut().write_all(&bytes)?;
+            self.terminal.backend_mut().flush()?;
+        }
+        Ok(())
     }
 
     /// Gives the pointer its usual shape back, for before the terminal is handed to a program
@@ -101,11 +176,14 @@ impl<W: Write> Screen<W> {
         Ok(self.terminal.size()?.into())
     }
 
-    /// Forgets what is on screen and takes the size `area`, so the next frame draws every cell:
-    /// for after a program had the terminal and wrote over it.
+    /// Forgets what is on screen and takes the size `area`, so the next frame draws every cell
+    /// and sends and places every picture again: for after a program had the terminal and wrote
+    /// over it.
     pub(crate) fn redraw_all(&mut self, area: Rect) -> io::Result<()> {
         self.terminal.resize(area)?;
         self.shown = None;
+        #[cfg(feature = "image")]
+        self.pictures.forget();
         Ok(())
     }
 
@@ -166,26 +244,26 @@ mod tests {
         (Screen::new(terminal), wire)
     }
 
-    fn paint(text: &'static str) -> impl FnOnce(&mut Buffer) -> PointerShape {
+    fn paint(text: &'static str) -> impl FnOnce(&mut Buffer) -> Painted {
         pointing(text, PointerShape::Default)
     }
 
     /// Paints `text` and asks for `shape`.
-    fn pointing(text: &'static str, shape: PointerShape) -> impl FnOnce(&mut Buffer) -> PointerShape {
+    fn pointing(text: &'static str, shape: PointerShape) -> impl FnOnce(&mut Buffer) -> Painted {
         move |buffer: &mut Buffer| {
             buffer.reset();
             buffer.set_string(0, 0, text, ratatui_core::style::Style::default());
-            shape
+            shape.into()
         }
     }
 
     /// Bytes written by one frame.
-    fn bytes(screen: &mut Screen<Wire>, wire: &Wire, render: impl FnOnce(&mut Buffer) -> PointerShape) -> usize {
+    fn bytes(screen: &mut Screen<Wire>, wire: &Wire, render: impl FnOnce(&mut Buffer) -> Painted) -> usize {
         written(screen, wire, render).len()
     }
 
     /// What one frame wrote, as text.
-    fn written(screen: &mut Screen<Wire>, wire: &Wire, render: impl FnOnce(&mut Buffer) -> PointerShape) -> String {
+    fn written(screen: &mut Screen<Wire>, wire: &Wire, render: impl FnOnce(&mut Buffer) -> Painted) -> String {
         wire.0.borrow_mut().clear();
         screen.present(render).expect("a frame");
         String::from_utf8_lossy(&wire.0.borrow()).into_owned()

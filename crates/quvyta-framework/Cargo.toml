@@ -32,6 +32,9 @@ unicode-width = "0.2.2"
 vt100 = { version = "0.16.2", optional = true }
 ureq = { version = "3.4.2", optional = true, default-features = false, features = ["rustls"] }
 image = { version = "0.25.10", optional = true, default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# Pictures sent to a kitty terminal are compressed with zlib; the PNG decoder already brings this
+# exact version in, so naming it adds no crate.
+flate2 = { version = "1.1.10", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 # What `std` does not expose, read without `unsafe`: `time` for Uptime, `fs` for storage::AppLock,
@@ -61,6 +64,7 @@ pty = ["dep:portable-pty", "dep:vt100"]
 # Saying when a newer version is out: one question a day to crates.io, over HTTPS. Off by
 # default, so an application that does not ask carries no network code.
 updates = ["dep:ureq"]
-# Pictures: PNG, JPEG, GIF (its first frame) and WebP decoded into pixels, drawn with half blocks.
-# Off by default, so an application that shows no pictures carries no decoders.
-image = ["dep:image"]
+# Pictures: PNG, JPEG, GIF (its first frame) and WebP decoded into pixels, drawn by a terminal that
+# speaks the kitty graphics protocol, with half blocks elsewhere. Off by default, so an
+# application that shows no pictures carries no decoders.
+image = ["dep:image", "dep:flate2"]

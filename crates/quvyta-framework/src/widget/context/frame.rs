@@ -47,6 +47,14 @@ pub(crate) struct Frame {
     /// Pointer shapes widgets asked for over their areas, with the widget that asked, in paint
     /// order; see [`PaintCx::pointer_shape`](crate::widget::PaintCx::pointer_shape).
     pub(crate) pointer_shapes: Vec<(Rect, PointerShape, WidgetId)>,
+    /// Pictures the terminal is asked to draw itself, in paint order, as their images recorded
+    /// them before anything was painted over them.
+    #[cfg(feature = "image")]
+    pub(crate) pictures: Vec<crate::widgets::image::Picture>,
+    /// Where the terminal shows those pictures once the frame is painted: only the parts nothing
+    /// was painted over. See [`resolve`](crate::widgets::image::resolve).
+    #[cfg(feature = "image")]
+    pub(crate) placements: Vec<crate::widgets::image::PicturePlacement>,
 }
 
 /// A node measured in a frame: its id, its address in the view tree and the space it was
@@ -103,6 +111,10 @@ impl Frame {
             measures,
             reveals,
             pointer_shapes,
+            #[cfg(feature = "image")]
+            pictures,
+            #[cfg(feature = "image")]
+            placements,
         } = self;
         rects.clear();
         parents.clear();
@@ -123,6 +135,11 @@ impl Frame {
         measures.clear();
         reveals.clear();
         pointer_shapes.clear();
+        #[cfg(feature = "image")]
+        {
+            pictures.clear();
+            placements.clear();
+        }
     }
 
     /// The topmost widget whose hit area contains the cell.
