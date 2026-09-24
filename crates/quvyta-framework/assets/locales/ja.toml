@@ -316,3 +316,12 @@ sample-hint = "画面上で図形として表示されるアイコンのセッ�
 install     = "フォントをインストール"
 defaults    = "既定の設定で始める"
 not-saved   = "選択内容を保存できませんでした: {reason}"
+
+[quvyta.image]
+untitled         = "画像"
+cannot-show-kind = "{kind}、{width} x {height} ピクセル。このターミナルでは画像を表示できません。"
+cannot-show      = "{width} x {height} ピクセル。このターミナルでは画像を表示できません。"
+missing          = "この画像は存在しません"
+unreadable       = "この画像を読み込めませんでした"
+unknown-format   = "これは PNG、JPEG、GIF、WebP の画像ではありません"
+broken           = "この画像は壊れています"

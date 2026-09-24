@@ -134,7 +134,15 @@ impl<A: App> Engine<A> {
     }
 
     /// The focusable widget named `name` in the last frame.
+    /// The widget named `name` when it takes focus, or else the first widget inside it that
+    /// does: a name put on a container, such as the column a file manager's rows are drawn in,
+    /// reaches the keys' widget within.
     pub(super) fn named_focusable(&self, name: &str) -> Option<WidgetId> {
-        self.frame.focusable.iter().find(|id| self.frame.names.get(id).is_some_and(|n| n == name)).copied()
+        let named = |id: &WidgetId| self.frame.names.get(id).is_some_and(|n| n == name);
+        if let Some(exact) = self.frame.focusable.iter().find(|id| named(id)) {
+            return Some(*exact);
+        }
+        let owner = self.frame.names.keys().find(|id| named(id)).copied()?;
+        self.frame.focusable.iter().find(|id| self.frame.is_within(**id, owner)).copied()
     }
 }

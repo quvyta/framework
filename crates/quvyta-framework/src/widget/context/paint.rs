@@ -18,7 +18,7 @@ use crate::style::{CellStyle, WidgetStyle, to_color};
 use crate::text;
 use crate::theme::State;
 use crate::widget::memory::Memory;
-use crate::widget::{Key, LayoutProps, Node, WidgetId};
+use crate::widget::{Key, LayoutProps, Node, PointerShape, WidgetId};
 
 /// Painting context: draws into the frame, clipped to the widget's visible area.
 pub struct PaintCx<'a> {
@@ -284,6 +284,23 @@ impl PaintCx<'_> {
     pub(crate) fn register_hit_as(&mut self, rect: Rect, id: WidgetId) {
         if let Some(visible) = self.visible_part(rect) {
             self.frame.hits.push((visible, id));
+        }
+    }
+
+    /// Asks for the pointer to take `shape` while it is over `rect`, for this frame, such as a
+    /// resize arrow over a window's edge. The last shape asked for over a cell wins, but only
+    /// from this widget or one around the widget the pointer is on: a surface painted on top
+    /// hides the shapes of what lies beneath it. A widget that asks for a shape over part of
+    /// itself asks for [`PointerShape::Default`] over the whole of it first. While this widget
+    /// holds the pointer (a drag it captured) and the pointer is outside every area it asked
+    /// for, the first shape it asked for in the frame holds, so a widget in the middle of a
+    /// drag asks for the drag's shape first and the pointer keeps it however far it goes.
+    ///
+    /// The runtime tells the terminal only when the shape under the pointer changes, and only a
+    /// terminal known to understand it (see [`PointerShape`]); elsewhere asking costs nothing.
+    pub fn pointer_shape(&mut self, rect: Rect, shape: PointerShape) {
+        if let Some(visible) = self.visible_part(rect) {
+            self.frame.pointer_shapes.push((visible, shape, self.id));
         }
     }
 
@@ -682,6 +699,28 @@ impl PaintCx<'_> {
             for x in area.x..area.right() {
                 if let Some(cell) = self.cell_mut(x, y) {
                     change(cell);
+                }
+            }
+        }
+    }
+
+    /// Runs `paint` on every cell of `rect` inside the visible area and the screen, with its
+    /// column and row counted from the corner of `rect`, for a widget that writes a block of cells
+    /// itself. A wide character crossing the left or right edge is released first, as
+    /// [`PaintCx::clear`] does.
+    #[cfg(feature = "image")]
+    pub(crate) fn each_cell_within(&mut self, rect: Rect, mut paint: impl FnMut(u16, u16, &mut Cell)) {
+        let area = rect.intersect(self.clip);
+        if area.is_empty() {
+            return;
+        }
+        for y in area.y..area.bottom() {
+            self.release(area.x, y);
+            self.release(area.right() - 1, y);
+            for x in area.x..area.right() {
+                let (column, row) = (clamp_u16(x - rect.x), clamp_u16(y - rect.y));
+                if let Some(cell) = self.cell_mut(x, y) {
+                    paint(column, row, cell);
                 }
             }
         }

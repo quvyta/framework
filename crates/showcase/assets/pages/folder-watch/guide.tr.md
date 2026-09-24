@@ -18,6 +18,7 @@ Ekranda başka programların değiştirdiği bir klasör gösteriyorsanız klas�
 
 - **İş parçacığı çekirdekte uyur.** `next()` sistemin olay kuyruğunda bekler, yalnızca bir şey değişince ya da izleme bırakılınca uyanır. Boştaki bir izleme işlemci harcamaz.
 - **Değişiklikler topluluk halinde gelir.** İlk olaydan sonra `next()` saniyenin onda biri kadar toplamayı sürdürür, sonra hepsini birden, en eskisi önde ve her değişikliği bir kez döndürür. Binlerce dosyalık bir `git checkout` birkaç topluluktur; ağacınız da birkaç kez kurulur.
+- **Ekran testinin çalıştırabileceği bekleyiş.** Ekran testi arka plan işini olduğu yerde yapar; açtığı sayfa sonsuza dek beklememeli. Bu sayfa `changes.next_within(süre)` ile bekler, süre içinde bir şey değişmediyse yeniden bekler: ekranda sınanan bir uygulama da böyle yapar, hiç sınanmayan `next()` ile kalabilir.
 - **Değişiklik girdisini adlandırır.** `FolderChange { folder, name, kind }`: `Created`, `Removed`, `Modified`, ya da bir klasör içindeki yeniden adlandırma için `Renamed { from }`. İzlenen bir klasörden ötekine taşıma, birinde silinme, ötekinde oluşmadır.
 - **Taşma "yeniden oku" demektir.** Değişiklikler okunduğundan hızlı gelirse sistem bir kısmını atar ve bunu söyler. O zaman izlenen her klasöre bir `Overflow` gelir; onları yeniden okumak cevabın tamamıdır.
 - **Giden klasör bir kez bildirilir.** Silinen, başka yere taşınan ya da ayrılan izlenen klasör bir kez `Gone` olur ve artık izlenmez. Hâlâ önemliyse yeni yolundan yeniden izleyin.

@@ -111,7 +111,8 @@ impl<Msg: Send + 'static> Command<Msg> {
     }
 
     /// Moves keyboard focus to the widget named `name` with [`NodeMut::id`](crate::widget::NodeMut::id).
-    /// When no such widget is on screen yet, focus moves to it after the next frame if it
+    /// A name on a widget that takes no focus itself, such as a column, focuses the first widget
+    /// inside it that does. When no such widget is on screen yet, focus moves to it after the next frame if it
     /// appears there, so an update can show a widget and focus it at once.
     #[must_use]
     pub fn focus(name: impl Into<String>) -> Self {

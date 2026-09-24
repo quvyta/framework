@@ -87,6 +87,7 @@ pub mod document;
 pub mod env;
 pub mod event;
 pub mod geometry;
+pub mod graphics;
 pub mod i18n;
 pub mod icons;
 pub mod keymap;

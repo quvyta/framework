@@ -18,6 +18,7 @@ Use a folder watch when something on screen shows a folder that other programs c
 
 - **The thread sleeps in the kernel.** `next()` blocks on the system's event queue and wakes only when something changes or the watch is dropped. An idle watch uses no processor time.
 - **Changes arrive in batches.** After the first event `next()` keeps gathering for a tenth of a second, then returns everything at once, oldest first and each change once. A `git checkout` of thousands of files is a handful of batches, so your tree is rebuilt a handful of times.
+- **A wait a screen test can run.** A screen test does background work in place, so a page it opens must not wait forever. This page waits with `changes.next_within(bound)` and, when nothing changed in time, simply waits again: an application that is tested on screen does the same; one that never is may keep `next()`.
 - **A change names its entry.** `FolderChange { folder, name, kind }`: `Created`, `Removed`, `Modified`, or `Renamed { from }` for a rename inside one folder. A move from one watched folder to another is a removal in one and a creation in the other.
 - **Overflow means "read again".** When changes come faster than they are read, the system drops some and says so. Every watched folder then gets one `Overflow`, and rereading them is the whole answer.
 - **A folder that goes away is reported once.** Removed, moved elsewhere or unmounted, a watched folder is `Gone` once and no longer watched. Watch it again under its new path if it still matters.

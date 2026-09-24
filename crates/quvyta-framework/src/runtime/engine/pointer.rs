@@ -7,7 +7,7 @@ use crate::event::{Event, MouseButton, MouseEvent, MouseKind};
 use crate::keymap::Modifiers;
 use crate::runtime::App;
 use crate::runtime::selection::{Press, Selection};
-use crate::widget::WidgetId;
+use crate::widget::{PointerShape, WidgetId};
 use crate::widgets::ToastPress;
 
 /// Synthetic drag events for a widget holding the pointer still, see
@@ -21,6 +21,11 @@ pub(super) struct PointerRepeat {
 }
 
 impl<A: App> Engine<A> {
+    /// The pointer shape the last painted frame asks for where the pointer is now.
+    pub(crate) fn pointer_shape(&self) -> PointerShape {
+        self.frame.pointer_shape(self.interaction.pointer, self.interaction.pointer_capture)
+    }
+
     /// The time at which an animation, a held pointer or idleness needs the next frame, if any.
     pub(crate) fn deadline(&self) -> Option<Duration> {
         let repeat = self.pointer_repeat.map(|repeat| repeat.next);

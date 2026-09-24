@@ -12,6 +12,9 @@ const PAGE: &str = "context-menu";
 /// Containers in the demo list.
 const CONTAINERS: [&str; 4] = ["api-gateway", "postgres-primary", "redis-cache", "worker-emails"];
 
+/// Sessions the status item lists.
+const SESSIONS: [&str; 3] = ["deploy", "logs", "shell"];
+
 /// The selected container and the playground.
 #[derive(Debug)]
 pub struct State {
@@ -33,6 +36,7 @@ impl Default for State {
 pub enum Msg {
     Select(usize),
     Action(&'static str),
+    Session(&'static str),
     Icons(bool),
     Shortcuts(bool),
     Submenu(bool),
@@ -53,6 +57,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             let container = state.selected.map_or("", |index| CONTAINERS[index]);
             log.push(PAGE, "ContextMenu#containers", format!("{action} {container}"));
         }
+        Msg::Session(name) => log.push(PAGE, "ContextMenu#sessions", format!("switch to {name}")),
         Msg::Icons(on) => {
             state.icons = on;
             log.push(PAGE, "Playground", format!("icons = {on}"));
@@ -118,6 +123,13 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         .fill_width()
         .height(Length::Cells(12));
         // endregion
+        // region: context-left-click
+        let sessions = SESSIONS.map(|name| ContextItem::new(name, send(Msg::Session(name))));
+        ui.add_with(ContextMenu::new(sessions).on_left_click(true), |ui| {
+            ui.add(Text::new(t!("context-menu.sessions")).role("secondary"));
+        })
+        .id("sessions");
+        // endregion
     })
     .fill_width();
 
@@ -167,6 +179,15 @@ mod tests {
         assert!(x > label_x, "the note sits right of the label");
         let fg = h.fg(u16::try_from(x).unwrap(), u16::try_from(y).unwrap());
         assert_eq!(fg, h.env().theme().color("muted"));
+    }
+
+    #[test]
+    fn a_left_click_on_the_status_item_lists_the_sessions() {
+        let mut h = showcase_on(PAGE);
+        h.set_reduced_motion(true);
+        h.click_text("3 sessions");
+        h.click_text("shell");
+        assert!(h.screen().contains("switch to shell"), "{}", h.screen());
     }
 
     #[test]

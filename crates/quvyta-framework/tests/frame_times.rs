@@ -327,3 +327,60 @@ fn frame_times() {
         }
     }
 }
+
+/// A wallpaper: one picture covering the whole screen.
+#[cfg(feature = "image")]
+struct Wallpaper(qframe::widgets::ImageData);
+
+#[cfg(feature = "image")]
+impl App for Wallpaper {
+    type Msg = ();
+
+    fn update(&mut self, (): ()) -> Command<()> {
+        Command::none()
+    }
+
+    fn view(&self, ui: &mut View<'_, ()>) {
+        use qframe::widgets::{Fit, Image};
+        ui.add(Image::new(&self.0).fit(Fit::Cover)).fill().id("wallpaper");
+    }
+}
+
+/// A picture filling a 200 × 60 screen, the way a desktop shows its wallpaper, measured two ways:
+/// `repaint` draws the same picture again from the cells kept in memory, `resize` changes the
+/// screen by a column every frame, so every frame works the cells out anew.
+///
+/// ```text
+/// cargo test --release -p quvyta-framework --features image --test frame_times image -- --ignored --nocapture
+/// ```
+#[cfg(feature = "image")]
+#[test]
+#[ignore = "benchmark; run with --release --features image -- --ignored --nocapture"]
+fn image_frame_times() {
+    use qframe::widgets::ImageData;
+
+    // A 16:9 picture a little larger than the screen's 200 × 120 pixels, as decoded for it.
+    let (width, height) = (320u32, 180u32);
+    let mut rgb = Vec::new();
+    for y in 0..height {
+        for x in 0..width {
+            let shade = |value: u32| u8::try_from(value % 256).unwrap_or(0);
+            rgb.extend([shade(x * 255 / width), shade(y * 255 / height), shade((x * y) % 256)]);
+        }
+    }
+    let picture = ImageData::from_rgb(width, height, &rgb).expect("every pixel is there");
+    let mut harness = Harness::new(Wallpaper(picture), 200, 60);
+    assert!(harness.screen().contains('▀'), "the picture is drawn");
+    let repaint = time(|| {
+        harness.render();
+    });
+    let mut wide = true;
+    let resize = time(|| {
+        wide = !wide;
+        harness.resize(if wide { 200 } else { 199 }, 60);
+    });
+    println!("Milliseconds per frame: wall-clock median and 95th percentile, mean CPU time of the thread.");
+    println!("{:<30} {:>8} {:>8} {:>8}", "wallpaper 200 x 60, cover", "p50", "p95", "cpu");
+    println!("{:<30} {}", "repaint (cells kept)", columns(&repaint));
+    println!("{:<30} {}", "resize (cells worked out)", columns(&resize));
+}

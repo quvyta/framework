@@ -7,7 +7,7 @@ use super::flex::{Axis, Flex};
 use super::idle::{IdleScope, IdleWatch};
 use super::mapped::Mapped;
 use super::place::Placed;
-use super::{Align, Container, FocusAction, Key, Length, Node, Widget};
+use super::{Align, Asked, ClipboardKey, Container, FocusAction, Key, Length, Node, Widget};
 use crate::env::Env;
 use crate::geometry::{Padding, Rect, Size};
 use crate::keymap::Scope;
@@ -393,7 +393,8 @@ impl<Msg: Clone + 'static> NodeMut<'_, Msg> {
     /// widgets: a widget that uses it (a text field typing a character) keeps it, and a
     /// [`Terminal`](crate::widgets::Terminal) lets it out only for actions named with its
     /// `pass_through`. The actions the runtime owns (`quit`, `focus-next`, `focus-prev`,
-    /// `debug`, `copy`, `paste`, `toggle-panel`) are not answered here. Call once per action.
+    /// `debug`, `copy`, `paste`, `toggle-panel`) are not answered here; the keys of `copy` and
+    /// `paste` are claimed with [`on_clipboard`](Self::on_clipboard) instead. Call once per action.
     ///
     /// ```
     /// use qframe::env::Env;
@@ -439,10 +440,74 @@ impl<Msg: Clone + 'static> NodeMut<'_, Msg> {
     /// ```
     pub fn on_action(self, scope: Scope, action: impl Into<String>, message: Msg) -> Self {
         self.node.actions.push(FocusAction {
-            scope,
-            action: action.into(),
+            asked: Asked::Action(scope, action.into()),
             message: Box::new(move || message.clone()),
         });
+        self
+    }
+
+    /// While keyboard focus is on this node or inside it, the clipboard key `key` sends
+    /// `message`: a list of things other than text, such as a file manager's rows, cuts, copies
+    /// and pastes its own entries with the keys a text field uses for text.
+    ///
+    /// The keys are claimed, not taken away. Every place text is copied from keeps them first:
+    ///
+    /// - Text selected with the mouse is what Ctrl+C copies while it is there, wherever the focus
+    ///   is, and while it is there Ctrl+X and Ctrl+V are not claimed either: the person is working
+    ///   with that text, not with the node.
+    /// - The focused widget sees the key before the node does, so a text field inside the node
+    ///   copies and cuts its own text. Pasting into a field goes through the runtime's `paste`
+    ///   action, which a claim of [`ClipboardKey::Paste`] answers first, so a node that holds a
+    ///   field claims only the keys it does not share with it.
+    /// - With focus outside the node, the keys do what they do without it.
+    ///
+    /// This rides on the same answering as [`on_action`](Self::on_action), one step after it in
+    /// the key's way and for the runtime's own `copy` and `paste`, which `on_action` never answers,
+    /// and for Ctrl+X, which has no keymap action. A widget could match the chords in its own key
+    /// handling instead, as a text field does, but then every list, table and grid would need a
+    /// way to be told what the keys mean; claiming them on the node gives that to anything that
+    /// can be focused. The innermost node that claims a key wins. Call once per key.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    /// use qframe::widget::ClipboardKey;
+    ///
+    /// #[derive(Clone, Debug, PartialEq)]
+    /// enum Msg {
+    ///     Copy,
+    /// }
+    ///
+    /// struct Shelf {
+    ///     copied: bool,
+    /// }
+    ///
+    /// impl App for Shelf {
+    ///     type Msg = Msg;
+    ///
+    ///     fn update(&mut self, msg: Msg) -> Command<Msg> {
+    ///         match msg {
+    ///             Msg::Copy => self.copied = true,
+    ///         }
+    ///         Command::none()
+    ///     }
+    ///
+    ///     fn view(&self, ui: &mut View<'_, Msg>) {
+    ///         ui.add(List::new(["a.txt", "b.txt"].map(ListItem::new)))
+    ///             .id("shelf")
+    ///             .on_clipboard(ClipboardKey::Copy, Msg::Copy);
+    ///     }
+    /// }
+    ///
+    /// let mut app = Harness::new(Shelf { copied: false }, 20, 3);
+    /// app.press("ctrl+c");
+    /// assert!(!app.app().copied, "nothing is focused yet");
+    /// app.press("tab").press("ctrl+c");
+    /// assert!(app.app().copied);
+    /// ```
+    pub fn on_clipboard(self, key: ClipboardKey, message: Msg) -> Self {
+        self.node
+            .actions
+            .push(FocusAction { asked: Asked::Clipboard(key), message: Box::new(move || message.clone()) });
         self
     }
 }

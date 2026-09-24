@@ -16,6 +16,8 @@ use crate::runtime::{App, Command, Harness, TaskEvent, TaskOutcome};
 use crate::widget::View;
 use crate::widgets::TreeDrop;
 
+mod focus;
+mod keys;
 mod mouse;
 
 use super::ops::{
@@ -180,7 +182,7 @@ impl App for Demo {
                 marked.iter().find(|(marked, _)| marked == key).map_or_else(RowMark::new, |(_, mark)| mark.clone())
             });
         }
-        manager.show(ui).fill().id("files");
+        manager.id("files").show(ui).fill();
     }
 }
 

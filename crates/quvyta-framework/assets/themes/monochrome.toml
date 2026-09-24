@@ -645,6 +645,14 @@ pillar = "pulse($danger, $warning)"
 [style."text-area:disabled"]
 fg = "$muted"
 
+# A plain text area is paper: it keeps the tone of whatever it sits on in every state, and only
+# the pillar tells hover and focus. Invalid text shows a steady danger pillar at rest.
+[style."text-area.plain"]
+see-through = true
+
+[style."text-area.plain:invalid"]
+pillar = "$danger"
+
 [style.text-area-line-number]
 fg = "$muted"
 
@@ -1264,6 +1272,15 @@ fg = "$accent"
 
 [style."crumb.current"]
 fg   = "$text"
+bold = true
+
+# A faint path, for a place the person cannot open: a step quieter throughout. The states above
+# still apply, so a faint segment rises on hover and focus like any other.
+[style."crumb.faint"]
+fg = "$muted"
+
+[style."crumb.faint-current"]
+fg   = "$dim"
 bold = true
 
 [style.crumb-separator]

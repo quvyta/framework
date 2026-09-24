@@ -18,13 +18,13 @@ fn pointer(kind: MouseKind, (x, y): (i32, i32), mods: Modifiers) -> Event {
 }
 
 /// Where `text` is on screen.
-fn spot(h: &Harness<Demo>, text: &str) -> (i32, i32) {
+pub(super) fn spot(h: &Harness<Demo>, text: &str) -> (i32, i32) {
     h.find(text).unwrap_or_else(|| panic!("`{text}` is on screen:\n{}", h.screen()))
 }
 
 /// A left press and release on `text` with `mods` held, then a pause long enough that the next
 /// click is a click of its own.
-fn click_with(h: &mut Harness<Demo>, text: &str, mods: Modifiers) {
+pub(super) fn click_with(h: &mut Harness<Demo>, text: &str, mods: Modifiers) {
     let at = spot(h, text);
     let left = MouseButton::Left;
     h.events(&[pointer(MouseKind::Down(left), at, mods), pointer(MouseKind::Up(left), at, mods)]);
@@ -32,12 +32,12 @@ fn click_with(h: &mut Harness<Demo>, text: &str, mods: Modifiers) {
 }
 
 /// A plain click on `text`, then a pause.
-fn click(h: &mut Harness<Demo>, text: &str) {
+pub(super) fn click(h: &mut Harness<Demo>, text: &str) {
     click_with(h, text, Modifiers::default());
 }
 
 /// Two clicks on `text` with no time between them, as a person's double click arrives.
-fn double_click(h: &mut Harness<Demo>, text: &str) {
+pub(super) fn double_click(h: &mut Harness<Demo>, text: &str) {
     let (x, y) = spot(h, text);
     h.click(x, y).click(x, y);
 }
@@ -54,7 +54,7 @@ fn drag_with(h: &mut Harness<Demo>, from: (i32, i32), to: (i32, i32), mods: Modi
 }
 
 /// The demo of `scratch` drawn in `view`, opening entries with `open_on` when it is given.
-fn shown(scratch: &Scratch, view: FileView, open_on: Option<Click>) -> Harness<Demo> {
+pub(super) fn shown(scratch: &Scratch, view: FileView, open_on: Option<Click>) -> Harness<Demo> {
     let mut demo = Demo::new(scratch.root());
     demo.view = view;
     demo.open_on = open_on;
@@ -66,7 +66,7 @@ fn shown(scratch: &Scratch, view: FileView, open_on: Option<Click>) -> Harness<D
 
 /// A scratch folder whose project also holds a `docs` folder and a `plan.txt`, so every view
 /// shows `docs`, `src`, `README.md` and `plan.txt` in that order.
-fn project(name: &str) -> Scratch {
+pub(super) fn project(name: &str) -> Scratch {
     let scratch = Scratch::new(name);
     fs::create_dir_all(scratch.root().join("docs")).expect("a folder to drop into");
     fs::write(scratch.root().join("plan.txt"), "plan\n").expect("a second file");

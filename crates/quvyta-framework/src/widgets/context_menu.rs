@@ -1,4 +1,5 @@
-//! Context menus: actions for what is under the pointer, opened with a right click.
+//! Context menus: actions for what is under the pointer, opened with a right click (or, when
+//! asked, a left click).
 
 use std::time::Duration;
 
@@ -19,6 +20,9 @@ use crate::widget::{Axis, Container, EventCx, Flex, Length, MeasureCx, Node, Pai
 /// the next row starting with it, → or Enter opens a submenu, ← or Esc closes it, Enter or Space
 /// chooses. Choosing sends the item's message. A press anywhere outside the menu closes it and
 /// still reaches what it landed on; a right click inside the area reopens it there.
+///
+/// [`ContextMenu::on_left_click`] lets a left click open the menu too, at the pointer, for an
+/// area whose whole purpose is the menu, such as a status bar item that lists sessions.
 ///
 /// Style keys: see [`ContextItem`].
 ///
@@ -54,6 +58,7 @@ use crate::widget::{Axis, Container, EventCx, Flex, Length, MeasureCx, Node, Pai
 pub struct ContextMenu<Msg> {
     items: Vec<ContextItem<Msg>>,
     body: Vec<Node<Msg>>,
+    left_click: bool,
 }
 
 #[derive(Debug, Default)]
@@ -65,6 +70,9 @@ struct ContextMenuMemory {
     opened_at: Vec<Duration>,
     rects: Vec<Rect>,
     last_pointer: Option<(i32, i32)>,
+    /// When a left press on the menu's own area closed it: the same press reaches the area next
+    /// and must not open the menu again, so a status item shows and hides its menu like a button.
+    closed_by_press: Option<Duration>,
 }
 
 impl<Msg: Clone + 'static> ContextMenu<Msg> {
@@ -72,7 +80,26 @@ impl<Msg: Clone + 'static> ContextMenu<Msg> {
     /// [`View::add_with`](crate::widget::View::add_with).
     #[must_use]
     pub fn new(items: impl IntoIterator<Item = ContextItem<Msg>>) -> Self {
-        Self { items: items.into_iter().collect(), body: vec![Node::new(Flex::new(Axis::Column, Vec::new()), 0)] }
+        Self {
+            items: items.into_iter().collect(),
+            body: vec![Node::new(Flex::new(Axis::Column, Vec::new()), 0)],
+            left_click: false,
+        }
+    }
+
+    /// Opens the menu with a left click as well, at the pointer, as a right click does. A left
+    /// click on the area while the menu is open closes it, so the area works as a button that
+    /// shows and hides its menu. Presses an interactive child takes, such as a button's, still
+    /// go to that child. Default: off; a left click reaches only the content.
+    #[must_use]
+    pub fn on_left_click(mut self, on: bool) -> Self {
+        self.left_click = on;
+        self
+    }
+
+    /// Whether a press of `button` on the area opens the menu.
+    fn opens_with(&self, button: MouseButton) -> bool {
+        !self.items.is_empty() && (button == MouseButton::Right || (button == MouseButton::Left && self.left_click))
     }
 
     /// The items shown at `depth` for the open levels in `levels`.
@@ -191,11 +218,15 @@ impl<Msg: Clone + 'static> ContextMenu<Msg> {
         // A press outside the menu closes it and is not swallowed.
         let Some(depth) = rects.iter().rposition(|rect| rect.contains(x, y)) else {
             Self::close(cx);
-            if button != MouseButton::Right || !cx.area().contains(x, y) {
+            if !self.opens_with(button) || !cx.area().contains(x, y) {
                 return false;
             }
+            // The release after this press belongs to the menu, not to what lies under it.
             cx.capture_pointer();
-            self.open(cx, Rect::new(x, y, 1, 1), false);
+            // A left click on the area toggles: the press that closes the menu does not reopen it.
+            if button == MouseButton::Right {
+                self.open(cx, Rect::new(x, y, 1, 1), false);
+            }
             return true;
         };
         // The release after this press belongs to the menu, not to what lies under it.
@@ -345,7 +376,18 @@ impl<Msg: Clone + 'static> Widget<Msg> for ContextMenu<Msg> {
         let open = cx.memory::<ContextMenuMemory>().open;
         match event {
             Event::PointerOutside => {
+                // A press on a widget inside the area that takes the pointer itself, a tooltip
+                // for one, comes here first; the same press then reaches the area.
+                let on_area = self.left_click
+                    && open
+                    && cx.interaction.pointer.is_some_and(|(x, y)| {
+                        cx.area().contains(x, y)
+                            && !cx.memory::<ContextMenuMemory>().rects.iter().any(|rect| rect.contains(x, y))
+                    });
                 Self::close(cx);
+                if on_area {
+                    cx.memory::<ContextMenuMemory>().closed_by_press = Some(cx.now());
+                }
                 true
             }
             Event::Key(key) if open => self.key(cx, key),
@@ -361,7 +403,12 @@ impl<Msg: Clone + 'static> Widget<Msg> for ContextMenu<Msg> {
             }
             Event::Mouse(mouse) => match mouse.kind {
                 MouseKind::Down(button) if open => self.press(cx, mouse.x, mouse.y, button),
-                MouseKind::Down(MouseButton::Right) if !self.items.is_empty() => {
+                MouseKind::Down(button) if self.opens_with(button) => {
+                    let now = cx.now();
+                    let closed = cx.memory::<ContextMenuMemory>().closed_by_press.take();
+                    if button == MouseButton::Left && closed == Some(now) {
+                        return true;
+                    }
                     self.open(cx, Rect::new(mouse.x, mouse.y, 1, 1), false);
                     true
                 }
@@ -522,6 +569,131 @@ mod tests {
         right_click(&mut h, 3, 9);
         let (_, y) = h.find("Delete").expect("open");
         assert_eq!(y, 8);
+    }
+
+    /// A status bar item whose left click lists sessions, as a menu of its own.
+    #[derive(Default)]
+    struct Sessions {
+        chosen: Vec<&'static str>,
+    }
+
+    impl App for Sessions {
+        type Msg = Msg;
+        fn update(&mut self, msg: Msg) -> Command<Msg> {
+            if let Msg::Chose(name) = msg {
+                self.chosen.push(name);
+            }
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, Msg>) {
+            let items = [
+                ContextItem::new("work", Msg::Chose("work")),
+                ContextItem::new("notes", Msg::Chose("notes")),
+                ContextItem::new("build", Msg::Chose("build")),
+            ];
+            ui.column(|ui| {
+                ui.add_with(ContextMenu::new(items).on_left_click(true), |ui| {
+                    ui.add(Text::new("tmux 3"));
+                });
+            })
+            .fill();
+        }
+    }
+
+    fn sessions() -> Harness<Sessions> {
+        let mut h = Harness::new(Sessions::default(), 30, 8);
+        h.set_reduced_motion(true);
+        h
+    }
+
+    #[test]
+    fn a_left_click_opens_the_menu_at_the_pointer_and_a_click_chooses() {
+        let mut by_right = sessions();
+        right_click(&mut by_right, 2, 0);
+        let mut h = sessions();
+        h.click(2, 0);
+        let screen = h.screen();
+        let lines: Vec<&str> = screen.lines().collect();
+        // One row under the pointer, starting at its column, exactly as a right click opens it.
+        assert_eq!(lines[1], "    work", "{screen}");
+        assert_eq!(lines[3], "    build");
+        assert_eq!(screen, by_right.screen());
+        assert_eq!(h.bg(3, 1), h.env().theme().color("overlay"));
+        h.click_text("notes");
+        assert_eq!(h.app().chosen, vec!["notes"]);
+        assert!(!h.screen().contains("build"), "choosing closes the menu");
+    }
+
+    #[test]
+    fn a_left_click_menu_takes_the_keys_and_esc_closes_it() {
+        let mut h = sessions();
+        h.click(2, 0);
+        h.press("down").press("down").press("enter");
+        assert_eq!(h.app().chosen, vec!["notes"]);
+        h.click(2, 0);
+        assert!(h.screen().contains("build"));
+        h.press("esc");
+        assert!(!h.screen().contains("build"));
+        assert!(h.app().chosen.len() == 1, "esc chooses nothing");
+    }
+
+    #[test]
+    fn a_second_left_click_on_the_area_closes_and_the_right_click_still_opens() {
+        let mut h = sessions();
+        h.click(2, 0);
+        assert!(h.screen().contains("work"));
+        h.click(4, 0);
+        assert!(!h.screen().contains("work"), "the item works as a button that shows and hides the menu");
+        right_click(&mut h, 2, 0);
+        h.click_text("build");
+        assert_eq!(h.app().chosen, vec!["build"]);
+    }
+
+    /// A status item whose content takes the pointer itself to show a tooltip, as qdesk's does.
+    #[derive(Default)]
+    struct Hinted {
+        chosen: Vec<&'static str>,
+    }
+
+    impl App for Hinted {
+        type Msg = Msg;
+        fn update(&mut self, msg: Msg) -> Command<Msg> {
+            if let Msg::Chose(name) = msg {
+                self.chosen.push(name);
+            }
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, Msg>) {
+            let items = [ContextItem::new("work", Msg::Chose("work")), ContextItem::new("notes", Msg::Chose("notes"))];
+            ui.column(|ui| {
+                ui.add_with(ContextMenu::new(items).on_left_click(true), |ui| {
+                    ui.add_with(crate::widgets::Tooltip::new("tmux sessions"), |ui| {
+                        ui.add(Text::new("tmux 2"));
+                    });
+                });
+            })
+            .fill();
+        }
+    }
+
+    #[test]
+    fn a_second_left_click_closes_even_when_the_item_takes_the_pointer_itself() {
+        let mut h = Harness::new(Hinted::default(), 30, 8);
+        h.set_reduced_motion(true);
+        h.click(2, 0);
+        assert!(h.screen().contains("notes"), "the first click opens:\n{}", h.screen());
+        h.click(2, 0);
+        assert!(!h.screen().contains("notes"), "the second click on the same place closes:\n{}", h.screen());
+        h.click(2, 0);
+        assert!(h.screen().contains("notes"), "and a third opens again:\n{}", h.screen());
+    }
+
+    #[test]
+    fn a_left_click_opens_nothing_unless_asked() {
+        let mut h = Harness::new(Demo::default(), 40, 12);
+        h.set_reduced_motion(true);
+        h.click(3, 0);
+        assert!(!h.screen().contains("Restart"), "{}", h.screen());
     }
 
     /// A menu whose rows carry notes: one beside a shortcut, one on a disabled row.

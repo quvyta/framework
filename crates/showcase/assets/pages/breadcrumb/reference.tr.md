@@ -2,6 +2,7 @@
 
 - `Breadcrumb::new(segments)` — kökten bulunulan yere kadar yol.
 - `.on_select(|index| msg)` — `index` seviyesi açılınca gönderilir; yoksa yol sade bir yazıdır.
+- `.faint(bool)` — yolu, kişinin açamadığı bir yer için bir ton sönük çizer; seviyeler yine açılır.
 
 ## Davranış
 
@@ -22,6 +23,7 @@
 
 - `crumb` — `bg`, `fg`; `hover`, `focus`, `active` (açık `…`) durumları.
 - `crumb.current` — son seviyenin `fg`, `bold` değerleri.
+- `crumb.faint`, `crumb.faint-current` — sönük bir yolun seviyeleri ve son seviyesi; `crumb` durumları yine geçerlidir.
 - `crumb-separator` — `fg`.
 - `popup-menu`, `popup-item`, `popup-check` — gizli seviyeler listesi.
 

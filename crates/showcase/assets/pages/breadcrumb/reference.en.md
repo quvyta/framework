@@ -2,6 +2,7 @@
 
 - `Breadcrumb::new(segments)` — the path from the root to the current place.
 - `.on_select(|index| msg)` — sent when level `index` is opened; without it the breadcrumb is plain text.
+- `.faint(bool)` — draws the path a step quieter, for a place the person cannot open; the levels still open.
 
 ## Behaviour
 
@@ -22,6 +23,7 @@
 
 - `crumb` — `bg`, `fg`; states `hover`, `focus`, `active` (the open `…`).
 - `crumb.current` — `fg`, `bold` of the last level.
+- `crumb.faint`, `crumb.faint-current` — the levels and the last level of a faint path; the states of `crumb` still apply.
 - `crumb-separator` — `fg`.
 - `popup-menu`, `popup-item`, `popup-check` — the list of hidden levels.
 

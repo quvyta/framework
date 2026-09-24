@@ -8,12 +8,13 @@ Use a text area for text that runs over several lines: release notes, a commit m
 2. Draw it: `TextArea::new(&state.summary)`. The plain area wraps, scrolls and edits; it measures three to eight rows, growing with its text.
 3. Handle changes: `.on_change(|text| Msg::Summary(text))` and store the text in `update`.
 4. Give it a width with the layout, and a height too when it should not grow: `.height(Length::Cells(5))`.
-5. Add capabilities only when you need them: `.placeholder(..)`, `.max_length(280).counter(true)`, `.line_numbers(true)` for scripts and code.
+5. Add capabilities only when you need them: `.placeholder(..)`, `.max_length(280).counter(true)`, `.line_numbers(true)` for scripts and code, `.variant("plain")` for a page of notes that should look like paper rather than a field.
 6. To send the text somewhere, add `.on_submit(|text| Msg::Publish(text))` for Ctrl+Enter and put a button next to it as well.
 
 ## How it works
 
 - **The same field, taller.** Surface, focus, invalid tint, cursor, selection colours and undo are those of `TextInput`.
+- **Plain is paper.** `.variant("plain")` drops the raised field: the area takes the tone of the panel or page it sits on and keeps it on hover and focus, so a note tool reads as a sheet, not a form. The pillar still shows hover and focus, a danger pillar marks invalid text, and the cursor and the selection look the same.
 - **Words wrap, nothing is lost.** Long lines break between words, a word longer than a row breaks between characters, and indentation at the start of a line stays. Wrapped rows are only a view: your text keeps its own line breaks.
 - **Enter starts a line.** Submitting is up to you: Ctrl+Enter sends `on_submit` when it is set. Terminals without the kitty keyboard protocol may report Ctrl+Enter as plain Enter, which is why a button belongs next to it.
 - **Moving:** ↑ and ↓ move between rows and keep the column, even through shorter rows; Home and End go to the start and end of the row, with Ctrl to the start and end of the text; Page Up and Page Down move a page. Shift with any of them selects. Ctrl+U deletes to the start of the line.

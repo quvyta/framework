@@ -8,10 +8,14 @@ use crate::event::{Event, KeyEvent, KeyKind};
 use crate::keymap::{Key, KeyChord, Modifiers, Scope};
 use crate::runtime::App;
 use crate::runtime::selection::CopyKind;
-use crate::widget::WidgetId;
+use crate::widget::{ClipboardKey, WidgetId};
 
 /// Enter or Space presses closer together than this are typematic repeat, not new presses.
 const HELD_KEY_WINDOW: Duration = Duration::from_millis(100);
+
+/// The key that cuts, the same fixed chord a text field cuts its text with. It has no keymap
+/// action: without a claim it means nothing outside a field.
+const CUT: KeyChord = KeyChord { key: Key::Char('x'), mods: Modifiers { ctrl: true, alt: false, shift: false } };
 
 /// Global keymap actions the runtime or its widgets own. Other global actions, such as `help`
 /// and `palette`, are passed to [`App::action`].
@@ -56,6 +60,8 @@ impl<A: App> Engine<A> {
         self.press_target = None;
         // While the selection's menu is open its keys belong to the menu, which may copy.
         let menu_open = self.selection_menu.is_some() && self.interaction.key_capture == self.selection_menu;
+        // Text selected with the mouse is what the clipboard keys are about while it is there.
+        let text_selected = self.selection.is_some();
         if self.selection.is_some() && !menu_open {
             self.dirty = true;
             let copy = self.env.keymap().action_for(key.chord) == Some((Scope::Global, "copy"));
@@ -98,6 +104,10 @@ impl<A: App> Engine<A> {
         if self.offer_to_listeners(key, now) {
             return;
         }
+        if !text_selected && let Some(message) = self.clipboard_answer(key.chord) {
+            self.update(message);
+            return;
+        }
         let Some((scope, action)) = self.env.keymap().action_for(key.chord).map(|(s, a)| (s, a.to_owned())) else {
             return;
         };
@@ -121,6 +131,26 @@ impl<A: App> Engine<A> {
             .routed_ancestry(focused)
             .into_iter()
             .find_map(|id| tree.find(id).and_then(|node| node.answer_action(scope, action)))
+    }
+
+    /// The message the focused widget or one of its ancestors answers a clipboard key with,
+    /// innermost first; see [`NodeMut::on_clipboard`](crate::widget::NodeMut::on_clipboard).
+    fn clipboard_answer(&self, chord: KeyChord) -> Option<A::Msg> {
+        let key = if chord == CUT {
+            ClipboardKey::Cut
+        } else {
+            match self.env.keymap().action_for(chord)? {
+                (Scope::Global, "copy") => ClipboardKey::Copy,
+                (Scope::Global, "paste") => ClipboardKey::Paste,
+                _ => return None,
+            }
+        };
+        let tree = self.tree.as_ref()?;
+        let focused = self.interaction.focused?;
+        self.frame
+            .routed_ancestry(focused)
+            .into_iter()
+            .find_map(|id| tree.find(id).and_then(|node| node.answer_clipboard(key)))
     }
 
     /// Runs a keymap action. Global actions the runtime owns run here; other global actions and

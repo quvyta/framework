@@ -330,3 +330,12 @@ sample-hint = "Choisissez le jeu dont les icônes apparaissent comme des formes 
 install     = "Installer la police"
 defaults    = "Commencer avec les valeurs par défaut"
 not-saved   = "Vos choix n'ont pas pu être enregistrés : {reason}"
+
+[quvyta.image]
+untitled         = "Image"
+cannot-show-kind = "{kind}, {width} x {height} pixels. Ce terminal ne peut pas afficher d’images."
+cannot-show      = "{width} x {height} pixels. Ce terminal ne peut pas afficher d’images."
+missing          = "Cette image n’existe pas"
+unreadable       = "Cette image n’a pas pu être lue"
+unknown-format   = "Ce n’est pas une image PNG, JPEG, GIF ou WebP"
+broken           = "Cette image est endommagée"

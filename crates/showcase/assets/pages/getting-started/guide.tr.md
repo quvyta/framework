@@ -82,6 +82,23 @@ Sınır, girdiye verilen cevabı hiç geciktirmez. Bir tuşun, tıklamanın, iml
 
 Uygulama `Env::remote`'u kendi kararları için de okur: yavaş bağlantıda daha az animasyon, daha küçük resim, daha sade bir ilk ekran.
 
+## Terminalin gösterebildiği resimler
+
+`Env::graphics` bu terminalde bir resmin nasıl çizilebileceğini söyler: gerçek pikseller için `Graphics::Kitty` ve `Graphics::Sixel`, her hücrede iki renkli piksel için `Graphics::HalfBlock` (256 renkli her terminal bunu her bağlantıda gösterir) ve hiç resim çizilmemesi gereken yerde `Graphics::None`.
+
+Runtime terminali devraldığı anda ona bir kez sorar: yalnızca soran, hiçbir şey saklamayan bir kitty grafik sorgusu ve ardından terminalin aygıt özelliklerini isteyen bir soru. Her terminal ikincisine sırasıyla cevap verir, bu yüzden onun cevabı sonu gösterir: cevap veren bir terminal birkaç milisaniyede biter, vermeyene en çok 150 ms tanınır. Cevaplar girdi ayrıştırıcısı başlamadan doğrudan terminalden okunur, böylece hiçbiri tuş olarak gelmez; bundan geç gelen bir cevap da girdiden ayıklanır.
+
+Kitty'den `OK` gelirse kitty, `4`'ü sayan aygıt özellikleri sixel, geri kalan her şey (sessizlik dahil) yarım blok demektir. Sonra ortam söz alır. 16 renk ya da ASCII glifler `Graphics::None` verir. tmux ya da GNU screen içinde (`TMUX` ya da `STY` dolu) kitty ve sixel yarım bloğa döner, çünkü çoklayıcı onları geçirmez; orada terminale sorulmaz bile. `kitty`, `sixel`, `halfblock` ya da `none` değerini alan `QUVYTA_GRAPHICS` ortam değişkeni, sorunun yanlış tanıdığı bir terminal için hepsinin üstünde karar verir; başka bir değer yok sayılır ve `Env::diagnostics`'e yazılır.
+
+```rust
+match ui.env().graphics() {
+    Graphics::None => { /* resmin ne olduğunu söyle */ }
+    _ => { /* çiz */ }
+}
+```
+
+Testler hiçbir terminale sormaz: `Env::builtin` yarım blok verir, `Harness::set_graphics` aynı kurallarla başka bir terminal gibi cevap verir.
+
 ## Terminal olmadan test
 
 `Harness` aynı uygulamayı bellekteki bir ekranda, sahte bir saatle çalıştırır. Tuşa bas, yaz, metnin üstüne tıkla ve ekranı düz satırlar olarak geri oku:

@@ -41,6 +41,7 @@ pub mod heatmap;
 pub mod help_layer;
 pub mod hold_to_confirm;
 pub mod icon_button;
+pub mod image;
 pub mod key_hints;
 pub mod layout;
 pub mod list;
@@ -234,6 +235,7 @@ pub const PAGES: &[PageContent] = &[
     page!("document", "document"),
     page!("page-transitions", "page_transitions"),
     page!("text-selection", "text_selection"),
+    page!("image", "image"),
 ];
 
 /// The content of page `id`.
@@ -330,6 +332,7 @@ pub struct Pages {
     pub document: document::State,
     pub page_transitions: page_transitions::State,
     pub text_selection: text_selection::State,
+    pub image: image::State,
 }
 
 /// A message from a page's demo.
@@ -420,6 +423,7 @@ pub enum PageMsg {
     Document(document::Msg),
     PageTransitions(page_transitions::Msg),
     TextSelection(text_selection::Msg),
+    Image(image::Msg),
     /// The slide switch of a row page's playground, with the page that sent it.
     Slide(&'static str, bool),
 }
@@ -518,6 +522,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
             page_transitions::update(&mut pages.page_transitions, &mut pages.storage.settings, m, log)
         }
         PageMsg::TextSelection(m) => text_selection::update(&mut pages.text_selection, m, log),
+        PageMsg::Image(m) => image::update(&mut pages.image, m, log),
         PageMsg::Slide(page, on) => slide_changed(pages, page, on, log),
     }
 }
@@ -612,6 +617,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "document" => document::view(&pages.document, ui),
         "page-transitions" => page_transitions::view(&pages.page_transitions, ui),
         "text-selection" => text_selection::view(&pages.text_selection, ui),
+        "image" => image::view(&pages.image, ui),
         _ => {}
     }
 }

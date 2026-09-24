@@ -14,6 +14,7 @@ mod mapped;
 mod mapped_rules;
 mod memory;
 mod place;
+mod pointer_shape;
 #[cfg(test)]
 mod sized_rules;
 mod view;
@@ -25,6 +26,7 @@ use std::any::{Any, type_name};
 
 pub use context::{EventCx, MeasureCx, PaintCx};
 pub use id::WidgetId;
+pub use pointer_shape::PointerShape;
 pub use view::{NodeMut, View};
 
 pub(crate) use context::{Effects, FocusRequest, Frame, Grounds, Interaction, LayerRecord};
@@ -147,9 +149,33 @@ pub struct Node<Msg> {
 
 /// A keymap action a node answers with its own message while focus is inside it.
 pub(crate) struct FocusAction<Msg> {
-    pub(crate) scope: Scope,
-    pub(crate) action: String,
+    pub(crate) asked: Asked,
     pub(crate) message: Box<dyn Fn() -> Msg>,
+}
+
+/// What a node answers with a [`FocusAction`]: a keymap action, or one of the clipboard keys.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Asked {
+    /// The keymap action of this name in this scope, see [`NodeMut::on_action`].
+    Action(Scope, String),
+    /// A clipboard key, see [`NodeMut::on_clipboard`].
+    Clipboard(ClipboardKey),
+}
+
+/// One of the three keys that cut, copy and paste, for a node to claim with
+/// [`NodeMut::on_clipboard`].
+///
+/// They are the keys a text field cuts, copies and pastes its text with, which a list of other
+/// things, such as a file manager's rows, gives its own meaning to while it has focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ClipboardKey {
+    /// Ctrl+X, the key a text field cuts with.
+    Cut,
+    /// The keys of the global keymap action `copy`, Ctrl+C unless rebound.
+    Copy,
+    /// The keys of the global keymap action `paste`, Ctrl+V unless rebound.
+    Paste,
 }
 
 impl<Msg: 'static> Node<Msg> {
@@ -181,10 +207,17 @@ impl<Msg: 'static> Node<Msg> {
     /// The message this node sends for the keymap action `action` of `scope` while focus is
     /// inside it; see [`NodeMut::on_action`].
     pub(crate) fn answer_action(&self, scope: Scope, action: &str) -> Option<Msg> {
-        self.actions
-            .iter()
-            .find(|answer| answer.scope == scope && answer.action == action)
-            .map(|answer| (answer.message)())
+        self.answer(|asked| matches!(asked, Asked::Action(s, a) if *s == scope && a == action))
+    }
+
+    /// The message this node sends for the clipboard key `key` while focus is inside it; see
+    /// [`NodeMut::on_clipboard`].
+    pub(crate) fn answer_clipboard(&self, key: ClipboardKey) -> Option<Msg> {
+        self.answer(|asked| *asked == Asked::Clipboard(key))
+    }
+
+    fn answer(&self, wanted: impl Fn(&Asked) -> bool) -> Option<Msg> {
+        self.actions.iter().find(|answer| wanted(&answer.asked)).map(|answer| (answer.message)())
     }
 
     /// Gives this node and its descendants their ids.

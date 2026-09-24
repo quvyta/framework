@@ -348,6 +348,17 @@ impl I18n {
         system_tag(&["LC_ALL", "LC_TIME", "LANG"], env)?.region().and_then(week::region_code)
     }
 
+    /// [`detect`](Self::detect) from `env` alone, never the operating system's own setting.
+    pub(crate) fn detect_only(&self, env: impl Fn(&str) -> Option<String>) -> Option<String> {
+        self.matching(&Tag::parse(&variables_tag(&["LC_ALL", "LC_MESSAGES", "LANG"], &env)?)?)
+    }
+
+    /// [`detect_region`](Self::detect_region) from `env` alone, never the operating system's own
+    /// setting.
+    pub(crate) fn detect_region_only(&self, env: impl Fn(&str) -> Option<String>) -> Option<String> {
+        Tag::parse(&variables_tag(&["LC_ALL", "LC_TIME", "LANG"], &env)?)?.region().and_then(week::region_code)
+    }
+
     /// The known locale code that serves `tag`; see [`I18n::detect`] for the order.
     fn matching(&self, tag: &Tag) -> Option<String> {
         let known = |wanted: &str| self.locales.keys().find(|code| code.eq_ignore_ascii_case(wanted)).cloned();
@@ -393,8 +404,12 @@ const DECIMAL: &str = "quvyta.number.decimal";
 
 /// The locale name in the first of `variables` that is set, or else the operating system's.
 fn system_tag(variables: &[&str], env: impl Fn(&str) -> Option<String>) -> Option<Tag> {
-    let from_env = variables.iter().filter_map(|name| env(name)).find(|value| !value.is_empty());
-    Tag::parse(&from_env.or_else(sys_locale::get_locale)?)
+    Tag::parse(&variables_tag(variables, &env).or_else(sys_locale::get_locale)?)
+}
+
+/// The first of `variables` that `env` gives a value, without asking the operating system.
+fn variables_tag(variables: &[&str], env: &impl Fn(&str) -> Option<String>) -> Option<String> {
+    variables.iter().filter_map(|name| env(name)).find(|value| !value.is_empty())
 }
 
 fn render(template: &Template, args: &[(&str, Arg)]) -> String {

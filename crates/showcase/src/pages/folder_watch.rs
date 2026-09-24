@@ -2,6 +2,7 @@
 //! batches, without polling.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use qframe::prelude::*;
 use qframe::storage::{FolderChange, FolderChangeKind, FolderChanges, FolderWatch};
@@ -66,6 +67,8 @@ pub enum Msg {
     Stop,
     /// A batch from the watch of run `u64`; empty once that watch is dropped.
     Changed(u64, Vec<FolderChange>),
+    /// A wait of the watch of run `u64` ended with nothing changed.
+    Quiet(u64),
     Create,
     Rename,
     Remove,
@@ -77,9 +80,17 @@ fn send(message: Msg) -> AppMsg {
 }
 
 // region: folder-watch-wait
-/// Waits for the next batch on a background thread and hands it to `update`.
+/// How long one wait lasts before it says nothing changed and is asked again.
+const PATIENCE: Duration = Duration::from_millis(250);
+
+/// Waits for the next batch on a background thread and hands it to `update`. Each wait has a
+/// bound, so the same code also runs in a screen test, which does the work in place: a wait with
+/// no end would hold the test for good.
 fn wait(changes: FolderChanges, run: u64) -> Command<AppMsg> {
-    Command::perform(move || send(Msg::Changed(run, changes.next())))
+    Command::perform(move || match changes.next_within(PATIENCE) {
+        Some(batch) => send(Msg::Changed(run, batch)),
+        None => send(Msg::Quiet(run)),
+    })
 }
 // endregion
 
@@ -166,6 +177,11 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         // endregion
         // A stopped watch's last answer, or an earlier run's.
         Msg::Changed(..) => Command::none(),
+        // Nothing changed within the bound: the watch that still lives waits again.
+        Msg::Quiet(run) => match &state.watch {
+            Some(watch) if run == state.run => wait(watch.changes(), run),
+            _ => Command::none(),
+        },
         Msg::Create => {
             file_operation(state, log, "created a file", |folder, n| {
                 std::fs::write(folder.join(format!("note-{n}.txt")), "")
@@ -315,6 +331,26 @@ mod tests {
     use super::*;
     use crate::app::Showcase;
     use crate::tests::{showcase_on, showcase_tall};
+
+    #[test]
+    fn a_click_on_start_leaves_the_page_answering_and_a_change_arrives() {
+        // A screen test runs the waiting work in place: a wait with no end would hold it for good.
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut h = showcase_tall(Showcase::new(), PAGE, 60);
+            h.click_text("Start watching");
+            h.click_text("Create a file");
+            for _ in 0..50 {
+                h.advance(std::time::Duration::from_millis(100));
+                if h.screen().contains("1 batch arrived") {
+                    break;
+                }
+            }
+            let _ = done.send(h.screen());
+        });
+        let screen = finished.recv_timeout(std::time::Duration::from_secs(60)).expect("the page kept answering");
+        assert!(screen.contains("1 batch arrived"), "the file made arrived as a batch:\n{screen}");
+    }
 
     #[test]
     fn the_page_waits_to_be_started() {

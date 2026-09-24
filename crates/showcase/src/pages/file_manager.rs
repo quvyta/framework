@@ -371,7 +371,10 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             // an archive. The colours are a further layer on top, and a mark wins over the kind.
             .kind_icons(state.kinds)
             .kind_tones(state.tones)
-            .disabled(state.disabled);
+            .disabled(state.disabled)
+            // The rows carry the name, whichever view draws them, so `Command::focus("files")`
+            // hands them the keyboard after the application moves to another folder.
+            .id("files");
         if state.extras {
             manager = manager.on_open_terminal(|path| send_page(Msg::Terminal(path.to_path_buf()))).menu_items(
                 |key, targets| {
@@ -392,7 +395,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             });
         }
         let width = if state.narrow { Length::Cells(NARROW) } else { Length::Fill(1) };
-        manager.show(ui).width(width).height(Length::Cells(ROWS)).id("files");
+        manager.show(ui).width(width).height(Length::Cells(ROWS));
         // endregion
         ui.spacer().height(Length::Cells(1));
         if state.asked.is_empty() {

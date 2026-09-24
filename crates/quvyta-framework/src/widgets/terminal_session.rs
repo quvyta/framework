@@ -143,7 +143,8 @@ pub struct TerminalBuilder {
     program: OsString,
     args: Vec<OsString>,
     folder: Option<PathBuf>,
-    env: Vec<(OsString, OsString)>,
+    /// In the order given; `None` removes the name. Replayed in order, so the last word wins.
+    env: Vec<(OsString, Option<OsString>)>,
     size: (u16, u16),
     scrollback: usize,
     coalesce: Duration,
@@ -167,7 +168,17 @@ impl TerminalBuilder {
     /// environment. The program always gets `TERM=xterm-256color` and `COLORTERM=truecolor`;
     /// setting either here replaces it. A name set twice keeps the last value.
     pub fn env(mut self, name: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> Self {
-        self.env.push((name.as_ref().to_owned(), value.as_ref().to_owned()));
+        self.env.push((name.as_ref().to_owned(), Some(value.as_ref().to_owned())));
+        self
+    }
+
+    /// Removes an environment variable, so the program does not see it at all, not even as
+    /// empty. It removes the name whether it came from the application's own environment or an
+    /// earlier [`env`](Self::env); an `env` after it sets the name again. Removing `TERM` or
+    /// `COLORTERM` removes the value the program would otherwise always get. Useful for a
+    /// variable whose mere presence changes what the program does, such as `TMUX`.
+    pub fn env_remove(mut self, name: impl AsRef<OsStr>) -> Self {
+        self.env.push((name.as_ref().to_owned(), None));
         self
     }
 
@@ -211,7 +222,10 @@ impl TerminalBuilder {
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
         for (name, value) in &self.env {
-            command.env(name, value);
+            match value {
+                Some(value) => command.env(name, value),
+                None => command.env_remove(name),
+            }
         }
         let mut child = pair.slave.spawn_command(command).map_err(io::Error::other)?;
         // Without the slave end here, the reader sees end-of-file once the child exits.
@@ -322,6 +336,7 @@ impl TerminalSession {
     ///     .args(["-l"])
     ///     .folder("/tmp")
     ///     .env("EDITOR", "vi")
+    ///     .env_remove("TMUX")
     ///     .size(100, 30)
     ///     .scrollback(2000)
     ///     .coalesce(Duration::from_millis(16))
@@ -743,6 +758,24 @@ mod tests {
         let session = sh("printf '%s' \"$TERM\"").env("TERM", "vt100").spawn().expect("pty");
         changes_to_exit(&session);
         assert_eq!(contents(&session), "vt100", "a variable given replaces the default");
+    }
+
+    #[test]
+    fn a_removed_variable_is_not_set_at_all() {
+        let seen = r#"for n in TMUX HOME; do if eval "[ -z \"\${$n+x}\" ]"; then printf '%s:unset ' $n; else printf '%s:set ' $n; fi; done"#;
+        // TMUX given by the builder, HOME inherited from the application: both are gone.
+        let session =
+            sh(seen).env("TMUX", "/tmp/tmux-0/default,1,0").env_remove("TMUX").env_remove("HOME").spawn().expect("pty");
+        changes_to_exit(&session);
+        assert_eq!(contents(&session).trim_end(), "TMUX:unset HOME:unset");
+        // An empty value is still a value: the name is set.
+        let session = sh(seen).env("TMUX", "").spawn().expect("pty");
+        changes_to_exit(&session);
+        assert_eq!(contents(&session).trim_end(), "TMUX:set HOME:set");
+        // The last word wins: set again after removing.
+        let session = sh(seen).env_remove("TMUX").env("TMUX", "x").spawn().expect("pty");
+        changes_to_exit(&session);
+        assert_eq!(contents(&session).trim_end(), "TMUX:set HOME:set");
     }
 
     #[test]

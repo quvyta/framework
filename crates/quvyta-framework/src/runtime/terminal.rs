@@ -11,8 +11,8 @@ use crossterm::event::{
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::terminal::{
-    BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
-    disable_raw_mode, enable_raw_mode, supports_keyboard_enhancement,
+    Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    supports_keyboard_enhancement,
 };
 use crossterm::{cursor, execute};
 use ratatui_core::terminal::Terminal;
@@ -21,7 +21,9 @@ use ratatui_crossterm::CrosstermBackend;
 use super::app::App;
 use super::detached::{self, DetachedOutcome};
 use super::engine::{Engine, HandOver, TaskMode};
+use super::graphics_probe::LateAnswer;
 use super::handoff::{self, HandoffOutcome, HandoffScreen};
+use super::present::{Screen, pointer_shapes_supported};
 use super::signals::Signals;
 use super::terminal_clipboard::TerminalClipboard;
 use super::termination::Termination;
@@ -236,10 +238,22 @@ impl<A: App> Runtime<A> {
         // Before the terminal is taken, so the modes restored if the process has to be ended by
         // force are the ones the user had.
         let signals = Signals::catch()?;
-        let guard = TerminalGuard::enter()?;
+        let mut guard = TerminalGuard::enter()?;
+        // Before anything else reads the terminal: its answers are then read straight from it and
+        // never reach the input parser.
+        let late = ask_graphics(&mut env, &signals);
+        guard.enhance_keyboard()?;
         install_panic_hook();
-        let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-        let result = event_loop(&mut terminal, Engine::new(self.app, env, TaskMode::Threads), &guard, &signals);
+        let shapes = pointer_shapes_supported(|name| std::env::var(name).ok());
+        let mut screen = Screen::new(Terminal::new(CrosstermBackend::new(io::stdout()))?).pointer_shapes(shapes);
+        let engine = Engine::new(self.app, env, TaskMode::Threads);
+        let result = event_loop(&mut screen, engine, &guard, &signals, late);
+        if !guard.abandoned.get() {
+            // A resize arrow left behind would follow the user into the shell. Leaving is under
+            // way whatever happens here, so a failed write only leaves the arrow.
+            let _ = screen.reset_pointer_shape();
+        }
+        let terminal = screen.into_terminal();
         if guard.abandoned.get() {
             // Dropping it would show the cursor on a terminal that is gone.
             std::mem::forget(terminal);
@@ -252,11 +266,39 @@ impl<A: App> Runtime<A> {
     }
 }
 
+/// Asks the terminal which pictures it shows and records the answer in `env`, when the answer
+/// could change [`Env::graphics`] and both ends are a terminal. Returns what still watches the
+/// input for an answer that comes too late.
+#[cfg(unix)]
+fn ask_graphics(env: &mut Env, signals: &Signals) -> LateAnswer {
+    use super::graphics_probe::{PROBE_WAIT, late_from, probe};
+    use rustix::termios::isatty;
+    if !env.graphics_worth_asking() || !isatty(signals.tty()) || !isatty(io::stdout()) {
+        return LateAnswer::default();
+    }
+    match probe(signals.tty(), &mut io::stdout(), PROBE_WAIT) {
+        Ok(probe) => {
+            env.set_terminal_graphics(probe.graphics);
+            if probe.answered { LateAnswer::default() } else { late_from(Instant::now()) }
+        }
+        // The question may have gone out before the failure; its answer must not become keys.
+        Err(_) => late_from(Instant::now()),
+    }
+}
+
+/// Outside Unix the terminal is not asked, and pictures are drawn with half blocks unless
+/// `QUVYTA_GRAPHICS` says otherwise.
+#[cfg(not(unix))]
+fn ask_graphics(_env: &mut Env, _signals: &Signals) -> LateAnswer {
+    LateAnswer::default()
+}
+
 fn event_loop<A: App>(
-    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    terminal: &mut Screen<Stdout>,
     mut engine: Engine<A>,
     guard: &TerminalGuard,
     signals: &Signals,
+    mut late: LateAnswer,
 ) -> io::Result<()> {
     let start = Instant::now();
     let mut clipboard = TerminalClipboard::default();
@@ -321,7 +363,8 @@ fn event_loop<A: App>(
             signals.wait(wait, false)?;
             continue;
         }
-        match read_input(&mut engine, &mut clipboard, signals, start, wait) {
+        let mut input = Input { clipboard: &mut clipboard, late: &mut late };
+        match read_input(&mut engine, &mut input, signals, start, wait) {
             Ok(true) => hang_up(signals, guard, &mut gone),
             Ok(false) => {}
             Err(error) => hang_up_or(error, signals, guard, &mut gone)?,
@@ -333,7 +376,7 @@ fn event_loop<A: App>(
 /// What is due is the engine's answer: a frame the view or an animation wants, unless the frame
 /// limit holds it back; a frame answering input is never held back.
 fn draw<A: App>(
-    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    terminal: &mut Screen<Stdout>,
     engine: &mut Engine<A>,
     clipboard: &mut TerminalClipboard,
     start: Instant,
@@ -342,9 +385,10 @@ fn draw<A: App>(
     clipboard.update(engine, now)?;
     engine.tick(now);
     if engine.frame_due(now) {
-        execute!(io::stdout(), BeginSynchronizedUpdate)?;
-        terminal.draw(|frame| engine.render(frame.buffer_mut(), start.elapsed()))?;
-        execute!(io::stdout(), EndSynchronizedUpdate)?;
+        terminal.present(|buffer| {
+            engine.render(buffer, start.elapsed());
+            engine.pointer_shape()
+        })?;
         for text in engine.clipboard.drain(..) {
             execute!(io::stdout(), CopyToClipboard::to_clipboard_from(text))?;
         }
@@ -352,11 +396,17 @@ fn draw<A: App>(
     Ok(())
 }
 
+/// What picks the terminal's own answers out of the input before the engine sees it.
+struct Input<'a> {
+    clipboard: &'a mut TerminalClipboard,
+    late: &'a mut LateAnswer,
+}
+
 /// Waits up to `wait` for the keyboard or a signal and hands every waiting event to the engine.
 /// Returns whether the terminal hung up instead.
 fn read_input<A: App>(
     engine: &mut Engine<A>,
-    clipboard: &mut TerminalClipboard,
+    input: &mut Input<'_>,
     signals: &Signals,
     start: Instant,
     wait: Duration,
@@ -385,9 +435,11 @@ fn read_input<A: App>(
         }
         let more = event_waiting(signals)?;
         ready = more == Some(true);
-        for event in clipboard.filter(event, ready, engine, start.elapsed()) {
-            if let Some(event) = translate(event) {
-                engine.handle(event, start.elapsed());
+        for event in input.late.filter(event, ready, Instant::now()) {
+            for event in input.clipboard.filter(event, ready, engine, start.elapsed()) {
+                if let Some(event) = translate(event) {
+                    engine.handle(event, start.elapsed());
+                }
             }
         }
         if more.is_none() {
@@ -443,12 +495,15 @@ fn refuse_handoffs<A: App>(engine: &mut Engine<A>) {
 /// takes the screen and draws all of it again. The engine owns no terminal, so this is the only
 /// place a handoff can happen.
 fn run_handoffs<A: App>(
-    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    terminal: &mut Screen<Stdout>,
     engine: &mut Engine<A>,
     guard: &TerminalGuard,
     signals: &Signals,
 ) {
     while let Some(work) = engine.take_handoff() {
+        // The program gets the terminal's usual pointer, not the arrow of an edge the pointer
+        // was on. Should the write fail, giving the screen back below fails too and says so.
+        let _ = terminal.reset_pointer_shape();
         let prompt = engine.env.i18n().translate("quvyta.handoff.pause", &[]);
         let deliveries = engine.deliveries();
         let message = {
@@ -470,8 +525,8 @@ fn run_handoffs<A: App>(
                 // clears it and empties the buffer the next frame is compared against, so every
                 // cell is drawn again. `Terminal::clear` would do the same but first ask the
                 // terminal where its cursor is, a round trip some terminals never answer.
-                let area = terminal.size()?.into();
-                terminal.resize(area)?;
+                let area = terminal.size()?;
+                terminal.redraw_all(area)?;
                 resumed
             };
             let mut wait_for_key = || wait_for_key_press(&prompt, signals);
@@ -544,13 +599,18 @@ impl TerminalGuard {
         enable_raw_mode()?;
         // From here on the guard exists, so a failure below drops it and the terminal is
         // restored instead of being left in raw mode.
-        let mut guard = Self { keyboard_enhanced: false, abandoned: Cell::new(false) };
+        let guard = Self { keyboard_enhanced: false, abandoned: Cell::new(false) };
         execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste, cursor::Hide)?;
-        // Asked once: the terminal cannot change its answer while the application runs, and the
-        // question costs a round trip to it.
-        guard.keyboard_enhanced = supports_keyboard_enhancement().unwrap_or(false);
-        guard.push_keyboard_flags()?;
         Ok(guard)
+    }
+
+    /// Asks whether the terminal speaks the kitty keyboard protocol and turns it on if so. Once:
+    /// the terminal cannot change its answer while the application runs, and the question costs a
+    /// round trip to it. The input parser reads the answer, so questions the runtime reads from
+    /// the terminal itself come before this.
+    fn enhance_keyboard(&mut self) -> io::Result<()> {
+        self.keyboard_enhanced = supports_keyboard_enhancement().unwrap_or(false);
+        self.push_keyboard_flags()
     }
 
     /// Gives the terminal back: raw mode off, the normal screen and the cursor again.

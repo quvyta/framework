@@ -1,6 +1,7 @@
 ## Methods
 
 - `ContextMenu::new(items)` — wraps the widgets added with `ui.add_with(…)`. Its messages must be `Clone`; the menus of `Tabs` and `TabRail` do not need that.
+- `.on_left_click(bool)` — a left click opens the menu too, at the pointer; a left click on the area while it is open closes it. Presses an interactive child takes still go to the child. Default: `false`.
 - `ContextItem::new(label, msg)` — an action that sends `msg` when chosen.
 - `ContextItem::submenu(label, items)` — a row that opens `items` beside the menu.
 - `ContextItem::gap()` — an empty row between groups.
@@ -17,7 +18,7 @@
 
 ## Mouse
 
-- Right click opens at the pointer. Hover highlights rows and opens submenus; a click chooses, a click on a gap or a disabled row does nothing. A press outside closes the menu and still reaches its target; a right click inside the area opens it again there.
+- Right click opens at the pointer. Hover highlights rows and opens submenus; a click chooses, a click on a gap or a disabled row does nothing. A press outside closes the menu and still reaches its target; a right click inside the area opens it again there. With `on_left_click(true)` a left click opens it the same way, and a left click on the area while it is open closes it.
 
 ## Theme keys
 

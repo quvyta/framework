@@ -12,7 +12,7 @@ Kullanıcının uygulamanın içinde gerçek bir kabuğa ya da gerçek, etkileş
 
 Programa metni kendin vermek için `session.paste(metin)`; bunun doğru an olup olmadığını anlamak için `session.last_output()` ve `session.last_input()`.
 
-Daha fazla denetim için başlatmayı `TerminalSession::builder(program)` ile tarif et: `.args(..)`, `.folder(..)`, `.env(ad, değer)`, `.size(sütun, satır)`, `.scrollback(satır)` ve `.coalesce(aralık)`, sonra `.spawn()`. Programın başlığını, klasörünü, zilini ve bildirimlerini de duymak için `watch.next_change()` ile izle.
+Daha fazla denetim için başlatmayı `TerminalSession::builder(program)` ile tarif et: `.args(..)`, `.folder(..)`, `.env(ad, değer)`, programın hiç görmemesi gereken bir değişken için `.env_remove(ad)` (tmux başlatırken `TMUX` gibi), `.size(sütun, satır)`, `.scrollback(satır)` ve `.coalesce(aralık)`, sonra `.spawn()`. Programın başlığını, klasörünü, zilini ve bildirimlerini de duymak için `watch.next_change()` ile izle.
 
 ## Nasıl çalışır
 

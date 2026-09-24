@@ -5,6 +5,8 @@ mod app;
 #[cfg(test)]
 mod burst_rules;
 mod clipboard;
+#[cfg(test)]
+mod clipboard_claim_rules;
 mod command;
 mod confirm;
 mod debug;
@@ -17,6 +19,7 @@ mod focus_action_rules;
 #[cfg(unix)]
 mod foreground;
 mod frame_limit;
+mod graphics_probe;
 pub(crate) mod handoff;
 mod harness;
 #[cfg(test)]
@@ -31,6 +34,7 @@ mod map_rules;
 mod open;
 #[cfg(test)]
 mod open_rules;
+mod present;
 mod process;
 #[cfg(test)]
 mod release_rules;

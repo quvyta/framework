@@ -7,7 +7,7 @@
 //! its event with a context of the screen's messages, and what it sends goes out converted.
 
 use super::context::{EventCx, MeasureCx, PaintCx};
-use super::{Flex, LayoutProps, Node, Widget, WidgetId};
+use super::{ClipboardKey, Flex, LayoutProps, Node, Widget, WidgetId};
 use crate::event::Event;
 use crate::geometry::{Rect, Size};
 use crate::keymap::Scope;
@@ -24,6 +24,8 @@ pub(crate) trait Reached<Msg> {
     fn paint_overlay(&self, cx: &mut PaintCx<'_>, anchor: Rect);
     /// The message the node answers a keymap action with while focus is inside it.
     fn answer_action(&self, scope: Scope, action: &str) -> Option<Msg>;
+    /// The message the node answers a clipboard key with while focus is inside it.
+    fn answer_clipboard(&self, key: ClipboardKey) -> Option<Msg>;
 }
 
 impl<Msg: 'static> Reached<Msg> for &Node<Msg> {
@@ -45,6 +47,10 @@ impl<Msg: 'static> Reached<Msg> for &Node<Msg> {
 
     fn answer_action(&self, scope: Scope, action: &str) -> Option<Msg> {
         Node::answer_action(self, scope, action)
+    }
+
+    fn answer_clipboard(&self, key: ClipboardKey) -> Option<Msg> {
+        Node::answer_clipboard(self, key)
     }
 }
 
@@ -77,6 +83,10 @@ impl<Inner, Msg> Reached<Msg> for ReachedThrough<'_, Inner, Msg> {
 
     fn answer_action(&self, scope: Scope, action: &str) -> Option<Msg> {
         self.inner.answer_action(scope, action).map(self.map)
+    }
+
+    fn answer_clipboard(&self, key: ClipboardKey) -> Option<Msg> {
+        self.inner.answer_clipboard(key).map(self.map)
     }
 }
 

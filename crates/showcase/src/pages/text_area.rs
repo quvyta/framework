@@ -24,6 +24,7 @@ pub struct State {
     submitted: Option<String>,
     line_numbers: bool,
     counter: bool,
+    plain: bool,
     disabled: bool,
 }
 
@@ -35,6 +36,7 @@ impl Default for State {
             submitted: None,
             line_numbers: false,
             counter: false,
+            plain: false,
             disabled: false,
         }
     }
@@ -48,6 +50,7 @@ pub enum Msg {
     Script(String),
     LineNumbers(bool),
     Counter(bool),
+    Plain(bool),
     Disabled(bool),
 }
 
@@ -87,6 +90,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::Counter(on) => {
             state.counter = on;
             ("Playground", format!("counter = {on}"))
+        }
+        Msg::Plain(on) => {
+            state.plain = on;
+            ("Playground", format!("plain = {on}"))
         }
         Msg::Disabled(on) => {
             state.disabled = on;
@@ -130,16 +137,16 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         ui.add(Text::new(t!("text-area.playground")).role("secondary"));
         ui.spacer().height(Length::Cells(1));
         // region: configured
-        ui.add(
-            TextArea::new(&state.script)
-                .line_numbers(state.line_numbers)
-                .counter(state.counter)
-                .disabled(state.disabled)
-                .on_change(|value| send(Msg::Script(value))),
-        )
-        .width(Length::Cells(64))
-        .height(Length::Cells(5))
-        .id("script");
+        let mut script = TextArea::new(&state.script)
+            .line_numbers(state.line_numbers)
+            .counter(state.counter)
+            .disabled(state.disabled)
+            .on_change(|value| send(Msg::Script(value)));
+        if state.plain {
+            // Paper: the panel's own tone instead of a raised field.
+            script = script.variant("plain");
+        }
+        ui.add(script).width(Length::Cells(64)).height(Length::Cells(5)).id("script");
         // endregion
         ui.spacer().height(Length::Cells(1));
         setting(ui, t!("text-area.line-numbers"), |ui| {
@@ -147,6 +154,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         });
         setting(ui, t!("text-area.counter"), |ui| {
             ui.add(toggle(state.counter, |on| send(Msg::Counter(on)))).id("counter");
+        });
+        setting(ui, t!("text-area.plain"), |ui| {
+            ui.add(toggle(state.plain, |on| send(Msg::Plain(on)))).id("plain");
         });
         setting(ui, t!("button.disabled-label"), |ui| {
             ui.add(toggle(state.disabled, |on| send(Msg::Disabled(on)))).id("disabled");
@@ -174,5 +184,21 @@ mod tests {
         assert!(h.screen().contains("only spaces"), "{}", h.screen());
         h.send(send(Msg::LineNumbers(true)));
         assert!(h.screen().contains(" 1 podman pull"), "{}", h.screen());
+    }
+
+    #[test]
+    fn the_plain_script_sits_on_the_panel_tone() {
+        // Tall enough to show the playground's switch under the demo.
+        let mut h = crate::tests::showcase_tall(crate::app::Showcase::new(), PAGE, 90);
+        let (x, y) = h.find("podman pull").expect("the script is drawn");
+        let cell = (u16::try_from(x).unwrap(), u16::try_from(y).unwrap());
+        let surface = h.env().theme().color("surface");
+        assert_ne!(h.bg(cell.0, cell.1), surface, "a raised field by default");
+        // The playground's switches stand after their labels' column of 24 cells.
+        let (sx, sy) =
+            h.find("Plain, in the panel").unwrap_or_else(|| panic!("the switch is on screen:\n{}", h.screen()));
+        h.click(sx + 25, sy);
+        assert!(h.app().pages.text_area.plain, "the click turned the plain look on");
+        assert_eq!(h.bg(cell.0, cell.1), surface);
     }
 }

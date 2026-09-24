@@ -1,6 +1,7 @@
 ## Metotlar
 
 - `ContextMenu::new(öğeler)` — `ui.add_with(…)` ile eklenen bileşenleri sarar. Mesajlarının `Clone` olması gerekir; `Tabs` ve `TabRail` menülerinde bu gerekmez.
+- `.on_left_click(bool)` — menüyü sol tık da imlecin yanında açar; menü açıkken alana sol tıklamak onu kapatır. Etkileşimli bir çocuğun aldığı basışlar yine o çocuğa gider. Varsayılan: `false`.
 - `ContextItem::new(etiket, msg)` — seçilince `msg` gönderen eylem.
 - `ContextItem::submenu(etiket, öğeler)` — `öğeler`i menünün yanında açan satır.
 - `ContextItem::gap()` — gruplar arasında boş satır.
@@ -17,7 +18,7 @@
 
 ## Fare
 
-- Sağ tık imlecin yanında açar. Üstüne gelmek satırı vurgular ve alt menüleri açar; tıklamak seçer, boşluğa ya da pasif satıra tıklamak bir şey yapmaz. Dışarı basmak menüyü kapatır ve basış yine de hedefine ulaşır; alanın içinde sağ tık menüyü orada yeniden açar.
+- Sağ tık imlecin yanında açar. Üstüne gelmek satırı vurgular ve alt menüleri açar; tıklamak seçer, boşluğa ya da pasif satıra tıklamak bir şey yapmaz. Dışarı basmak menüyü kapatır ve basış yine de hedefine ulaşır; alanın içinde sağ tık menüyü orada yeniden açar. `on_left_click(true)` ile sol tık da menüyü aynı biçimde açar; menü açıkken alana sol tıklamak onu kapatır.
 
 ## Tema anahtarları
 

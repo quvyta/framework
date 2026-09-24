@@ -49,6 +49,8 @@ mod huge_text_tests;
 mod icon_button;
 #[cfg(test)]
 mod icon_button_tests;
+#[cfg(feature = "image")]
+mod image;
 mod key_hints;
 mod layer;
 mod legend;
@@ -158,6 +160,8 @@ pub use help_layer::HelpLayer;
 pub use highlight::Language;
 pub use hold_to_confirm::HoldToConfirm;
 pub use icon_button::IconButton;
+#[cfg(feature = "image")]
+pub use image::{Fit, Image, ImageData, ImageError};
 pub use key_hints::KeyHints;
 pub use legend::Legend;
 pub use list::{ItemKind, List, ListItem};

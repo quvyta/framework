@@ -22,7 +22,7 @@
 //! same hangup arriving late.
 
 use std::io::{self, Read, Write};
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError, mpsc};
@@ -143,6 +143,12 @@ impl Signals {
         }
         *slot = Some(run);
         Ok(Self { wake, tty })
+    }
+
+    /// The terminal device the keyboard is read from, for a question the runtime asks it before
+    /// the input parser reads anything.
+    pub(crate) fn tty(&self) -> BorrowedFd<'_> {
+        self.tty.as_fd()
     }
 
     /// The causes heard since the last call, and whether the terminal was resized.

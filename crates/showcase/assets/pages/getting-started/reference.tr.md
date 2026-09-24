@@ -25,6 +25,13 @@
 ## Hız ve bağlantı
 
 - `env.remote()` — terminal uzak bir bağlantının öbür ucunda mı: `SSH_CONNECTION` ya da `SSH_TTY` dolu mu. `Env::load` bir kez algılar; testlerin ortamı olan `Env::builtin` hiçbir zaman uzak değildir.
+- `Env::load_with(&klasörler, sorgu)` — `Env::load` gibi, ama okuduğu her değişkeni (`LANG`, `LC_ALL`, `LC_TIME`, `TERM`, `SSH_CONNECTION`…) `sorgu` cevaplar ve işletim sisteminin kendi dil ayarına hiç bakılmaz. Uygulamayı gerçek dosyalarıyla çalıştıran bir test için: `|_| None` hiçbir şeyi ayarlanmamış bir makinedir; dil, haftanın ilk günü ve ondalık işareti her makinede aynı çıkar.
+
+## Grafik
+
+- `env.graphics()` — burada bir resim nasıl çizilebilir: `Graphics::Kitty`, `Graphics::Sixel`, `Graphics::HalfBlock` ya da `Graphics::None`. Terminalin açılıştaki tek soruya cevabı (en çok 150 ms, hiçbir zaman tuş olarak gelmez), ardından: 16 renk ya da ASCII glifler `None` verir; `TMUX` ya da `STY` kitty ve sixel'i yarım bloğa çevirir. `Env::builtin` yarım blok verir.
+- `QUVYTA_GRAPHICS=kitty|sixel|halfblock|none` — cevabın ve bütün kuralların üstünde karar verir; başka bir değer yok sayılır ve bir tanılama olur.
+- `Graphics::name()`, `Graphics::from_name(ad)` — değişkenin aldığı adlar.
 
 ## Command
 
@@ -65,7 +72,7 @@
 - `.send(msg)` — bir mesajı bileşen göndermiş gibi teslim eder.
 - `.advance(süre)` — sahte saati ilerletir; animasyonlar ve parlamalar onu takip eder, süresi dolan bir kapanış çıkar. `.render()` yeniden çizer.
 - `.terminate(Termination::Terminate)`, `.terminate(Termination::Hangup)` — bir `SIGTERM` ya da `SIGHUP`'ı taklit eder: `terminating` onu terminaldeki gibi duyar, ikinci terminate çıkar, tekrarlanan kopuş hiçbir şeyi değiştirmez.
-- `.set_theme(id)`, `.set_locale(kod)`, `.set_glyph_mode(mod)`, `.set_reduced_motion(bool)`, `.set_system_clipboard(Some(metin))` — ortamı değiştirir.
+- `.set_theme(id)`, `.set_locale(kod)`, `.set_glyph_mode(mod)`, `.set_graphics(grafik)`, `.set_reduced_motion(bool)`, `.set_system_clipboard(Some(metin))` — ortamı değiştirir.
 - `.screen()`, `.find(metin)`, `.fg(x, y)`, `.bg(x, y)`, `.is_bold(x, y)`, `.buffer()`, `.html(başlık)` — çizileni okur. Çift genişlikli karakter, kapladığı hücre olmadan bir kez okunur: `screen().contains("防火墙")` tutar, `find` çizildiği sütunu verir.
 - `.app()`, `.env()`, `.is_focused("isim")`, `.copied()`, `.clipboard()`, `.quit_requested()` — uygulamanın ve motorun durumuna bakar.
 

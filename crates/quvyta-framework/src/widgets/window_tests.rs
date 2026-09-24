@@ -10,7 +10,7 @@ use crate::icons::GlyphMode;
 use crate::keymap::Modifiers;
 use crate::runtime::{App, Command, Harness};
 use crate::theme::State;
-use crate::widget::View;
+use crate::widget::{PointerShape, View};
 
 /// One window on the desk.
 struct Win {
@@ -141,9 +141,9 @@ fn a_window_is_a_title_strip_and_a_body_with_marks_and_no_lines() {
     let h = two();
     let screen = h.screen();
     let lines: Vec<&str> = screen.lines().collect();
-    assert_eq!(lines[1], "   ❯ back  ~/projects   −  +  ×", "{screen}");
+    assert_eq!(lines[1], "   ❯ back  ~/projects  −  +  ×", "{screen}");
     assert_eq!(lines[2], "    back body", "{screen}");
-    assert_eq!(lines[4].get(20..), Some("▌❯ front  ~/projects  −  +  ×"), "{screen}");
+    assert_eq!(lines[4].get(20..), Some("▌❯ front  ~/projec…  −  +  ×"), "{screen}");
     assert_eq!(lines[5].get(20..), Some("▌ front body"), "{screen}");
     for row in 4..12 {
         assert_eq!(h.buffer()[(20, row)].symbol(), "▌", "the pillar runs down the focused window, row {row}");
@@ -236,6 +236,122 @@ fn the_right_column_bottom_row_and_their_corner_resize() {
 }
 
 #[test]
+fn dragging_the_left_edge_widens_the_window_to_the_left_and_keeps_the_right_edge() {
+    let mut h = two();
+    let right = h.app().rect("front").right();
+    drag(&mut h, (20, 7), &[(17, 7), (15, 8)]);
+    assert_eq!(
+        heard(&h),
+        [
+            ("front", WindowEvent::Resize { edge: WindowEdge::Left, dx: -3, dy: 0 }),
+            ("front", WindowEvent::Resize { edge: WindowEdge::Left, dx: -2, dy: 0 }),
+            ("front", WindowEvent::Dropped),
+        ]
+    );
+    assert_eq!(h.app().rect("front"), Rect::new(15, 4, 35, 8));
+    assert_eq!(h.app().rect("front").right(), right, "the right edge stays where it was");
+    drag(&mut h, (15, 9), &[(19, 9)]);
+    assert_eq!(h.app().rect("front"), Rect::new(19, 4, 31, 8), "and narrows it back from the left");
+    assert_eq!(h.app().rect("front").right(), right);
+}
+
+#[test]
+fn each_top_corner_resizes_and_the_bottom_left_corner_too() {
+    let mut h = two();
+    drag(&mut h, (20, 4), &[(18, 2)]);
+    assert_eq!(h.app().rect("front"), Rect::new(18, 2, 32, 10), "the top left corner moves up and left");
+    drag(&mut h, (49, 2), &[(52, 3)]);
+    assert_eq!(h.app().rect("front"), Rect::new(18, 3, 35, 9), "the top right corner moves right and down");
+    drag(&mut h, (18, 11), &[(16, 13)]);
+    assert_eq!(h.app().rect("front"), Rect::new(16, 3, 37, 11), "the bottom left corner moves left and down");
+    let edges: Vec<WindowEdge> = heard(&h)
+        .into_iter()
+        .filter_map(|(_, event)| match event {
+            WindowEvent::Resize { edge, .. } => Some(edge),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(edges, [WindowEdge::TopLeft, WindowEdge::TopRight, WindowEdge::BottomLeft]);
+    assert_eq!(h.app().rect("front").bottom(), 14, "the top corners kept the bottom where it was until it moved");
+}
+
+#[test]
+fn the_title_between_the_top_corners_still_moves_the_window() {
+    let mut h = two();
+    drag(&mut h, (21, 4), &[(23, 5)]);
+    h.advance(Duration::from_secs(1));
+    drag(&mut h, (41, 5), &[(40, 5)]);
+    assert_eq!(
+        heard(&h),
+        [
+            ("front", WindowEvent::Move { dx: 2, dy: 1 }),
+            ("front", WindowEvent::Dropped),
+            ("front", WindowEvent::Move { dx: -1, dy: 0 }),
+            ("front", WindowEvent::Dropped),
+        ],
+        "the first cell after the corner and the last before the marks both move it"
+    );
+    assert_eq!(h.app().rect("front"), Rect::new(21, 5, 30, 8));
+}
+
+#[test]
+fn the_left_edge_and_the_top_corners_light_under_the_pointer() {
+    let mut h = two();
+    let theme = h.env().theme();
+    let hover = theme.style("split-handle", None, &[State::Hover]).paint("bg").map(|paint| paint.at(0.0));
+    let (body, title) = (h.bg(25, 8), h.bg(30, 4));
+    h.hover(20, 7);
+    assert_eq!((h.bg(20, 5), h.bg(20, 10)), (hover, hover), "the whole left column lights");
+    assert_eq!(h.buffer()[(20, 7)].symbol(), "▌", "under its light the pillar stays");
+    assert_eq!((h.bg(25, 11), h.bg(49, 7)), (body, body), "the other sides stay");
+    h.hover(49, 4);
+    assert_eq!(
+        (h.bg(49, 4), h.bg(49, 9), h.bg(20, 4)),
+        (hover, hover, hover),
+        "the corner lights its column and the top"
+    );
+    assert_eq!(h.bg(30, 4), title, "the title between the corners is not a handle");
+    assert_eq!(h.bg(25, 11), body, "nor is the bottom row part of the top right corner");
+    h.hover(25, 8);
+    assert_eq!((h.bg(20, 7), h.bg(49, 7), h.bg(49, 4)), (body, body, title), "calm again");
+}
+
+#[test]
+fn the_pointer_turns_into_a_resize_arrow_over_every_edge_and_corner() {
+    let mut h = two();
+    let mut shape = |x, y| h.hover(x, y).pointer_shape();
+    assert_eq!(shape(20, 7), PointerShape::EwResize, "the left edge");
+    assert_eq!(shape(49, 7), PointerShape::EwResize, "the right edge");
+    assert_eq!(shape(30, 11), PointerShape::NsResize, "the bottom edge");
+    assert_eq!(shape(20, 4), PointerShape::NwseResize, "the top left corner");
+    assert_eq!(shape(49, 11), PointerShape::NwseResize, "the bottom right corner");
+    assert_eq!(shape(49, 4), PointerShape::NeswResize, "the top right corner");
+    assert_eq!(shape(20, 11), PointerShape::NeswResize, "the bottom left corner");
+    assert_eq!(shape(30, 7), PointerShape::Default, "the body");
+    assert_eq!(shape(30, 4), PointerShape::Default, "the title, which moves the window");
+    assert_eq!(shape(47, 4), PointerShape::Default, "a mark");
+    assert_eq!(shape(70, 20), PointerShape::Default, "the bare desktop");
+}
+
+#[test]
+fn a_window_on_top_hides_the_arrows_beneath_it_and_a_resize_keeps_its_arrow() {
+    let mut h = two();
+    assert_eq!(h.hover(31, 2).pointer_shape(), PointerShape::EwResize, "the back window's right edge, where it shows");
+    assert_eq!(h.hover(31, 6).pointer_shape(), PointerShape::Default, "and where the front window covers it");
+    h.mouse(MouseKind::Down(MouseButton::Left), 49, 7).mouse(MouseKind::Drag(MouseButton::Left), 49, 20);
+    assert_eq!(h.pointer_shape(), PointerShape::EwResize, "a resize keeps its arrow off the window");
+    h.mouse(MouseKind::Up(MouseButton::Left), 49, 20);
+    assert_eq!(h.pointer_shape(), PointerShape::Default, "and gives it up with the button");
+    h.mouse(MouseKind::Down(MouseButton::Left), 30, 4).mouse(MouseKind::Drag(MouseButton::Left), 31, 11);
+    assert_eq!(h.pointer_shape(), PointerShape::Default, "a move over another window's edge is still a move");
+    h.mouse(MouseKind::Up(MouseButton::Left), 31, 11);
+    let mut still = Desk::new(&[("still", Rect::new(2, 1, 30, 6))]);
+    still.interactive = false;
+    let mut h = Harness::new(still, 40, 8);
+    assert_eq!(h.hover(2, 3).pointer_shape(), PointerShape::Default, "a window nobody resizes has no arrows");
+}
+
+#[test]
 fn handles_light_under_the_pointer_and_take_the_accent_while_dragged() {
     let mut h = two();
     let theme = h.env().theme();
@@ -274,8 +390,9 @@ fn a_hovered_mark_lights_its_three_cells() {
     let theme = h.env().theme();
     let lit = theme.style("close-mark", None, &[State::Active, State::Hover]).paint("bg").map(|paint| paint.at(0.0));
     h.hover(47, 4);
-    assert_eq!([h.bg(47, 4), h.bg(48, 4), h.bg(49, 4)], [lit; 3]);
-    assert_ne!(h.bg(46, 4), lit, "the next mark stays");
+    assert_eq!([h.bg(46, 4), h.bg(47, 4), h.bg(48, 4)], [lit; 3]);
+    assert_ne!(h.bg(45, 4), lit, "the next mark stays");
+    assert_ne!(h.bg(49, 4), lit, "the corner after the marks is the right edge's");
 }
 
 #[test]
@@ -350,12 +467,12 @@ fn a_title_too_narrow_shortens_the_subtitle_then_the_name() {
         let h = Harness::new(desk, 40, 5);
         h.screen().lines().next().unwrap_or_default().to_owned()
     };
-    assert_eq!(title(34), "▌❯ terminal  ~/projects   −  +  ×", "everything fits");
-    assert_eq!(title(30), "▌❯ terminal  ~/proj…  −  +  ×", "the subtitle shortens first");
-    assert_eq!(title(26), "▌❯ terminal       −  +  ×", "then it is left out");
-    assert_eq!(title(22), "▌❯ terminal   −  +  ×");
-    assert_eq!(title(18), "▌❯ term…  −  +  ×", "then the name shortens");
-    assert_eq!(title(12), "▌❯  −  +  ×", "the marks always stay");
+    assert_eq!(title(35), "▌❯ terminal  ~/projects   −  +  ×", "everything fits");
+    assert_eq!(title(31), "▌❯ terminal  ~/proj…  −  +  ×", "the subtitle shortens first");
+    assert_eq!(title(27), "▌❯ terminal       −  +  ×", "then it is left out");
+    assert_eq!(title(23), "▌❯ terminal   −  +  ×");
+    assert_eq!(title(19), "▌❯ term…  −  +  ×", "then the name shortens");
+    assert_eq!(title(13), "▌❯  −  +  ×", "the marks always stay");
 }
 
 #[test]
@@ -363,7 +480,7 @@ fn marks_follow_the_glyph_mode() {
     let marks = |mode: GlyphMode| {
         let mut h = two();
         h.set_glyph_mode(mode);
-        h.screen().lines().nth(4).map(|line| line.chars().skip(41).collect::<String>()).unwrap_or_default()
+        h.screen().lines().nth(4).map(|line| line.chars().skip(40).collect::<String>()).unwrap_or_default()
     };
     assert_eq!(marks(GlyphMode::Ascii), " -  +  x");
     assert_eq!(marks(GlyphMode::Unicode), " −  +  ×");

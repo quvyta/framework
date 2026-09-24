@@ -316,3 +316,12 @@ sample-hint = "Simgeleri ekranınızda şekil olarak görünen seti seçin."
 install     = "Yazı tipini kur"
 defaults    = "Varsayılanlarla başla"
 not-saved   = "Seçimleriniz kaydedilemedi: {reason}"
+
+[quvyta.image]
+untitled         = "Resim"
+cannot-show-kind = "{kind}, {width} x {height} piksel. Bu terminal resim gösteremiyor."
+cannot-show      = "{width} x {height} piksel. Bu terminal resim gösteremiyor."
+missing          = "Bu resim yok"
+unreadable       = "Bu resim okunamadı"
+unknown-format   = "Bu bir PNG, JPEG, GIF ya da WebP resmi değil"
+broken           = "Bu resim bozuk"

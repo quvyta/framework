@@ -3,7 +3,7 @@
 use qframe::prelude::*;
 use qframe::widgets::{Breadcrumb, Segmented};
 
-use super::{PageMsg, setting};
+use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
 use crate::log::EventLog;
 
@@ -30,11 +30,12 @@ const WIDTHS: [u16; 3] = [0, 48, 26];
 pub struct State {
     path: Vec<&'static str>,
     width: usize,
+    faint: bool,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { path: vec!["workspace", "quvyta", "crates", "quvyta-framework", "src"], width: 0 }
+        Self { path: vec!["workspace", "quvyta", "crates", "quvyta-framework", "src"], width: 0, faint: false }
     }
 }
 
@@ -44,6 +45,7 @@ pub enum Msg {
     Up(usize),
     Into(&'static str),
     Width(usize),
+    Faint(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -71,6 +73,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.width = index;
             log.push(PAGE, "Playground", format!("width = {}", WIDTHS[index]));
         }
+        Msg::Faint(on) => {
+            state.faint = on;
+            log.push(PAGE, "Playground", format!("faint = {on}"));
+        }
     }
     Command::none()
 }
@@ -80,7 +86,11 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     ui.add_with(Panel::new().title(t!("demo.live")), |ui| {
         ui.add(Text::new(t!("breadcrumb.hint")).role("secondary"));
         // region: breadcrumb-path
-        let crumb = ui.add(Breadcrumb::new(state.path.clone()).on_select(|index| send(Msg::Up(index)))).id("path");
+        // A folder the person cannot read is still a place on the path: faint, and its levels
+        // still lead back out.
+        let crumb = ui
+            .add(Breadcrumb::new(state.path.clone()).on_select(|index| send(Msg::Up(index))).faint(state.faint))
+            .id("path");
         // endregion
         match WIDTHS[state.width] {
             0 => crumb.fill_width(),
@@ -107,6 +117,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             let names = [t!("breadcrumb.full"), t!("breadcrumb.columns", n = 48), t!("breadcrumb.columns", n = 26)];
             ui.add(Segmented::new(names).selected(state.width).on_select(|i| send(Msg::Width(i)))).id("width");
         });
+        setting(ui, t!("breadcrumb.faint"), |ui| {
+            ui.add(toggle(state.faint, |on| send(Msg::Faint(on)))).id("faint");
+        });
         ui.add(Text::new(t!("breadcrumb.keys")).role("faint"));
     })
     .fill_width();
@@ -127,5 +140,23 @@ mod tests {
         h.send(send(Msg::Up(5)));
         h.send(send(Msg::Width(2)));
         assert!(h.screen().contains("…"), "{}", h.screen());
+    }
+
+    #[test]
+    fn the_faint_switch_quiets_the_path_and_its_levels_still_open() {
+        let mut h = showcase_on(PAGE);
+        let (x, y) = h.find("crates").expect("a level of the path");
+        let (cx, cy) = (u16::try_from(x).expect("on screen"), u16::try_from(y).expect("on screen"));
+        let muted = h.env().theme().color("muted");
+        assert_ne!(h.fg(cx, cy), muted, "a plain path is not faint");
+
+        // The playground's switches stand after their labels' column of 24 cells.
+        let (x, y) = h.find("Faint path").unwrap_or_else(|| panic!("the switch is on screen:\n{}", h.screen()));
+        h.click(x + 25, y);
+        assert!(h.app().pages.breadcrumb.faint, "the switch turned the faint path on");
+        assert_eq!(h.fg(cx, cy), muted, "the levels take the theme's faint tone");
+
+        h.click_text("crates");
+        assert_eq!(h.app().pages.breadcrumb.path, vec!["workspace", "quvyta", "crates"], "a faint level still opens");
     }
 }

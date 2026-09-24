@@ -80,7 +80,7 @@ impl App for Demo {
         if let Some(home) = &self.home {
             manager = manager.user_folders(home);
         }
-        manager.show(ui).fill().id("files");
+        manager.id("files").show(ui).fill();
     }
 }
 

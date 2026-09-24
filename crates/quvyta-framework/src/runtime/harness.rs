@@ -17,6 +17,7 @@ use crate::env::Env;
 use crate::event::{Event, KeyEvent, MouseButton, MouseEvent, MouseKind};
 use crate::icons::GlyphMode;
 use crate::keymap::Modifiers;
+use crate::widget::PointerShape;
 
 /// Time the fake clock moves before every simulated key press, so presses are never mistaken
 /// for a held key.
@@ -278,6 +279,16 @@ impl<A: App> Harness<A> {
         self.render()
     }
 
+    /// Answers the graphics probe as a terminal that shows pictures with `graphics` would. A
+    /// harness asks no terminal, so until this is called it answers
+    /// [`Graphics::HalfBlock`](crate::graphics::Graphics::HalfBlock). The rules of
+    /// [`Env::graphics`](crate::env::Env::graphics) still apply: with [`Harness::set_depth`] at
+    /// 16 colours or [`Harness::set_glyph_mode`] at ASCII no picture is drawn, whatever is set here.
+    pub fn set_graphics(&mut self, graphics: crate::graphics::Graphics) -> &mut Self {
+        self.engine.env.set_terminal_graphics(graphics);
+        self.render()
+    }
+
     /// Switches the glyph column drawn.
     pub fn set_glyph_mode(&mut self, mode: GlyphMode) -> &mut Self {
         self.engine.env.set_glyph_mode(mode);
@@ -403,6 +414,14 @@ impl<A: App> Harness<A> {
     #[must_use]
     pub fn env(&self) -> &Env {
         &self.engine.env
+    }
+
+    /// The pointer shape the last frame asks for where the pointer is, as the terminal runtime
+    /// would send it to a terminal that understands pointer shapes. The harness records the
+    /// request whatever terminal a real run would meet; nothing is written anywhere.
+    #[must_use]
+    pub fn pointer_shape(&self) -> PointerShape {
+        self.engine.pointer_shape()
     }
 
     /// Texts copied to the clipboard so far.
@@ -769,5 +788,51 @@ mod wide_text_tests {
         let first_row = html.split("<div class=\"row\">").nth(1).expect("a first row");
         assert_eq!(first_row.matches("<span").count(), 30 - 5, "five characters take two cells each: {first_row}");
         assert!(first_row.contains(">防</span><span"), "{first_row}");
+    }
+}
+
+#[cfg(test)]
+mod graphics_tests {
+    use super::Harness;
+    use crate::color::ColorDepth;
+    use crate::graphics::Graphics;
+    use crate::icons::GlyphMode;
+    use crate::runtime::{App, Command};
+    use crate::widget::View;
+    use crate::widgets::Text;
+
+    /// Shows the graphics its view reads from the environment.
+    struct Pictures;
+
+    impl App for Pictures {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            let graphics = ui.env().graphics();
+            ui.add(Text::new(graphics.name()));
+        }
+    }
+
+    #[test]
+    fn a_harness_answers_half_blocks_until_told_otherwise() {
+        let mut harness = Harness::new(Pictures, 20, 1);
+        assert_eq!(harness.screen(), "halfblock\n", "no terminal is asked in a test");
+        harness.set_graphics(Graphics::Kitty);
+        assert_eq!(harness.screen(), "kitty\n");
+        harness.set_graphics(Graphics::Sixel);
+        assert_eq!(harness.screen(), "sixel\n");
+    }
+
+    #[test]
+    fn the_rules_still_apply_to_what_a_harness_is_told() {
+        let mut harness = Harness::new(Pictures, 20, 1);
+        harness.set_graphics(Graphics::Kitty).set_depth(ColorDepth::Ansi16);
+        assert_eq!(harness.screen(), "none\n", "16 colours show no picture");
+        harness.set_depth(ColorDepth::TrueColor).set_glyph_mode(GlyphMode::Ascii);
+        assert_eq!(harness.screen(), "none\n", "ASCII glyphs show no picture");
+        harness.set_glyph_mode(GlyphMode::Unicode);
+        assert_eq!(harness.screen(), "kitty\n");
     }
 }

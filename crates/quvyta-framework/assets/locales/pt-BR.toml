@@ -330,3 +330,12 @@ sample-hint = "Escolha o conjunto cujos ícones aparecem como formas na sua tela
 install     = "Instalar a fonte"
 defaults    = "Começar com os padrões"
 not-saved   = "Não foi possível salvar suas escolhas: {reason}"
+
+[quvyta.image]
+untitled         = "Imagem"
+cannot-show-kind = "{kind}, {width} x {height} pixels. Este terminal não consegue exibir imagens."
+cannot-show      = "{width} x {height} pixels. Este terminal não consegue exibir imagens."
+missing          = "Esta imagem não existe"
+unreadable       = "Não foi possível ler esta imagem"
+unknown-format   = "Esta imagem não está em formato PNG, JPEG, GIF ou WebP"
+broken           = "Esta imagem está danificada"

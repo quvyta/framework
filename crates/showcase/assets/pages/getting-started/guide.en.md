@@ -82,6 +82,23 @@ The limit never delays an answer to input. A frame that follows a key, a click, 
 
 An application reads `Env::remote` for its own decisions too: fewer animations, smaller pictures, a plainer first screen on a slow link.
 
+## Pictures the terminal can show
+
+`Env::graphics` says how a picture can be drawn here: `Graphics::Kitty` and `Graphics::Sixel` for real pixels, `Graphics::HalfBlock` for two coloured pixels in every cell, which every terminal with 256 colours shows over any link, and `Graphics::None` where no picture should be drawn at all.
+
+The runtime asks the terminal once, right after it takes it: a kitty graphics query, which only asks and stores nothing, followed by a request for the terminal's device attributes. Every terminal answers the second one, in order, so its answer marks the end: a terminal that answers is done in a few milliseconds, and one that does not is given 150 ms at most. The answers are read straight from the terminal before the input parser starts, so none of them ever arrives as a key; an answer that comes later than that is picked out of the input all the same.
+
+A kitty `OK` means kitty, attributes that list `4` mean sixel, and anything else, silence included, means half blocks. Then the environment has its say. 16 colours or ASCII glyphs give `Graphics::None`. Inside tmux or GNU screen (`TMUX` or `STY` set) kitty and sixel become half blocks, because the multiplexer does not pass them through; the terminal is not even asked there. The `QUVYTA_GRAPHICS` environment variable, set to `kitty`, `sixel`, `halfblock` or `none`, decides over all of it, for a terminal the question misjudges; any other value is ignored and reported in `Env::diagnostics`.
+
+```rust
+match ui.env().graphics() {
+    Graphics::None => { /* say what the picture is instead */ }
+    _ => { /* draw it */ }
+}
+```
+
+Tests ask no terminal: `Env::builtin` gives half blocks, and `Harness::set_graphics` answers as another terminal would, with the same rules applied.
+
 ## Testing without a terminal
 
 `Harness` runs the same application against an in-memory screen with a fake clock. Press keys, type, click on text and read the screen back as plain lines:

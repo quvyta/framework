@@ -12,7 +12,7 @@ Use the terminal when the user needs a real shell or a real interactive program 
 
 To hand the program text yourself, `session.paste(text)`; to know whether this is a good moment, `session.last_output()` and `session.last_input()`.
 
-For more control, describe the start with `TerminalSession::builder(program)`: `.args(..)`, `.folder(..)`, `.env(name, value)`, `.size(columns, rows)`, `.scrollback(lines)` and `.coalesce(interval)`, then `.spawn()`. Watch it with `watch.next_change()` to hear the program's title, folder, bell and notifications as well.
+For more control, describe the start with `TerminalSession::builder(program)`: `.args(..)`, `.folder(..)`, `.env(name, value)`, `.env_remove(name)` for a variable the program must not see at all (such as `TMUX` when it starts tmux), `.size(columns, rows)`, `.scrollback(lines)` and `.coalesce(interval)`, then `.spawn()`. Watch it with `watch.next_change()` to hear the program's title, folder, bell and notifications as well.
 
 ## How it works
 

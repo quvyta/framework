@@ -329,3 +329,12 @@ sample-hint = "Elija el conjunto cuyos iconos se vean como formas en su pantalla
 install     = "Instalar la tipografía"
 defaults    = "Empezar con los valores predeterminados"
 not-saved   = "No se pudieron guardar sus elecciones: {reason}"
+
+[quvyta.image]
+untitled         = "Imagen"
+cannot-show-kind = "{kind}, {width} x {height} píxeles. Esta terminal no puede mostrar imágenes."
+cannot-show      = "{width} x {height} píxeles. Esta terminal no puede mostrar imágenes."
+missing          = "Esta imagen no existe"
+unreadable       = "No se pudo leer esta imagen"
+unknown-format   = "Esto no es una imagen PNG, JPEG, GIF ni WebP"
+broken           = "Esta imagen está dañada"

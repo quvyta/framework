@@ -8,7 +8,7 @@ use crate::icons::Glyph;
 use crate::style::CellStyle;
 use crate::text;
 use crate::theme::State;
-use crate::widget::{Axis, Container, EventCx, Flex, Length, MeasureCx, Node, PaintCx, Widget};
+use crate::widget::{Axis, Container, EventCx, Flex, Length, MeasureCx, Node, PaintCx, PointerShape, Widget};
 
 use super::{click, close_mark};
 
@@ -43,8 +43,11 @@ pub enum WindowEvent {
         /// Rows down; negative is up.
         dy: i32,
     },
-    /// An edge or a corner was dragged: the right column or bottom row of the body, their corner,
-    /// or with alt and the right button the edge or corner nearest to the press.
+    /// An edge or a corner was dragged: the left or right column, the bottom row, one of the four
+    /// corners, or with alt and the right button the edge or corner nearest to the press. A drag
+    /// on the left or top side moves that side: the application moves the window by the delta
+    /// and changes its size by the opposite, so the other side stays where it was (see
+    /// [`WindowEdge::left`] and [`WindowEdge::top`]).
     Resize {
         /// The edge or corner that moves.
         edge: WindowEdge,
@@ -111,7 +114,20 @@ impl WindowEdge {
     pub fn bottom(self) -> bool {
         matches!(self, Self::Bottom | Self::BottomLeft | Self::BottomRight)
     }
+
+    /// The pointer's resize arrow over this edge or corner.
+    fn pointer_shape(self) -> PointerShape {
+        match self {
+            Self::Left | Self::Right => PointerShape::EwResize,
+            Self::Top | Self::Bottom => PointerShape::NsResize,
+            Self::TopLeft | Self::BottomRight => PointerShape::NwseResize,
+            Self::TopRight | Self::BottomLeft => PointerShape::NeswResize,
+        }
+    }
 }
+
+/// Whether an edge moves a given side, such as [`WindowEdge::left`].
+type SideTest = fn(WindowEdge) -> bool;
 
 /// Builds a message from what the pointer did to the window.
 type EventMessage<Msg> = Box<dyn Fn(WindowEvent) -> Msg>;
@@ -129,14 +145,19 @@ type EventMessage<Msg> = Box<dyn Fn(WindowEvent) -> Msg>;
 /// free for the handles.
 ///
 /// With no options the window is only a surface. [`on_event`](Self::on_event) makes it one the
-/// pointer moves: the three marks at the right end of the title (minimize, maximize or restore,
+/// pointer moves: the three marks near the right end of the title (minimize, maximize or restore,
 /// close) light up together under the pointer like every close mark; dragging the title moves
-/// the window and double-clicking it maximizes; the body's right column, bottom row and their
-/// corner are handles that brighten under the pointer and take the accent while dragged, like a
-/// splitter's boundary; alt with the left button drags the window from anywhere, alt with the
-/// right button resizes it from the nearest edge or corner (the left and top edges too). A drag
-/// belongs to the window until the button comes up, which arrives as [`WindowEvent::Dropped`],
-/// wherever the pointer goes. The title, the
+/// the window and double-clicking it maximizes. Every side resizes with a plain drag: the left
+/// column, the right column and the bottom row are handles, with their four corners. The top
+/// side is the title strip, which moves the window, so only its two end cells are handles, the
+/// top left and top right corners; the marks sit left of the right column to leave that corner
+/// free. Handles brighten under the pointer and take the accent while dragged, like a
+/// splitter's boundary, and on terminals that can change the pointer's shape the pointer turns
+/// into the matching resize arrow over them (see
+/// [`PaintCx::pointer_shape`](crate::widget::PaintCx::pointer_shape)). Alt with the left button
+/// drags the window from anywhere, alt with the right button resizes it from the nearest edge
+/// or corner, the top edge too. A drag belongs to the window until the button comes up, which
+/// arrives as [`WindowEvent::Dropped`], wherever the pointer goes. The title, the
 /// marks, the handles and alt drags are the window's even when the body holds a
 /// [`Terminal`](super::Terminal) whose program reads the mouse; other presses in the body reach
 /// the body. The window reports all of it through [`WindowEvent`]s and changes nothing itself:
@@ -297,25 +318,44 @@ impl<Msg: 'static> Window<Msg> {
         Rect::new(area.x + 2, area.y + 1, area.width.saturating_sub(3), area.height.saturating_sub(2))
     }
 
+    /// Where the marks start: left of the right column, which is the right edge's handle all the
+    /// way up to the title row's corner.
+    fn marks_x(area: Rect) -> i32 {
+        area.right() - 1 - i32::from(MARKS)
+    }
+
     /// The part of the window at `(x, y)`, or `None` outside it.
+    ///
+    /// On a window the pointer moves, every side is a handle: the left column, the right column
+    /// and the bottom row, with their corners. The top side is the title strip, which moves the
+    /// window, so only its two end cells are handles, the top corners; the cells between them are
+    /// the title and the marks.
     fn part_at(&self, area: Rect, x: i32, y: i32) -> Option<Part> {
         if !area.contains(x, y) {
             return None;
         }
-        let interactive = self.interactive();
-        if y == area.y {
-            let marks = area.right() - i32::from(MARKS);
-            if interactive && x >= marks {
-                let index = usize::try_from((x - marks) / i32::from(close_mark::WIDTH)).unwrap_or(0);
-                return Some(Part::Mark(Mark::ALL[index.min(2)]));
-            }
-            return Some(Part::Title);
+        if !self.interactive() {
+            return Some(if y == area.y { Part::Title } else { Part::Body });
         }
-        let (right, bottom) = (x == area.right() - 1, y == area.bottom() - 1);
-        Some(match (interactive, right, bottom) {
-            (true, true, true) => Part::Handle(WindowEdge::BottomRight),
-            (true, true, false) => Part::Handle(WindowEdge::Right),
-            (true, false, true) if x > area.x => Part::Handle(WindowEdge::Bottom),
+        let (left, right) = (x == area.x, x == area.right() - 1);
+        let (top, bottom) = (y == area.y, y == area.bottom() - 1);
+        Some(match (left, right, top, bottom) {
+            (true, _, true, _) => Part::Handle(WindowEdge::TopLeft),
+            (_, true, true, _) => Part::Handle(WindowEdge::TopRight),
+            (_, _, true, _) => {
+                let marks = Self::marks_x(area);
+                if x >= marks {
+                    let index = usize::try_from((x - marks) / i32::from(close_mark::WIDTH)).unwrap_or(0);
+                    Part::Mark(Mark::ALL[index.min(2)])
+                } else {
+                    Part::Title
+                }
+            }
+            (true, _, _, true) => Part::Handle(WindowEdge::BottomLeft),
+            (_, true, _, true) => Part::Handle(WindowEdge::BottomRight),
+            (true, _, _, _) => Part::Handle(WindowEdge::Left),
+            (_, true, _, _) => Part::Handle(WindowEdge::Right),
+            (_, _, _, true) => Part::Handle(WindowEdge::Bottom),
             _ => Part::Body,
         })
     }
@@ -498,7 +538,10 @@ impl<Msg: 'static> Window<Msg> {
     fn paint_title(&self, cx: &mut PaintCx<'_>, area: Rect, style: CellStyle, subtitle_style: CellStyle) {
         let marks = if self.interactive() { MARKS } else { 0 };
         let start = area.x + 1;
-        let room = clamp_u16(i32::from(area.width) - 2 - i32::from(marks));
+        // One cell after the name's start for the pillar, one before the marks, and on a window
+        // with marks the right column, which is the top right corner's handle.
+        let corner = i32::from(self.interactive());
+        let room = clamp_u16(i32::from(area.width) - 2 - corner - i32::from(marks));
         let icon = self.icon.as_ref().map(|icon| icon.resolve(cx.env().icons()).into_owned());
         let (icon, name, subtitle) = self.fit_title(icon.as_deref(), room);
         let text_style = style;
@@ -516,7 +559,7 @@ impl<Msg: 'static> Window<Msg> {
         }
         if self.interactive() {
             let restore = if self.maximized { "window-restore" } else { "window-maximize" };
-            let marks_x = area.right() - i32::from(MARKS);
+            let marks_x = Self::marks_x(area);
             for (index, key) in ["window-minimize", restore, "close"].into_iter().enumerate() {
                 let offset = i32::try_from(index).unwrap_or(0) * i32::from(close_mark::WIDTH);
                 close_mark::paint_glyph(cx, marks_x + offset, area.y, self.focused, key);
@@ -524,7 +567,25 @@ impl<Msg: 'static> Window<Msg> {
         }
     }
 
-    /// Lights the right column and the bottom row under the pointer or while dragged.
+    /// Asks for a resize arrow over every handle: the sides first, then the corners over them.
+    fn ask_pointer_shapes(cx: &mut PaintCx<'_>, area: Rect) {
+        let (right, bottom) = (area.right() - 1, area.bottom() - 1);
+        let handles = [
+            (Rect::new(area.x, area.y, 1, area.height), WindowEdge::Left),
+            (Rect::new(right, area.y, 1, area.height), WindowEdge::Right),
+            (Rect::new(area.x, bottom, area.width, 1), WindowEdge::Bottom),
+            (Rect::new(area.x, area.y, 1, 1), WindowEdge::TopLeft),
+            (Rect::new(right, area.y, 1, 1), WindowEdge::TopRight),
+            (Rect::new(area.x, bottom, 1, 1), WindowEdge::BottomLeft),
+            (Rect::new(right, bottom, 1, 1), WindowEdge::BottomRight),
+        ];
+        for (rect, edge) in handles {
+            cx.pointer_shape(rect, edge.pointer_shape());
+        }
+    }
+
+    /// Lights the sides under the pointer or while dragged: the left or right column, the bottom
+    /// row, and for the top side, which has no row of its own, its two corner cells.
     fn paint_handles(&self, cx: &mut PaintCx<'_>, area: Rect) {
         if area.height < 2 || area.width < 2 {
             return;
@@ -537,9 +598,13 @@ impl<Msg: 'static> Window<Msg> {
             Some(Grab::Resize { edge, .. }) => Some(edge),
             _ => None,
         };
-        let handles = [
-            (Rect::new(area.right() - 1, area.y + 1, 1, area.height - 1), WindowEdge::right as fn(WindowEdge) -> bool),
-            (Rect::new(area.x + 1, area.bottom() - 1, area.width - 1, 1), WindowEdge::bottom),
+        let right = area.right() - 1;
+        let handles: [(Rect, SideTest); 5] = [
+            (Rect::new(area.x, area.y, 1, area.height), WindowEdge::left),
+            (Rect::new(right, area.y, 1, area.height), WindowEdge::right),
+            (Rect::new(area.x, area.bottom() - 1, area.width, 1), WindowEdge::bottom),
+            (Rect::new(area.x, area.y, 1, 1), WindowEdge::top),
+            (Rect::new(right, area.y, 1, 1), WindowEdge::top),
         ];
         for (rect, moves) in handles {
             let state = if dragged.is_some_and(moves) {
@@ -571,9 +636,20 @@ impl<Msg: 'static> Widget<Msg> for Window<Msg> {
             Self::paint_shadow(cx, area);
         }
         cx.register_hit(area);
-        if self.interactive() {
+        let grab = if self.interactive() {
             cx.preview_presses();
-        }
+            let grab = cx.memory::<WindowMemory>().grab;
+            // The window's own pointer first, so what the body asks for over itself wins, and the
+            // arrow of a resize in progress, which holds wherever the drag takes the pointer.
+            let shape = match grab {
+                Some(Grab::Resize { edge, .. }) => edge.pointer_shape(),
+                _ => PointerShape::Default,
+            };
+            cx.pointer_shape(area, shape);
+            grab
+        } else {
+            None
+        };
         let surface = cx.style("window", None, states);
         let ground = surface.text().bg.unwrap_or_else(|| cx.color("surface"));
         let (strip, name, subtitle) = self.title_look(cx, states, ground);
@@ -588,6 +664,9 @@ impl<Msg: 'static> Widget<Msg> for Window<Msg> {
         cx.paint_child(&self.body[0], Self::content(area));
         if self.interactive() {
             self.paint_handles(cx, area);
+            if grab.is_none() {
+                Self::ask_pointer_shapes(cx, area);
+            }
         }
     }
 
@@ -614,5 +693,32 @@ impl<Msg: 'static> Widget<Msg> for Window<Msg> {
 
     fn children_mut(&mut self) -> &mut [Node<Msg>] {
         &mut self.body
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Mark, Part, Window, WindowEdge};
+    use crate::geometry::Rect;
+
+    #[test]
+    fn part_at_names_every_side_and_corner_and_leaves_the_title_between_the_top_corners() {
+        let window: Window<()> = Window::new("notes").on_event(|_| ());
+        let area = Rect::new(0, 0, 20, 5);
+        let part = |x, y| window.part_at(area, x, y);
+        assert_eq!(part(0, 0), Some(Part::Handle(WindowEdge::TopLeft)));
+        assert_eq!(part(19, 0), Some(Part::Handle(WindowEdge::TopRight)));
+        assert_eq!(part(0, 4), Some(Part::Handle(WindowEdge::BottomLeft)));
+        assert_eq!(part(19, 4), Some(Part::Handle(WindowEdge::BottomRight)));
+        assert_eq!(part(0, 2), Some(Part::Handle(WindowEdge::Left)));
+        assert_eq!(part(19, 2), Some(Part::Handle(WindowEdge::Right)));
+        assert_eq!(part(7, 4), Some(Part::Handle(WindowEdge::Bottom)));
+        assert_eq!((part(1, 0), part(9, 0)), (Some(Part::Title), Some(Part::Title)));
+        assert_eq!(part(10, 0), Some(Part::Mark(Mark::Minimize)), "the marks end left of the right column");
+        assert_eq!(part(18, 0), Some(Part::Mark(Mark::Close)));
+        assert_eq!(part(7, 2), Some(Part::Body));
+        assert_eq!(part(20, 2), None);
+        let still: Window<()> = Window::new("still");
+        assert_eq!((still.part_at(area, 0, 2), still.part_at(area, 19, 0)), (Some(Part::Body), Some(Part::Title)));
     }
 }

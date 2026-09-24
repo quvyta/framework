@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::geometry::{Rect, Size};
 use crate::keymap::KeyChord;
-use crate::widget::{IdMap, WidgetId};
+use crate::widget::{IdMap, PointerShape, WidgetId};
 
 /// What was painted in a frame; used to route the next events.
 #[derive(Debug, Default)]
@@ -44,6 +44,9 @@ pub(crate) struct Frame {
     /// Areas widgets asked to bring into view, with the widget that asked; the nearest scroll
     /// view around each takes it. See [`PaintCx::reveal`](crate::widget::PaintCx::reveal).
     pub(crate) reveals: Vec<(WidgetId, Rect)>,
+    /// Pointer shapes widgets asked for over their areas, with the widget that asked, in paint
+    /// order; see [`PaintCx::pointer_shape`](crate::widget::PaintCx::pointer_shape).
+    pub(crate) pointer_shapes: Vec<(Rect, PointerShape, WidgetId)>,
 }
 
 /// A node measured in a frame: its id, its address in the view tree and the space it was
@@ -99,6 +102,7 @@ impl Frame {
             focus_request,
             measures,
             reveals,
+            pointer_shapes,
         } = self;
         rects.clear();
         parents.clear();
@@ -118,11 +122,32 @@ impl Frame {
         *focus_request = None;
         measures.clear();
         reveals.clear();
+        pointer_shapes.clear();
     }
 
     /// The topmost widget whose hit area contains the cell.
     pub(crate) fn hit(&self, x: i32, y: i32) -> Option<WidgetId> {
         self.hits.iter().rev().find(|(rect, _)| rect.contains(x, y)).map(|(_, id)| *id)
+    }
+
+    /// The pointer's shape at `pointer`: the last shape asked for over that cell by the widget
+    /// under the pointer or one around it, so a window on top hides the edges of the windows
+    /// beneath it and a dialog hides them all. While `capture` holds the pointer the widget
+    /// under it is the capturing one, and when the pointer has left every area that widget asked
+    /// for, the first shape it asked for, its shape for the whole of itself, still holds: a drag
+    /// keeps the arrow it started with.
+    pub(crate) fn pointer_shape(&self, pointer: Option<(i32, i32)>, capture: Option<WidgetId>) -> PointerShape {
+        let Some((x, y)) = pointer else {
+            return PointerShape::Default;
+        };
+        let Some(under) = capture.or_else(|| self.hit(x, y)) else {
+            return PointerShape::Default;
+        };
+        let chain = self.ancestry(under);
+        let asked = || self.pointer_shapes.iter().rev();
+        let over = asked().find(|(rect, _, owner)| rect.contains(x, y) && chain.contains(owner));
+        let held = || capture.and_then(|holder| self.pointer_shapes.iter().find(|(_, _, owner)| *owner == holder));
+        over.or_else(held).map_or(PointerShape::Default, |(_, shape, _)| *shape)
     }
 
     /// `id` and its ancestors, innermost first.

@@ -316,3 +316,12 @@ sample-hint = "Wähle den Satz, dessen Symbole auf deinem Bildschirm als Formen 
 install     = "Schrift installieren"
 defaults    = "Mit den Vorgaben beginnen"
 not-saved   = "Deine Auswahl konnte nicht gespeichert werden: {reason}"
+
+[quvyta.image]
+untitled         = "Bild"
+cannot-show-kind = "{kind}, {width} x {height} Pixel. Dieses Terminal kann keine Bilder anzeigen."
+cannot-show      = "{width} x {height} Pixel. Dieses Terminal kann keine Bilder anzeigen."
+missing          = "Dieses Bild existiert nicht"
+unreadable       = "Dieses Bild konnte nicht gelesen werden"
+unknown-format   = "Das ist kein PNG-, JPEG-, GIF- oder WebP-Bild"
+broken           = "Dieses Bild ist beschädigt"

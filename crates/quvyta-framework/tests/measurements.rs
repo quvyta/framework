@@ -657,7 +657,7 @@ impl App for Files {
     }
 
     fn view(&self, ui: &mut View<'_, FileMsg>) {
-        FileManager::new(&self.manager, FileMsg::Files).show(ui).fill().id("files");
+        FileManager::new(&self.manager, FileMsg::Files).id("files").show(ui).fill();
     }
 }
 

@@ -5,6 +5,7 @@
 - `.max_length(n)` — at most `n` characters; a line break counts as one.
 - `.counter(bool)` — the character count on a row below the text, as `count / limit` with a limit.
 - `.line_numbers(bool)` — a faint number before the first row of every line.
+- `.variant("plain")` — paper: no field surface, the tone of whatever the area sits on in every state; hover and focus show as the pillar, invalid text as a danger pillar at rest. Cursor and selection are unchanged.
 - `.invalid(bool)` — marks the text as failing validation.
 - `.disabled(bool)` — read-only and unfocusable.
 - `.on_change(|text| msg)` — message with the new text after every edit.
@@ -25,7 +26,7 @@
 
 ## Theme keys
 
-- `text-area` — `bg`, `fg`, `padding`; states `hover`, `focus`, `invalid`, `disabled`.
+- `text-area` — `bg`, `fg`, `padding`, `pillar`, and the `see-through` flag, which leaves the ground unpainted; states `hover`, `focus`, `invalid`, `disabled`. The `plain` variant sets `see-through` and a `$danger` pillar for `invalid`.
 - `text-area-line-number` — `fg`; `selected` for the cursor's line.
 - `text-area-counter` — `fg`.
 - `text-input-placeholder`, `text-input-selection`, `text-input-cursor` — shared with `TextInput`.

@@ -6,6 +6,7 @@
 - `.counter(bool)` — metnin altındaki satırda karakter sayısı; sınır varsa `sayı / sınır`.
 - `.line_numbers(bool)` — her satırın ilk görünen satırının önünde soluk bir numara.
 - `.invalid(bool)` — metni doğrulamadan geçemedi diye işaretler.
+- `.variant("plain")` — kağıt: kendi alan yüzeyi yok, her durumda üstünde durduğu yüzeyin tonu; üstüne gelme ve odak dikey çubukla, geçersiz metin durağanken tehlike renginde çubukla görünür. İmleç ve seçim değişmez.
 - `.disabled(bool)` — salt okunur ve odak alamaz.
 - `.on_change(|metin| mesaj)` — her düzenlemeden sonra yeni metinle mesaj.
 - `.on_submit(|metin| mesaj)` — Ctrl+Enter'da metinle mesaj.
@@ -25,7 +26,7 @@
 
 ## Tema anahtarları
 
-- `text-area` — `bg`, `fg`, `padding`; durumlar `hover`, `focus`, `invalid`, `disabled`.
+- `text-area` — `bg`, `fg`, `padding`, `pillar` ve zemini boyamadan bırakan `see-through` bayrağı; durumlar `hover`, `focus`, `invalid`, `disabled`. `plain` varyantı `see-through`'u açar ve `invalid` için `$danger` çubuğu verir.
 - `text-area-line-number` — `fg`; imlecin satırı için `selected`.
 - `text-area-counter` — `fg`.
 - `text-input-placeholder`, `text-input-selection`, `text-input-cursor` — `TextInput` ile ortak.

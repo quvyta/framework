@@ -38,18 +38,23 @@ struct CrumbMemory {
 /// Keys while focused: ←/→ move between segments, Home/End jump to the ends, Enter or Space
 /// opens the segment (or the list behind `…`).
 ///
-/// Style keys: `crumb` with `hover`, `focus`; `crumb.current`; `crumb-separator`;
+/// A faint path, see [`faint`](Self::faint), is drawn a step quieter for a place the person
+/// cannot read, and its segments still open their levels.
+///
+/// Style keys: `crumb` with `hover`, `focus`; `crumb.current`; `crumb.faint` and
+/// `crumb.faint-current` for a faint path; `crumb-separator`;
 /// `popup-menu`, `popup-item`, `popup-check` for the hidden levels. Icon: `crumb-separator`.
 pub struct Breadcrumb<Msg> {
     segments: Vec<String>,
     on_select: Option<IndexMessage<Msg>>,
+    faint: bool,
 }
 
 impl<Msg: 'static> Breadcrumb<Msg> {
     /// A path of `segments` from the root to the current place.
     #[must_use]
     pub fn new(segments: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        Self { segments: segments.into_iter().map(Into::into).collect(), on_select: None }
+        Self { segments: segments.into_iter().map(Into::into).collect(), on_select: None, faint: false }
     }
 
     /// Message for opening segment `index`.
@@ -57,6 +62,27 @@ impl<Msg: 'static> Breadcrumb<Msg> {
     pub fn on_select(mut self, message: impl Fn(usize) -> Msg + 'static) -> Self {
         self.on_select = Some(Box::new(message));
         self
+    }
+
+    /// Draws the path faint: every segment a step quieter, the current place too, for a place
+    /// shown but not open to the person, such as a folder that cannot be read.
+    ///
+    /// Only the tone changes. The segments still rise on hover and focus and still open their
+    /// levels, so the way back out of the place stays where it always is.
+    #[must_use]
+    pub fn faint(mut self, faint: bool) -> Self {
+        self.faint = faint;
+        self
+    }
+
+    /// The style variant of a segment: the current place or another, faint or not.
+    fn variant(&self, current: bool) -> Option<&'static str> {
+        match (self.faint, current) {
+            (false, false) => None,
+            (false, true) => Some("current"),
+            (true, false) => Some("faint"),
+            (true, true) => Some("faint-current"),
+        }
     }
 
     fn segment_width(&self, index: usize) -> u16 {
@@ -198,7 +224,7 @@ impl<Msg: 'static> Widget<Msg> for Breadcrumb<Msg> {
                 states.push(State::Active);
                 cx.request_overlay(rect);
             }
-            let style = cx.style("crumb", current.then_some("current"), &states).text();
+            let style = cx.style("crumb", self.variant(current), &states).text();
             if let Some(bg) = style.bg {
                 cx.clear(rect, bg);
             }
@@ -296,6 +322,7 @@ mod tests {
     struct Files {
         path: Vec<&'static str>,
         width: u16,
+        faint: bool,
     }
 
     impl App for Files {
@@ -305,12 +332,14 @@ mod tests {
             Command::none()
         }
         fn view(&self, ui: &mut View<'_, usize>) {
-            ui.add(Breadcrumb::new(self.path.clone()).on_select(|i| i)).width(Length::Cells(self.width)).id("path");
+            ui.add(Breadcrumb::new(self.path.clone()).on_select(|i| i).faint(self.faint))
+                .width(Length::Cells(self.width))
+                .id("path");
         }
     }
 
     fn files(width: u16) -> Files {
-        Files { path: vec!["workspace", "quvyta", "crates", "framework", "src", "widgets"], width }
+        Files { path: vec!["workspace", "quvyta", "crates", "framework", "src", "widgets"], width, faint: false }
     }
 
     #[test]
@@ -353,7 +382,25 @@ mod tests {
     #[test]
     fn segments_wider_than_any_screen_do_not_overflow() {
         let long: &'static str = "d".repeat(70_000).leak();
-        let h = Harness::new(Files { path: vec!["workspace", long, long, "src"], width: 24 }, 24, 1);
+        let h = Harness::new(Files { path: vec!["workspace", long, long, "src"], width: 24, faint: false }, 24, 1);
         assert_eq!(h.screen(), " workspace › … › src\n");
+    }
+
+    #[test]
+    fn a_faint_path_is_drawn_in_the_themes_faint_tone_and_still_opens_its_levels() {
+        let plain = Harness::new(files(80), 80, 6);
+        let mut faint = Harness::new(Files { faint: true, ..files(80) }, 80, 6);
+        let theme = faint.env().theme();
+        let (muted, dim) = (theme.color("muted"), theme.color("dim"));
+        assert!(muted.is_some() && muted != dim);
+        let (x, y) = faint.find("quvyta").expect("a segment");
+        let (x, y) = (u16::try_from(x).expect("on screen"), u16::try_from(y).expect("on screen"));
+        assert_eq!(faint.fg(x, y), muted, "a faint segment takes the theme's faint tone");
+        assert_eq!(plain.fg(x, y), dim, "a plain one keeps its own");
+        assert_ne!(faint.fg(50, 0), plain.fg(50, 0), "the current place is quieter too");
+        assert!(faint.is_bold(50, 0), "and still bold");
+
+        faint.click_text("crates");
+        assert_eq!(faint.app().path, vec!["workspace", "quvyta", "crates"], "a faint segment still opens its level");
     }
 }

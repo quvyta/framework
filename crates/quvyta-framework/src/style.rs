@@ -102,20 +102,30 @@ pub(crate) fn to_color(color: Rgb) -> Color {
 ///
 /// In sixteen colours backgrounds take [`Rgb::to_ansi16_on`] and text [`Rgb::to_ansi16_text`]
 /// against the background of its own cell; in 256 colours backgrounds take [`Rgb::to_ansi256`]
-/// and text [`Rgb::to_ansi256_text`].
+/// and text [`Rgb::to_ansi256_text`]. A half block (`▀`, `▄`) in 256 colours is a fill rather than
+/// text, two pixels of a picture or of big letters, so both its halves take [`Rgb::to_ansi256`]:
+/// pushing the upper half away from the lower one to keep it readable would streak a smooth
+/// picture wherever two neighbouring pixels are close.
 pub(crate) fn reduce(buf: &mut Buffer, depth: ColorDepth, ground: Rgb) {
     match depth {
         ColorDepth::TrueColor => {}
-        ColorDepth::Ansi256 => reduce_with(buf, Rgb::to_ansi256, Rgb::to_ansi256_text),
+        ColorDepth::Ansi256 => reduce_with(buf, Rgb::to_ansi256, Rgb::to_ansi256_text, true),
         ColorDepth::Ansi16 => {
-            reduce_with(buf, |tone| tone.to_ansi16_on(ground), |text, bg| text.to_ansi16_text(bg, ground));
+            let text = |text: Rgb, bg| text.to_ansi16_text(bg, ground);
+            reduce_with(buf, |tone| tone.to_ansi16_on(ground), text, false);
         }
     }
 }
 
+/// Whether `symbol` is a half block, which splits its cell into two areas of colour.
+fn is_half_block(symbol: &str) -> bool {
+    matches!(symbol, "▀" | "▄")
+}
+
 /// Reduces every full-colour cell of `buf`: backgrounds and glyphless text by `tone`, the text of
-/// a glyph by `text` against its cell's background.
-fn reduce_with(buf: &mut Buffer, tone: impl Fn(Rgb) -> u8, text: impl Fn(Rgb, Rgb) -> u8) {
+/// a glyph by `text` against its cell's background. With `half_blocks_fill`, a half block counts
+/// as glyphless.
+fn reduce_with(buf: &mut Buffer, tone: impl Fn(Rgb) -> u8, text: impl Fn(Rgb, Rgb) -> u8, half_blocks_fill: bool) {
     // A frame holds few distinct colours and many cells; each reduction searches the palette once.
     // Neighbouring cells mostly share their colours, so the last cell's answer is tried first.
     let mut tones: HashMap<Rgb, u8> = HashMap::new();
@@ -126,7 +136,9 @@ fn reduce_with(buf: &mut Buffer, tone: impl Fn(Rgb) -> u8, text: impl Fn(Rgb, Rg
         if bg.is_none() && fg.is_none() {
             continue;
         }
-        let glyph = fg.is_some() && bg.is_some() && !cell.symbol().trim().is_empty();
+        let symbol = cell.symbol();
+        let glyph =
+            fg.is_some() && bg.is_some() && !symbol.trim().is_empty() && !(half_blocks_fill && is_half_block(symbol));
         let key = (cell.fg, cell.bg, glyph);
         if let Some((seen, (fg, bg))) = last
             && seen == key
@@ -272,6 +284,24 @@ mod tests {
         reduce(&mut buf, ColorDepth::Ansi16, ground);
         assert_eq!((buf.content[0].fg, buf.content[0].bg), (Color::Indexed(9), Color::Indexed(0)));
         assert_eq!(buf.content[2].bg, Color::Indexed(8));
+    }
+
+    #[test]
+    fn a_half_block_in_256_colours_is_two_fills_not_text() {
+        let (top, bottom) = (Rgb::new(120, 120, 120), Rgb::new(124, 124, 124));
+        let painted = |symbol: &str| {
+            let mut buf = Buffer::empty(ratatui_core::layout::Rect::new(0, 0, 1, 1));
+            CellStyle::fg(top).on(bottom).apply(&mut buf.content[0]);
+            buf.content[0].set_symbol(symbol);
+            buf
+        };
+        let mut buf = painted("▀");
+        reduce(&mut buf, ColorDepth::Ansi256, Rgb::new(12, 12, 14));
+        assert_eq!(buf.content[0].fg, Color::Indexed(top.to_ansi256()), "the upper half is its nearest entry");
+        assert_eq!(buf.content[0].bg, Color::Indexed(bottom.to_ansi256()));
+        let mut buf = painted("a");
+        reduce(&mut buf, ColorDepth::Ansi256, Rgb::new(12, 12, 14));
+        assert_ne!(buf.content[0].fg, Color::Indexed(top.to_ansi256()), "a letter is still kept readable");
     }
 
     #[test]

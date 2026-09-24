@@ -142,34 +142,33 @@ fn snap_target(rect: Rect) -> Option<Rect> {
 
 /// Applies one movement to a window's rectangle.
 fn moved(rect: Rect, event: WindowEvent) -> Rect {
-    let (mut x, mut y) = (rect.x, rect.y);
-    let (mut width, mut height) = (i32::from(rect.width), i32::from(rect.height));
     match event {
-        WindowEvent::Move { dx, dy } => {
-            x += dx;
-            y += dy;
-        }
-        WindowEvent::Resize { edge, dx, dy } => {
-            // An edge that moves the left or top side moves the window's corner with it.
-            if edge.left() {
-                x += dx;
-                width -= dx;
-            }
-            if edge.right() {
-                width += dx;
-            }
-            if edge.top() {
-                y += dy;
-                height -= dy;
-            }
-            if edge.bottom() {
-                height += dy;
-            }
-        }
-        _ => {}
+        WindowEvent::Move { dx, dy } => place(Rect::new(rect.x + dx, rect.y + dy, rect.width, rect.height)),
+        WindowEvent::Resize { edge, dx, dy } => resized(rect, edge, dx, dy),
+        _ => rect,
     }
-    let cells = |value: i32| u16::try_from(value.max(1)).unwrap_or(1);
-    place(Rect::new(x, y, cells(width), cells(height)))
+}
+
+/// Moves the sides `edge` names by `dx` and `dy`, within the desktop and never below the
+/// smallest size. The sides that do not move stay where they are: pulling the left edge past the
+/// smallest width stops it there instead of pushing the right edge along.
+fn resized(rect: Rect, edge: WindowEdge, dx: i32, dy: i32) -> Rect {
+    let (mut left, mut top, mut right, mut bottom) = (rect.x, rect.y, rect.right(), rect.bottom());
+    let (min_width, min_height) = (i32::from(MIN.0), i32::from(MIN.1));
+    if edge.left() {
+        left = (left + dx).min(right - min_width).max(0);
+    }
+    if edge.right() {
+        right = (right + dx).min(i32::from(DESK.0)).max(left + min_width);
+    }
+    if edge.top() {
+        top = (top + dy).min(bottom - min_height).max(0);
+    }
+    if edge.bottom() {
+        bottom = (bottom + dy).min(i32::from(DESK.1)).max(top + min_height);
+    }
+    let cells = |value: i32| u16::try_from(value).unwrap_or(0);
+    Rect::new(left, top, cells(right - left), cells(bottom - top))
 }
 // endregion
 
@@ -434,6 +433,27 @@ mod tests {
         h.click(hx, hy);
         assert_eq!(h.app().pages.windows.focused(), Some("htop"), "the clicked window is in front");
         assert_eq!(h.app().log.recent(PAGE, 1)[0].message, "focused");
+    }
+
+    #[test]
+    fn dragging_the_left_edge_widens_the_window_and_the_right_edge_stays() {
+        let mut h = showcase_on(PAGE);
+        let (x, y) = h.find("$ cargo build").expect("the terminal window's body");
+        // The window's left column is two cells before its body.
+        let edge = (x - 2, y + 2);
+        let rect = |h: &crate::app::Showcase| h.pages.windows.windows.last().expect("a window").rect;
+        assert_eq!(rect(h.app()), Rect::new(8, 8, 34, 8));
+        h.mouse(MouseKind::Down(MouseButton::Left), edge.0, edge.1);
+        h.mouse(MouseKind::Drag(MouseButton::Left), edge.0 - 5, edge.1);
+        assert_eq!(rect(h.app()), Rect::new(3, 8, 39, 8), "five cells wider, to the left");
+        h.mouse(MouseKind::Drag(MouseButton::Left), edge.0 - 12, edge.1);
+        assert_eq!(rect(h.app()), Rect::new(0, 8, 42, 8), "the desktop's edge stops it, the right edge stays");
+        h.mouse(MouseKind::Up(MouseButton::Left), edge.0 - 12, edge.1);
+        let edge = (edge.0 - 8, edge.1);
+        h.mouse(MouseKind::Down(MouseButton::Left), edge.0, edge.1);
+        h.mouse(MouseKind::Drag(MouseButton::Left), edge.0 + 30, edge.1);
+        h.mouse(MouseKind::Up(MouseButton::Left), edge.0 + 30, edge.1);
+        assert_eq!(rect(h.app()), Rect::new(22, 8, 20, 8), "the smallest width stops it, the right edge still stays");
     }
 
     #[test]

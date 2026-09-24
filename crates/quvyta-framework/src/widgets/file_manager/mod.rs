@@ -2,6 +2,7 @@
 
 mod details;
 mod flat;
+mod keys;
 mod kinds;
 mod mark;
 mod ops;
@@ -46,6 +47,10 @@ type Marks = Rc<dyn Fn(&str) -> RowMark>;
 /// The name the field of the naming dialog is focused by.
 const NAME_ID: &str = "file-manager-name";
 
+/// The name the rows carry when the application gives them none, so they stay one widget, and
+/// keep the keyboard, when the view changes.
+const ROWS_ID: &str = "file-manager-rows";
+
 /// Width of the naming dialog, in cells: room for a long file name without covering the screen.
 const NAMING_WIDTH: u16 = 48;
 
@@ -89,7 +94,14 @@ const NAMING_WIDTH: u16 = 48;
 ///
 /// Keys: the tree's own (↑/↓ between rows, ←/→ and Enter to open and close a folder, Enter on a
 /// file to open it, Space to select several, Home and End, the menu key on the row the cursor is
-/// on).
+/// on), and a desktop file explorer's Ctrl+X, Ctrl+C and Ctrl+V. Ctrl+X cuts the selection and
+/// Ctrl+C copies it, the entry under the cursor when nothing is selected; Ctrl+V pastes what waits
+/// into the folder the list and the icons show, and in the tree into the folder under the cursor,
+/// or the folder holding the file under it. A name already taken there is refused and said, as a
+/// paste from the menu is. The keys are the manager's only while its rows have focus and no text
+/// is selected with the mouse: a text field keeps copying and pasting text, and selected text is
+/// what Ctrl+C copies, see [`NodeMut::on_clipboard`](crate::widget::NodeMut::on_clipboard). Copy
+/// and paste follow the keymap's `copy` and `paste`.
 ///
 /// What it can add: each row's icon by the kind of the entry, see [`kind_icons`](Self::kind_icons),
 /// and those icons in the colours of their families, see [`kind_tones`](Self::kind_tones).
@@ -110,6 +122,7 @@ pub struct FileManager<'a, Msg> {
     kind_icons: bool,
     kind_tones: bool,
     user_folders: Option<&'a UserFolders>,
+    rows_id: Option<String>,
     /// How kinds are drawn on this screen, worked out when it is shown.
     kinds: kinds::KindLook<'a>,
 }
@@ -135,6 +148,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
             kind_icons: false,
             kind_tones: false,
             user_folders: None,
+            rows_id: None,
             kinds: kinds::KindLook::default(),
         }
     }
@@ -275,6 +289,21 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         self
     }
 
+    /// Names the rows, so [`Command::focus(name)`](crate::runtime::Command::focus) gives them
+    /// the keyboard: an application that takes the person to another folder, from a list of
+    /// places, a path bar or a back button, sends it so ↑ and ↓ move through the new folder at
+    /// once.
+    ///
+    /// The name is on the rows themselves, the tree, the list or the icons, whichever is drawn,
+    /// not on the column [`show`](Self::show) answers with, which holds the foot too and takes no
+    /// focus. The rows are the same widget in all three views, so rows that have the keyboard
+    /// keep it when the view changes, named or not.
+    #[must_use]
+    pub fn id(mut self, name: impl Into<String>) -> Self {
+        self.rows_id = Some(name.into());
+        self
+    }
+
     /// Draws the rows faint and answers nothing: no click, key, drag or menu, while the
     /// application has taken the folder away from the person.
     #[must_use]
@@ -283,7 +312,10 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         self
     }
 
-    /// Adds the manager to `ui` and answers with its tree, to be given a size and a name.
+    /// Adds the manager to `ui` and answers with the column that holds it, to be given a size.
+    ///
+    /// The column holds the rows and, in the list and the icons, the foot under them. It takes no
+    /// focus itself; [`id`](Self::id) names the rows inside it, which do.
     ///
     /// The dialog that asks for a name is added too while one is asked for; it is a layer and
     /// takes no room of its own.
@@ -296,13 +328,6 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         }
         self.naming_dialog(ui);
         self.work_row(ui);
-        if self.view == FileView::Tree {
-            let tree = self.tree();
-            return ui.add(tree);
-        }
-        // The rows and the foot under them are one thing to place, so they are given a column of
-        // their own and the application sizes that.
-        let rows = self.flat_rows();
         // The list shows details, so it asks for the page around the cursor it has none of yet;
         // the tree and the icons show names alone and ask for nothing, which is what keeps a
         // folder of ten thousand entries from becoming ten thousand calls to the system.
@@ -313,16 +338,27 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
                 ui.on_idle(std::time::Duration::ZERO, move |_| wrap(FileManagerMsg::Detail(gaps.clone())));
             }
         }
-        ui.column(|ui| {
-            if self.view == FileView::Icons {
-                let grid = self.grid(&rows);
-                ui.add(grid).fill();
-            } else {
-                let table = self.table(&rows);
-                ui.add(table).fill();
+        // Every view is the same column with the rows first under the same name, so the rows are
+        // one widget whatever shape they take: focus on them outlives a change of view.
+        let name = self.rows_id.clone().unwrap_or_else(|| ROWS_ID.to_owned());
+        let node = ui.column(|ui| match self.view {
+            FileView::Tree => {
+                let tree = self.tree();
+                ui.add(tree).fill().id(name);
             }
-            self.foot(ui, &rows);
-        })
+            FileView::List | FileView::Icons => {
+                let rows = self.flat_rows();
+                if self.view == FileView::Icons {
+                    let grid = self.grid(&rows);
+                    ui.add(grid).fill().id(name);
+                } else {
+                    let table = self.table(&rows);
+                    ui.add(table).fill().id(name);
+                }
+                self.foot(ui, &rows);
+            }
+        });
+        self.claim_clipboard(node)
     }
 
     /// The row above the rows while a long operation runs: what it is doing, how far it has come

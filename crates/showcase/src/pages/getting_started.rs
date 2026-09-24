@@ -115,6 +115,23 @@ fn pace(state: &State, ui: &mut View<'_, AppMsg>) {
 }
 // endregion
 
+// region: graphics
+/// The way this terminal can show a picture, as the runtime asked it at start and the rules of
+/// `Env::graphics` weighed the answer.
+fn graphics(ui: &mut View<'_, AppMsg>) {
+    let graphics = ui.env().graphics();
+    ui.add_with(Panel::new().title(t!("getting-started.terminal")).gap(0), |ui| {
+        setting(ui, t!("getting-started.graphics"), |ui| {
+            let name = t!(&format!("getting-started.graphics-{}", graphics.name()));
+            ui.add(Text::new(name).role("title").no_wrap()).id("graphics");
+        });
+        ui.add(Text::new(t!("getting-started.graphics-hint")).role("faint"));
+        ui.add(Text::new(t!("getting-started.graphics-override-hint")).role("faint"));
+    })
+    .fill_width();
+}
+// endregion
+
 // region: screen
 /// A screen with messages of its own. It knows nothing of the application around it: its
 /// update returns commands of its own messages, and its view sends them.
@@ -295,6 +312,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     .fill_width();
 
     pace(state, ui);
+    graphics(ui);
 }
 // endregion
 
@@ -305,8 +323,9 @@ mod tests {
 
     #[test]
     fn counts_and_runs_background_work() {
-        // The event log sits below the pace panel, past the rows of the default test terminal.
-        let mut h = crate::tests::showcase_tall(crate::app::Showcase::new(), PAGE, 60);
+        // The event log sits below the pace and terminal panels, past the rows of the default
+        // test terminal.
+        let mut h = crate::tests::showcase_tall(crate::app::Showcase::new(), PAGE, 72);
         h.click_text("+").click_text("+").click_text("−");
         assert_eq!(h.app().pages.getting_started.count, 1);
         h.click_text("Count entries");
@@ -381,6 +400,25 @@ mod tests {
         h.click_text("No limit");
         assert_eq!(h.app().frame_limit().frames_per_second(false), None);
         assert!(h.screen().contains("Every frame that is wanted"), "{}", h.screen());
+    }
+
+    #[test]
+    fn the_terminal_panel_shows_the_graphics_the_environment_detected() {
+        use qframe::graphics::Graphics;
+
+        let mut h = crate::tests::showcase_tall(crate::app::Showcase::new(), PAGE, 80);
+        // The value sits on the row of its label.
+        let on_the_row = |h: &Harness<crate::app::Showcase>, value: &str| {
+            let row = |text: &str| h.find(text).map(|(_, y)| y);
+            row("Pictures").is_some() && row(value) == row("Pictures")
+        };
+        assert!(on_the_row(&h, "Half blocks"), "a test asks no terminal: {}", h.screen());
+        h.set_graphics(Graphics::Kitty);
+        assert!(on_the_row(&h, "Kitty graphics"), "{}", h.screen());
+        h.set_graphics(Graphics::Sixel);
+        assert!(on_the_row(&h, "Sixel"), "{}", h.screen());
+        h.set_depth(qframe::color::ColorDepth::Ansi16);
+        assert!(on_the_row(&h, "No pictures"), "{}", h.screen());
     }
 
     #[test]

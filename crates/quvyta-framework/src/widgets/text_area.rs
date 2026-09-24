@@ -52,13 +52,17 @@ type TextMessage<Msg> = Box<dyn Fn(String) -> Msg>;
 /// A right click (or Shift+F10 and the menu key) opens the edit menu of
 /// [`TextInput`](super::TextInput): Cut, Copy, Paste and Select all, with the same rules.
 ///
-/// Style keys: `text-area` (`bg`, `fg`, `padding`) with `hover`, `focus`, `invalid`,
-/// `disabled`; `text-area-line-number` (`fg`) with `selected` on the cursor's line;
+/// [`TextArea::variant`] with `"plain"` draws the area like paper: no field surface of its own,
+/// only the tone of whatever it sits on, with focus shown by the pillar.
+///
+/// Style keys: `text-area` (`bg`, `fg`, `padding`, and the `see-through` flag that leaves the
+/// ground unpainted) with `hover`, `focus`, `invalid`, `disabled` and the `plain` variant; `text-area-line-number` (`fg`) with `selected` on the cursor's line;
 /// `text-area-counter` (`fg`); and the text input's `text-input-placeholder`,
 /// `text-input-selection`, `text-input-cursor` and `scrollbar`.
 pub struct TextArea<Msg> {
     value: String,
     placeholder: String,
+    variant: Option<String>,
     invalid: bool,
     disabled: bool,
     max_length: Option<usize>,
@@ -123,6 +127,7 @@ impl<Msg: 'static> TextArea<Msg> {
         Self {
             value: value.into(),
             placeholder: String::new(),
+            variant: None,
             invalid: false,
             disabled: false,
             max_length: None,
@@ -137,6 +142,15 @@ impl<Msg: 'static> TextArea<Msg> {
     #[must_use]
     pub fn placeholder(mut self, text: impl Into<String>) -> Self {
         self.placeholder = text.into();
+        self
+    }
+
+    /// Theme variant. The built-in themes have `"plain"`: the area takes the tone of the surface
+    /// it sits on, like paper, instead of a raised field; focus shows as the pillar, and the
+    /// cursor and the selection look as they always do.
+    #[must_use]
+    pub fn variant(mut self, variant: impl Into<String>) -> Self {
+        self.variant = Some(variant.into());
         self
     }
 
@@ -210,7 +224,7 @@ impl<Msg: 'static> TextArea<Msg> {
     }
 
     fn layout(&self, env: &Env, area: Rect, text: &str) -> Layout {
-        let inner = area.inset(padding(env));
+        let inner = area.inset(padding(env, self.variant.as_deref()));
         let counter =
             (self.counter && inner.height >= 2).then(|| Rect::new(inner.x, inner.bottom() - 1, inner.width, 1));
         let height = inner.height - u16::from(counter.is_some());
@@ -403,14 +417,14 @@ impl<Msg: 'static> TextArea<Msg> {
 }
 
 /// The padding of the text area from the theme.
-fn padding(env: &Env) -> Padding {
-    let (vertical, horizontal) = env.theme().style("text-area", None, &[]).pair("padding").unwrap_or((0, 1));
+fn padding(env: &Env, variant: Option<&str>) -> Padding {
+    let (vertical, horizontal) = env.theme().style("text-area", variant, &[]).pair("padding").unwrap_or((0, 1));
     Padding::symmetric(vertical, horizontal)
 }
 
 impl<Msg: 'static> Widget<Msg> for TextArea<Msg> {
     fn measure(&self, cx: &mut MeasureCx<'_>, available: Size) -> Size {
-        let padding = padding(cx.env());
+        let padding = padding(cx.env(), self.variant.as_deref());
         let width = available.width.saturating_sub(cells::sum([padding.horizontal(), self.gutter(&self.value), 1]));
         let rows = text_rows::wrap(&self.value, width).len().clamp(MIN_ROWS, MAX_ROWS);
         let height = clamp_u16(i32::try_from(rows).unwrap_or(i32::MAX)) + u16::from(self.counter);
@@ -423,9 +437,12 @@ impl<Msg: 'static> Widget<Msg> for TextArea<Msg> {
             states.push(State::Invalid);
         }
         let focused = states.contains(&State::Focus);
-        let area_style = cx.style("text-area", None, &states);
+        let area_style = cx.style("text-area", self.variant.as_deref(), &states);
         let surface = area_style.text();
-        cx.clear(area, surface.bg.unwrap_or_else(|| cx.color("raised")));
+        // A see-through area keeps the ground its parent painted, in every state.
+        if !area_style.flag("see-through") {
+            cx.clear(area, surface.bg.unwrap_or_else(|| cx.color("raised")));
+        }
         // The pillar runs down the whole left padding column; the text never slides.
         if let Some(color) = area_style.color("pillar").filter(|_| area_style.padding().left >= 1) {
             for row in 0..area.height {
@@ -605,6 +622,7 @@ mod tests {
         wider: u16,
     }
 
+    #[derive(Clone)]
     enum Msg {
         Changed(String),
         Submitted(String),
@@ -714,6 +732,93 @@ mod tests {
         h.press("tab").type_text("b");
         assert_eq!(h.app().value, "a");
         assert_eq!(h.fg(2, 0), h.env().theme().color("muted"));
+    }
+
+    /// A text area on a panel, as a note tool puts it.
+    struct Paper {
+        value: String,
+        variant: Option<&'static str>,
+        invalid: bool,
+    }
+
+    impl App for Paper {
+        type Msg = Msg;
+        fn update(&mut self, msg: Msg) -> Command<Msg> {
+            if let Msg::Changed(value) = msg {
+                self.value = value;
+            }
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, Msg>) {
+            ui.add_with(crate::widgets::Panel::new(), |ui| {
+                let mut area = TextArea::new(&self.value).invalid(self.invalid).on_change(Msg::Changed);
+                if let Some(variant) = self.variant {
+                    area = area.variant(variant);
+                }
+                ui.add(area).height(Length::Cells(3));
+            })
+            .fill();
+        }
+    }
+
+    /// What a text area on a panel looks like at rest, after a click into it, and with its
+    /// text selected: the ground under a letter at rest and focused, the glyph and colour left of
+    /// the text when focused, the cursor's cell and a selected letter's ground.
+    #[derive(Debug, PartialEq)]
+    struct Looks {
+        surface: Option<crate::color::Rgb>,
+        rest: Option<crate::color::Rgb>,
+        focused: Option<crate::color::Rgb>,
+        pillar: (Option<char>, Option<crate::color::Rgb>),
+        cursor: Option<crate::color::Rgb>,
+        selected: Option<crate::color::Rgb>,
+    }
+
+    fn looks(variant: Option<&'static str>) -> (Looks, String) {
+        let mut h = Harness::new(Paper { value: "hello paper".into(), variant, invalid: false }, 30, 7);
+        h.set_reduced_motion(true);
+        let (x, y) = h.find("hello").expect("drawn");
+        let cell = |x: i32| u16::try_from(x).expect("on screen");
+        let (row, far) = (cell(y), cell(x + 13));
+        let rest = h.bg(far, row);
+        h.click(x + 2, y);
+        let focused = h.bg(far, row);
+        let glyph =
+            h.screen().lines().nth(usize::from(row)).and_then(|line| line.chars().nth(usize::from(cell(x - 2))));
+        let pillar = (glyph, h.fg(cell(x - 2), row));
+        let cursor = h.bg(cell(x + 2), row);
+        h.type_text("!");
+        h.press("ctrl+a");
+        let selected = h.bg(cell(x + 4), row);
+        let surface = h.env().theme().color("surface");
+        (Looks { surface, rest, focused, pillar, cursor, selected }, h.app().value.clone())
+    }
+
+    #[test]
+    fn a_plain_area_takes_the_panel_tone_and_still_shows_focus() {
+        let (plain, typed) = looks(Some("plain"));
+        let surface = plain.surface;
+        assert_eq!(typed, "he!llo paper", "the click placed the cursor");
+        assert_eq!((plain.rest, plain.focused), (surface, surface), "{plain:?}");
+        assert_eq!(plain.pillar.0, Some('▌'), "focus is shown by the pillar");
+        let (field, _) = looks(None);
+        assert_ne!(field.rest, surface, "the default area is a raised field");
+        assert_ne!(field.focused, surface);
+        assert_eq!(plain.pillar, field.pillar, "the same pillar");
+        assert_eq!(
+            (plain.cursor, plain.selected),
+            (field.cursor, field.selected),
+            "cursor and selection keep their look"
+        );
+    }
+
+    #[test]
+    fn a_plain_area_shows_invalid_text_with_a_danger_pillar_at_rest() {
+        let h = Harness::new(Paper { value: "hello".into(), variant: Some("plain"), invalid: true }, 30, 7);
+        let (x, y) = h.find("hello").expect("drawn");
+        let (column, row) = (u16::try_from(x - 2).expect("on screen"), u16::try_from(y).expect("on screen"));
+        assert_eq!(h.fg(column, row), h.env().theme().color("danger"));
+        assert_eq!(h.bg(column + 10, row), h.env().theme().color("surface"));
     }
 
     // Selection, copying, the edit menu, paste sources and arrows with a selection.

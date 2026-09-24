@@ -4,6 +4,104 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.24 - 2026-09-24
+
+### Added
+
+- `Env::graphics()` and `Graphics::{Kitty, Sixel, HalfBlock, None}`: how a picture can be drawn
+  in this terminal. On Unix the runtime asks the terminal once as it starts, a kitty graphics
+  query and a device attributes request, waiting 150 ms at most; the answers are read from the
+  terminal before the input parser starts and never arrive as keys. 16 colours or ASCII glyphs
+  give `None`, and inside tmux or GNU screen (`TMUX`, `STY`) kitty and sixel become half blocks.
+  `QUVYTA_GRAPHICS=kitty|sixel|halfblock|none` decides over all of it. Tests ask nothing:
+  `Env::builtin` gives half blocks and `Harness::set_graphics` answers as another terminal would.
+  The showcase's getting-started page shows what was detected.
+- `FileManager::id(name)`: names the rows, the tree, the list or the icons, whichever is drawn,
+  so `Command::focus(name)` gives them the keyboard after an application takes the person to
+  another folder. The rows are one widget in all three views, so rows that have the keyboard keep
+  it when the view changes. `show` now answers with the column holding the rows in the tree too,
+  as it already did in the list and the icons; a name given there takes no focus, so an
+  application that named the tree through `show(ui).id(name)` moves the name to `id`.
+- `Breadcrumb::faint(true)`: the path drawn a step quieter, the current place too, for a place
+  the person cannot open, such as a folder that cannot be read. The levels still rise on hover
+  and still open. Themes style it with `crumb.faint` and `crumb.faint-current`.
+- `FileManager`: Ctrl+X, Ctrl+C and Ctrl+V cut, copy and paste entries, as in a desktop file
+  explorer, in the tree, the list and the icons. Cut and copy act on the selection, or the entry
+  under the cursor when nothing is selected; paste goes into the folder the list and the icons
+  show, and in the tree into the folder under the cursor. A name already taken is refused and
+  said, as from the menu. The keys are the rows' only while they have focus and no text is
+  selected with the mouse, so text fields and mouse selections copy and paste text as before.
+- `NodeMut::on_clipboard(ClipboardKey, msg)`: a node claims Ctrl+X and the keys of `copy` and
+  `paste` while focus is inside it. The focused widget and text selected with the mouse keep them
+  first.
+- `Env::load_with(&dirs, lookup)`: the application's files loaded as `Env::load` loads them, with
+  every variable it reads answered by `lookup` and the operating system's own language never
+  asked. A test that loaded the real files took the machine's language and region with them, so
+  in English the week began on Monday on a Turkish machine and on Sunday elsewhere.
+- `TextArea::variant("plain")`: the area is paper, not a raised field. It keeps the tone of
+  whatever it sits on in every state; the pillar shows hover and focus, a danger pillar marks
+  invalid text, and the cursor and the selection look as before. Themes draw it with the new
+  `see-through` flag on `text-area`, which leaves the ground unpainted.
+- `ContextMenu::on_left_click(true)`: a left click opens the menu too, at the pointer, where a
+  right click would, and a left click on the area while it is open closes it, so an area such
+  as a status bar item works as a button for its menu. Keys, choosing and the right click stay
+  as they are; a child that takes presses itself keeps its left click. Off by default.
+- `TerminalBuilder::env_remove(name)`: the program starts without the variable at all, not with
+  an empty value, whether it came from the application's own environment or an earlier `env`.
+  The last `env` or `env_remove` of a name wins. For a variable whose mere presence changes what
+  the program does, such as `TMUX` when it starts tmux.
+- Pictures, behind the new `image` feature (off by default). `ImageData::decode_file(path, max)`
+  reads PNG, JPEG, GIF (its first frame) and WebP, recognised by their first bytes, and keeps
+  them shrunk to fit within `max` pixels, so a 4000 by 3000 photo shown in a 200 by 60 area keeps
+  about 57 KB rather than 36 MB. `ImageError` says in a plain sentence why a file could not be
+  shown: missing, unreadable, not a picture, damaged. `ImageData::from_rgb` takes pixels an
+  application already has. `Image::new(&data).fit(Fit::Contain | Fit::Cover | Fit::Center)`
+  draws it with half blocks, two nearly square pixels a cell, in every terminal with 256 colours
+  or more and over SSH; shrinking averages the pixels covered, and the cells are worked out once
+  and again only when the area, the fit or the picture changes. Cells the picture does not reach
+  keep what is under it, so a picture can be a wallpaper other widgets are drawn on. With sixteen
+  colours or ASCII glyphs an empty state says what the picture is and that the terminal cannot
+  show it. The showcase has an Image page.
+- `PaintCx::pointer_shape(rect, shape)` and `PointerShape`: a widget asks, while it paints, for
+  the mouse pointer to take a shape over part of itself, and the runtime tells the terminal with
+  OSC 22 only when the shape under the pointer changes, inside the frame's synchronized update;
+  a frame that changes no cell and no shape still writes nothing. Only foot, kitty and WezTerm
+  are sent it, never inside tmux or screen; `QUVYTA_POINTER_SHAPES=on` or `off` decides for any
+  terminal. The pointer gets its usual shape back before a handoff and when the application
+  ends. `Harness::pointer_shape()` answers what a test's pointer asks for. A `Window` uses it:
+  the pointer is a resize arrow over each edge and corner, and keeps it for a whole resize.
+
+### Changed
+
+- Every side of a `Window` resizes with a plain drag. The left column and the top left, top right
+  and bottom left corners are handles now, like the right column and the bottom row: before, the
+  left and top sides took alt and the right button. The top side is the title strip, which still
+  moves the window, so only its two end cells resize there. The marks moved one cell left to
+  leave the top right corner to the right edge, and the handles light under the pointer as
+  before. A drag on the left or top side sends `WindowEvent::Resize` with `WindowEdge::Left`,
+  `TopLeft`, `TopRight` or `BottomLeft`, which an application already applies by moving the
+  window and changing its size by the opposite amount.
+- `Command::focus(name)` on a widget that takes no focus itself focuses the first widget inside
+  it that does. A name put on what `FileManager::show` returns keeps reaching the rows, in the
+  tree too, where `show` now returns the column the rows are drawn in.
+
+### Fixed
+
+- In 256 colours a half block (`▀`, `▄`) takes the nearest palette entry for both its halves. It
+  was reduced like text, so an upper half close in colour to the lower one was pushed to a far
+  entry to stay readable, which would streak a smooth picture.
+- A frame equal to the one on screen writes nothing to the terminal. Each message drew a frame,
+  and even when no cell changed about forty bytes went out (the synchronized update markers, the
+  cursor, the colour reset): over SSH a clock that shows minutes but ticks every second sent
+  bytes all the time. The frame is now compared with the one shown and skipped when they match;
+  after a program had the screen, the next frame is still written whole.
+- A menu that opens with a left click closes with a second left click on the same place, also
+  when what it covers takes the pointer itself, as a tooltip does. The first click closed the
+  menu and the same click, reaching the area next, opened it again.
+- The showcase's folder watch page no longer hangs a screen test that starts it. Its wait had no
+  end, and a screen test runs background work in place; it now waits with a bound and waits
+  again when nothing changed, as its guide now recommends.
+
 ## 0.1.23 - 2026-09-24
 
 ### Changed

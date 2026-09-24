@@ -327,3 +327,12 @@ sample-hint = "Choose the set whose icons read as shapes on your screen."
 install     = "Install the font"
 defaults    = "Start with the defaults"
 not-saved   = "Your choices could not be saved: {reason}"
+
+[quvyta.image]
+untitled         = "Picture"
+cannot-show-kind = "{kind}, {width} x {height} pixels. This terminal cannot show pictures."
+cannot-show      = "{width} x {height} pixels. This terminal cannot show pictures."
+missing          = "This picture does not exist"
+unreadable       = "This picture could not be read"
+unknown-format   = "This is not a PNG, JPEG, GIF or WebP picture"
+broken           = "This picture is damaged"

@@ -316,3 +316,12 @@ sample-hint = "请选择在您的屏幕上显示为图形的那一组图标。"
 install     = "安装字体"
 defaults    = "使用默认设置开始"
 not-saved   = "无法保存您的选择：{reason}"
+
+[quvyta.image]
+untitled         = "图片"
+cannot-show-kind = "{kind}，{width} x {height} 像素。此终端无法显示图片。"
+cannot-show      = "{width} x {height} 像素。此终端无法显示图片。"
+missing          = "此图片不存在"
+unreadable       = "无法读取此图片"
+unknown-format   = "这不是 PNG、JPEG、GIF 或 WebP 图片"
+broken           = "此图片已损坏"

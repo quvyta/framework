@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::color::ColorDepth;
 use crate::diagnostics::{Diagnostic, Location};
+use crate::graphics::{Graphics, GraphicsFacts};
 use crate::i18n::I18n;
 use crate::icons::{
     GlyphMode, IconMode, IconSetRegistry, Icons, PILLAR, PillarStyle, default_font_dirs, detect_glyph_mode,
@@ -66,6 +67,7 @@ pub struct Env {
     pillar: Option<PillarStyle>,
     slide: Option<bool>,
     remote: bool,
+    graphics: GraphicsFacts,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -93,6 +95,7 @@ impl Env {
             pillar: None,
             slide: None,
             remote: false,
+            graphics: GraphicsFacts::default(),
             diagnostics: Vec::new(),
         }
     }
@@ -107,7 +110,30 @@ impl Env {
     /// text stands in for it. Problems inside files are never errors; they are collected in
     /// [`Env::diagnostics`].
     pub fn load(dirs: &AssetDirs) -> io::Result<Self> {
-        let lookup = |name: &str| std::env::var(name).ok();
+        // Where the environment names no language, the operating system's own setting stands in
+        // as the last of the variables a language is read from.
+        Self::load_with(dirs, |name: &str| {
+            std::env::var(name)
+                .ok()
+                .filter(|value| !value.is_empty())
+                .or_else(|| (name == "LANG").then(sys_locale::get_locale).flatten())
+        })
+    }
+
+    /// Loads the application's files like [`load`](Self::load), reading the variables it would
+    /// read from the process environment (`LANG`, `LC_ALL`, `LC_TIME`, `TERM`, `COLORTERM`,
+    /// `SSH_CONNECTION` and the rest) through `lookup` instead.
+    ///
+    /// For a test that runs an application with its real files: the machine's language and
+    /// region would otherwise reach it, so the first day of the week, a number's decimal mark or
+    /// the language itself would change from one machine to the next. `|_| None` is a machine
+    /// with nothing set. Unlike `load`, the operating system's own language setting is never
+    /// asked: only `lookup` answers.
+    ///
+    /// # Errors
+    ///
+    /// As for [`load`](Self::load).
+    pub fn load_with(dirs: &AssetDirs, lookup: impl Fn(&str) -> Option<String>) -> io::Result<Self> {
         let mut env = Self::builtin();
         if let Some(dir) = &dirs.themes {
             let read = env.themes.load_dir(dir);
@@ -131,10 +157,10 @@ impl Env {
         for (file, text) in &dirs.locale_sources {
             i18n.add_source(file, text);
         }
-        if let Some(code) = i18n.detect(lookup) {
+        if let Some(code) = i18n.detect_only(&lookup) {
             i18n.set_active(&code);
         }
-        i18n.set_region(i18n.detect_region(lookup).as_deref());
+        i18n.set_region(i18n.detect_region_only(&lookup).as_deref());
         if let Some(file) = &dirs.keymap {
             let read = load_keymap(file, &mut env.diagnostics);
             let has_source = dirs.keymap_source.is_some();
@@ -151,11 +177,20 @@ impl Env {
         env.diagnostics.extend(i18n.diagnostics().iter().cloned());
         env.diagnostics.extend(env.keymap.conflicts());
         env.i18n = Arc::new(i18n);
-        env.depth = ColorDepth::detect(lookup);
-        env.force_reduced_motion(forced_reduced_motion(lookup));
+        env.depth = ColorDepth::detect(&lookup);
+        env.force_reduced_motion(forced_reduced_motion(&lookup));
         env.icon_mode = IconMode::Auto;
-        env.remote = detect_remote(lookup);
-        env.glyph_mode = detect_glyph_mode(IconMode::Auto, lookup, &default_font_dirs(lookup));
+        env.remote = detect_remote(&lookup);
+        let (graphics, unknown) = GraphicsFacts::detect(&lookup);
+        env.graphics = graphics;
+        if let Some(value) = unknown {
+            let known = Graphics::ALL.map(Graphics::name).join(", ");
+            env.diagnostics.push(Diagnostic::warning(
+                None,
+                format!("unknown `{}` value `{value}`, expected one of {known}", crate::graphics::VARIABLE),
+            ));
+        }
+        env.glyph_mode = detect_glyph_mode(IconMode::Auto, &lookup, &default_font_dirs(&lookup));
         env.rebuild_icons();
         Ok(env)
     }
@@ -235,6 +270,43 @@ impl Env {
     #[must_use]
     pub fn remote(&self) -> bool {
         self.remote
+    }
+
+    /// The way a picture can be drawn in this terminal.
+    ///
+    /// The runtime asks the terminal once, as it starts: a kitty graphics query and a request
+    /// for its device attributes, with a wait of 150 ms at most. A kitty `OK` gives
+    /// [`Graphics::Kitty`], attributes that list sixel give [`Graphics::Sixel`], and anything
+    /// else, silence included, gives [`Graphics::HalfBlock`]. The answers never reach the
+    /// application as keys. The terminal is not asked when its answer could not change the
+    /// result, and never when it is not a terminal.
+    ///
+    /// Then the environment has its say:
+    ///
+    /// - 16 colours or ASCII glyphs give [`Graphics::None`]: no picture is drawn.
+    /// - Inside tmux or GNU screen (`TMUX` or `STY` set and not empty) kitty and sixel become
+    ///   half blocks, because the multiplexer does not pass them through.
+    /// - The `QUVYTA_GRAPHICS` environment variable, set to `kitty`, `sixel`, `halfblock` or
+    ///   `none`, wins over all of it, for a terminal the probe misjudges or a person who wants
+    ///   something else. Any other value is ignored and becomes a [diagnostic](Env::diagnostics).
+    ///
+    /// [`Env::builtin`], the environment of tests, asks nothing and gives half blocks; see
+    /// [`Harness::set_graphics`](crate::runtime::Harness::set_graphics) for the others.
+    #[must_use]
+    pub fn graphics(&self) -> Graphics {
+        self.graphics.resolve(self.depth, self.glyph_mode)
+    }
+
+    /// Records what the terminal answered to the graphics probe; [`Env::graphics`] still applies
+    /// its rules to it.
+    pub(crate) fn set_terminal_graphics(&mut self, answer: Graphics) {
+        self.graphics.answer = answer;
+    }
+
+    /// Whether the terminal's answer could change [`Env::graphics`], so the probe is worth its
+    /// round trip.
+    pub(crate) fn graphics_worth_asking(&self) -> bool {
+        self.graphics.worth_asking(self.depth)
     }
 
     /// Draws as a terminal of `depth` would, instead of the depth that was detected. Lets a test
@@ -453,6 +525,19 @@ fn load_keymap(file: &Path, diagnostics: &mut Vec<Diagnostic>) -> io::Result<Key
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_test_can_load_the_files_without_the_machines_language_and_region() {
+        let turkish = |name: &str| (name == "LANG").then(|| "tr_TR.UTF-8".to_owned());
+        let env = Env::load_with(&AssetDirs::default(), turkish).expect("the built-in files load");
+        assert_eq!(env.i18n().active(), "tr");
+        assert_eq!(env.i18n().first_weekday(), crate::date::Weekday::Monday, "Turkey starts the week on Monday");
+        let mut english = Env::load_with(&AssetDirs::default(), |_| None).expect("the built-in files load");
+        assert_eq!(english.i18n().active(), "en", "a machine with nothing set");
+        assert_eq!(english.i18n().first_weekday(), crate::date::Weekday::Sunday, "English alone starts on Sunday");
+        english.set_locale("en");
+        assert_eq!(english.i18n().first_weekday(), crate::date::Weekday::Sunday);
+    }
+
     /// Every combination of the two variables an SSH server sets, with empty values among them.
     /// The process environment itself is never changed: `detect_remote` is given a table, which
     /// is what `Env::load` gives it in an application too.
@@ -477,6 +562,43 @@ mod tests {
             };
             assert_eq!(detect_remote(lookup), remote, "SSH_CONNECTION={connection:?} SSH_TTY={tty:?}");
         }
+    }
+
+    /// `Env::load_with` reads the multiplexer and the override through the same lookup as the
+    /// rest, so a test decides them without touching the process environment.
+    #[test]
+    fn graphics_follow_the_multiplexer_and_the_override_the_lookup_gives() {
+        /// A 256-colour UTF-8 terminal with Unicode glyphs, where half blocks can be drawn, plus
+        /// `extra`.
+        fn terminal(extra: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+            move |name: &str| {
+                let base = [("LANG", "en_US.UTF-8"), ("TERM", "xterm-256color"), ("QUVYTA_ICONS", "unicode")];
+                base.iter().chain(extra).find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned())
+            }
+        }
+        let mut env = Env::load_with(&AssetDirs::default(), terminal(&[])).expect("the built-in files load");
+        assert!(env.graphics_worth_asking());
+        env.set_terminal_graphics(Graphics::Kitty);
+        assert_eq!(env.graphics(), Graphics::Kitty, "outside a multiplexer the answer stands");
+
+        let in_tmux = terminal(&[("TMUX", "/tmp/tmux-1000/default,4242,0")]);
+        let mut env = Env::load_with(&AssetDirs::default(), in_tmux).expect("the built-in files load");
+        assert!(!env.graphics_worth_asking(), "tmux answers for the terminal, so it is not asked");
+        env.set_terminal_graphics(Graphics::Kitty);
+        assert_eq!(env.graphics(), Graphics::HalfBlock);
+
+        let forced = terminal(&[("QUVYTA_GRAPHICS", "sixel"), ("STY", "1234.pts-0.host")]);
+        let env = Env::load_with(&AssetDirs::default(), forced).expect("the built-in files load");
+        assert_eq!(env.graphics(), Graphics::Sixel, "the override wins over the multiplexer");
+
+        let unknown = terminal(&[("QUVYTA_GRAPHICS", "pixels")]);
+        let env = Env::load_with(&AssetDirs::default(), unknown).expect("the built-in files load");
+        assert_eq!(env.graphics(), Graphics::HalfBlock);
+        assert!(
+            env.diagnostics().iter().any(|problem| problem.to_string().contains("`pixels`")),
+            "{:?}",
+            env.diagnostics()
+        );
     }
 
     #[test]
