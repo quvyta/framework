@@ -17,6 +17,7 @@
 ## Davranış
 
 - Odaktayken tuşlar: `up` `down` ya da `k` `j`, `pgup` `pgdn`, `home` `end` gezinir; `right` ya da `l` açar veya ilk çocuğa geçer; `left` ya da `h` kapatır veya üst düğüme çıkar; `enter` klasörü açıp kapatır, yaprağı etkinleştirir; `space` etkinleştirir.
+- Yerleşim: yapraklar ok sütununu boş bırakır, böylece aynı düzeydeki etiketler hizalanır; hiçbir satırı açılmayan bir ağaçta ok sütunu hiç yoktur, etiketleri yanındaki bir `Menu`'nün satırlarıyla aynı sütunda başlar.
 - Fare: oka tıklama açar ya da kapatır; satıra tıklama önce seçer, sonra `enter` gibi davranır; tekerlek ve kaydırma çubuğu kaydırır.
 - Sıralama: bir satıra (okuna değil) basmak onu seçer; imleci bir satır oynatmak sürüklemeye çevirir. İnilecek yer imlecin altında duran kardeş, yoksa ekrandaki en yakın kardeştir; kardeşler bırakmanın vereceği sırayla gösterilir, inilecek yer renklenir ve imleci bir hayalet satır izler. Sürüklenen düğümün çocukları sürükleme boyunca katlanır. Bırakılınca ağaç tek bir `TreeMove` gönderir; başladığı yere bırakılırsa hiçbir şey. Sürükleme olmadan bırakmak satırı `enter` gibi açar, kapatır ya da etkinleştirir. `ctrl+shift+up` ve `ctrl+shift+down` seçili düğümü bir yer taşır, uçlarda durur. Sıralama düğümün ebeveynini hiçbir zaman değiştirmez.
 - Üst ya da alt satırda veya ötesinde tutulan sürükleme 400 ms sonra bir satır, sonra her 150 ms'de bir kaydırır; kenardan ne kadar uzaksa o kadar sık.

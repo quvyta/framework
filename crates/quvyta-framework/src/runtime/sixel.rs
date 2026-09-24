@@ -1,25 +1,33 @@
 //! Showing pictures on a terminal that speaks sixel: the pixels are painted into the cells, so
-//! every frame that changes what lies under a picture paints it again.
+//! every frame that writes a cell under a picture paints that part of it again.
 //!
 //! A sixel is not kept by the terminal under a number, as a kitty picture is: it is written over
-//! the cells like text, and text written later over it wipes it. So a picture is written only
-//! where the whole of it shows (see [`resolve`](crate::widgets::image::resolve)), and written
-//! again whenever it is new, moved or cut differently, after the terminal lost the screen, or
-//! when a cell under it was written this frame. A place no longer shown leaves its pixels behind
-//! until its cells are written; the cells the frame did not change are written again for it.
+//! the cells like text, and text written later over a cell wipes the pixels in it. The pixels
+//! of a cell nothing wrote over stay, whichever piece of which frame put them there. So the
+//! screen remembers, cell by cell, whose pixels it shows, and a frame sends pixels only for the
+//! cells of its places that do not already show them: the cells it writes, the cells that had
+//! other pixels or none, and every cell after the terminal lost the screen. Those cells are cut
+//! into rectangles by the rule the places come from (see
+//! [`resolve`](crate::widgets::image::resolve)), each one a sixel of its own crop, at most
+//! [`MOST_PLACES`] a picture; more than that sends the places that hold them whole. A window
+//! dragged over a wallpaper then sends only the strip it uncovered. A cell that shows pixels no
+//! place wants any more and that the frame does not write is written again, so its pixels go.
 //! A frame whose places and cells are what the terminal shows writes nothing.
 //!
 //! The picture is shrunk to the pixels its cells cover on screen and reduced to a fixed palette
 //! of 252 colours: six levels of red and blue, seven of green, to which the eye is most
 //! sensitive. Its height is cut down to a whole number of six-pixel bands, so the last band never
-//! reaches past the last row of its cells and the screen never scrolls.
+//! reaches past the last row of its cells and the screen never scrolls; the pixels are worked
+//! out at the cells' full height and the rows past the last band left out, so the pieces of a
+//! picture meet without stretching, and those few rows show the ground `resolve` gave the cells.
 
 use std::io::Write;
 
-use ratatui_core::buffer::Buffer;
+use ratatui_core::buffer::{Buffer, Cell};
+use ratatui_core::style::Color;
 
 use crate::color::Rgb;
-use crate::widgets::image::{PicturePlacement, crop_pixels};
+use crate::widgets::image::{MOST_PLACES, PicturePlacement, crop_pixels, rectangles};
 
 /// The size of a cell in pixels when the terminal does not say: a common one at ordinary sizes.
 pub(crate) const CELL: (u16, u16) = (10, 20);
@@ -30,26 +38,32 @@ const LEVELS: (u32, u32, u32) = (6, 7, 6);
 /// The sixel pictures a screen shows, and what they were encoded into.
 #[derive(Debug)]
 pub(crate) struct SixelPictures {
-    /// The places written and still showing.
-    shown: Vec<PicturePlacement>,
+    /// For every cell of the screen, row by row, whose pixels it shows: the key of the stretch
+    /// of the picture (see `Stretch::key`), `None` for none, or none known.
+    showing: Vec<Option<u64>>,
+    /// The columns and rows `showing` is for.
+    size: (u16, u16),
     /// The size of a cell in pixels.
     cell: (u16, u16),
-    /// Pictures already encoded, kept while their picture is painted.
+    /// Pieces already encoded, kept while their picture is painted.
     encoded: Vec<Encoded>,
 }
 
 impl Default for SixelPictures {
     fn default() -> Self {
-        Self { shown: Vec::new(), cell: CELL, encoded: Vec::new() }
+        Self { showing: Vec::new(), size: (0, 0), cell: CELL, encoded: Vec::new() }
     }
 }
 
-/// One place's pixels, encoded.
+/// One piece's pixels, encoded.
 #[derive(Debug)]
 struct Encoded {
-    /// The picture, its crop and the size in pixels it was shrunk to.
+    /// The picture, its crop and the size in pixels of its cells.
     key: (u64, (u32, u32, u32, u32), (u32, u32)),
     bytes: Vec<u8>,
+    /// For each cell of the last row, the colour of the pixels below the last band, which the
+    /// sixel leaves out; empty when the bands fill the cells.
+    short: Vec<Rgb>,
 }
 
 /// What a frame writes for its sixel pictures, after its cells.
@@ -58,6 +72,10 @@ pub(crate) struct SixelFrame {
     /// Cells to write again although they did not change, since a picture no longer shown
     /// covers them: column and row.
     pub(crate) repaint: Vec<(u16, u16)>,
+    /// Cells of the last row of a piece whose bands stop a few pixels short of its bottom,
+    /// written before the pictures with the colour of those pixels as their ground: column, row
+    /// and the cell.
+    pub(crate) short: Vec<(u16, u16, Cell)>,
     /// The pictures, each after moving the cursor to its first cell.
     pub(crate) bytes: Vec<u8>,
 }
@@ -65,15 +83,16 @@ pub(crate) struct SixelFrame {
 impl SixelPictures {
     /// Takes the size of a cell in pixels, as the terminal reports it.
     pub(crate) fn set_cell(&mut self, cell: (u16, u16)) {
-        if cell.0 > 0 && cell.1 > 0 {
+        if cell.0 > 0 && cell.1 > 0 && cell != self.cell {
             self.cell = cell;
+            self.forget();
         }
     }
 
-    /// What takes the terminal from the places shown to `placements`, given the cells on screen,
-    /// `shown` (`None` when the terminal's contents are not known), and the cells about to be
-    /// written, `now`. `painted` holds the identities of the pictures on screen in any way this
-    /// frame: their encodings are kept for when they are shown whole again.
+    /// What takes the terminal from the pixels it shows to `placements`, given the cells on
+    /// screen, `shown` (`None` when the terminal's contents are not known), and the cells about
+    /// to be written, `now`. `painted` holds the identities of the pictures on screen in any way
+    /// this frame: their encodings are kept for when they are shown again.
     pub(crate) fn frame(
         &mut self,
         placements: &[PicturePlacement],
@@ -81,55 +100,160 @@ impl SixelPictures {
         shown: Option<&Buffer>,
         now: &Buffer,
     ) -> SixelFrame {
+        let area = now.area;
         // A screen of another size was cleared, so nothing on it is known.
-        let shown = shown.filter(|shown| shown.area == now.area);
+        let shown = shown.filter(|shown| shown.area == area);
+        if shown.is_none() || self.size != (area.width, area.height) {
+            self.showing = vec![None; usize::from(area.width) * usize::from(area.height)];
+            self.size = (area.width, area.height);
+        }
+        let at = |(x, y): (u16, u16)| usize::from(y - area.y) * usize::from(area.width) + usize::from(x - area.x);
+        // Whose pixels each cell is to show.
+        let mut wanted: Vec<Option<u64>> = vec![None; self.showing.len()];
+        let keys: Vec<u64> = placements.iter().map(|placement| placement.stretch.key(placement.data.id())).collect();
+        for (placement, key) in placements.iter().zip(&keys) {
+            for position in positions(placement, now) {
+                wanted[at(position)] = Some(*key);
+            }
+        }
         let mut out = SixelFrame::default();
-        if let Some(before) = shown {
-            for gone in self.shown.iter().filter(|old| !placements.contains(old)) {
-                for position in positions(gone, now) {
-                    if before[position] == now[position] && !out.repaint.contains(&position) {
-                        out.repaint.push(position);
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                let index = at((x, y));
+                // A cell written this frame loses whatever pixels it had.
+                if shown.is_none_or(|before| before[(x, y)] != now[(x, y)]) {
+                    self.showing[index] = None;
+                } else if self.showing[index].is_some() && self.showing[index] != wanted[index] {
+                    out.repaint.push((x, y));
+                    self.showing[index] = None;
+                }
+            }
+        }
+        let mut done: Vec<u64> = Vec::new();
+        for (first, key) in keys.iter().enumerate() {
+            if done.contains(key) {
+                continue;
+            }
+            done.push(*key);
+            let places: Vec<&PicturePlacement> = placements
+                .iter()
+                .zip(&keys)
+                .filter(|(_, other)| *other == key)
+                .map(|(placement, _)| placement)
+                .collect();
+            let mut needed: Vec<(i32, i32)> = places
+                .iter()
+                .flat_map(|placement| positions(placement, now))
+                .filter(|position| self.showing[at(*position)] != Some(*key))
+                .map(|(x, y)| (i32::from(x), i32::from(y)))
+                .collect();
+            if needed.is_empty() {
+                continue;
+            }
+            needed.sort_unstable_by_key(|&(x, y)| (y, x));
+            let pieces: Vec<PicturePlacement> = match rectangles(&needed, MOST_PLACES) {
+                Some(rects) => rects.into_iter().map(|rect| placements[first].part(rect)).collect(),
+                None => places
+                    .into_iter()
+                    .filter(|placement| {
+                        positions(placement, now).any(|position| self.showing[at(position)] != Some(*key))
+                    })
+                    .cloned()
+                    .collect(),
+            };
+            for piece in pieces {
+                if self.write(&mut out, &piece, now) {
+                    for position in positions(&piece, now) {
+                        self.showing[at(position)] = Some(*key);
                     }
                 }
             }
         }
-        for placement in placements {
-            let written_over =
-                shown.is_none_or(|before| positions(placement, now).any(|position| before[position] != now[position]));
-            if written_over || !self.shown.contains(placement) {
-                self.write(&mut out.bytes, placement);
-            }
-        }
         self.encoded.retain(|encoded| painted.contains(&encoded.key.0));
-        self.shown = placements.to_vec();
         out
     }
 
-    /// Forgets the places shown, for when the terminal is handed to a program or left: the
+    /// Forgets the pixels shown, for when the terminal is handed to a program or left: the
     /// program's own output wipes them.
     pub(crate) fn release(&mut self) {
-        self.shown.clear();
+        self.forget();
     }
 
-    /// Writes `placement`: the cursor moved to its first cell, then its pixels.
-    fn write(&mut self, out: &mut Vec<u8>, placement: &PicturePlacement) {
+    /// Takes the terminal to show no pixels anywhere.
+    fn forget(&mut self) {
+        self.showing.clear();
+        self.size = (0, 0);
+    }
+
+    /// Writes `placement`: the cursor moved to its first cell, then its pixels, and the cells
+    /// of its last row the bands leave short, taken from `now`. Whether anything was written:
+    /// cells too small for a band of six pixels take none.
+    fn write(&mut self, out: &mut SixelFrame, placement: &PicturePlacement, now: &Buffer) -> bool {
         let (column, row, columns, rows) = placement.cells;
-        let size = pixel_size((columns, rows), self.cell);
-        if size.0 == 0 || size.1 == 0 {
-            return;
+        let full = (u32::from(columns) * u32::from(self.cell.0), u32::from(rows) * u32::from(self.cell.1));
+        let (width, height) = pixel_size((columns, rows), self.cell);
+        if width == 0 || height == 0 {
+            return false;
         }
-        let key = (placement.data.id(), placement.crop, size);
+        let key = (placement.data.id(), placement.crop, full);
         let index = match self.encoded.iter().position(|encoded| encoded.key == key) {
             Some(index) => index,
             None => {
-                let pixels = crop_pixels(&placement.data, placement.crop, size.0, size.1);
-                self.encoded.push(Encoded { key, bytes: encode(&pixels, size.0, size.1) });
+                // Worked out at the cells' full height, so the rows kept are the rows a taller
+                // piece of the same picture shows there, then cut to whole bands.
+                let mut pixels = crop_pixels(&placement.data, placement.crop, full.0, full.1);
+                let short = below(&pixels, full, height, self.cell.0);
+                pixels.truncate(usize::try_from(u64::from(width) * u64::from(height)).unwrap_or(0));
+                self.encoded.push(Encoded { key, bytes: encode(&pixels, width, height), short });
                 self.encoded.len() - 1
             }
         };
-        let _ = write!(out, "\x1b[{};{}H", u32::from(row) + 1, u32::from(column) + 1);
-        out.extend_from_slice(&self.encoded[index].bytes);
+        let encoded = &self.encoded[index];
+        let last = row + rows - 1;
+        for (offset, colour) in (0..columns).zip(&encoded.short) {
+            let position = (column + offset, last);
+            if position.0 >= now.area.right() || last >= now.area.bottom() {
+                continue;
+            }
+            let mut cell = now[position].clone();
+            // A frame reduced to the 256-colour palette keeps its grounds in it.
+            cell.bg = match cell.bg {
+                Color::Indexed(_) => Color::Indexed(colour.to_ansi256()),
+                _ => Color::Rgb(colour.r, colour.g, colour.b),
+            };
+            out.short.push((position.0, position.1, cell));
+        }
+        let _ = write!(out.bytes, "\x1b[{};{}H", u32::from(row) + 1, u32::from(column) + 1);
+        out.bytes.extend_from_slice(&encoded.bytes);
+        true
     }
+}
+
+/// For each cell across a piece of `full` pixels, cells `cell` pixels wide, the average colour
+/// of its `pixels` from row `height` down, which a sixel of `height` rows leaves out. Empty when
+/// there are none.
+fn below(pixels: &[Rgb], full: (u32, u32), height: u32, cell: u16) -> Vec<Rgb> {
+    if height >= full.1 || cell == 0 {
+        return Vec::new();
+    }
+    let (width, cell) = (usize::try_from(full.0).unwrap_or(0), usize::from(cell));
+    let rows = usize::try_from(height).unwrap_or(0)..usize::try_from(full.1).unwrap_or(0);
+    (0..width / cell)
+        .map(|nth| {
+            let mut sum = [0u64; 3];
+            let mut count = 0u64;
+            for y in rows.clone() {
+                for pixel in pixels.iter().skip(y * width + nth * cell).take(cell) {
+                    sum[0] += u64::from(pixel.r);
+                    sum[1] += u64::from(pixel.g);
+                    sum[2] += u64::from(pixel.b);
+                    count += 1;
+                }
+            }
+            let mean = |total: u64| u8::try_from((total + count / 2) / count.max(1)).unwrap_or(255);
+            Rgb::new(mean(sum[0]), mean(sum[1]), mean(sum[2]))
+        })
+        .collect()
 }
 
 /// The cells of `placement` within `buffer`.
@@ -307,7 +431,7 @@ mod tests {
     fn a_screen_of_another_size_gets_its_pictures_again_and_nothing_to_repaint() {
         use ratatui_core::layout::Rect;
         let data = ImageData::from_rgb(4, 4, &[90; 48]).expect("pixels");
-        let placement = PicturePlacement { data: data.clone(), number: 1, cells: (1, 1, 2, 1), crop: (0, 0, 4, 4) };
+        let placement = PicturePlacement::whole(&data, (1, 1, 2, 1));
         let (small, large) = (Buffer::empty(Rect::new(0, 0, 6, 3)), Buffer::empty(Rect::new(0, 0, 8, 4)));
         let mut sixels = SixelPictures::default();
         let first = sixels.frame(std::slice::from_ref(&placement), &[data.id()], None, &small);
@@ -324,7 +448,7 @@ mod tests {
     fn a_place_no_longer_shown_repaints_the_cells_the_frame_left_alone() {
         use ratatui_core::layout::Rect;
         let data = ImageData::from_rgb(4, 4, &[90; 48]).expect("pixels");
-        let placement = PicturePlacement { data: data.clone(), number: 1, cells: (1, 1, 2, 2), crop: (0, 0, 4, 4) };
+        let placement = PicturePlacement::whole(&data, (1, 1, 2, 2));
         let before = Buffer::empty(Rect::new(0, 0, 6, 4));
         let mut after = before.clone();
         after[(2, 2)].set_symbol("x");
@@ -336,6 +460,30 @@ mod tests {
         assert_eq!(sixels.encoded.len(), 1, "kept while the picture is still painted");
         sixels.frame(&[], &[], Some(&after), &after);
         assert!(sixels.encoded.is_empty(), "dropped once it is not");
+    }
+
+    #[test]
+    fn the_pixels_below_the_last_band_become_the_ground_of_the_last_row() {
+        use ratatui_core::layout::Rect;
+        // Nineteen rows of blue, then red: over three rows of twenty-pixel cells, the first row
+        // shows the blue and, in its last pixel row, the first red one.
+        let (blue, red) = ([0u8, 0, 255], [255u8, 0, 0]);
+        let rgb: Vec<u8> = (0..60).flat_map(|row| if row < 19 { blue } else { red }).collect();
+        let data = ImageData::from_rgb(1, 60, &rgb).expect("pixels");
+        let whole = PicturePlacement::whole(&data, (0, 0, 1, 3));
+        let first = whole.part(crate::geometry::Rect::new(0, 0, 1, 1));
+        let now = Buffer::empty(Rect::new(0, 0, 2, 3));
+        let mut sixels = SixelPictures::default();
+        let written = sixels.frame(std::slice::from_ref(&first), &[data.id()], None, &now);
+        let sixel = text(&written.bytes);
+        assert!(sixel.contains("\"1;1;10;18#"), "{sixel}");
+        assert_eq!(sixel.matches(";2;").count(), 1, "the eighteen rows kept are all blue, none squeezed: {sixel}");
+        assert_eq!(written.short.len(), 1, "one cell in the last row");
+        let (x, y, cell) = &written.short[0];
+        assert_eq!((*x, *y), (0, 0));
+        assert_eq!(cell.bg, ratatui_core::style::Color::Rgb(128, 0, 128), "half blue, half red");
+        let full = sixels.frame(std::slice::from_ref(&whole), &[data.id()], None, &now);
+        assert!(full.short.is_empty(), "sixty pixels are ten whole bands");
     }
 
     #[test]

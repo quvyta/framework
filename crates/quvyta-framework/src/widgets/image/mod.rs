@@ -8,7 +8,7 @@ mod resample;
 mod tests;
 
 pub use data::{ImageData, ImageError};
-pub(crate) use kitty::{Dim, Halves, Picture, PicturePlacement, Placing, resolve};
+pub(crate) use kitty::{Dim, Halves, MOST_PLACES, Picture, PicturePlacement, Placing, rectangles, resolve};
 use resample::Half;
 pub(crate) use resample::crop_pixels;
 

@@ -4,6 +4,54 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.28 - 2026-09-24
+
+### Added
+
+- `TerminalSession::line_pending()`: whether the person has typed something since the last Enter
+  (or Ctrl+C or Ctrl+U, which throw the line away). The widget's keys, `write` and a person's
+  paste into the widget count; the application's own `paste` and mouse reports do not. An
+  application that writes into a terminal somebody uses waits for it to be false, so its text
+  never joins a half-typed line that stopped for a pause.
+- `Window::on_drag` and `WindowDrag`: a window's moves and resizes can arrive with how far the
+  pointer has gone since the button went down (`total_dx`, `total_dy`) beside the step. An
+  application that holds a window at the screen's edge or at a smallest size places it from
+  where it started plus the totals, and the window waits until the pointer is back over it
+  instead of turning the moment the pointer does. `WindowEvent` is unchanged; the showcase's
+  window demo uses the totals.
+- Icon keys for a status strip, in the Nerd Font, Unicode and ASCII columns of the built-in set:
+  `cpu`, `memory`, `battery-full`, `battery-half`, `battery-empty`, `battery-charging`,
+  `terminal`, `session` (a terminal multiplexer's), `network-down` and `network-up`. The Unicode
+  glyphs stay inside Geometric Shapes, so a strip of them keeps one cell each.
+
+### Changed
+
+- A `Tree` where no row can open keeps no column for chevrons, so a flat list of leaves (a
+  favourites bar) starts in the same column as a `Menu` beside it instead of two cells to its
+  right. A tree with any openable row is drawn as before.
+- The frame limit merges the pointer's motion too. A drag, the pointer moving with no button held
+  and the wheel wait for the limit like the application's own work: every event still reaches
+  the widgets and the application, and the screen shows the latest state at most one gap later.
+  A key, a paste, a button going down and a button coming up are still drawn at once, and so is
+  the first motion after a rest of one gap. A two-second drag at 5 frames a second now writes 12
+  frames instead of one for every motion (202 in the measured drag, 25 415 bytes against 1 839);
+  at the local default of 60 the pointer waits 16 ms at most.
+- Sixel pictures on a local terminal are cut into pieces around whatever stands on them, as kitty
+  pictures are: icons, menus and windows over a wallpaper stay text and the rest stays pixels,
+  where before the whole picture turned to half blocks. The screen remembers which cells show
+  which pixels and sends pixels only for the cells that lost them: selecting an icon sends
+  nothing, or the two cells its bar gave back, and a window dragged over a wallpaper sends the
+  strip it uncovered, 14 KB a step on a grainy full-screen photo at 100 × 30 against 188 KB when
+  every piece was sent again. Over a remote connection a sixel is still shown only while nothing
+  covers it, since there pieces sent again cost more than half blocks.
+
+### Fixed
+
+- The last row of a sixel picture whose height is not a whole number of six-pixel bands no
+  longer shows a thin line of canvas under the picture: those cells take the colour of the
+  missing pixels as their ground. The pixels are worked out at the cells' full height and cut,
+  instead of squeezed into fewer rows, so pieces of one picture meet without stretching.
+
 ## 0.1.27 - 2026-09-24
 
 ### Added

@@ -84,7 +84,7 @@ pub(super) fn event<Msg>(session: &TerminalSession, cx: &mut EventCx<'_, Msg>, m
         // nothing happening: a press inside the terminal would reach whatever is behind it and do
         // something else. The branch above keeps a mouse a program never asked for out of here,
         // and this one keeps the last reports of a program ending under the pointer quiet.
-        let _ = session.write(&bytes);
+        let _ = session.write_pointer(&bytes);
     }
     if matches!(action, Action::Press(_)) {
         cx.capture_pointer();
@@ -413,6 +413,20 @@ mod tests {
         let (session, mut h) = with_mouse("1003", Mode::AnyMotion);
         h.hover(2, 2).hover(4, 2);
         wait(&session, contains("^[[<35;3;3M^[[<35;5;3M"));
+        session.kill();
+    }
+
+    #[test]
+    fn a_click_is_the_persons_input_but_not_a_line() {
+        // The older encoding, whose three bytes after the mark are printable here.
+        let session = start("printf '\\033[?1000h'");
+        wait(&session, |screen| screen.mouse_protocol_mode() == Mode::PressRelease);
+        let mut h = Harness::new(Demo { session: session.clone() }, 40, 8);
+        let before = session.last_input();
+        h.click(5, 3);
+        wait(&session, contains("^[[M"));
+        assert!(session.last_input() > before, "the person clicked");
+        assert!(!session.line_pending(), "a click typed nothing into a line");
         session.kill();
     }
 

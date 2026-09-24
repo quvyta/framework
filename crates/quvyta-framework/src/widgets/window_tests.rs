@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use super::{Text, Window, WindowEdge, WindowEvent};
+use super::{Text, Window, WindowDrag, WindowEdge, WindowEvent};
 use crate::color::ColorDepth;
 use crate::event::{Event, MouseButton, MouseEvent, MouseKind};
 use crate::geometry::Rect;
@@ -672,4 +672,142 @@ fn a_press_that_moves_nothing_is_no_drop() {
         [("front", WindowEvent::Move { dx: 1, dy: 0 }), ("front", WindowEvent::Dropped)],
         "the drop comes after the move it ends"
     );
+}
+
+/// What a window with [`Window::on_drag`] sends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Heard {
+    Event(WindowEvent),
+    Drag(WindowDrag),
+}
+
+/// One window placed from where its drag began plus the drag's totals, held on screen: its left
+/// column never goes past 0 and it is never narrower than 10 columns.
+struct Held {
+    rect: Rect,
+    /// The rectangle when the drag under way began.
+    start: Option<Rect>,
+    heard: Vec<Heard>,
+}
+
+impl App for Held {
+    type Msg = Heard;
+
+    fn update(&mut self, heard: Heard) -> Command<Heard> {
+        self.heard.push(heard);
+        match heard {
+            Heard::Drag(drag) => {
+                let start = *self.start.get_or_insert(self.rect);
+                self.rect = match drag.step {
+                    WindowEvent::Move { .. } => {
+                        Rect::new((start.x + drag.total_dx).max(0), start.y + drag.total_dy, start.width, start.height)
+                    }
+                    WindowEvent::Resize { edge, .. } if edge.right() => {
+                        let width = (i32::from(start.width) + drag.total_dx).max(10);
+                        Rect::new(start.x, start.y, u16::try_from(width).unwrap_or(10), start.height)
+                    }
+                    _ => self.rect,
+                };
+            }
+            Heard::Event(WindowEvent::Dropped) => self.start = None,
+            Heard::Event(_) => {}
+        }
+        Command::none()
+    }
+
+    fn view(&self, ui: &mut View<'_, Heard>) {
+        ui.stack(|ui| {
+            let window = Window::new("held").focused(true).on_event(Heard::Event).on_drag(Heard::Drag);
+            ui.place(self.rect, |ui| {
+                ui.add_with(window, |ui| {
+                    ui.add(Text::new("body"));
+                });
+            })
+            .id("held");
+        })
+        .fill();
+    }
+}
+
+fn held() -> Harness<Held> {
+    Harness::new(Held { rect: Rect::new(20, 4, 30, 8), start: None, heard: Vec::new() }, 80, 24)
+}
+
+fn drags(h: &Harness<Held>) -> Vec<WindowDrag> {
+    h.app()
+        .heard
+        .iter()
+        .filter_map(|heard| match heard {
+            Heard::Drag(drag) => Some(*drag),
+            Heard::Event(_) => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_move_carries_the_pointers_travel_since_the_press_beside_each_step() {
+    let path = [(32, 5), (35, 5), (33, 2), (-4, 30)];
+    let mut h = held();
+    drag(&mut h, (30, 4), &path);
+    for (drag, (x, y)) in drags(&h).iter().zip(path) {
+        assert_eq!((drag.total_dx, drag.total_dy), (x - 30, y - 4), "{drag:?}");
+    }
+    assert_eq!(drags(&h).len(), path.len());
+    assert_eq!(h.app().heard.last(), Some(&Heard::Event(WindowEvent::Dropped)), "the drop still comes as an event");
+
+    // The steps are the ones a window without on_drag sends for the same drag.
+    let mut plain = Harness::new(Desk::new(&[("front", Rect::new(20, 4, 30, 8))]), 80, 24);
+    drag(&mut plain, (30, 4), &path);
+    let steps: Vec<WindowEvent> = drags(&h).iter().map(|drag| drag.step).collect();
+    let plain_steps: Vec<WindowEvent> =
+        heard(&plain).into_iter().map(|(_, event)| event).filter(|event| *event != WindowEvent::Dropped).collect();
+    assert_eq!(steps, plain_steps);
+}
+
+#[test]
+fn a_resize_carries_the_total_of_the_axes_its_edge_moves() {
+    let mut h = held();
+    // The right edge: rows the pointer moves are not the edge's.
+    drag(&mut h, (49, 7), &[(52, 9), (47, 6), (50, 3)]);
+    assert_eq!(
+        drags(&h),
+        [
+            WindowDrag {
+                step: WindowEvent::Resize { edge: WindowEdge::Right, dx: 3, dy: 0 },
+                total_dx: 3,
+                total_dy: 0
+            },
+            WindowDrag {
+                step: WindowEvent::Resize { edge: WindowEdge::Right, dx: -5, dy: 0 },
+                total_dx: -2,
+                total_dy: 0
+            },
+            WindowDrag {
+                step: WindowEvent::Resize { edge: WindowEdge::Right, dx: 3, dy: 0 },
+                total_dx: 1,
+                total_dy: 0
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_window_held_at_the_screen_edge_follows_the_pointer_again_only_when_it_is_back() {
+    let mut h = held();
+    // The title is pressed ten columns into the window.
+    h.mouse(MouseKind::Down(MouseButton::Left), 30, 4).mouse(MouseKind::Drag(MouseButton::Left), 5, 4);
+    assert_eq!(h.app().rect.x, 0, "held at the left edge of the screen");
+    h.mouse(MouseKind::Drag(MouseButton::Left), 8, 4);
+    assert_eq!(h.app().rect.x, 0, "the pointer turned but is still left of where it held the window");
+    h.mouse(MouseKind::Drag(MouseButton::Left), 13, 4);
+    assert_eq!(h.app().rect.x, 3, "the window is back under the pointer, ten columns to its left");
+    h.mouse(MouseKind::Up(MouseButton::Left), 13, 4);
+
+    // A width held at its smallest waits for the pointer the same way.
+    h.mouse(MouseKind::Down(MouseButton::Left), 32, 7).mouse(MouseKind::Drag(MouseButton::Left), 10, 7);
+    assert_eq!(h.app().rect.width, 10, "held at its smallest");
+    h.mouse(MouseKind::Drag(MouseButton::Left), 11, 7);
+    assert_eq!(h.app().rect.width, 10, "the pointer turned but is still inside the smallest width");
+    h.mouse(MouseKind::Drag(MouseButton::Left), 25, 7).mouse(MouseKind::Up(MouseButton::Left), 25, 7);
+    assert_eq!(h.app().rect.width, 23, "30 columns wide, now 7 short of the press");
 }

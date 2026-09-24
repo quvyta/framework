@@ -79,7 +79,7 @@ fn frame_limit(&self) -> FrameLimit {
 }
 ```
 
-Sınır, girdiye verilen cevabı hiç geciktirmez. Bir tuşun, tıklamanın, imleç hareketinin ya da yapıştırmanın ardından gelen kare, sınır ne kadar düşük olursa olsun hemen çizilir: insan bütün programı yazdığı karakterin yankısından yargılar. Yalnızca uygulamanın kendi işinden doğan kareler birleştirilir ve bekletilen kare aradaki süre dolar dolmaz çizilir, yani sınırın kendisi gecikme eklemez. `FrameLimit::none()` istenen her kareyi çizer; `FrameLimit::per_second(n)` her bağlantıda tek sayıyı kullanır.
+Sınır bir tuşu, yapıştırmayı, tıklamayı ya da bırakmayı hiç geciktirmez. Bunların ardından gelen kare, sınır ne kadar düşük olursa olsun hemen çizilir: insan bütün programı yazdığı karakterin yankısından yargılar, sürüklenen pencerenin durduğu yer de zaten sürüklemenin amacıdır. Uygulamanın kendi işinden doğan kareler birleştirilir, farenin hareketi de öyle — sürükleme, imlecin ekranın üstünden geçmesi, tekerlek — çünkü el ne hızla oynarsa o hızla gelir ve yalnızca son hali bir kareye değer. Her hareket yine bileşenlere ve uygulamaya ulaşır; yalnızca çizim bekler. Bekletilen kare aradaki süre dolar dolmaz çizilir, o kadar süren bir duraklamadan sonraki ilk hareket de hemen çizilir, yani sınırın kendisi gecikme eklemez: saniyede 60 karede imleç en çok 16 ms bekler, saniyede 5'e ayarlı bir bağlantıda iki saniyelik bir pencere sürüklemesi imlecin geçtiği her hücre için bir kare yerine on kare yazar. `FrameLimit::none()` istenen her kareyi çizer; `FrameLimit::per_second(n)` her bağlantıda tek sayıyı kullanır.
 
 Uygulama `Env::remote`'u kendi kararları için de okur: yavaş bağlantıda daha az animasyon, daha küçük resim, daha sade bir ilk ekran.
 

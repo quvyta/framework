@@ -7,6 +7,7 @@
 - `.maximized(on)` — the maximize mark offers to restore instead.
 - `.shadow(on)` — one column right and one row below are darkened.
 - `.on_event(|event| msg)` — makes the window movable and shows its marks; every `WindowEvent` becomes a message.
+- `.on_drag(|drag| msg)` — moves and resizes arrive here as a `WindowDrag` instead of through `on_event`: `step` is the `Move` or `Resize`, `total_dx` and `total_dy` count cells from where the button went down (0 on an axis the edge does not move). Does nothing without `on_event`.
 - `cx.pointer_shape(rect, shape)` — while painting, asks for the pointer to take a `PointerShape` over `rect`: `Default`, `EwResize`, `NsResize`, `NwseResize`, `NeswResize`. The last shape asked for over a cell wins, from the widget under the pointer or one around it; a widget holding the pointer keeps the first shape it asked for. `Harness::pointer_shape()` answers the shape a test's pointer asks for.
 - `ui.place(rect, |ui| ..)` — where a child of a stack goes, counted from the stack's corner; `.id(name)` names it.
 - `Ghost::new()` — the tone that shows where something will land; `.mix(ratio)` says how much accent goes into the ground (a quarter by default). It draws no glyph and takes no pointer.

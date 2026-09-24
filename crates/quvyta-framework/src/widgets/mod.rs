@@ -218,7 +218,7 @@ pub(crate) use toast::{ToastPress, ToastStack};
 pub use tooltip::Tooltip;
 pub use tree::{Tree, TreeDrop, TreeMove, TreeNode};
 pub use widget_dock::WidgetDock;
-pub use window::{Window, WindowEdge, WindowEvent};
+pub use window::{Window, WindowDrag, WindowEdge, WindowEvent};
 pub use wizard::Wizard;
 
 /// Builds a message from a chosen index.

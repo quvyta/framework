@@ -7,6 +7,7 @@
 - `.maximized(acik)` — büyütme işareti eski boyuta dönmeyi önerir.
 - `.shadow(acik)` — sağda bir sütun, altta bir satır koyulaşır.
 - `.on_event(|olay| mesaj)` — pencereyi hareket edebilir yapar ve işaretlerini gösterir; her `WindowEvent` bir mesaja dönüşür.
+- `.on_drag(|sürükleme| mesaj)` — taşımalar ve boyutlandırmalar `on_event` yerine burada bir `WindowDrag` olarak gelir: `step` `Move` ya da `Resize`'dır, `total_dx` ve `total_dy` tuşa basılan yerden hücre sayar (kenarın hareket ettirmediği eksende 0). `on_event` olmadan hiçbir şey yapmaz.
 - `cx.pointer_shape(rect, shape)` — boyarken imlecin `rect` üstünde bir `PointerShape` almasını ister: `Default`, `EwResize`, `NsResize`, `NwseResize`, `NeswResize`. Bir hücre için en son istenen şekil kazanır; yalnızca imlecin üstündeki bileşenden ya da onu saran birinden. İmleci tutan bileşen istediği ilk şekli korur. `Harness::pointer_shape()` testteki imlecin istediği şekli söyler.
 - `ui.place(rect, |ui| ..)` — stack'in çocuğunun nereye gideceği, stack'in köşesinden sayılır; `.id(ad)` ona ad verir.
 - `Ghost::new()` — bir şeyin nereye oturacağını gösteren ton; `.mix(oran)` zemine ne kadar vurgu karışacağını söyler (varsayılan çeyrek). Hiç glif çizmez, fare almaz.

@@ -56,6 +56,8 @@ mod signals;
 #[cfg(feature = "image")]
 mod sixel;
 #[cfg(all(test, feature = "image"))]
+mod sixel_measure;
+#[cfg(all(test, feature = "image"))]
 mod sixel_rules;
 mod task;
 mod terminal;

@@ -2,7 +2,7 @@
 //! maximized and closed, with the window manager's policy kept in the page's own state.
 
 use qframe::prelude::*;
-use qframe::widgets::{EmptyState, Ghost, IconButton, Segmented, Window, WindowEdge, WindowEvent};
+use qframe::widgets::{EmptyState, Ghost, IconButton, Segmented, Window, WindowDrag, WindowEdge, WindowEvent};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -49,6 +49,8 @@ pub struct State {
     ghost_drag: bool,
     /// The ghost of the window being dragged, while ghost drag is on.
     drag: Option<(&'static str, Rect)>,
+    /// The window being moved or resized and its rectangle when the button went down.
+    start: Option<(&'static str, Rect)>,
     /// The area the dragged window would snap to when it is let go.
     snap: Option<Rect>,
 }
@@ -73,7 +75,7 @@ fn desktop() -> Vec<Win> {
 
 impl Default for State {
     fn default() -> Self {
-        Self { windows: desktop(), shadow: true, mode: 0, ghost_drag: false, drag: None, snap: None }
+        Self { windows: desktop(), shadow: true, mode: 0, ghost_drag: false, drag: None, start: None, snap: None }
     }
 }
 
@@ -82,6 +84,8 @@ impl Default for State {
 pub enum Msg {
     /// What the pointer did to the window of this name.
     Window(&'static str, WindowEvent),
+    /// A step of a move or a resize of the window of this name, with the drag's totals.
+    Drag(&'static str, WindowDrag),
     Shadow(bool),
     GhostDrag(bool),
     Mode(usize),
@@ -188,24 +192,8 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                     log.push(PAGE, target, "focused");
                     state.windows.push(win);
                 }
-                WindowEvent::Move { .. } | WindowEvent::Resize { .. } => {
-                    let dragging = state.drag.filter(|(dragged, _)| *dragged == name).map(|(_, rect)| rect);
-                    let from = dragging.unwrap_or(state.windows[index].rect);
-                    let rect = moved(from, event);
-                    // With ghost drag on, the window stays where it is and only the ghost moves;
-                    // it lands in one frame when the button comes up.
-                    if state.ghost_drag && matches!(event, WindowEvent::Move { .. }) {
-                        state.drag = Some((name, rect));
-                    } else {
-                        let win = &mut state.windows[index];
-                        win.rect = rect;
-                        win.maximized = false;
-                    }
-                    if matches!(event, WindowEvent::Move { .. }) {
-                        state.snap = snap_target(rect);
-                    }
-                    log.push(PAGE, target, format!("{} × {} at {}, {}", rect.width, rect.height, rect.x, rect.y));
-                }
+                // The steps of a drag come through `on_drag` instead, as `Msg::Drag`.
+                WindowEvent::Move { .. } | WindowEvent::Resize { .. } => {}
                 WindowEvent::Dropped => {
                     // Snapping and the ghost's landing both happen when the button comes up.
                     let landing = state.snap.or(state.drag.map(|(_, rect)| rect));
@@ -216,6 +204,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                         log.push(PAGE, target, format!("dropped at {}, {}", rect.x, rect.y));
                     }
                     state.drag = None;
+                    state.start = None;
                     state.snap = None;
                 }
                 WindowEvent::ToggleMaximize => {
@@ -238,6 +227,39 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                     log.push(PAGE, target, "closed");
                 } // endregion
             }
+        }
+        Msg::Drag(name, drag) => {
+            let Some(index) = state.index(name) else {
+                return Command::none();
+            };
+            // The totals count from where the button went down, so the window is placed from
+            // where it was then. A side the desktop's edge or the smallest size holds back waits
+            // there until the pointer comes back to it, instead of turning the moment the pointer
+            // does, as a sum of steps would.
+            let start = match state.start {
+                Some((dragged, rect)) if dragged == name => rect,
+                _ => state.windows[index].rect,
+            };
+            state.start = Some((name, start));
+            let moving = matches!(drag.step, WindowEvent::Move { .. });
+            let rect = match drag.step {
+                WindowEvent::Resize { edge, .. } => resized(start, edge, drag.total_dx, drag.total_dy),
+                _ => place(Rect::new(start.x + drag.total_dx, start.y + drag.total_dy, start.width, start.height)),
+            };
+            // With ghost drag on, the window stays where it is and only the ghost moves; it lands
+            // in one frame when the button comes up.
+            if state.ghost_drag && moving {
+                state.drag = Some((name, rect));
+            } else {
+                let win = &mut state.windows[index];
+                win.rect = rect;
+                win.maximized = false;
+            }
+            if moving {
+                state.snap = snap_target(rect);
+            }
+            let target = format!("Window#{name}");
+            log.push(PAGE, target, format!("{} × {} at {}, {}", rect.width, rect.height, rect.x, rect.y));
         }
         Msg::GhostDrag(on) => {
             state.ghost_drag = on;
@@ -325,7 +347,9 @@ fn desk(state: &State, ui: &mut View<'_, AppMsg>) {
                 .maximized(win.maximized)
                 .shadow(state.shadow)
                 // Every movement of the pointer arrives as a message; the state decides.
-                .on_event(move |event| send(Msg::Window(name, event)));
+                .on_event(move |event| send(Msg::Window(name, event)))
+                // Moves and resizes with how far the pointer has gone since the press.
+                .on_drag(move |drag| send(Msg::Drag(name, drag)));
             // Later children are drawn on top and take the pointer first, so the order of the
             // windows in the state is the stacking order.
             ui.place(win.rect, |ui| {
@@ -448,6 +472,11 @@ mod tests {
         assert_eq!(rect(h.app()), Rect::new(3, 8, 39, 8), "five cells wider, to the left");
         h.mouse(MouseKind::Drag(MouseButton::Left), edge.0 - 12, edge.1);
         assert_eq!(rect(h.app()), Rect::new(0, 8, 42, 8), "the desktop's edge stops it, the right edge stays");
+        h.mouse(MouseKind::Drag(MouseButton::Left), edge.0 - 10, edge.1);
+        assert_eq!(rect(h.app()), Rect::new(0, 8, 42, 8), "the pointer turned, but is still past the desktop's edge");
+        h.mouse(MouseKind::Drag(MouseButton::Left), edge.0 - 6, edge.1);
+        assert_eq!(rect(h.app()), Rect::new(2, 8, 40, 8), "the edge is back under the pointer");
+        h.mouse(MouseKind::Drag(MouseButton::Left), edge.0 - 12, edge.1);
         h.mouse(MouseKind::Up(MouseButton::Left), edge.0 - 12, edge.1);
         let edge = (edge.0 - 8, edge.1);
         h.mouse(MouseKind::Down(MouseButton::Left), edge.0, edge.1);

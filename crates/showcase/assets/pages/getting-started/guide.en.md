@@ -79,7 +79,7 @@ fn frame_limit(&self) -> FrameLimit {
 }
 ```
 
-The limit never delays an answer to input. A frame that follows a key, a click, the pointer moving or a paste is drawn at once, however low the limit is: the echo of a typed character is what a person judges the whole program by. Only frames the application's own work causes are merged, and a held frame is drawn as soon as the gap is over, so the limit costs no latency of its own. `FrameLimit::none()` draws every frame that is wanted; `FrameLimit::per_second(n)` uses one number on every connection.
+The limit never delays a key, a paste, a click or a release. A frame that follows one of them is drawn at once, however low the limit is: the echo of a typed character is what a person judges the whole program by, and the place a dragged window comes to rest is what they were dragging it for. The frames the application's own work causes are merged, and so is the pointer moving — a drag, the pointer passing over the screen, the wheel — because it arrives as fast as the hand moves and only its latest state is worth a frame. Every motion still reaches the widgets and the application; only drawing waits. A held frame is drawn as soon as the gap is over, and the first motion after a rest that long is drawn at once, so the limit costs no latency of its own: at 60 frames a second the pointer waits 16 ms at most, and over a link paced at 5 a two-second window drag writes ten frames instead of one for every cell the pointer crossed. `FrameLimit::none()` draws every frame that is wanted; `FrameLimit::per_second(n)` uses one number on every connection.
 
 An application reads `Env::remote` for its own decisions too: fewer animations, smaller pictures, a plainer first screen on a slow link.
 

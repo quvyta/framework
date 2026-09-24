@@ -3,8 +3,10 @@
 //! The engine owns no terminal, so it only answers the loop's question, [`Engine::frame_due`]:
 //! is a frame wanted now, and does the limit allow it. A frame is wanted when the view changed
 //! ([`Engine::dirty`]) or a moment an animation or an idle watch asked for has come. A frame
-//! answering input is drawn whatever the limit says; the rest are merged, which is what keeps a
-//! program pouring out lines from spending a slow connection on frames nobody can read apart.
+//! answering a key, a paste, a press or a release is drawn whatever the limit says (see
+//! [`answers_at_once`]); the rest are merged, which is what keeps a program pouring out lines, or
+//! a window dragged across the screen, from spending a slow connection on frames nobody can read
+//! apart.
 
 use std::time::Duration;
 
@@ -12,7 +14,28 @@ use ratatui_core::buffer::Buffer;
 use ratatui_core::layout::Rect;
 
 use super::Engine;
+use crate::event::{Event, MouseKind};
 use crate::runtime::App;
+
+/// Whether the frame answering `event` is drawn at once, whatever the frame limit is.
+///
+/// A key, a paste, a mouse button going down and one coming up are: the echo of a typed
+/// character and the answer to a click are what a person judges a program by, and the frame after
+/// a release shows where a dragged thing came to rest. The pointer moving — with a button held,
+/// a drag, or without one, over the screen — and the wheel are merged like the application's own
+/// work: they arrive as fast as the hand moves, and only the latest state is worth a frame. Every
+/// one of them still reaches the widgets and the application; only drawing waits, at most one gap
+/// of the limit, and the first of them after a rest a gap long is drawn at once.
+pub(super) fn answers_at_once(event: &Event) -> bool {
+    match event {
+        Event::Key(_) | Event::Paste(_) => true,
+        Event::Mouse(mouse) => match mouse.kind {
+            MouseKind::Down(_) | MouseKind::Up(_) => true,
+            MouseKind::Drag(_) | MouseKind::Moved | MouseKind::ScrollUp | MouseKind::ScrollDown => false,
+        },
+        Event::PointerOutside => false,
+    }
+}
 
 /// What the engine keeps about the pace of frames.
 #[derive(Debug, Default, Clone, Copy)]
@@ -24,7 +47,7 @@ pub(super) struct Pacing {
 }
 
 impl<A: App> Engine<A> {
-    /// Notes that the next frame answers input, so the limit does not hold it back.
+    /// Notes that the next frame answers input that is never held back (see [`answers_at_once`]).
     pub(super) fn frame_is_urgent(&mut self) {
         self.pacing.urgent = true;
     }
@@ -63,8 +86,8 @@ impl<A: App> Engine<A> {
     }
 
     /// Whether the loop should draw a frame at `now`: one is wanted and the
-    /// [`FrameLimit`](crate::runtime::FrameLimit) allows it. A frame that answers input, and the
-    /// first frame of a run, are always allowed.
+    /// [`FrameLimit`](crate::runtime::FrameLimit) allows it. A frame that answers a key, a paste,
+    /// a press or a release, and the first frame of a run, are always allowed.
     pub(crate) fn frame_due(&self, now: Duration) -> bool {
         if !self.frame_wanted(now) {
             return false;
@@ -94,6 +117,10 @@ impl<A: App> Engine<A> {
         self.app.frame_limit().gap(self.env.remote())
     }
 }
+
+#[cfg(test)]
+#[path = "frames_pointer_tests.rs"]
+mod pointer_tests;
 
 #[cfg(test)]
 mod tests {

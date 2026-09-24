@@ -534,3 +534,44 @@ fn tiny_trees_survive_drags_and_menus() {
         h.press("tab").press("ctrl+shift+down").press("shift+f10").press("esc");
     }
 }
+
+/// Draws either a menu of places or a tree of favourites, the way a side bar puts one under the
+/// other.
+struct Side {
+    tree: bool,
+    nested: bool,
+}
+
+impl App for Side {
+    type Msg = ();
+    fn update(&mut self, (): ()) -> Command<()> {
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, ()>) {
+        if self.tree {
+            let mut docs = TreeNode::new("docs", "Docs").icon("file", None);
+            if self.nested {
+                docs = docs.children([TreeNode::new("notes", "Notes")]);
+            }
+            ui.add(Tree::new([docs, TreeNode::new("music", "Music").icon("file", None)]));
+        } else {
+            let items = [
+                crate::widgets::MenuItem::new("home", "Home").icon("file", None),
+                crate::widgets::MenuItem::new("desk", "Desk").icon("file", None),
+            ];
+            ui.add(crate::widgets::Menu::new([crate::widgets::MenuGroup::new("places", items)]));
+        }
+    }
+}
+
+#[test]
+fn a_tree_that_opens_nothing_lines_up_with_a_menu() {
+    let column = |screen: String, word: &str| {
+        screen.lines().find_map(|line| line.find(word).map(|at| line[..at].chars().count())).expect("the word is drawn")
+    };
+    let menu = column(Harness::new(Side { tree: false, nested: false }, 30, 6).screen(), "Home");
+    let flat = column(Harness::new(Side { tree: true, nested: false }, 30, 6).screen(), "Docs");
+    assert_eq!(flat, menu, "no chevron column where nothing opens");
+    let nested = column(Harness::new(Side { tree: true, nested: true }, 30, 6).screen(), "Music");
+    assert_eq!(nested, menu + 2, "a tree with a folder keeps the column for its chevrons");
+}

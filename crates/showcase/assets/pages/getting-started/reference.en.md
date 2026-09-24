@@ -21,7 +21,7 @@
 - `.remote(n)` — a different number over a remote connection, leaving the local one as it is.
 - `FrameLimit::none()` — every frame that is wanted is drawn.
 - `limit.frames_per_second(remote)` — the number in force on the connection in hand, or `None` for no limit.
-- A frame that answers input — a key, a click, the pointer, a paste — is never held back, and a held frame is drawn as soon as the gap is over. Only frames the application's own work causes are merged.
+- A frame that answers a key, a paste, a press or a release is never held back. The frames the application's own work causes are merged, and so are a drag, the pointer passing over and the wheel: every motion reaches the application, and the screen shows the latest one at most a gap later. A held frame is drawn as soon as the gap is over.
 
 ## Pace and connection
 

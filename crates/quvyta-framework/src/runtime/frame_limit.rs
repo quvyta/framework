@@ -5,10 +5,18 @@ use std::time::Duration;
 /// How many frames a second the runtime draws at most, for a local and for a remote connection.
 ///
 /// An application answers with one from [`App::frame_limit`](super::App::frame_limit). The limit
-/// only merges frames the application's own work causes: output of an embedded terminal, messages
-/// of background work, a running animation. A frame the user asked for is never held back — the
-/// echo of a typed character, the tone under the pointer and every other answer to input is drawn
-/// at once, so the limit cannot be felt in the keyboard.
+/// merges frames the application's own work causes: output of an embedded terminal, messages of
+/// background work, a running animation. It never holds back a frame that answers a key, a paste,
+/// a mouse button going down or a button coming up — the echo of a typed character, the answer to
+/// a click and the place a dragged window comes to rest are drawn at once, so the limit cannot be
+/// felt in the keyboard or in a click.
+///
+/// The pointer moving is merged too: a drag, the pointer passing over the screen and the wheel
+/// arrive as fast as the hand moves, and only the latest state is worth a frame. Every one of
+/// those events still reaches the widgets and the application, which apply them all; only the
+/// drawing waits, at most one gap of the limit, and the first motion after a rest that long is
+/// drawn at once. So a two-second window drag at 5 frames a second writes ten frames, not a frame
+/// for every cell the pointer crossed.
 ///
 /// The default draws 60 frames a second locally and 20 over a remote connection
 /// ([`Env::remote`](crate::env::Env::remote)), because on a slow link every frame is a screen

@@ -17,6 +17,7 @@
 ## Behaviour
 
 - Keys while focused: `up` `down` or `k` `j`, `pgup` `pgdn`, `home` `end` move; `right` or `l` opens or steps into the first child; `left` or `h` closes or steps to the parent; `enter` opens or closes a folder and activates a leaf; `space` activates.
+- Layout: leaves keep the chevron column empty so labels of one level line up; a tree where no row opens has no chevron column at all, so its labels start where a `Menu` beside it starts.
 - Mouse: a click on the chevron opens or closes; a click on a row selects it and then behaves like `enter`; the wheel and the scrollbar scroll.
 - Reordering: a press on a row (not on its chevron) selects it; moving the pointer a row makes it a drag. The landing place is the resting sibling under the pointer, or the nearest one on screen; the siblings are shown in the order the drop would give, the landing place is tinted and a ghost row follows the pointer. The dragged node's children fold away during the drag. Released, the tree sends one `TreeMove`; released where it started, nothing. Without a drag the release opens, closes or activates the row like `enter`. `ctrl+shift+up` and `ctrl+shift+down` move the selected node one place and stop at the ends. A reorder never changes a node's parent.
 - Held on the top or bottom row or past them, a drag scrolls one row after 400 ms, then every 150 ms, sooner the further past the edge.

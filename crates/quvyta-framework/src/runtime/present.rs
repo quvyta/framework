@@ -120,8 +120,9 @@ impl<W: Write> Screen<W> {
 
     /// Paints a frame with `render`, which answers what the frame asks beyond its cells, and
     /// writes what changed inside one synchronized update: the cells, the cells a sixel picture no
-    /// longer shown still covers, the pointer's shape when it is not the one the terminal shows,
-    /// then the pictures when their places changed or a cell under a sixel was written. Returns
+    /// longer shown still covers and the last rows a sixel's bands leave short, the pointer's
+    /// shape when it is not the one the terminal shows, then the pictures when their places
+    /// changed or, for sixel, the pixels of the cells that lost theirs. Returns
     /// whether anything was written: a frame equal to the one shown, with the same shape and the
     /// same pictures, writes nothing.
     pub(crate) fn present(&mut self, render: impl FnOnce(&mut Buffer) -> Painted) -> io::Result<bool> {
@@ -158,16 +159,18 @@ impl<W: Write> Screen<W> {
         #[cfg(not(feature = "image"))]
         let (kitty, sixel): (Vec<u8>, Vec<u8>) = (Vec::new(), Vec::new());
         #[cfg(feature = "image")]
-        let (repaint, sixel) = (sixel.repaint, sixel.bytes);
+        let (repaint, short, sixel) = (sixel.repaint, sixel.short, sixel.bytes);
         #[cfg(not(feature = "image"))]
-        let repaint: Vec<(u16, u16)> = Vec::new();
+        let (repaint, short): (Vec<(u16, u16)>, Vec<(u16, u16, ratatui_core::buffer::Cell)>) = (Vec::new(), Vec::new());
         let buffer = self.terminal.current_buffer_mut();
         // The buffer painted this time is reused by the next frame, which paints every cell
         // again, so when it equals the one shown it is left as it is and no cell is written.
         let changed = (self.shown.as_ref() != Some(&*buffer)).then(|| buffer.clone());
         // Read now: writing the cells hands the next frame this buffer, emptied.
-        let repaint: Vec<(u16, u16, ratatui_core::buffer::Cell)> =
+        let mut repaint: Vec<(u16, u16, ratatui_core::buffer::Cell)> =
             repaint.into_iter().map(|(x, y)| (x, y, buffer[(x, y)].clone())).collect();
+        // Before the pictures, since writing a cell wipes the pixels in it.
+        repaint.extend(short);
         let pictures = !kitty.is_empty() || !sixel.is_empty() || !repaint.is_empty();
         if changed.is_none() && !pictures {
             let Some(shape) = reshape else { return Ok(false) };

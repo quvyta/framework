@@ -293,6 +293,25 @@ profile          = { nerd = "\uf007", unicode = "◉", ascii = "@" }
 settings         = { nerd = "\uf013", unicode = "▤", ascii = "*" }   # stacked rails, like sliders
 power            = { nerd = "\uf011", unicode = "○", ascii = "x" }   # the power ring; quitting closes
 
+# ---- System status
+# What a status strip or a system monitor shows: the processor, the memory, the battery by its
+# charge, a terminal, a terminal multiplexer's session and the network's two directions. Nerd
+# Font draws the thing itself (a chip, a memory module, a battery, a console, a terminal split
+# into panes, a network with its arrow). Unicode stays inside Geometric Shapes, which terminals
+# and monospace fonts draw as one cell, so a strip of them keeps its spacing: the battery is a
+# square filled by its charge, and a charging one fills along its diagonal. ASCII borrows a
+# character that reads as the thing, and draws the battery's charge by how dense it is.
+cpu              = { nerd = "\uf4bc", unicode = "▣", ascii = "%" }   # nf-oct-cpu
+memory           = { nerd = "\U000f035b", unicode = "▦", ascii = "=" }   # nf-md-memory
+battery-full     = { nerd = "\U000f0079", unicode = "■", ascii = "#" }   # nf-md-battery
+battery-half     = { nerd = "\U000f007e", unicode = "◧", ascii = "=" }   # nf-md-battery_50
+battery-empty    = { nerd = "\U000f008e", unicode = "□", ascii = "-" }   # nf-md-battery_outline
+battery-charging = { nerd = "\U000f0084", unicode = "◩", ascii = "+" }   # nf-md-battery_charging
+terminal         = { nerd = "\uf120", unicode = "▭", ascii = "$" }   # nf-fa-terminal
+session          = { nerd = "\uebc8", unicode = "◫", ascii = "&" }   # nf-cod-terminal_tmux
+network-down     = { nerd = "\U000f06f4", unicode = "▼", ascii = "v" }   # nf-md-download_network
+network-up       = { nerd = "\U000f06f6", unicode = "▲", ascii = "^" }   # nf-md-upload_network
+
 # ---- Animations
 # One-cell animations: every frame has a glyph per mode (a missing nerd glyph uses the unicode
 # one, a missing unicode glyph the ascii one) and may have a colour; $fg is the widget's colour.

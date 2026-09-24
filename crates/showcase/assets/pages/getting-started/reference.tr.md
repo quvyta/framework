@@ -21,7 +21,7 @@
 - `.remote(n)` — uzak bağlantı için başka bir sayı; yereldeki olduğu gibi kalır.
 - `FrameLimit::none()` — istenen her kare çizilir.
 - `limit.frames_per_second(remote)` — eldeki bağlantıda geçerli sayı, sınır yoksa `None`.
-- Girdiye cevap veren kare — tuş, tıklama, imleç, yapıştırma — hiç bekletilmez; bekletilen kare de aradaki süre dolar dolmaz çizilir. Yalnızca uygulamanın kendi işinden doğan kareler birleştirilir.
+- Bir tuşa, yapıştırmaya, basmaya ya da bırakmaya cevap veren kare hiç bekletilmez. Uygulamanın kendi işinden doğan kareler birleştirilir, sürükleme, imlecin üstten geçmesi ve tekerlek de öyle: her hareket uygulamaya ulaşır, ekran sonuncusunu en geç bir aralık sonra gösterir. Bekletilen kare aradaki süre dolar dolmaz çizilir.
 
 ## Hız ve bağlantı
 

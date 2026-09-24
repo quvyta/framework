@@ -29,7 +29,9 @@ const DEFAULT_SHADOW: u16 = 45;
 ///
 /// Deltas count cells since the last message of the same drag, so an application adds them to
 /// the window's rectangle as they come. What it allows (a smallest size, staying on screen) is
-/// its own decision; the window reports the pointer, not a new rectangle.
+/// its own decision; the window reports the pointer, not a new rectangle. An application that
+/// holds a window back takes the steps through [`Window::on_drag`] instead, whose
+/// [`WindowDrag`] also counts from where the drag began.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowEvent {
     /// A press anywhere in a window that is not [focused](Window::focused), sent before whatever
@@ -66,6 +68,28 @@ pub enum WindowEvent {
     /// [`WindowEvent::Resize`]. This is where snapping to an edge and a ghost drag land, and
     /// where a size is saved.
     Dropped,
+}
+
+/// One step of a move or a resize with the whole drag so far, sent through [`Window::on_drag`].
+///
+/// The steps of [`WindowEvent`] are what the pointer did since the last message, and adding them
+/// up is right only while the application takes every one of them. Once it holds a window back,
+/// at the edge of the screen or at a smallest size, the pointer runs on without it, and a sum of
+/// steps turns the window around the moment the pointer does, well before the pointer is back
+/// over it. The totals count from where the button went down, so the application places the
+/// window at where it started plus the total, held back as it likes, and the window follows the
+/// pointer again exactly when the pointer comes back to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowDrag {
+    /// This step: a [`WindowEvent::Move`] or a [`WindowEvent::Resize`], exactly as
+    /// [`Window::on_event`] sends it without [`Window::on_drag`].
+    pub step: WindowEvent,
+    /// Columns the pointer has moved to the right since the button went down; negative is to the
+    /// left. 0 for a resize by the top or the bottom edge, as the step's `dx` is.
+    pub total_dx: i32,
+    /// Rows the pointer has moved down since the button went down; negative is up. 0 for a
+    /// resize by the left or the right edge, as the step's `dy` is.
+    pub total_dy: i32,
 }
 
 /// An edge or a corner of a window being resized, see [`WindowEvent::Resize`].
@@ -132,6 +156,9 @@ type SideTest = fn(WindowEdge) -> bool;
 /// Builds a message from what the pointer did to the window.
 type EventMessage<Msg> = Box<dyn Fn(WindowEvent) -> Msg>;
 
+/// Builds a message from a step of a drag and its totals.
+type DragMessage<Msg> = Box<dyn Fn(WindowDrag) -> Msg>;
+
 /// A window: a title strip one row tall above a body, with no border lines, for applications
 /// that put surfaces where the user drags them, such as a desktop or a tool box. Place it with
 /// [`View::place`](crate::widget::View::place) inside a stack; the body is built with
@@ -178,6 +205,7 @@ pub struct Window<Msg> {
     maximized: bool,
     shadow: bool,
     on_event: Option<EventMessage<Msg>>,
+    on_drag: Option<DragMessage<Msg>>,
     /// The body: one column holding what [`View::add_with`](crate::widget::View::add_with) built.
     body: Vec<Node<Msg>>,
 }
@@ -194,6 +222,7 @@ impl<Msg: 'static> Window<Msg> {
             maximized: false,
             shadow: false,
             on_event: None,
+            on_drag: None,
             body: vec![body(Vec::new())],
         }
     }
@@ -243,6 +272,17 @@ impl<Msg: 'static> Window<Msg> {
         self.on_event = Some(Box::new(message));
         self
     }
+
+    /// Sends the steps of a move or a resize as [`WindowDrag`]s, which also carry how far the
+    /// pointer has gone since the button went down, instead of as [`WindowEvent::Move`] and
+    /// [`WindowEvent::Resize`] through [`on_event`](Self::on_event). Every other event still
+    /// goes through `on_event`, which is also what makes the window one the pointer moves: this
+    /// does nothing without it.
+    #[must_use]
+    pub fn on_drag(mut self, message: impl Fn(WindowDrag) -> Msg + 'static) -> Self {
+        self.on_drag = Some(Box::new(message));
+        self
+    }
 }
 
 fn body<Msg: 'static>(children: Vec<Node<Msg>>) -> Node<Msg> {
@@ -290,10 +330,10 @@ enum Part {
 /// What a held button is doing to the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Grab {
-    /// Moving it; the pointer was last at `last`.
-    Move { button: MouseButton, last: (i32, i32) },
-    /// Resizing it by `edge`.
-    Resize { button: MouseButton, edge: WindowEdge, last: (i32, i32) },
+    /// Moving it; the button went down at `start` and the pointer was last at `last`.
+    Move { button: MouseButton, start: (i32, i32), last: (i32, i32) },
+    /// Resizing it by `edge`, from `start` as a move does.
+    Resize { button: MouseButton, edge: WindowEdge, start: (i32, i32), last: (i32, i32) },
     /// Held on a mark, which acts when released over it.
     Mark(Mark),
 }
@@ -404,16 +444,16 @@ impl<Msg: 'static> Window<Msg> {
         let now = cx.now();
         let memory = cx.memory::<WindowMemory>();
         let grab = match (mouse.mods.alt, button, part) {
-            (true, MouseButton::Left, _) => Grab::Move { button, last: at },
+            (true, MouseButton::Left, _) => Grab::Move { button, start: at, last: at },
             (true, MouseButton::Right, _) => {
-                Grab::Resize { button, edge: Self::nearest_edge(area, mouse.x, mouse.y), last: at }
+                Grab::Resize { button, edge: Self::nearest_edge(area, mouse.x, mouse.y), start: at, last: at }
             }
             // Other buttons on the window's own parts do nothing yet, but they are the window's.
             (_, MouseButton::Left, Part::Body) | (_, MouseButton::Right | MouseButton::Middle, _) => {
                 return part != Part::Body;
             }
             (_, MouseButton::Left, Part::Mark(mark)) => Grab::Mark(mark),
-            (_, MouseButton::Left, Part::Handle(edge)) => Grab::Resize { button, edge, last: at },
+            (_, MouseButton::Left, Part::Handle(edge)) => Grab::Resize { button, edge, start: at, last: at },
             (_, MouseButton::Left, Part::Title) => {
                 if memory.title_press.is_some_and(|last| click::is_double(last, now)) {
                     memory.title_press = None;
@@ -423,7 +463,7 @@ impl<Msg: 'static> Window<Msg> {
                     return true;
                 }
                 memory.title_press = Some(now);
-                Grab::Move { button, last: at }
+                Grab::Move { button, start: at, last: at }
             }
         };
         if !matches!(grab, Grab::Move { .. }) || part != Part::Title {
@@ -438,27 +478,40 @@ impl<Msg: 'static> Window<Msg> {
     fn drag(&self, cx: &mut EventCx<'_, Msg>, mouse: MouseEvent, button: MouseButton) -> bool {
         let at = (mouse.x, mouse.y);
         let memory = cx.memory::<WindowMemory>();
-        let event = match memory.grab {
-            Some(Grab::Move { button: held, last }) if held == button => {
-                memory.grab = Some(Grab::Move { button, last: at });
+        let drag = match memory.grab {
+            Some(Grab::Move { button: held, start, last }) if held == button => {
+                memory.grab = Some(Grab::Move { button, start, last: at });
                 let (dx, dy) = (at.0 - last.0, at.1 - last.1);
                 if (dx, dy) != (0, 0) {
                     memory.title_press = None;
                 }
-                ((dx, dy) != (0, 0)).then_some(WindowEvent::Move { dx, dy })
+                ((dx, dy) != (0, 0)).then_some(WindowDrag {
+                    step: WindowEvent::Move { dx, dy },
+                    total_dx: at.0 - start.0,
+                    total_dy: at.1 - start.1,
+                })
             }
-            Some(Grab::Resize { button: held, edge, last }) if held == button => {
-                memory.grab = Some(Grab::Resize { button, edge, last: at });
-                let dx = if edge.left() || edge.right() { at.0 - last.0 } else { 0 };
-                let dy = if edge.top() || edge.bottom() { at.1 - last.1 } else { 0 };
-                ((dx, dy) != (0, 0)).then_some(WindowEvent::Resize { edge, dx, dy })
+            Some(Grab::Resize { button: held, edge, start, last }) if held == button => {
+                memory.grab = Some(Grab::Resize { button, edge, start, last: at });
+                let columns = edge.left() || edge.right();
+                let rows = edge.top() || edge.bottom();
+                let dx = if columns { at.0 - last.0 } else { 0 };
+                let dy = if rows { at.1 - last.1 } else { 0 };
+                ((dx, dy) != (0, 0)).then_some(WindowDrag {
+                    step: WindowEvent::Resize { edge, dx, dy },
+                    total_dx: if columns { at.0 - start.0 } else { 0 },
+                    total_dy: if rows { at.1 - start.1 } else { 0 },
+                })
             }
             Some(Grab::Mark(_)) => None,
             _ => return false,
         };
-        if let Some(event) = event {
+        if let Some(drag) = drag {
             cx.memory::<WindowMemory>().moved = true;
-            self.send(cx, event);
+            match &self.on_drag {
+                Some(message) if self.interactive() => cx.emit(message(drag)),
+                _ => self.send(cx, drag.step),
+            }
         }
         true
     }

@@ -127,6 +127,9 @@ struct Flat<'a> {
     parent: Option<usize>,
     /// The node's position among its siblings as the application gave them.
     index: usize,
+    /// Whether the tree keeps a column for chevrons: false when no row can open, so a flat list
+    /// of leaves starts where a [`Menu`](super::Menu) beside it does.
+    chevrons: bool,
 }
 
 /// How one row is drawn besides its node.
@@ -173,7 +176,8 @@ type MenuItems<Msg> = Box<dyn Fn(&str) -> Vec<ContextItem<Msg>>>;
 /// background command and mark the node [`TreeNode::loading`] meanwhile; its spinner only shows
 /// when the load is slow.
 ///
-/// Rows are indented by space; openable rows carry a chevron. A hovered or selected row raises
+/// Rows are indented by space; openable rows carry a chevron. A tree where no row opens keeps no
+/// column for chevrons, so a flat list of leaves lines up with a [`Menu`](super::Menu) beside it. A hovered or selected row raises
 /// its surface and shows the pillar; only its icon and label slide one cell right. The
 /// indentation, the chevron (or the loading spinner in its place) and the detail never move, so
 /// the chevron is always where the pointer clicks it.
@@ -391,7 +395,7 @@ impl<Msg: 'static> Tree<Msg> {
             for index in tab_model::preview_order(nodes.len(), preview) {
                 let node = &nodes[index];
                 let at = out.len();
-                out.push(Flat { node, depth, parent, index });
+                out.push(Flat { node, depth, parent, index, chevrons: true });
                 let folded = arrange.is_some_and(|arrange| arrange.key == node.key);
                 if node.expanded && !folded {
                     walk(&node.children, Some(&node.key), (depth.saturating_add(1), Some(at)), arrange, out);
@@ -400,6 +404,12 @@ impl<Msg: 'static> Tree<Msg> {
         }
         let mut out = Vec::new();
         walk(&self.roots, None, (0, None), arrange, &mut out);
+        // Every node that can open is on a visible row or under one, so the visible rows decide.
+        if !out.iter().any(|row| row.node.expandable) {
+            for row in &mut out {
+                row.chevrons = false;
+            }
+        }
         out
     }
 
@@ -531,9 +541,10 @@ impl<Msg: 'static> Tree<Msg> {
         };
         let icon: Vec<row::Mark> =
             node.icon.iter().map(|key| row::icon(cx, key, node.icon_color.as_deref(), text_style.fg)).collect();
+        let chevrons = [chevron];
         let parts = row::Parts {
             indent: row.depth.saturating_mul(INDENT),
-            fixed: &[chevron],
+            fixed: if row.chevrons { &chevrons } else { &[] },
             sliding: &icon,
             label: &node.label,
             trailing: detail_width,
@@ -556,7 +567,7 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
                 [
                     LEAD,
                     row.depth.saturating_mul(INDENT),
-                    2,
+                    if row.chevrons { 2 } else { 0 },
                     row.node.icon.as_ref().map_or(0, |_| 2),
                     text::width(&row.node.label),
                     row.node.detail.as_deref().map_or(0, |d| text::width(d).saturating_add(2)),

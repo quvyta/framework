@@ -380,7 +380,7 @@ fn event_loop<A: App>(
 
 /// Draws a frame when one is due, after the terminal clipboard and timed input had their turn.
 /// What is due is the engine's answer: a frame the view or an animation wants, unless the frame
-/// limit holds it back; a frame answering input is never held back.
+/// limit holds it back; a frame answering a key, a paste, a press or a release is never held back.
 fn draw<A: App>(
     terminal: &mut Screen<Stdout>,
     engine: &mut Engine<A>,

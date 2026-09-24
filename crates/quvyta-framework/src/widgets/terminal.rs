@@ -614,6 +614,32 @@ mod tests {
         session.kill();
     }
 
+    #[test]
+    fn keys_typed_into_the_widget_leave_a_line_pending_until_enter() {
+        let script = "stty raw -echo; printf ready; cat >/dev/null";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&session, "ready");
+        let app = Passing { session: session.clone(), open: false, heard: Vec::new() };
+        let mut h = Harness::new(app, 40, 4);
+        for _ in 0..4 {
+            if h.is_focused("terminal") {
+                break;
+            }
+            h.press("tab");
+        }
+        assert!(h.is_focused("terminal"));
+        assert!(!session.line_pending());
+        h.press("h").press("i");
+        assert!(session.line_pending(), "the person typed half a line");
+        h.press("enter");
+        assert!(!session.line_pending(), "and sent it");
+        h.paste("pasted");
+        assert!(session.line_pending(), "the person pasting is the person typing");
+        h.press("ctrl+u");
+        assert!(!session.line_pending(), "Ctrl+U emptied the line");
+        session.kill();
+    }
+
     #[derive(Clone, Debug, PartialEq)]
     enum ToggleMsg {
         /// The key came from inside the terminal.

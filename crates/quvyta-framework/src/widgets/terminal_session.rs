@@ -26,6 +26,36 @@ const PASTE_START: &str = "\x1b[200~";
 /// Tells the program the pasted text ends here.
 const PASTE_END: &str = "\x1b[201~";
 
+/// Whether a line is pending after the person's `bytes`, read as keys, starting from `pending`;
+/// see [`TerminalSession::line_pending`] for which keys do what.
+fn line_after(mut pending: bool, bytes: &[u8]) -> bool {
+    let mut rest = bytes.iter().copied();
+    while let Some(byte) = rest.next() {
+        match byte {
+            b'\r' | b'\n' | 0x03 | 0x15 => pending = false,
+            0x1b => match rest.next() {
+                // A control sequence runs to its final byte, which is in `@` to `~`.
+                Some(b'[') => {
+                    for byte in rest.by_ref() {
+                        if (0x40..=0x7e).contains(&byte) {
+                            break;
+                        }
+                    }
+                }
+                // SS3 names its key in the byte after the `O`.
+                Some(b'O') => {
+                    rest.next();
+                }
+                // An Alt chord is the one byte after the escape, and is not text.
+                Some(_) | None => {}
+            },
+            b'\t' | 0x20..=0x7e | 0x80..=0xff => pending = true,
+            _ => {}
+        }
+    }
+    pending
+}
+
 /// The text of a paste without the two markers, so nothing inside it can end the paste early or
 /// start a second one. Borrows the text when it holds neither.
 fn without_markers(text: &str) -> Cow<'_, str> {
@@ -97,6 +127,9 @@ struct Quiet {
     output: Instant,
     /// When keys were last written to the program by the person at the keyboard.
     input: Instant,
+    /// Whether the person has typed something since the last key that ends or clears a line;
+    /// see [`TerminalSession::line_pending`].
+    line_pending: bool,
 }
 
 #[derive(Default)]
@@ -242,7 +275,7 @@ impl TerminalBuilder {
             signal: Mutex::new(Signal { size, ..Signal::default() }),
             changed: Condvar::new(),
             coalesce: self.coalesce,
-            quiet: Mutex::new(Quiet { output: started, input: started }),
+            quiet: Mutex::new(Quiet { output: started, input: started, line_pending: false }),
         });
         let thread_shared = Arc::clone(&shared);
         std::thread::spawn(move || {
@@ -373,6 +406,17 @@ impl TerminalSession {
     /// refused, because a pseudo-terminal keeps taking bytes that nobody will ever read.
     pub fn write(&self, bytes: &[u8]) -> io::Result<()> {
         self.send(bytes)?;
+        let mut quiet = lock(&self.shared.quiet);
+        quiet.input = Instant::now();
+        quiet.line_pending = line_after(quiet.line_pending, bytes);
+        Ok(())
+    }
+
+    /// A pointer report the widget sends for the person: their input, as [`write`](Self::write)
+    /// is, but not typing, so it leaves [`line_pending`](Self::line_pending) alone. The older
+    /// report encoding carries raw bytes that would otherwise read as letters.
+    pub(crate) fn write_pointer(&self, bytes: &[u8]) -> io::Result<()> {
+        self.send(bytes)?;
         lock(&self.shared.quiet).input = Instant::now();
         Ok(())
     }
@@ -395,6 +439,11 @@ impl TerminalSession {
     ///
     /// Fails when the program no longer reads its input, as [`write`](Self::write) does.
     pub fn paste(&self, text: &str) -> io::Result<()> {
+        self.paste_bracketed(text).map(|_| ())
+    }
+
+    /// Sends a paste as [`paste`](Self::paste) describes and says whether it went in the markers.
+    fn paste_bracketed(&self, text: &str) -> io::Result<bool> {
         let bracketed = lock(&self.shared.parser).screen().bracketed_paste();
         let text = without_markers(text);
         let mut bytes = Vec::with_capacity(text.len() + PASTE_START.len() + PASTE_END.len());
@@ -405,7 +454,8 @@ impl TerminalSession {
         if bracketed {
             bytes.extend_from_slice(PASTE_END.as_bytes());
         }
-        self.send(&bytes)
+        self.send(&bytes)?;
+        Ok(bracketed)
     }
 
     /// When the program last wrote anything, or when the session started if it has written
@@ -433,11 +483,44 @@ impl TerminalSession {
         lock(&self.shared.quiet).input
     }
 
+    /// Whether the person has a line they have not sent: something typed since the last key that
+    /// ends a line. False for a new session.
+    ///
+    /// [`write`](Self::write), every key a [`Terminal`](super::Terminal) widget sends and a
+    /// person's paste into that widget are read as keys. Enter (`\r` or `\n`) ends the line;
+    /// Ctrl+C and Ctrl+U throw it away, so they end it too. Letters, digits, spaces, Tab and any
+    /// other text start one. Everything else leaves the answer as it was: the arrows, function
+    /// and editing keys and Alt chords (escape sequences, which move through a line rather than
+    /// write it), Esc on its own, Backspace and Ctrl+W (the terminal cannot see whether they
+    /// emptied the line, so a line counts as pending until it is sent or cleared), and Ctrl+D
+    /// (on an empty line it ends the program's input rather than a line, and inside a line most
+    /// shells read it as delete). Mouse reports and [`paste`](Self::paste), the application
+    /// writing on its own, never change it.
+    ///
+    /// An application writing into a terminal somebody uses waits for this to be false as well as
+    /// for [`last_input`](Self::last_input) and [`last_output`](Self::last_output) to be quiet: a
+    /// person who stopped halfway through a sentence to think has not finished it, however long
+    /// the pause, and text written then joins their sentence and goes out with their Enter.
+    #[must_use]
+    pub fn line_pending(&self) -> bool {
+        lock(&self.shared.quiet).line_pending
+    }
+
     /// The person pasted into a [`Terminal`](super::Terminal) widget: the paste of
     /// [`paste`](Self::paste), counted as the person's input because a person made it.
+    ///
+    /// Inside the markers a line break is text, not Enter, so a bracketed paste leaves the line
+    /// pending whatever it holds; a plain one is read the way the program reads it, as keys.
     pub(crate) fn paste_typed(&self, text: &str) -> io::Result<()> {
-        self.paste(text)?;
-        lock(&self.shared.quiet).input = Instant::now();
+        let bracketed = self.paste_bracketed(text)?;
+        let text = without_markers(text);
+        let mut quiet = lock(&self.shared.quiet);
+        quiet.input = Instant::now();
+        quiet.line_pending = if bracketed {
+            quiet.line_pending || !text.is_empty()
+        } else {
+            line_after(quiet.line_pending, text.as_bytes())
+        };
         Ok(())
     }
 
@@ -1058,6 +1141,96 @@ mod tests {
         expect_screen(&session, "and more");
         assert_eq!(session.last_input(), typed, "a paste after a key still does not count");
         session.kill();
+    }
+
+    /// Takes every byte as it is, signals and line editing off, so Ctrl+C and Ctrl+U reach it as
+    /// bytes, and shows nothing.
+    const SWALLOWS_INPUT: &str = "stty raw -echo; printf ready; cat >/dev/null";
+
+    #[test]
+    fn a_new_session_has_no_line_pending() {
+        let session = sh(SWALLOWS_INPUT).spawn().expect("pty");
+        assert!(!session.line_pending());
+        expect_screen(&session, "ready");
+        assert!(!session.line_pending(), "the program's own output is not the person typing");
+        session.kill();
+    }
+
+    #[test]
+    fn a_line_is_pending_from_the_first_key_until_enter() {
+        let session = sh(SWALLOWS_INPUT).spawn().expect("pty");
+        expect_screen(&session, "ready");
+        session.write(b"half").expect("write");
+        assert!(session.line_pending(), "half a sentence is waiting for its Enter");
+        session.write(b" more").expect("write");
+        assert!(session.line_pending());
+        session.write(b"\r").expect("write");
+        assert!(!session.line_pending(), "Enter sent the line");
+        session.write(b"next\n").expect("write");
+        assert!(!session.line_pending(), "a line typed and sent in one write is not pending");
+        session.kill();
+    }
+
+    #[test]
+    fn the_applications_paste_leaves_the_line_as_it_was() {
+        let session = sh(SWALLOWS_INPUT).spawn().expect("pty");
+        expect_screen(&session, "ready");
+        session.paste("x").expect("paste");
+        assert!(!session.line_pending(), "the application wrote, not the person");
+        session.write(b"half").expect("write");
+        session.paste("x\r").expect("paste");
+        assert!(session.line_pending(), "a paste does not send the person's line either");
+        session.kill();
+    }
+
+    #[test]
+    fn ctrl_u_and_ctrl_c_throw_the_line_away() {
+        let session = sh(SWALLOWS_INPUT).spawn().expect("pty");
+        expect_screen(&session, "ready");
+        session.write(b"half").expect("write");
+        session.write(&[0x15]).expect("write");
+        assert!(!session.line_pending(), "Ctrl+U emptied the line");
+        session.write(b"half").expect("write");
+        session.write(&[0x03]).expect("write");
+        assert!(!session.line_pending(), "Ctrl+C dropped the line");
+        session.kill();
+    }
+
+    #[test]
+    fn pointer_reports_are_input_but_not_a_line() {
+        let session = sh(SWALLOWS_INPUT).spawn().expect("pty");
+        expect_screen(&session, "ready");
+        let before = session.last_input();
+        // The older encoding: three raw bytes after the mark, here all of them printable.
+        session.write_pointer(b"\x1b[M !!").expect("write");
+        assert!(session.last_input() > before, "the person moved the pointer");
+        assert!(!session.line_pending(), "a click is not a letter");
+        session.kill();
+    }
+
+    #[test]
+    fn keys_that_move_through_a_line_do_not_start_one() {
+        for keys in [
+            &b"\x1b[A"[..],
+            b"\x1bOA",
+            b"\x1b[1;5C",
+            b"\x1b[3~",
+            b"\x1b[<0;10;5M",
+            b"\x1bb",
+            b"\x1b",
+            b"\x04",
+            b"\x7f",
+            b"\x17",
+        ] {
+            assert!(!line_after(false, keys), "{keys:?} wrote nothing");
+            assert!(line_after(true, keys), "{keys:?} did not send or clear the line");
+        }
+        for keys in [&b"a"[..], b" ", b"\t", "ü".as_bytes(), b"\x1b[Ax"] {
+            assert!(line_after(false, keys), "{keys:?} is text");
+        }
+        for keys in [&b"\r"[..], b"\n", b"\x03", b"\x15", b"abc\r"] {
+            assert!(!line_after(true, keys), "{keys:?} ended the line");
+        }
     }
 
     #[test]

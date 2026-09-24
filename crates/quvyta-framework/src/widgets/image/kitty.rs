@@ -47,6 +47,11 @@ impl Picture {
     pub(crate) fn image(&self) -> u64 {
         self.data.id()
     }
+
+    /// How its pixels are stretched over its cells.
+    fn stretch(&self) -> Stretch {
+        Stretch { cells: self.cells, source: self.source, size: (self.data.width(), self.data.height()) }
+    }
 }
 
 /// Where the terminal shows a picture in a frame: the cells, and the part of the picture's pixels
@@ -60,6 +65,84 @@ pub(crate) struct PicturePlacement {
     pub(crate) cells: (u16, u16, u16, u16),
     /// Left, top, width and height in the picture's pixels.
     pub(crate) crop: (u32, u32, u32, u32),
+    /// How the whole picture lies over its cells, for cutting any other part of it.
+    pub(crate) stretch: Stretch,
+}
+
+impl PicturePlacement {
+    /// `data` stretched whole over `cells` (column, row, columns, rows) and shown on all of them.
+    #[cfg(test)]
+    pub(crate) fn whole(data: &ImageData, cells: (u16, u16, u16, u16)) -> Self {
+        let rect = Rect::new(i32::from(cells.0), i32::from(cells.1), cells.2, cells.3);
+        let (width, height) = (data.width(), data.height());
+        let stretch =
+            Stretch { cells: rect, source: (0.0, 0.0, f64::from(width), f64::from(height)), size: (width, height) };
+        Self { data: data.clone(), number: 1, cells, crop: (0, 0, width, height), stretch }
+    }
+
+    /// The part of this placement's picture shown in `cells`, a rectangle within the picture's
+    /// cells, cut by the same rule as every other part, so parts sent at different times meet at
+    /// the same pixel.
+    pub(crate) fn part(&self, cells: Rect) -> PicturePlacement {
+        PicturePlacement {
+            data: self.data.clone(),
+            number: self.number,
+            cells: (
+                u16::try_from(cells.x).unwrap_or(0),
+                u16::try_from(cells.y).unwrap_or(0),
+                cells.width,
+                cells.height,
+            ),
+            crop: self.stretch.crop(cells),
+            stretch: self.stretch,
+        }
+    }
+}
+
+/// How a picture's pixels are stretched over its cells in a frame: the cells the whole picture
+/// covers, the part of its pixels shown in them, and its size in pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Stretch {
+    cells: Rect,
+    source: (f64, f64, f64, f64),
+    size: (u32, u32),
+}
+
+impl Stretch {
+    /// The part of the picture's pixels that lands in `shown`, a part of its cells: the source is
+    /// stretched evenly over the cells, so a cut at a cell is a cut at the same share of the
+    /// source.
+    ///
+    /// Each edge of the crop is worked out from the cell edge alone, the same way whichever side
+    /// of it a rectangle lies on, so two rectangles that meet at a cell edge meet at the same
+    /// pixel: the parts of one picture placed side by side neither miss nor repeat a pixel.
+    pub(crate) fn crop(&self, shown: Rect) -> (u32, u32, u32, u32) {
+        let (sx, sy, sw, sh) = self.source;
+        let cells = self.cells;
+        let along = |from: i32, to: i32, start: f64, length: f64, cells_start: i32, cells: u16, limit: u32| {
+            let per_cell = length / f64::from(cells.max(1));
+            let edge = |cell: i32| pixels(start + f64::from(cell - cells_start) * per_cell);
+            let first = edge(from).min(limit.saturating_sub(1));
+            // At least one pixel, even where a cell is narrower than a pixel of the source.
+            let last = edge(to).clamp(first + 1, limit.max(first + 1));
+            (first, last - first)
+        };
+        let (x, width) = along(shown.x, shown.right(), sx, sw, cells.x, cells.width, self.size.0);
+        let (y, height) = along(shown.y, shown.bottom(), sy, sh, cells.y, cells.height, self.size.1);
+        (x, y, width, height)
+    }
+
+    /// A number that differs between two stretches of pictures whose cells would show different
+    /// pixels, as far as a hash tells: `image` is the picture's identity.
+    pub(crate) fn key(&self, image: u64) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        image.hash(&mut hasher);
+        (self.cells.x, self.cells.y, self.cells.width, self.cells.height, self.size).hash(&mut hasher);
+        let (x, y, w, h) = self.source;
+        (x.to_bits(), y.to_bits(), w.to_bits(), h.to_bits()).hash(&mut hasher);
+        hasher.finish()
+    }
 }
 
 impl PartialEq for PicturePlacement {
@@ -229,11 +312,14 @@ pub(crate) const MOST_PLACES: usize = 64;
 /// How the terminal can show part of a picture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Placing {
-    /// The terminal keeps the picture apart from the text and can show it in pieces, each cut to
-    /// its own rectangle, under text: kitty.
+    /// The picture can be shown in pieces, each cut to its own rectangle: kitty, which keeps the
+    /// picture apart from the text, under it, and sixel on a local terminal, whose pieces are
+    /// painted into cells nothing is painted over and sent again, where a cell under them is
+    /// written, at no cost that matters.
     Split,
     /// The picture is painted into the cells and whatever is written over it later wipes it, so
-    /// it is shown only where all of it that may show does: sixel.
+    /// it is shown only where all of it that may show does: sixel over a remote connection,
+    /// where sending pieces again as windows move over them would cost more than half blocks.
     Whole,
 }
 
@@ -303,6 +389,7 @@ pub(crate) fn resolve(
                             rect.height,
                         ),
                         crop: crop(picture, rect),
+                        stretch: picture.stretch(),
                     });
                 }
                 blended
@@ -342,7 +429,7 @@ pub(crate) fn resolve(
 /// them: each row's runs of neighbouring cells, a run merged into the rectangle above it when
 /// that rectangle ended on the row before with the same left edge and width. `None` when that
 /// takes more than `most` rectangles.
-fn rectangles(cells: &[(i32, i32)], most: usize) -> Option<Vec<Rect>> {
+pub(crate) fn rectangles(cells: &[(i32, i32)], most: usize) -> Option<Vec<Rect>> {
     let mut done: Vec<Rect> = Vec::new();
     // Rectangles that reach down to the row before the one being read.
     let mut open: Vec<Rect> = Vec::new();
@@ -388,26 +475,10 @@ fn cell_at(x: i32, y: i32) -> (u16, u16) {
     (u16::try_from(x).unwrap_or(u16::MAX), u16::try_from(y).unwrap_or(u16::MAX))
 }
 
-/// The part of `picture`'s pixels that lands in `shown`, a part of its cells: the source is
-/// stretched evenly over the cells, so a cut at a cell is a cut at the same share of the source.
-///
-/// Each edge of the crop is worked out from the cell edge alone, the same way whichever side of
-/// it a rectangle lies on, so two rectangles that meet at a cell edge meet at the same pixel:
-/// the parts of one picture placed side by side neither miss nor repeat a pixel.
+/// The part of `picture`'s pixels that lands in `shown`, a part of its cells; see
+/// [`Stretch::crop`].
 fn crop(picture: &Picture, shown: Rect) -> (u32, u32, u32, u32) {
-    let (sx, sy, sw, sh) = picture.source;
-    let cells = picture.cells;
-    let along = |from: i32, to: i32, start: f64, length: f64, cells_start: i32, cells: u16, limit: u32| {
-        let per_cell = length / f64::from(cells.max(1));
-        let edge = |cell: i32| pixels(start + f64::from(cell - cells_start) * per_cell);
-        let first = edge(from).min(limit.saturating_sub(1));
-        // At least one pixel, even where a cell is narrower than a pixel of the source.
-        let last = edge(to).clamp(first + 1, limit.max(first + 1));
-        (first, last - first)
-    };
-    let (x, width) = along(shown.x, shown.right(), sx, sw, cells.x, cells.width, picture.data.width());
-    let (y, height) = along(shown.y, shown.bottom(), sy, sh, cells.y, cells.height, picture.data.height());
-    (x, y, width, height)
+    picture.stretch().crop(shown)
 }
 
 /// A position in pixels, rounded to the nearest whole one.

@@ -285,8 +285,9 @@ pub trait App: 'static {
     ///
     /// Asked before every frame, so an application may answer from its own state, such as a
     /// setting the user changed. The default draws 60 frames a second locally and 20 over a
-    /// remote connection. Only frames the application's own work causes are merged: a frame
-    /// that answers input is never held back.
+    /// remote connection. The frames the application's own work causes are merged, and so are
+    /// the pointer's motions and the wheel; a frame that answers a key, a paste, a press or a
+    /// release is never held back.
     ///
     /// ```
     /// # use qframe::prelude::*;

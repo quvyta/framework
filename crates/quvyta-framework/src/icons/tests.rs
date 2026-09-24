@@ -202,3 +202,37 @@ fn a_missing_column_is_reported_where_the_icon_is_and_a_plainer_glyph_stands_in(
     assert_eq!(icons.glyph("only-ascii"), "a");
     assert!(!icons.contains("no-ascii"), "nothing plainer can stand in for ASCII, so the icon is skipped");
 }
+
+#[test]
+fn a_status_strip_finds_its_keys_in_every_mode() {
+    let keys = [
+        "cpu",
+        "memory",
+        "battery-full",
+        "battery-half",
+        "battery-empty",
+        "battery-charging",
+        "terminal",
+        "session",
+        "network-down",
+        "network-up",
+    ];
+    let registry = IconSetRegistry::builtin();
+    assert!(registry.diagnostics().is_empty(), "{:?}", registry.diagnostics());
+    for mode in [GlyphMode::Nerd, GlyphMode::Unicode, GlyphMode::Ascii] {
+        let icons = registry.icons("default", &BTreeMap::new(), mode);
+        let glyphs: Vec<String> = keys.iter().map(|key| icons.glyph(key).into_owned()).collect();
+        for (key, glyph) in keys.iter().zip(&glyphs) {
+            assert!(icons.contains(key), "{key} is missing in {mode:?}");
+            assert_eq!(crate::text::width(glyph), 1, "{key} in {mode:?} is {glyph:?}");
+            let private = glyph.chars().all(|c| matches!(u32::from(c), 0xE000..=0xF8FF | 0xF0000..=0xFFFFD));
+            assert_eq!(private, mode == GlyphMode::Nerd, "{key} in {mode:?} is {glyph:?}");
+        }
+        if mode != GlyphMode::Ascii {
+            // The four charges of the battery and the two directions are told apart by shape alone.
+            let battery = &glyphs[2..6];
+            assert!(battery.iter().enumerate().all(|(i, a)| battery[i + 1..].iter().all(|b| a != b)), "{battery:?}");
+            assert_ne!(glyphs[8], glyphs[9]);
+        }
+    }
+}

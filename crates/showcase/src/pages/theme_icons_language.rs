@@ -20,8 +20,9 @@ const PAGE: &str = "theme-icons-language";
 /// application's main menu needs, so every application in the ecosystem shows the same shapes for a
 /// project, who you are, the settings and the way out; the workspace that holds the work and the
 /// button that answers what the keys do; then the kinds of program a launcher groups its entries
-/// by, the mark of the ecosystem itself, and the marks on a window's title.
-const ICONS: [&str; 32] = [
+/// by, the mark of the ecosystem itself, the marks on a window's title, and what a status strip
+/// shows of the machine.
+const ICONS: [&str; 42] = [
     "check",
     "close",
     "dot",
@@ -54,6 +55,16 @@ const ICONS: [&str; 32] = [
     "window-minimize",
     "window-maximize",
     "window-restore",
+    "cpu",
+    "memory",
+    "battery-full",
+    "battery-half",
+    "battery-empty",
+    "battery-charging",
+    "terminal",
+    "session",
+    "network-down",
+    "network-up",
 ];
 
 // region: sources

@@ -20,7 +20,7 @@ use ratatui_core::buffer::Buffer;
 
 use self::clipboard::ClipboardRead;
 use self::frames::Pacing;
-use self::idle::{Idle, is_input};
+use self::idle::Idle;
 use self::pointer::PointerRepeat;
 
 use super::app::App;
@@ -171,7 +171,7 @@ pub(crate) struct Engine<A: App> {
     clock: Duration,
     /// When the user last did something, and the silences the view watches.
     idle: Idle<A::Msg>,
-    /// When the latest frame was drawn, and whether the next one answers input.
+    /// When the latest frame was drawn, and whether the next one answers input that never waits.
     pacing: Pacing,
     /// Whether [`App::init`] ran; it runs at the start of the first frame.
     started: bool,
@@ -338,7 +338,10 @@ impl<A: App> Engine<A> {
         {
             use crate::widgets::image::{Placing, resolve};
             let graphics = self.env.graphics();
-            let placing = if graphics == crate::graphics::Graphics::Sixel { Placing::Whole } else { Placing::Split };
+            // A sixel cut into pieces is sent again piece by piece as windows move over it:
+            // nothing on a local terminal, more than half blocks over a remote connection.
+            let whole = graphics == crate::graphics::Graphics::Sixel && self.env.remote();
+            let placing = if whole { Placing::Whole } else { Placing::Split };
             frame.placements =
                 resolve(buf, &frame.pictures, &frame.dims, &mut self.picture_halves, graphics.can_draw(), placing);
         }
@@ -464,8 +467,9 @@ impl<A: App> Engine<A> {
         self.catch_up(now);
         self.clock = now;
         self.note_input(&event, now);
-        // The answer to what the user just did is drawn at once, whatever the frame limit is.
-        if is_input(&event) {
+        // A key, a paste, a press or a release is answered on screen at once, whatever the frame
+        // limit is; the pointer moving and the wheel wait for it like the application's own work.
+        if frames::answers_at_once(&event) {
             self.frame_is_urgent();
         }
         match &event {
