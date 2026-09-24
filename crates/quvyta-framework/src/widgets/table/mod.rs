@@ -60,7 +60,7 @@ type SortMessage<Msg> = Box<dyn Fn(usize, SortDirection) -> Msg>;
 /// - [`activate_on(Click::Double)`](Self::activate_on): a click only selects a row and a double
 ///   click activates it, so a click can start a drag or a selection without opening anything.
 /// - [`multi_select`](Self::multi_select): several rows are selected at once with Ctrl+click,
-///   Shift+click and Space; they share the selection tone while only the cursor's row carries the
+///   Shift+click, Shift+arrows, Ctrl+A and Space; they share the selection tone while only the cursor's row carries the
 ///   pillar and slides.
 /// - [`box_select`](Self::box_select): a drag from the free space below the rows draws a box, and
 ///   the rows it covers become the selection.
@@ -224,8 +224,9 @@ impl<Msg: 'static> Table<Msg> {
     /// The row given to [`selected`](Self::selected) stays the cursor: the row the keys move from
     /// and the only one with the pillar, while every selected row takes the selection tone.
     /// Ctrl+click adds a row or takes it out, Shift+click selects the rows from the last plain or
-    /// Ctrl click to this one, Space adds or takes out the cursor's row and a plain click selects
-    /// that one row. A right click on a selected row keeps the selection for its menu; on another
+    /// Ctrl click to this one; Shift with ↑/↓, PgUp/PgDn or Home/End extends that range, Ctrl+A
+    /// selects every row, Space adds or takes out the cursor's row, Esc reduces several selected
+    /// rows to the cursor's, and a plain click or arrow selects that one row. A right click on a selected row keeps the selection for its menu; on another
     /// row it makes that row the selection first.
     #[must_use]
     pub fn multi_select(mut self, selected: &[usize], message: impl Fn(Vec<usize>) -> Msg + 'static) -> Self {
@@ -505,8 +506,17 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
         let total = self.rows.len();
         match event {
             Event::Key(key) => {
+                let page = usize::from(body.height);
+                let extend = |_: &mut EventCx<'_, Msg>, plain: &crate::event::KeyEvent| {
+                    rows::SHIFT_STEPS
+                        .contains(&plain.chord.key)
+                        .then(|| Step::from_key(plain).and_then(|step| step.apply(self.selected, total, page)))
+                };
+                if self.picking.selection_key(cx, key, self, total, extend) {
+                    return true;
+                }
                 if let Some(step) = Step::from_key(key) {
-                    let Some(target) = step.apply(self.selected, total, usize::from(body.height)) else {
+                    let Some(target) = step.apply(self.selected, total, page) else {
                         return false;
                     };
                     if self.picking.is_multi() {

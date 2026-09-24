@@ -35,7 +35,9 @@ Uygulamanın kendi bağlamalarının diskte bir dosya olması şart değil. `Run
 
 ## Basılı tutulan tuşlar
 
-Enter ya da Boşluk'u basılı tutmak bir etkinleştirmeyi asla tekrarlamaz. Tuş bırakmayı bildiremeyen terminaller basılı tuşu hızlı basışlar olarak gönderir; quvyta-framework 100 ms'den yakın basışları tek sayar.
+Enter ya da Boşluk'u basılı tutmak bir etkinleştirmeyi asla tekrarlamaz. kitty klavye protokolünü konuşan terminal tuşun tekrarlandığını söyler; konuşmayan terminal basılı tuşu hızlı basışlar olarak gönderir. Bu yüzden bir düğmede, bir listede ya da yazı yazılmayan herhangi bir şeyde, ilkinden sonraki 100 ms içinde gelen ikinci Enter ya da Boşluk aynı basış sayılır. Yalnızca kesintisiz bir dizi basılı tutma sayılır: basılı tuş tek başına tekrar eder, araya başka bir tuş girdiyse sonraki Enter ya da Boşluk ne kadar çabuk gelirse gelsin yeni bir basıştır.
+
+Yazı yazılan yerde hiçbir tahmin yapılmaz. Metin alanı, metin kutusu, terminal ve seçicilerin süzgeci her Enter'ı ve Boşluğu, tekrarları da, alır: terminal çoklayıcısının, yavaş bir bağlantının ya da diktenin tek okumada verdiği yazının tuşları birbirine 100 ms'den yakındır ve her biri yazıdır. Yazı alan kendi bileşenin bunu çizerken `cx.takes_text()` ile söyler.
 
 ## Hata ayıklama katmanı
 

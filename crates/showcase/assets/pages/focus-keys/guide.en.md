@@ -35,7 +35,9 @@ The hint bar reads labels from locale keys: `quvyta.keys.<action>` for global ac
 
 ## Held keys
 
-Holding Enter or Space never repeats an activation. Terminals that cannot report key release send a held key as fast presses; quvyta-framework treats presses closer than 100 ms as one.
+Holding Enter or Space never repeats an activation. A terminal with the kitty keyboard protocol says when a key is repeated; one without it sends a held key as fast presses, so on a button, a list or anything else that is not typed into, a second Enter or Space within 100 ms of the first counts as the same press. Only an uninterrupted run is guessed held: a held key repeats alone, so once another key comes between, the next Enter or Space is a new press however soon it follows.
+
+Nothing is ever guessed where text is typed. A text field, a text area, a terminal and the filter of a picker take every Enter and Space, repeats included: text a terminal multiplexer, a slow connection or dictation hands over in one read has its keys closer than 100 ms, and every one of them is text. A widget of your own that takes typed text says so with `cx.takes_text()` while it paints.
 
 ## The debug layer
 

@@ -18,7 +18,7 @@ Her ekranda **tek bir birincil buton** olsun. Her şey vurgulanırsa hiçbir şe
 - **Çubuk en başta durur.** Hover ve odakta vurgu çubuğu `▌` butonun ilk hücresinde, kısayol bölümünden ve ikondan önce çıkar: `▌ ⏎   Kaydet`, asla `⏎ ▌ Kaydet`. Bu hücre buton dururken de onun parçasıdır, çubuk çıkınca hiçbir şey kaymaz. Butonlar kaymaz.
 - **Durumlar temadan gelir.** Hover yüzeyi yükseltir ve soluk bir çubuk gösterir. Klavyeyle gelen odak da yüzeyi yükseltir, çubuk iki vurgu tonu arasında nefes alır; tıklanarak odaklanan buton farenin altında sakin kalır. Basış butonu temanın `motion.flash` süresi kadar bir ton parlatır.
 - **Klavye ve fare eşittir.** Enter ya da Boşluk odaklı butona basar; tıklama, fare butonun üzerinde bırakıldığında basar, yani bırakmadan önce uzaklaşmak basışı iptal eder.
-- **Basılı tutulan tuş tekrar etmez.** Enter'a basılı tutmak tek basış sayılır; basılı tutmayı hızlı ardışık basış olarak bildiren terminallerde bile.
+- **Basılı tutulan tuş tekrar etmez.** Enter'a basılı tutmak tek basış sayılır; basılı tutmayı hızlı ardışık basış olarak bildiren terminallerde bile. Başka bir tuştan sonra yeniden basılan Enter ne kadar çabuk gelirse gelsin yeni bir basıştır.
 - **Pasif, girdi için yok demektir.** Pasif ya da yükleniyor durumundaki buton Tab'da atlanır ve tıklamaları yok sayar.
 
 ## Temayla özelleştirme

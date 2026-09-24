@@ -20,6 +20,8 @@ pub(crate) struct Frame {
     pub(crate) next_frame: Option<Duration>,
     /// Chords widgets listen to without focus; see [`PaintCx::listen_key`](crate::widget::PaintCx::listen_key).
     pub(crate) listeners: Vec<(KeyChord, WidgetId)>,
+    /// Widgets that take typed text, see [`PaintCx::takes_text`](super::PaintCx::takes_text).
+    pub(crate) text_takers: Vec<WidgetId>,
     /// Areas where a mouse press never starts a text selection.
     pub(crate) unselectable: Vec<Rect>,
     /// Visible areas where a mouse drag selects text, with the widget each belongs to, in paint
@@ -105,6 +107,7 @@ impl Frame {
             overlays,
             next_frame,
             listeners,
+            text_takers,
             unselectable,
             selectable,
             decorations,
@@ -131,6 +134,7 @@ impl Frame {
         overlays.clear();
         *next_frame = None;
         listeners.clear();
+        text_takers.clear();
         unselectable.clear();
         selectable.clear();
         decorations.clear();

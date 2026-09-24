@@ -10,7 +10,7 @@
 - `.on_activate(|index| msg)` — a card was opened with Enter or a click.
 - `.checked(Vec<bool>)` and `.on_toggle(|index| msg)` — checks, off by default.
 - `.activate_on(Click::Single | Click::Double)` — `Single` by default: a click selects and opens. With `Double` a click only selects and a second press on the same card within `Click::INTERVAL` (400 ms) opens it; Enter opens either way.
-- `.multi_select(&selected, |cards| msg)` — several cards are selected at once: Ctrl+click adds or removes a card, Shift+click selects a range in reading order, Space toggles the card the keys are on; `cards` is always the whole new selection. Selected cards take the selected surface.
+- `.multi_select(&selected, |cards| msg)` — several cards are selected at once: Ctrl+click adds or removes a card, Shift+click selects a range in reading order, Shift with the arrows, `pgup` `pgdn`, `home` or `end` stretches it, `ctrl+a` selects every card, Space toggles the card the keys are on and `esc` reduces several selected cards to that one; `cards` is always the whole new selection. Selected cards take the selected surface.
 - `.box_select(bool)` — with `multi_select`, a drag from the free space between and after the cards draws a box in the `text-selection` tone and every card it touches becomes the selection, or joins it with Ctrl held at the press; a click there clears the selection.
 - `.droppable(|drop| msg, |index| accepts)` — the pressed card, or the selection it is part of, is dragged onto a card `accepts` says yes to, which takes the `tree-drop` tone; `drop` is a `RowDrop { rows, into }`. A release anywhere else does nothing.
 - `.on_copy_drop(|drop| msg)` — a drop released with Ctrl held asks for a copy with this instead of the move.

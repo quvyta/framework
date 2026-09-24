@@ -101,6 +101,8 @@ mod task_list;
 #[cfg(feature = "pty")]
 mod terminal;
 #[cfg(feature = "pty")]
+mod terminal_bytes;
+#[cfg(feature = "pty")]
 mod terminal_mouse;
 #[cfg(feature = "pty")]
 mod terminal_notice;

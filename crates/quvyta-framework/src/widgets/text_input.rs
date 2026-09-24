@@ -247,6 +247,7 @@ impl<Msg: 'static> Widget<Msg> for TextInput<Msg> {
     }
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
+        cx.takes_text();
         let mut states = if self.disabled { vec![State::Disabled] } else { cx.states() };
         if self.invalid {
             states.push(State::Invalid);

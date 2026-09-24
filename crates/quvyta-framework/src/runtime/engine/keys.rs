@@ -10,7 +10,23 @@ use crate::runtime::App;
 use crate::runtime::selection::CopyKind;
 use crate::widget::{ClipboardKey, WidgetId};
 
-/// Enter or Space presses closer together than this are typematic repeat, not new presses.
+/// Enter or Space presses of the same key closer together than this, with no other key between,
+/// are a held key repeating, not new presses.
+///
+/// A terminal without the kitty keyboard protocol cannot say a key is held: it sends the hold as
+/// fast presses, and without this a held Enter would press a button again and again. The guess
+/// is only made where it cannot lose text:
+///
+/// - Where the keys go to a widget that takes text ([`PaintCx::takes_text`]) nothing is guessed.
+///   Text that arrives in one read has its keys well within the window, and each one is text;
+///   holding Space there types spaces, as holding a letter types letters.
+/// - A held key repeats alone, so any other key in between ends the run: typed words stay apart
+///   even in an application's own widget that does not say it takes text.
+///
+/// Whether keys arrived in one read is not asked: repeats of a held key that queue up while a
+/// slow frame is drawn arrive in one read too, so it cannot tell typing from holding on a button.
+///
+/// [`PaintCx::takes_text`]: crate::widget::PaintCx::takes_text
 const HELD_KEY_WINDOW: Duration = Duration::from_millis(100);
 
 /// The key that cuts, the same fixed chord a text field cuts its text with. It has no keymap
@@ -27,6 +43,13 @@ impl<A: App> Engine<A> {
             Some(id) => self.frame.routed_ancestry(id),
             None => self.frame.top_layer().into_iter().collect(),
         }
+    }
+
+    /// Whether the widget keys go to first takes typed text, see [`PaintCx::takes_text`].
+    ///
+    /// [`PaintCx::takes_text`]: crate::widget::PaintCx::takes_text
+    fn keys_take_text(&self) -> bool {
+        self.keyboard_targets().first().is_some_and(|id| self.frame.text_takers.contains(id))
     }
 
     /// Offers `key` to the widgets listening to it, see [`PaintCx::listen_key`]. Releases match
@@ -74,7 +97,9 @@ impl<A: App> Engine<A> {
             self.selection = None;
         }
         let activation = matches!(key.chord.key, Key::Enter | Key::Space) && key.chord.mods == Modifiers::default();
-        if activation {
+        if !activation || self.keys_take_text() {
+            self.last_activation_key = None;
+        } else {
             let repeated = key.kind == KeyKind::Repeat
                 || self
                     .last_activation_key

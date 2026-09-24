@@ -13,7 +13,7 @@ const SHIFT: Modifiers = Modifiers { ctrl: false, alt: false, shift: true };
 const FREE_Y: i32 = 15;
 
 /// A pointer event at `at` with `mods` held.
-fn pointer(kind: MouseKind, (x, y): (i32, i32), mods: Modifiers) -> Event {
+pub(super) fn pointer(kind: MouseKind, (x, y): (i32, i32), mods: Modifiers) -> Event {
     Event::Mouse(MouseEvent { kind, x, y, mods })
 }
 
@@ -43,7 +43,7 @@ pub(super) fn double_click(h: &mut Harness<Demo>, text: &str) {
 }
 
 /// A press at `from`, a drag to `to` and a release there with `mods` held at the release.
-fn drag_with(h: &mut Harness<Demo>, from: (i32, i32), to: (i32, i32), mods: Modifiers) {
+pub(super) fn drag_with(h: &mut Harness<Demo>, from: (i32, i32), to: (i32, i32), mods: Modifiers) {
     let left = MouseButton::Left;
     h.events(&[
         pointer(MouseKind::Down(left), from, Modifiers::default()),

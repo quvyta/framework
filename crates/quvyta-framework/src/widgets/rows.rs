@@ -58,6 +58,11 @@ pub(crate) enum Step {
     End,
 }
 
+/// The keys Shift extends a selection with, as it extends a text selection: the arrows up and
+/// down, a page and the ends. The letters that also move the cursor are not among them, so a
+/// Shift+letter stays free for what it means.
+pub(crate) const SHIFT_STEPS: [Key; 6] = [Key::Up, Key::Down, Key::PageUp, Key::PageDown, Key::Home, Key::End];
+
 impl Step {
     /// The step a plain key means: ↑/↓ or k/j, PgUp/PgDn, Home/End.
     pub(crate) fn from_key(key: &KeyEvent) -> Option<Self> {

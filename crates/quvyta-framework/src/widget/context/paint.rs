@@ -416,6 +416,32 @@ impl PaintCx<'_> {
         self.frame.listeners.push((chord, self.id));
     }
 
+    /// Says that this widget takes typed text, as a text field or a terminal does. Call it on
+    /// every paint.
+    ///
+    /// Keys given to such a widget are never guessed to be a held key: every Enter and Space
+    /// reaches it however soon it follows the one before, and so do the repeats a terminal with
+    /// the kitty keyboard protocol reports. Text that arrives in one read (from a terminal
+    /// multiplexer, a slow connection or dictation) has its keys closer together than a person
+    /// types, and every one of them is text.
+    ///
+    /// Other widgets never see an Enter or Space the terminal reports as a repeat, nor one that
+    /// follows the same key within 100 ms with no other key between, so a held key presses a
+    /// button once on terminals that send a hold as fast presses.
+    ///
+    /// A widget painted with focus lent by its container, which forwards its keys to it, marks
+    /// that container as well.
+    pub fn takes_text(&mut self) {
+        self.frame.text_takers.push(self.id);
+        if self.focus_lent
+            && let Some(focused) = self.interaction.focused
+            && focused != self.id
+            && self.frame.is_within(self.id, focused)
+        {
+            self.frame.text_takers.push(focused);
+        }
+    }
+
     /// Asks the nearest [`ScrollView`](crate::widgets::ScrollView) around this widget to scroll
     /// just enough to show `rect`, a part of this widget's area, e.g. a line a code view jumps
     /// to. The view glides there, or jumps when motion is reduced. Ask once when what should

@@ -140,6 +140,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
             activations: rows.iter().map(|row| self.flat_activate(row)).collect(),
             itself: rows.iter().map(|row| row.itself).collect(),
             folders: rows.iter().map(|row| row.folder && !row.itself).collect(),
+            up: (self.state.folder() != ROOT).then(|| super::parent_key(self.state.folder()).to_owned()),
         }
     }
 
@@ -288,6 +289,9 @@ struct Wiring<Msg> {
     itself: Vec<bool>,
     /// Whether each row is a folder other than the shown one, which is what takes a drop.
     folders: Vec<bool>,
+    /// The folder above the shown one, which the shown folder's own row stands for as a drop
+    /// target; `None` at the root, which has nothing above it.
+    up: Option<String>,
 }
 
 impl<Msg: Clone> Clone for Wiring<Msg> {
@@ -297,6 +301,7 @@ impl<Msg: Clone> Clone for Wiring<Msg> {
             activations: self.activations.clone(),
             itself: self.itself.clone(),
             folders: self.folders.clone(),
+            up: self.up.clone(),
         }
     }
 }
@@ -326,15 +331,25 @@ impl<Msg: Clone> Wiring<Msg> {
             .collect()
     }
 
-    /// Whether row `index` takes a drop: a folder, but not the shown one, which is where every
-    /// row of the view already is.
+    /// Whether row `index` takes a drop: a folder of the shown one, or the shown folder's own
+    /// row, which is the way up and takes a drop for the folder above, as a desktop explorer's
+    /// path takes one for a parent. At the root that row has nothing above it and takes nothing.
     fn takes_drop(&self, index: usize) -> bool {
+        if self.itself.get(index) == Some(&true) {
+            return self.up.is_some();
+        }
         self.folders.get(index).copied().unwrap_or(false)
     }
 
-    /// The entries a widget's drop moves, and the folder they go into.
+    /// The entries a widget's drop moves, and the folder they go into: the folder above for a
+    /// drop on the shown folder's own row.
     fn drop(&self, dropped: &RowDrop) -> TreeDrop {
-        TreeDrop { keys: self.keys_of(&dropped.rows), into: self.keys.get(dropped.into).cloned() }
+        let into = if self.itself.get(dropped.into) == Some(&true) {
+            self.up.clone()
+        } else {
+            self.keys.get(dropped.into).cloned()
+        };
+        TreeDrop { keys: self.keys_of(&dropped.rows), into }
     }
 }
 

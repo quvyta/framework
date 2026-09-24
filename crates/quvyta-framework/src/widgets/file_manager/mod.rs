@@ -78,7 +78,11 @@ const NAMING_WIDTH: u16 = 48;
 /// drag from the free space draws a box, a tone over the cells it covers, and selects the
 /// entries inside it, adding to the selection when Ctrl was held. A drag from a selected entry
 /// carries the whole selection: released on a folder it moves there, or is copied there when
-/// Ctrl is held at the release, and released anywhere else it does nothing. A terminal that does
+/// Ctrl is held at the release, and released anywhere else it does nothing. The folder under the
+/// drag takes the accent tone while it can take what is dragged; a folder never takes itself or a
+/// folder inside it. In the list and the icons the row of the shown folder is the way up, so a
+/// drop on it goes into the folder above, as a desktop explorer's path takes a drop for a parent;
+/// at the root it takes nothing. A terminal that does
 /// not report Ctrl with the pointer always moves. A name already taken in the folder is never
 /// overwritten; the entry says why it stayed. A right click on a selected entry opens the menu of
 /// the selection, and on any other entry selects it and opens its menu.
@@ -93,8 +97,11 @@ const NAMING_WIDTH: u16 = 48;
 /// root.
 ///
 /// Keys: the tree's own (↑/↓ between rows, ←/→ and Enter to open and close a folder, Enter on a
-/// file to open it, Space to select several, Home and End, the menu key on the row the cursor is
-/// on), and a desktop file explorer's Ctrl+X, Ctrl+C and Ctrl+V. Ctrl+X cuts the selection and
+/// file to open it, Home and End, the menu key on the row the cursor is on), and a desktop file
+/// explorer's selection keys in all three views: Shift with the arrows, PgUp/PgDn, Home or End
+/// extends the selection from where it started, Space adds or takes out the entry under the
+/// cursor, Ctrl+A selects every entry shown and Esc leaves only the entry under the cursor
+/// selected. Then Ctrl+X, Ctrl+C and Ctrl+V. Ctrl+X cuts the selection and
 /// Ctrl+C copies it, the entry under the cursor when nothing is selected; Ctrl+V pastes what waits
 /// into the folder the list and the icons show, and in the tree into the folder under the cursor,
 /// or the folder holding the file under it. A name already taken there is refused and said, as a
@@ -399,7 +406,11 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         let tree = tree
             .selected(state.selected())
             .on_select(move |key| wrap(FileManagerMsg::Select(key.to_owned())))
-            .multi_select(state.chosen(), move |keys| choose(FileManagerMsg::Choose(keys)))
+            // The root is where the person is, not an entry to carry away, so a box or Ctrl+A that
+            // covers its row leaves it out.
+            .multi_select(state.chosen(), move |keys| {
+                choose(FileManagerMsg::Choose(keys.into_iter().filter(|key| key != ROOT).collect()))
+            })
             .droppable(
                 move |dropped| drop(FileManagerMsg::Drop(dropped)),
                 move |key| key == ROOT || accepts.contains(key),

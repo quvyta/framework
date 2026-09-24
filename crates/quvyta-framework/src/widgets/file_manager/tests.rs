@@ -19,6 +19,7 @@ use crate::widgets::TreeDrop;
 mod focus;
 mod keys;
 mod mouse;
+mod selection;
 
 use super::ops::{
     FileChange, FileError, NameProblem, check_name, copy_into, create_file, create_folder, delete, move_into, rename,

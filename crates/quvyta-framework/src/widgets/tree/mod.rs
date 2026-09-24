@@ -188,7 +188,7 @@ type MenuItems<Msg> = Box<dyn Fn(&str) -> Vec<ContextItem<Msg>>>;
 /// Five capabilities are off until asked for:
 ///
 /// - [`multi_select`](Self::multi_select): several nodes are selected at once with Ctrl+click,
-///   Shift+click, Shift+arrows and Space; they share the selection tone while only the cursor's
+///   Shift+click, Shift+arrows, Ctrl+A and Space; they share the selection tone while only the cursor's
 ///   row carries the pillar and slides.
 /// - [`reorderable`](Self::reorderable): drag a node to move it among its siblings; the siblings
 ///   make room, a ghost row follows the pointer and a tinted slot shows where it lands, while the
@@ -267,8 +267,8 @@ impl<Msg: 'static> Tree<Msg> {
     /// The node given to [`selected`](Self::selected) stays the cursor: the row the keys move
     /// from, the only one with the pillar, while every selected row takes the selection tone.
     /// Ctrl+click adds a row or takes it out and Shift+click selects the rows from the last plain
-    /// or Ctrl click to this one; Shift with ↑/↓, PgUp/PgDn or Home/End extends that range, Space
-    /// adds or takes out the cursor's row (instead of activating it) and Esc reduces several
+    /// or Ctrl click to this one; Shift with ↑/↓, PgUp/PgDn or Home/End extends that range, Ctrl+A
+    /// selects every row shown, Space adds or takes out the cursor's row (instead of activating it) and Esc reduces several
     /// selected nodes to the cursor's. A plain click or arrow selects that one row. Moving nodes
     /// with the keys is the application's own cut and paste; the tree reports the selection.
     #[must_use]

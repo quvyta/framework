@@ -10,7 +10,7 @@
 - `.on_activate(|sıra| msg)` — bir kart Enter ya da tıklamayla açıldı.
 - `.checked(Vec<bool>)` ve `.on_toggle(|sıra| msg)` — işaretler; varsayılan olarak kapalı.
 - `.activate_on(Click::Single | Click::Double)` — varsayılanı `Single`: tık seçer ve açar. `Double` ile tık yalnızca seçer, aynı karta `Click::INTERVAL` (400 ms) içinde ikinci basış onu açar; Enter her iki durumda da açar.
-- `.multi_select(&seçili, |kartlar| mesaj)` — birden çok kart birlikte seçilir: Ctrl+tık kartı ekler ya da çıkarır, Shift+tık okuma sırasında aralık seçer, Space tuşların üstünde durduğu kartı ekler ya da çıkarır; `kartlar` her zaman seçimin yeni halinin tamamıdır. Seçili kartlar seçili yüzeyi alır.
+- `.multi_select(&seçili, |kartlar| mesaj)` — birden çok kart birlikte seçilir: Ctrl+tık kartı ekler ya da çıkarır, Shift+tık okuma sırasında aralık seçer, Shift ile oklar, `pgup` `pgdn`, `home` ya da `end` onu uzatır, `ctrl+a` her kartı seçer, Space tuşların üstünde durduğu kartı ekler ya da çıkarır, `esc` birden çok seçili kartı onunkine indirir; `kartlar` her zaman seçimin yeni halinin tamamıdır. Seçili kartlar seçili yüzeyi alır.
 - `.box_select(bool)` — `multi_select` ile, kartların arasındaki ve sonrasındaki boş yerden sürüklemek `text-selection` tonunda bir alan çizer, değdiği her kart seçim olur ya da basarken Ctrl basılıysa seçime eklenir; orada tıklamak seçimi bırakır.
 - `.droppable(|bırakma| mesaj, |sıra| kabul)` — basılan kart ya da içinde olduğu seçim, `kabul`ün evet dediği bir kartın üstüne sürüklenir; o kart `tree-drop` tonunu alır. `bırakma` bir `RowDrop { rows, into }`'dur. Başka bir yerde bırakmak hiçbir şey yapmaz.
 - `.on_copy_drop(|bırakma| mesaj)` — Ctrl basılıyken yapılan bırakma, taşıma yerine bununla kopyalama ister.

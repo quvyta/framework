@@ -4,6 +4,58 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.27 - 2026-09-24
+
+### Added
+
+- `PaintCx::takes_text()`: a widget that takes typed text says so while it paints, and then
+  gets every key however fast keys come; see Fixed. `TextInput`, `TextArea`, `Terminal` and the
+  filter of the command palette and the help layer call it. A widget painted with its
+  container's focus lent to it marks that container too.
+- The file manager selects from the keyboard the way a desktop file explorer does, in all three
+  views: Shift with the arrows, PgUp/PgDn, Home or End stretches the selection from where it
+  started, Ctrl+A selects every entry shown, and Esc leaves only the entry under the cursor
+  selected. Ctrl+A never selects the root or the shown folder's own row.
+- `Table::multi_select` and `CardGrid::multi_select` take the same keys: Shift with the steps,
+  Ctrl+A and Esc, as `Tree::multi_select` already did with Shift and Esc. `Tree::multi_select`
+  gains Ctrl+A for every row shown.
+- In the file manager's list and icons, the shown folder's own row takes a drop for the folder
+  above it, lit while the drag is over it, as a desktop explorer's path takes one for a parent;
+  with Ctrl held at the release it copies. At the root it takes nothing.
+
+### Fixed
+
+- Fast keys are no longer lost. A second Enter or Space within 100 ms of the first was taken for
+  a held key and given to no widget, so text that arrives in one read (tmux `send-keys`, a slow
+  SSH link, dictation) lost its spaces and Enters: `alpha beta gamma` arrived as
+  `alpha betagamma`. The rule is now:
+  - Where the keys go to a widget that takes text, nothing is guessed: every Enter and Space
+    reaches it, repeats the terminal reports included, since holding Space in a field or a
+    terminal types spaces as holding a letter types letters.
+  - Anywhere else (a button, a list) a key the terminal reports as a repeat, or an Enter or
+    Space within 100 ms of the same key, still counts as the press before, so a held key on a
+    terminal without the kitty keyboard protocol presses a button once.
+  - Only an uninterrupted run is guessed held. A held key repeats alone, so a second Space after
+    another key is a new press however soon it follows; this also keeps typed words apart in
+    an application's own widget that does not call `takes_text`.
+  Whether keys arrived in one read is not used to decide: repeats of a held key that queue up
+  while a slow frame is drawn arrive in one read too, so it cannot tell typing from holding on a
+  button, and where text is typed no guess is made at all.
+- `Terminal`: programs that move the cursor with HVP (`CSI row;col f`), such as btop, no longer
+  draw their whole screen on one line; HVP is drawn as the CUP it means. A sequence with a
+  private marker, a sub-parameter or an intermediate byte is left alone.
+- `Terminal`: the DEC line drawing set (`ESC ( 0`, in G0 or G1 with Shift Out and Shift In) is
+  drawn as lines, so programs such as ncdu draw boxes instead of `lqqk`. `ESC ( B` and a full
+  reset return to ASCII. Both rewrites follow a sequence split across reads.
+  Autowrap mode (`CSI ?7 l`) is still not followed: a line reaching the last column wraps.
+
+### Changed
+
+- A box or Ctrl+A over the file manager's tree no longer puts the root in the selection: the
+  root is where the person is, not an entry to cut, copy or drag.
+- Esc on a `Table` or `CardGrid` with several rows selected reduces the selection to the cursor's
+  row instead of going on to the parents; with one row or none selected it goes on as before.
+
 ## 0.1.26 - 2026-09-24
 
 ### Added

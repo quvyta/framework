@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
-use super::terminal_notice::{Notices, OscLimit};
+use super::terminal_bytes::ByteFeed;
+use super::terminal_notice::Notices;
 
 /// Lines kept above the screen for scrolling back, unless [`TerminalBuilder::scrollback`] says
 /// otherwise.
@@ -246,7 +247,7 @@ impl TerminalBuilder {
         let thread_shared = Arc::clone(&shared);
         std::thread::spawn(move || {
             let mut buffer = [0u8; 8192];
-            let mut limit = OscLimit::default();
+            let mut feed = ByteFeed::default();
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) | Err(_) => break,
@@ -256,7 +257,7 @@ impl TerminalBuilder {
                         lock(&thread_shared.quiet).output = Instant::now();
                         let heard = {
                             let mut parser = lock(&thread_shared.parser);
-                            limit.feed(&buffer[..count], |run| parser.process(run));
+                            feed.feed(&buffer[..count], &mut *parser);
                             std::mem::take(parser.callbacks_mut())
                         };
                         let mut signal = lock(&thread_shared.signal);

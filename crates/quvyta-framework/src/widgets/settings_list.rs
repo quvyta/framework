@@ -533,6 +533,42 @@ mod tests {
 
     use crate::widgets::Text;
 
+    /// A list whose one row holds a name field.
+    #[derive(Default)]
+    struct Named {
+        name: String,
+    }
+
+    impl App for Named {
+        type Msg = String;
+        fn update(&mut self, name: String) -> Command<String> {
+            self.name = name;
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, String>) {
+            SettingsList::show(ui, |list| {
+                list.row(SettingRow::new("Name"), |ui| {
+                    ui.add(crate::widgets::TextInput::new(&self.name).on_change(|name| name))
+                        .width(crate::widget::Length::Cells(12));
+                });
+            });
+        }
+    }
+
+    #[test]
+    fn a_field_in_a_row_takes_every_space_of_a_burst() {
+        // The list has the focus and lends it to the row's field; spaces that arrive together are
+        // still typed, not taken for a held key.
+        let mut h = Harness::new(Named::default(), 40, 4);
+        h.press("tab");
+        let burst: Vec<crate::event::Event> = ["a", "space", "space", "b"]
+            .iter()
+            .map(|chord| crate::event::Event::Key(crate::event::KeyEvent::press(chord)))
+            .collect();
+        h.events(&burst);
+        assert_eq!(h.app().name, "a  b", "{}", h.screen());
+    }
+
     /// Forty switches in one list, in a scroll view shorter than the list.
     #[derive(Default)]
     struct Long {

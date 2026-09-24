@@ -7,8 +7,9 @@
 //! rows out differently, one under another or in columns, so each says where its rows are through
 //! [`PickedRows`] and this module does the rest the same way for both.
 
-use crate::event::{MouseButton, MouseEvent, MouseKind};
+use crate::event::{KeyEvent, KeyKind, MouseButton, MouseEvent, MouseKind};
 use crate::geometry::Rect;
+use crate::keymap::{Key, KeyChord, Modifiers};
 use crate::widget::{EventCx, PaintCx};
 
 use super::click::{Click, LastPress};
@@ -177,6 +178,45 @@ impl<Msg: 'static> Picking<Msg> {
         self.choose(cx, (start.min(index)..=start.max(index)).collect());
     }
 
+    /// The selection keys of a widget that selects several rows, among `count` rows: Shift with a
+    /// step extends the range from where it started, Ctrl+A selects every row and Esc reduces
+    /// several selected rows to the cursor's. True when the key was used.
+    ///
+    /// `step` answers where the unshifted key moves the cursor: `None` when it is not a key that
+    /// moves, and `Some(None)` when it moves nowhere, at an edge. Esc with one row or none selected
+    /// is left alone, so a dialog holding the rows still closes on it.
+    pub(crate) fn selection_key(
+        &self,
+        cx: &mut EventCx<'_, Msg>,
+        key: &KeyEvent,
+        rows: &impl PickedRows<Msg>,
+        count: usize,
+        step: impl FnOnce(&mut EventCx<'_, Msg>, &KeyEvent) -> Option<Option<usize>>,
+    ) -> bool {
+        if !self.is_multi() || key.kind == KeyKind::Release {
+            return false;
+        }
+        if key.chord == select_all() {
+            self.choose(cx, (0..count).collect());
+            return true;
+        }
+        if key.is_plain(Key::Esc) && self.chosen.len() > 1 {
+            let Some(index) = rows.cursor() else { return false };
+            self.select_one(cx, rows, index);
+            return true;
+        }
+        let shifted = Modifiers { shift: true, ..Modifiers::default() };
+        if key.chord.mods != shifted {
+            return false;
+        }
+        let plain = KeyEvent { chord: KeyChord { mods: Modifiers::default(), ..key.chord }, ..*key };
+        let Some(target) = step(cx, &plain) else { return false };
+        if let Some(index) = target {
+            self.select_range(cx, rows, index);
+        }
+        true
+    }
+
     /// Whether dragged `carried` rows can be dropped on row `into`.
     pub(crate) fn takes_drop(&self, carried: &[usize], into: usize) -> bool {
         self.dropping.as_ref().is_some_and(|(_, accepts)| accepts(into)) && !carried.contains(&into)
@@ -306,6 +346,11 @@ impl<Msg: 'static> Picking<Msg> {
         }
         Some(true)
     }
+}
+
+/// Ctrl+A, the key that selects every row, as it selects all of a text.
+pub(crate) fn select_all() -> KeyChord {
+    KeyChord { key: Key::Char('a'), mods: Modifiers { ctrl: true, ..Modifiers::default() } }
 }
 
 /// `rows` in their order.

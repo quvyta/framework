@@ -52,7 +52,7 @@ type CardBuilder<Msg> = Box<dyn Fn(&mut View<'_, Msg>, usize)>;
 /// Four capabilities make the cards work the way the icons of a file explorer do, each off until
 /// asked for: [`activate_on(Click::Double)`](Self::activate_on) selects on a click and activates
 /// on a double click; [`multi_select`](Self::multi_select) selects several cards with Ctrl+click,
-/// Shift+click and Space; [`box_select`](Self::box_select) draws a box from the free space between
+/// Shift+click, Shift+arrows, Ctrl+A and Space; [`box_select`](Self::box_select) draws a box from the free space between
 /// and after the cards and selects the cards it touches; [`droppable`](Self::droppable) drags the
 /// selection onto a card that takes it.
 ///
@@ -295,8 +295,9 @@ impl<Msg: 'static> CardGrid<Msg> {
     /// The card given to [`selected`](Self::selected) stays the one the keys move from, while
     /// every selected card takes the selected surface. Ctrl+click adds a card or takes it out,
     /// Shift+click selects the cards from the last plain or Ctrl click to this one in reading
-    /// order, Space adds or takes out the card the keys are on and a plain click selects that one
-    /// card. A right click on a selected card keeps the selection for its menu; on another card it
+    /// order; Shift with the arrows, PgUp/PgDn or Home/End extends that range the same way, Ctrl+A
+    /// selects every card, Space adds or takes out the card the keys are on, Esc reduces several
+    /// selected cards to that one, and a plain click or arrow selects that one card. A right click on a selected card keeps the selection for its menu; on another card it
     /// makes that card the selection first.
     #[must_use]
     pub fn multi_select(mut self, selected: &[usize], message: impl Fn(Vec<usize>) -> Msg + 'static) -> Self {
@@ -453,6 +454,15 @@ impl<Msg: 'static> CardGrid<Msg> {
             (Key::Home, Step::Home),
             (Key::End, Step::End),
         ];
+        let extend = |cx: &mut EventCx<'_, Msg>, plain: &crate::event::KeyEvent| {
+            let step = steps.into_iter().find(|(k, _)| plain.is_plain(*k)).map(|(_, step)| step)?;
+            let current = self.current(cx);
+            Some(cx.memory::<GridMemory>().layout.step(step, current))
+        };
+        if self.picking.selection_key(cx, key, self, self.count, extend) {
+            cx.memory::<GridMemory>().pointed = false;
+            return true;
+        }
         let step = steps.into_iter().find(|(k, _)| key.is_plain(*k)).map(|(_, step)| step);
         let activates = key.is_plain(Key::Enter) || key.is_plain(Key::Space);
         if step.is_none() && !activates {

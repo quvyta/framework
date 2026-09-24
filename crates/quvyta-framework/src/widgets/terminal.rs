@@ -256,6 +256,8 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
         cx.register_hit(area);
         cx.selectable(area);
         if !self.read_only {
+            // Every key is the program's, however fast it comes.
+            cx.takes_text();
             // Only a request: the watch resizes the pseudo-terminal off the drawing thread. A
             // view-only terminal does not ask: resizing is a write, and a screen left to be read
             // would be reflowed by the window it sits in changing size.
@@ -919,6 +921,41 @@ mod tests {
         assert_eq!(h.bg(20, 0), theme.color("surface"));
         h.press("tab");
         assert!(!h.press("x").screen().is_empty());
+    }
+
+    #[test]
+    fn keys_of_one_burst_all_reach_the_program() {
+        // Text sent through a terminal multiplexer or a slow connection arrives in one read:
+        // spaces and Enters come well within the 100 ms a held key is guessed from, and every
+        // one of them is text for the program.
+        // The program shows what it is given, control bytes visible: Enter as `^M`.
+        let script = "stty raw -echo; printf 'ready '; cat -v";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&session, "ready");
+        let mut h = Harness::new(Demo { session: session.clone() }, 40, 4);
+        h.press("tab");
+        assert!(h.is_focused("terminal"));
+        let burst: Vec<Event> =
+            ["a", "space", "b", "space", "c", "enter", "enter"].iter().map(|c| Event::Key(press(c))).collect();
+        h.events(&burst);
+        // A bounded wait: a key that never arrives must fail the test, not hang it.
+        let watch = session.watch();
+        let started = Instant::now();
+        while !session.parser().screen().contents().contains("ready a b c^M^M") {
+            let _ = watch.next_change_within(Duration::from_millis(200));
+            assert!(started.elapsed() < Duration::from_secs(10), "{:?}", session.parser().screen().contents());
+        }
+        session.kill();
+    }
+
+    #[test]
+    fn a_program_that_moves_with_hvp_and_draws_lines_lands_where_it_meant() {
+        // btop moves the cursor with HVP, ncdu draws boxes with the DEC line drawing set.
+        let script = "printf '\\033[3;5fdown\\033[1;1f\\033(0lqk\\033(B'";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        assert_eq!(run_to_exit(&session), Some(0));
+        let shown = session.parser().screen().contents();
+        assert!(shown.starts_with("┌─┐\n\n    down"), "{shown:?}");
     }
 
     #[test]

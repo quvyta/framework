@@ -11,7 +11,8 @@ use crate::keymap::{Key, KeyChord, Modifiers};
 use crate::widget::EventCx;
 
 use super::super::click::{Click, LastPress};
-use super::super::rows::{RowScroll, Step};
+use super::super::row_pointer::select_all;
+use super::super::rows::{RowScroll, SHIFT_STEPS, Step};
 use super::super::select_box::SelectBox;
 use super::{Flat, Tree};
 
@@ -202,16 +203,20 @@ impl<Msg: 'static> Tree<Msg> {
     }
 
     /// The selection keys of a multi-select tree: Shift with ↑/↓, PgUp/PgDn or Home/End extends
-    /// the range, Space adds or removes the cursor's row, Esc reduces several selected nodes to the
-    /// cursor's. True when used.
+    /// the range, Ctrl+A selects every row shown, Space adds or removes the cursor's row, Esc
+    /// reduces several selected nodes to the cursor's. True when used.
     pub(super) fn selection_key(&self, cx: &mut EventCx<'_, Msg>, key: &KeyEvent, flat: &[Flat<'_>]) -> bool {
         if !self.is_multi() || key.kind == KeyKind::Release {
             return false;
         }
         let current = self.selected_index(flat);
+        if key.chord == select_all() {
+            let keys = flat.iter().map(|row| row.node.key.clone()).collect();
+            self.choose(cx, keys);
+            return true;
+        }
         let shifted = Modifiers { shift: true, ..Modifiers::default() };
-        let steps = [Key::Up, Key::Down, Key::PageUp, Key::PageDown, Key::Home, Key::End];
-        if key.chord.mods == shifted && steps.contains(&key.chord.key) {
+        if key.chord.mods == shifted && SHIFT_STEPS.contains(&key.chord.key) {
             let plain = KeyEvent { chord: KeyChord { mods: Modifiers::default(), ..key.chord }, ..*key };
             let page = usize::from(cx.area().height);
             if let Some(target) = Step::from_key(&plain).and_then(|step| step.apply(current, flat.len(), page)) {

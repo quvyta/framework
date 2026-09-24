@@ -58,6 +58,8 @@ pub(crate) fn edit(editor: &mut Editor, event: &Event) -> bool {
 /// `placeholder`, and a steady block cursor (the field always has the keys while its layer
 /// is open).
 pub(crate) fn paint(cx: &mut PaintCx<'_>, rect: Rect, editor: &Editor, placeholder: &str) {
+    // A space typed into the filter is part of the query, however fast it comes.
+    cx.takes_text();
     let field = cx.style("layer-filter", None, &[]).text();
     cx.clear(rect, field.bg.unwrap_or_else(|| cx.color("raised")));
     let mark = cx.env().icons().glyph("search").into_owned();
