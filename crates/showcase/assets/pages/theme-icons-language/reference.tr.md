@@ -40,6 +40,7 @@
 
 - `t!("anahtar")`, `t!("anahtar", n = 3, name = değer)` — etkin dille çevirir.
 - `i18n.has(kod, anahtar)` — `kod` dilinin kendi dosyaları anahtarı içeriyor mu; etkin dile bakmaz, yedek dile düşmez, çoğul anahtarı da sayar. `i18n.missing_keys(kod, referans)` — `referans`ta olup `kod`da olmayan anahtarlar.
+- `qframe::i18n::active_code() -> String` — etkin dilin kodu (`tr`, `pt-BR`), `env.i18n().active()` ile aynı; `Env` olmayan `update`, `init` ve öteki `App` metotları için; `Command::set_locale`'i izler. Çalışma motorunun dışında `en`.
 - `Command::set_theme(id)`, `Command::set_locale(kod)`, `Command::set_icon_mode(IconMode::Ascii)`.
 - `env.theme()`, `env.themes()`, `env.icons()`, `env.icon_sets()`, `env.icon_mode()`, `env.glyph_mode()`, `env.i18n()`, `env.keymap()`, `env.diagnostics()`.
 - `Runtime::theme_dir`, `icon_dir`, `locale_dir`, `keymap_file` — dosyaları yoldan yükler.

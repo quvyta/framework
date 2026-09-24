@@ -8,7 +8,7 @@
 - `.pause(true)` — program bittikten sonra bir tuş bekler; varsayılan kapalı.
 - `Command::handoff(handoff)` — teslimi çalışma zamanından ister.
 - `HandoffOutcome::Finished { code: Option<i32> }`, `HandoffOutcome::Failed(String)`.
-- `Harness::handoffs() -> &[HandoffRequest]` — istenenler, en eskisi başta; `HandoffRequest` içinde `program`, `args`, `notice` ve `pause`.
+- `Harness::handoffs() -> &[HandoffRequest]` — istenenler, en eskisi başta; `HandoffRequest` içinde `program`, `args`, `dir` (`.dir`'in verdiği çalışma klasörü, verilmezse `None`), `notice` ve `pause`.
 - `Harness::set_handoff_outcome(outcome)` — o andan sonraki her teslimin yanıtı; verilmezse `Finished { code: Some(0) }`.
 - `DetachedHandoff::new(program, |DetachedOutcome| msg)` — ilk satırına kadar terminalin sahibi olan bir program; teslim gibi `.arg`, `.args`, `.dir`, `.env`, `.notice` ve `.pause` alır (`pause` yalnızca program ilk satırı yazmadan bittiyse bekler).
 - `.on_line(|ChildLine| msg)` — programın sonraki satırları mesaj olarak; verilmezse okunup atılır.
@@ -24,7 +24,7 @@
 - `Open::arg(arg)`, `Open::args(args)`, `Open::dir(yol)`, `Open::env(anahtar, değer)` — teslimdeki gibidir.
 - `Open::answer(|outcome| mesaj)` — isteğe bağlı; verilmezse hiçbir şey iletilmez.
 - `OpenOutcome::Opened` — program, verilen şeyle başlatıldı. `OpenOutcome::Failed(sebep)` — hiç başlatılamadı.
-- `OpenRequest { program, args, target }` — bir `Harness`'ın kaydettiği; `target`, `Open::new`'e verilen şeydir ve `Open::program`'dan sonra `None`'dır.
+- `OpenRequest { program, args, target, dir }` — bir `Harness`'ın kaydettiği; `target`, `Open::new`'e verilen şeydir ve `Open::program`'dan sonra `None`'dır; `dir`, `Open::dir`'in verdiği çalışma klasörüdür, verilmezse `None`.
 - `Harness::opens() -> &[OpenRequest]`, `Harness::set_open_outcome(outcome)` — verilmezse `Opened`.
 ## Davranış
 

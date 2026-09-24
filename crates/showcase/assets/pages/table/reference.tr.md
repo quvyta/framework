@@ -8,6 +8,11 @@
 - `.empty_text(metin)` — satır yokken başlığın altında görünür.
 - `.context_menu(|index| Vec<ContextItem<Msg>>)` — her satıra kendi menüsünü verir; menü, açıldığı satır için kurulur.
 - `.menu_on_activate(bool)` — Enter ve tık `on_activate` göndermek yerine satırın menüsünü açar; boş menü hiçbir şey açmaz. Varsayılan kapalı.
+- `.activate_on(Click::Single | Click::Double)` — varsayılanı `Single`: tık seçer ve etkinleştirir. `Double` ile tık yalnızca seçer, aynı satıra `Click::INTERVAL` (400 ms) içinde ikinci basış onu etkinleştirir; Enter her iki durumda da etkinleştirir.
+- `.multi_select(&seçili, |satırlar| mesaj)` — birden çok satır birlikte seçilir: Ctrl+tık satırı ekler ya da çıkarır, Shift+tık aralık seçer, Space imlecin satırını ekler ya da çıkarır; `satırlar` her zaman seçimin yeni halinin tamamıdır, `.selected(..)` imleçtir. Seçili satırlar seçim tonunu paylaşır, çubuğu yalnızca imlecin satırı taşır.
+- `.box_select(bool)` — `multi_select` ile, satırların altındaki boş yerden sürüklemek `text-selection` tonunda bir alan çizer, kapladığı satırlar seçim olur ya da basarken Ctrl basılıysa seçime eklenir; orada tıklamak seçimi bırakır.
+- `.droppable(|bırakma| mesaj, |sıra| kabul)` — basılan satır ya da içinde olduğu seçim, `kabul`ün evet dediği bir satırın üstüne sürüklenir; o satır `tree-drop` tonunu alır. `bırakma` bir `RowDrop { rows, into }`'dur. Başka bir yerde bırakmak hiçbir şey yapmaz. `Click::Single` ile satır bu durumda bırakırken etkinleşir, böylece sürüklemeye dönen basış hiçbir şeyi etkinleştirmez.
+- `.on_copy_drop(|bırakma| mesaj)` — Ctrl basılıyken yapılan bırakma, taşıma yerine bununla kopyalama ister.
 - `Column::new(başlık)`, `.width(ColumnWidth::Fixed(n) | Fit | Fill(ağırlık))`, `.min(hücre)`, `.align(Align)`, `.sortable(bool)`.
 - `TableRow::new(hücreler)`, `.faint(bool)`; `TableCell::new(metin)`, `.icon(glif, renk)`, `.color(token)`; metinler hücreye dönüşür. `glif` bir ikon anahtarı (`"dot"`, `Glyph::key(..)`) ya da `Glyph::literal(..)` olur; glif, bir boşluk ve metin olarak çizilir. `Some(token)` ile o renkte, `None` ile `muted` çizilir ve satır seçiliyken satırın metin rengini alır. Kesme yalnızca metne uygulanır.
 - `SortDirection::Ascending | Descending`, `.reversed()`.

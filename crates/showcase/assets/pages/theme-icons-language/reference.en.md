@@ -40,6 +40,7 @@
 
 - `t!("key")`, `t!("key", n = 3, name = value)` — translate with the active language.
 - `i18n.has(code, key)` — whether the files of language `code` carry `key` themselves; it ignores the active language, does not follow fallbacks, and counts a plural key. `i18n.missing_keys(code, reference)` — the keys `reference` has and `code` lacks.
+- `qframe::i18n::active_code() -> String` — the code of the active language (`tr`, `pt-BR`), the same as `env.i18n().active()`, for `update`, `init` and the other `App` methods where there is no `Env`; follows `Command::set_locale`. `en` outside the runtime.
 - `Command::set_theme(id)`, `Command::set_locale(code)`, `Command::set_icon_mode(IconMode::Ascii)`.
 - `env.theme()`, `env.themes()`, `env.icons()`, `env.icon_sets()`, `env.icon_mode()`, `env.glyph_mode()`, `env.i18n()`, `env.keymap()`, `env.diagnostics()`.
 - `Runtime::theme_dir`, `icon_dir`, `locale_dir`, `keymap_file` — load files from paths.

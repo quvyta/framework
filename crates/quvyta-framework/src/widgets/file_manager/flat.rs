@@ -19,7 +19,9 @@ use crate::text;
 use crate::widget::{Align, Length, MeasureCx, PaintCx, View, Widget};
 
 use super::super::delayed::DelayedIndicator;
-use super::super::{CardGrid, Column, ColumnWidth, ContextItem, Span, SpinnerStyle, Table, TableCell, TableRow, Text};
+use super::super::{
+    CardGrid, Column, ColumnWidth, ContextItem, RowDrop, Span, SpinnerStyle, Table, TableCell, TableRow, Text, TreeDrop,
+};
 use super::state::ROOT;
 use super::{FileManager, FileManagerMsg, child_key, root_name};
 
@@ -101,12 +103,18 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         (icon, tone, self.disabled || cut || mark.is_faint())
     }
 
-    /// What a flat view's rows are selected and checked, as the widgets count them.
-    fn flat_selection(&self, rows: &[FlatRow]) -> (Option<usize>, Vec<bool>) {
+    /// Which of a flat view's rows the cursor is on and which are selected, as the widgets count
+    /// them.
+    fn flat_selection(&self, rows: &[FlatRow]) -> (Option<usize>, Vec<usize>) {
         let state = self.state;
         let selected = state.selected().and_then(|cursor| rows.iter().position(|row| row.key == cursor));
-        let checked = rows.iter().map(|row| !row.itself && state.chosen().contains(&row.key)).collect();
-        (selected, checked)
+        let chosen = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| !row.itself && state.chosen().contains(&row.key))
+            .map(|(index, _)| index)
+            .collect();
+        (selected, chosen)
     }
 
     /// The message a flat row's activation sends: the folder row steps out of the folder, another
@@ -130,8 +138,8 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         Wiring {
             keys: rows.iter().map(|row| row.key.clone()).collect(),
             activations: rows.iter().map(|row| self.flat_activate(row)).collect(),
-            chosen: self.state.chosen().to_vec(),
             itself: rows.iter().map(|row| row.itself).collect(),
+            folders: rows.iter().map(|row| row.folder && !row.itself).collect(),
         }
     }
 
@@ -168,16 +176,22 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         if self.disabled {
             return table;
         }
-        let (selected, checked) = self.flat_selection(rows);
+        let (selected, chosen) = self.flat_selection(rows);
         let wiring = self.flat_wiring(rows);
-        let (select, activate, toggle) = (wiring.clone(), wiring.clone(), wiring.clone());
-        let (wrap, choose) = (Rc::clone(&self.wrap), Rc::clone(&self.wrap));
+        let [select, activate, choose, drop, copy, accepts] = std::array::from_fn(|_| wiring.clone());
+        let [wrap, choosing, dropping, copying] = std::array::from_fn(|_| Rc::clone(&self.wrap));
         table
             .selected(selected)
-            .checked(checked)
+            .activate_on(self.open_on)
+            .multi_select(&chosen, move |indexes| choosing(FileManagerMsg::Choose(choose.keys_of(&indexes))))
+            .box_select(true)
+            .droppable(
+                move |dropped| dropping(FileManagerMsg::Drop(drop.drop(&dropped))),
+                move |index| accepts.takes_drop(index),
+            )
+            .on_copy_drop(move |dropped| copying(FileManagerMsg::DropCopy(copy.drop(&dropped))))
             .on_select(move |index| select.select(index, &wrap))
             .on_activate(move |index| activate.activate(index))
-            .on_toggle(move |index| choose(FileManagerMsg::Choose(toggle.toggled(index))))
             .context_menu(self.flat_menu(rows))
     }
 
@@ -209,15 +223,21 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         if self.disabled {
             return grid;
         }
-        let (selected, checked) = self.flat_selection(rows);
+        let (selected, chosen) = self.flat_selection(rows);
         let wiring = self.flat_wiring(rows);
-        let (select, activate, toggle) = (wiring.clone(), wiring.clone(), wiring.clone());
-        let (wrap, choose) = (Rc::clone(&self.wrap), Rc::clone(&self.wrap));
+        let [select, activate, choose, drop, copy, accepts] = std::array::from_fn(|_| wiring.clone());
+        let [wrap, choosing, dropping, copying] = std::array::from_fn(|_| Rc::clone(&self.wrap));
         grid.selected(selected)
-            .checked(checked)
+            .activate_on(self.open_on)
+            .multi_select(&chosen, move |indexes| choosing(FileManagerMsg::Choose(choose.keys_of(&indexes))))
+            .box_select(true)
+            .droppable(
+                move |dropped| dropping(FileManagerMsg::Drop(drop.drop(&dropped))),
+                move |index| accepts.takes_drop(index),
+            )
+            .on_copy_drop(move |dropped| copying(FileManagerMsg::DropCopy(copy.drop(&dropped))))
             .on_select(move |index| select.select(index, &wrap))
             .on_activate(move |index| activate.activate(index))
-            .on_toggle(move |index| choose(FileManagerMsg::Choose(toggle.toggled(index))))
             .context_menu(self.flat_menu(rows))
     }
 
@@ -265,8 +285,9 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
 struct Wiring<Msg> {
     keys: Vec<String>,
     activations: Vec<Msg>,
-    chosen: Vec<String>,
     itself: Vec<bool>,
+    /// Whether each row is a folder other than the shown one, which is what takes a drop.
+    folders: Vec<bool>,
 }
 
 impl<Msg: Clone> Clone for Wiring<Msg> {
@@ -274,8 +295,8 @@ impl<Msg: Clone> Clone for Wiring<Msg> {
         Self {
             keys: self.keys.clone(),
             activations: self.activations.clone(),
-            chosen: self.chosen.clone(),
             itself: self.itself.clone(),
+            folders: self.folders.clone(),
         }
     }
 }
@@ -295,20 +316,25 @@ impl<Msg: Clone> Wiring<Msg> {
             .unwrap_or_else(|| self.activations.first().cloned().expect("a flat view always has the folder's own row"))
     }
 
-    /// The selection after row `index` was checked or unchecked. The folder's own row is not an
-    /// entry, so it is never part of the selection.
-    fn toggled(&self, index: usize) -> Vec<String> {
-        let mut chosen = self.chosen.clone();
-        let Some(key) = self.keys.get(index).filter(|_| self.itself.get(index) == Some(&false)) else {
-            return chosen;
-        };
-        match chosen.iter().position(|held| held == key) {
-            Some(at) => {
-                chosen.remove(at);
-            }
-            None => chosen.push(key.clone()),
-        }
-        chosen
+    /// The keys of the rows `indexes`, the selection a widget reports. The folder's own row is not
+    /// an entry, so it is never part of the selection, even when a box covers it.
+    fn keys_of(&self, indexes: &[usize]) -> Vec<String> {
+        indexes
+            .iter()
+            .filter(|index| self.itself.get(**index) == Some(&false))
+            .filter_map(|index| self.keys.get(*index).cloned())
+            .collect()
+    }
+
+    /// Whether row `index` takes a drop: a folder, but not the shown one, which is where every
+    /// row of the view already is.
+    fn takes_drop(&self, index: usize) -> bool {
+        self.folders.get(index).copied().unwrap_or(false)
+    }
+
+    /// The entries a widget's drop moves, and the folder they go into.
+    fn drop(&self, dropped: &RowDrop) -> TreeDrop {
+        TreeDrop { keys: self.keys_of(&dropped.rows), into: self.keys.get(dropped.into).cloned() }
     }
 }
 

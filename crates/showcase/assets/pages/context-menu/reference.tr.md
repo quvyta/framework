@@ -6,6 +6,7 @@
 - `ContextItem::gap()` — gruplar arasında boş satır.
 - `.icon(anahtar)` — etiketin önünde ikon.
 - `.shortcut(etiket)` — sağ kenarda silik tuş etiketi (yalnızca gösterim).
+- `.detail(metin)` — sağda, sönük tonda kısa not; kısayoldan ya da alt menü okundan önce durur, pasif satırda da çizilir; örneğin satırın neden kullanılamadığı. Menü notu sığdıracak kadar genişler; dar alanda etiketten önce kesilir, dört hücrenin altında hiç gösterilmez.
 - `.disabled(bool)` — soluk çizilir, klavye atlar. Varsayılan: `false`.
 - `.danger(bool)` — tehlike rengiyle çizilir. Varsayılan: `false`.
 
@@ -22,7 +23,7 @@
 
 - `context-menu` — `bg` (varsayılan `$overlay`).
 - `hover` (`bg`, `fg`, `pillar`) ve `disabled` ile `context-item`; `hover` ile `context-item.danger`.
-- Satırın `hover` ve `disabled` durumlarıyla `context-item-shortcut` ve `context-item-chevron`; yerleşik tema `hover` durumunda yalnızca oku parlatır.
+- Satırın `hover` ve `disabled` durumlarıyla `context-item-shortcut`, `context-item-chevron` ve `context-item-detail`; yerleşik tema üçünü de `$muted` ile çizer ve `hover` durumunda yalnızca oku parlatır.
 
 ## İkonlar
 

@@ -47,7 +47,7 @@ Tarayıcıda açılan bir bağlantı, görüntüleyicide açılan bir PDF, bir d
 1. Söylenecek bir şey yoksa kısa yol: `Command::open("https://quvyta.com/guide")`. Bir adres, bir dosya ya da bir klasör alır ve bu masaüstünün açıcısına verir: `xdg-open`, macOS'te `open`, Windows'ta `start`.
 2. Cevaplı hâli: `Command::open_with(Open::new(adres).answer(Msg::Opened))`. `OpenOutcome::Opened`, hedefin açıcıya verildiğini söyler; `OpenOutcome::Failed(sebep)` ise hiçbir şeyin başlatılamadığını, çünkü bu masaüstünde kurulu bir açıcı olmadığını.
 3. Açıcı yerine kendi programın: `Open::program("gimp").arg(yol)`; `.dir(...)` ve `.env(anahtar, değer)` teslimdeki gibidir.
-4. Testlerde `harness.opens()` ne istendiğini gösterir, `harness.set_open_outcome(...)` onu cevaplar; testten masaüstüne hiçbir zaman ulaşılmaz. `OpenRequest::target` açılması istenen şeydir, böylece test, koşan makinenin hangi açıcıya sahip olduğunu bilmeden adresi okur.
+4. Testlerde `harness.opens()` ne istendiğini gösterir, `harness.set_open_outcome(...)` onu cevaplar; testten masaüstüne hiçbir zaman ulaşılmaz. `OpenRequest::target` açılması istenen şeydir, böylece test, koşan makinenin hangi açıcıya sahip olduğunu bilmeden adresi okur; `OpenRequest::dir` ve `HandoffRequest::dir` programın başlayacağı çalışma klasörüdür.
 
 **`Opened`, kişinin bir şey gördüğünün sözü değildir.** Hedef açıcıya verilir ve terminalin bilebileceği yer orada biter: tarayıcı zaten açık olabilir, dosya türünün bir karşılığı olmayabilir, pencere başka bir pencerenin arkasında açılabilir. "Tarayıcında açıldı" derken adresi de göster; masaüstü hiçbir şey yapmamış olan kişi onu yine de okuyabilsin.
 

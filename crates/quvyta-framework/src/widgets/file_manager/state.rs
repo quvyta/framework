@@ -189,6 +189,9 @@ pub enum FileManagerMsg {
     DropCut,
     /// Entries were dragged onto a folder, or onto the free space that stands for the root.
     Drop(TreeDrop),
+    /// Entries were dragged onto a folder with Ctrl held at the release, to be copied there. What
+    /// was copied stays where it is.
+    DropCopy(TreeDrop),
     /// The entry of this key was asked to be deleted, with the rest of the selection when it is
     /// part of it; the person is asked first.
     Delete(String),
@@ -372,6 +375,9 @@ pub struct FileManagerState {
     pub(super) live: Live,
     /// Counts the watches started, so a batch of one that was let go is recognised.
     pub(super) runs: u64,
+    /// Whether a view that shows details asked for them, so a folder read again on the
+    /// application's word asks for its page again without waiting for a key.
+    details_wanted: bool,
     /// How long one wait for outside changes may last; `None` waits until something changes.
     pub(super) patience: Option<std::time::Duration>,
 }
@@ -407,6 +413,7 @@ impl FileManagerState {
             naming: None,
             live: Live::Off,
             runs: 0,
+            details_wanted: false,
             patience: None,
         }
     }
@@ -1016,6 +1023,13 @@ impl FileManagerState {
         keys.into_iter().skip(start).take(PAGE).filter(|key| !self.has_details(key)).collect()
     }
 
+    /// A folder that was just read, when it is the one shown and a view asked for details before,
+    /// asks for its page at once. The view asks when the person is quiet, which a read the
+    /// application started does not end, so without this the rows would stay bare until a key.
+    fn details_again<Msg: Clone + Send + 'static>(&mut self, key: &str, wrap: &Wrap<Msg>) -> Command<Msg> {
+        if self.details_wanted && key == self.shown { self.read_page(key, wrap) } else { Command::none() }
+    }
+
     /// The page of [`detail_page`](Self::detail_page), for the manager's own asking.
     pub(super) fn read_page<Msg: Clone + Send + 'static>(&mut self, folder: &str, wrap: &Wrap<Msg>) -> Command<Msg> {
         let page = self.detail_gaps(folder);
@@ -1093,11 +1107,11 @@ impl FileManagerState {
             }
             FileManagerMsg::Read(key, entries) => {
                 self.take_read(&key, entries);
-                Command::none()
+                self.details_again(&key, wrap)
             }
             FileManagerMsg::Listed(key, entries) => {
                 self.take_read(&key, entries.map_err(|problem| problem.message()));
-                Command::none()
+                self.details_again(&key, wrap)
             }
             FileManagerMsg::NewFile(folder) => self.ask_name(NameFor::File, folder, String::new(), wrap),
             FileManagerMsg::NewFolder(folder) => self.ask_name(NameFor::Folder, folder, String::new(), wrap),
@@ -1129,6 +1143,9 @@ impl FileManagerState {
             }
             FileManagerMsg::Drop(TreeDrop { keys, into }) => {
                 self.move_all(outermost(keys), into.unwrap_or_default(), wrap)
+            }
+            FileManagerMsg::DropCopy(TreeDrop { keys, into }) => {
+                self.copy_all(outermost(keys), into.unwrap_or_default(), wrap)
             }
             FileManagerMsg::Delete(key) => self.ask_delete(self.targets(&key), wrap),
             FileManagerMsg::DeleteConfirmed(keys) => {
@@ -1175,7 +1192,10 @@ impl FileManagerState {
                 self.selected = Some(left);
                 command
             }
-            FileManagerMsg::Detail(keys) => self.read_details(keys, wrap),
+            FileManagerMsg::Detail(keys) => {
+                self.details_wanted = true;
+                self.read_details(keys, wrap)
+            }
             FileManagerMsg::Detailed(read) => {
                 for (key, details) in read {
                     self.reading.remove(&key);

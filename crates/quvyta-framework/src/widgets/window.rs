@@ -5,13 +5,12 @@ use crate::color::{ColorDepth, Rgb};
 use crate::event::{Event, MouseButton, MouseEvent, MouseKind};
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::icons::Glyph;
-use crate::runtime::MULTI_PRESS;
 use crate::style::CellStyle;
 use crate::text;
 use crate::theme::State;
 use crate::widget::{Axis, Container, EventCx, Flex, Length, MeasureCx, Node, PaintCx, Widget};
 
-use super::close_mark;
+use super::{click, close_mark};
 
 /// Cells the marks take at the right end of the title row: minimize, maximize and close.
 const MARKS: u16 = close_mark::WIDTH * 3;
@@ -376,7 +375,7 @@ impl<Msg: 'static> Window<Msg> {
             (_, MouseButton::Left, Part::Mark(mark)) => Grab::Mark(mark),
             (_, MouseButton::Left, Part::Handle(edge)) => Grab::Resize { button, edge, last: at },
             (_, MouseButton::Left, Part::Title) => {
-                if memory.title_press.is_some_and(|last| now.saturating_sub(last) < MULTI_PRESS) {
+                if memory.title_press.is_some_and(|last| click::is_double(last, now)) {
                     memory.title_press = None;
                     memory.grab = None;
                     cx.capture_pointer();

@@ -96,6 +96,8 @@ Bir dil sözcüklerinden ibaret değildir. Bir sayının ondalıklarını nereye
 
 `Command::set_theme`, `Command::set_locale` ve `Command::set_icon_mode` her şeyi yeniden başlatmadan bir anda değiştirir. Ayarlar ekranının listeleri `env.themes()` ve `env.i18n().list()`'ten gelir. Seçimi kaydetmek uygulamanın işidir.
 
+Görünüm etkin dili `ui.env().i18n().active()` ile okur. `Env` olmayan `update`, `init` ve öteki `App` metotlarında `qframe::i18n::active_code()` aynı kodu verir (`tr`, `pt-BR`), bir `Command::set_locale`'in hemen ardından da: dil dosyası olmayan bir kaynaktan metin seçmek için kullan, örneğin bir masaüstü veritabanının birçok dilde taşıdığı açıklamalar.
+
 ## Sık yapılan hatalar
 
 - **Bileşenlerde renk sabitlemek.** Değişken kullan; koddaki bir hex değeri temayı takip etmez.

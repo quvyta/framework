@@ -447,6 +447,26 @@ pub fn translate_active(key: &str, args: &[(&str, Arg)]) -> String {
     })
 }
 
+/// The code of the active language of the translator installed by [`scope`], as
+/// [`I18n::active`] gives it: `tr`, `pt-BR`. Outside a scope it is `en`, the language every key
+/// falls back to.
+///
+/// The runtime installs the translator around `init`, `update` and the other [`App`](crate::runtime::App)
+/// methods, so `update` reads the same code the view sees in `ui.env().i18n().active()`, also
+/// after a `Command::set_locale` has switched the language.
+///
+/// ```
+/// let mut i18n = qframe::i18n::I18n::builtin();
+/// assert!(i18n.set_active("tr"));
+/// let code = qframe::i18n::scope(std::sync::Arc::new(i18n), qframe::i18n::active_code);
+/// assert_eq!(code, "tr");
+/// ```
+#[must_use]
+pub fn active_code() -> String {
+    ACTIVE
+        .with(|active| active.borrow().as_ref().map_or_else(|| ROOT_LOCALE.to_owned(), |i18n| i18n.active().to_owned()))
+}
+
 /// The first day of the week of the translator installed by [`scope`], as
 /// [`I18n::first_weekday`] gives it: from the region when one is known, from the language
 /// otherwise. Outside a scope it is Monday.

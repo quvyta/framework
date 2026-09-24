@@ -103,7 +103,12 @@ impl<Msg: Send + 'static> Open<Msg> {
 
     /// What a test sees of this opening.
     pub(crate) fn request(&self) -> OpenRequest {
-        OpenRequest { program: self.program.clone(), args: self.args.clone(), target: self.target.clone() }
+        OpenRequest {
+            program: self.program.clone(),
+            args: self.args.clone(),
+            target: self.target.clone(),
+            dir: self.dir.clone(),
+        }
     }
 
     /// The message of `outcome`, for a harness that never starts the program.
@@ -173,6 +178,9 @@ pub struct OpenRequest {
     /// What [`Open::new`] was given, so a test can read the address or the path without knowing
     /// which opener this system has. `None` after [`Open::program`].
     pub target: Option<OsString>,
+    /// The working folder [`Open::dir`] gave; `None` when the program starts in the application's
+    /// own.
+    pub dir: Option<PathBuf>,
 }
 
 /// The opener of this desktop and the arguments that give it `target`.
@@ -212,6 +220,9 @@ mod tests {
         assert_eq!(request.program, OsString::from("gimp"));
         assert_eq!(request.args, ["--new-instance", "a.png", "b.png"].map(OsString::from));
         assert_eq!(request.target, None, "nothing was handed to an opener");
+        assert_eq!(request.dir, None, "without `dir` the program starts where the application runs");
+        let placed = Open::<OpenOutcome>::program("gimp").dir("/srv/pictures").request();
+        assert_eq!(placed.dir, Some(PathBuf::from("/srv/pictures")), "the folder is recorded");
     }
 
     #[test]

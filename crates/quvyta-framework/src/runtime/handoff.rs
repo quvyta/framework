@@ -90,6 +90,7 @@ impl Program {
         HandoffRequest {
             program: self.program.clone(),
             args: self.args.clone(),
+            dir: self.dir.clone(),
             notice: self.notice.clone(),
             pause: self.pause,
         }
@@ -182,6 +183,9 @@ pub struct HandoffRequest {
     pub program: OsString,
     /// Its arguments, in order.
     pub args: Vec<OsString>,
+    /// The working folder [`Handoff::dir`] gave; `None` when the program runs in the
+    /// application's own.
+    pub dir: Option<PathBuf>,
     /// The line [`Handoff::notice`] would have printed.
     pub notice: Option<String>,
     /// Whether [`Handoff::pause`] was turned on.
@@ -346,5 +350,8 @@ mod tests {
         assert_eq!(request.args, ["-c", "less /etc/hostname"].map(OsString::from));
         assert_eq!(request.notice.as_deref(), Some("Reading"));
         assert!(request.pause);
+        assert_eq!(request.dir, None, "without `dir` the program runs where the application does");
+        let placed = shell("exit 0").dir("/srv/notes").request();
+        assert_eq!(placed.dir, Some(PathBuf::from("/srv/notes")), "the folder is recorded");
     }
 }

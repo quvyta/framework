@@ -4,7 +4,7 @@ Use a context menu for actions on the thing under the pointer: restart a contain
 
 ## Step by step
 
-1. Build the items: `ContextItem::new(t!("restart"), Msg::Restart)`; add `.icon("…")`, `.shortcut("ctrl r")`, `.disabled(true)` or `.danger(true)` as needed.
+1. Build the items: `ContextItem::new(t!("restart"), Msg::Restart)`; add `.icon("…")`, `.shortcut("ctrl r")`, `.detail(t!("no-shell"))`, `.disabled(true)` or `.danger(true)` as needed.
 2. Group related actions with `ContextItem::gap()`, and nest with `ContextItem::submenu(t!("move"), [...])`.
 3. Wrap the area: `ui.add_with(ContextMenu::new(items), |ui| { … })`.
 4. Handle the messages in `update`, like any button's.
@@ -14,6 +14,7 @@ Use a context menu for actions on the thing under the pointer: restart a contain
 - **Right click opens it at the pointer**, one row under the clicked cell. Shift+F10 or the menu key opens it below the focused widget inside the area, with the first action highlighted.
 - **It is a layer on the overlay surface**, unfolding over `motion.enter`, flipping above or to the left when there is no room. Groups are separated by an empty row, never by a line.
 - **Rows behave like list rows.** The highlighted row raises its surface, shows the pillar and slides its label one cell; shortcuts and the submenu arrow stay at the right edge in the faint tone.
+- **A row can say why.** `.detail(…)` puts a short note on the right in the muted tone, before the shortcut or the arrow when there is one: a disabled row reads `Attach terminal   no shell in image` instead of being grey for no reason. The menu widens to fit the note; where the screen is too narrow the note is cut first, then left out, and the label stays whole.
 - **The keyboard stays inside.** ↑ and ↓ move and skip gaps and disabled rows, Home and End jump, a letter jumps to the next row starting with it, →, Enter or Space opens a submenu, ← or Esc closes it, Enter or Space chooses.
 - **The pointer works too.** Hovering a submenu row opens it; clicking a row chooses it, and a click on a gap or a disabled row does nothing. A press anywhere else closes the menu and still reaches what it landed on, so one click both dismisses the menu and does what you aimed at. A right click inside the area opens it again at the new place.
 - **Destructive actions are marked** with the danger colour and should carry an icon, so colour is never the only sign.
@@ -23,4 +24,5 @@ Use a context menu for actions on the thing under the pointer: restart a contain
 
 - **Actions only in the menu.** Give frequent actions a key or a button as well.
 - **Expecting the shortcut label to bind the key.** `.shortcut(…)` only shows it; bind it in the keymap.
+- **Putting a note in the shortcut slot.** `.shortcut(…)` is for key names; a reason goes in `.detail(…)`, which sits before the key.
 - **Deep nesting.** One level of submenus is plenty; more is hard to steer with a pointer in a terminal.

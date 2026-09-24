@@ -7,6 +7,25 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::XdgDirs;
 
+/// A kind's description as `update-mime-database` writes it: a comment with no language, one in
+/// Brazilian and one in plain Portuguese, a Turkish one with an entity, and a script subtag.
+pub(super) const MARKDOWN_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<mime-type xmlns="http://www.freedesktop.org/standards/shared-mime-info" type="text/markdown">
+  <!--Created automatically by update-mime-database. DO NOT EDIT!-->
+  <comment>Markdown document</comment>
+  <comment xml:lang="pt-BR">Documento Markdown</comment>
+  <comment xml:lang="pt">Documento Markdown (pt)</comment>
+  <comment xml:lang="tr">Markdown belgesi &amp; not</comment>
+  <comment xml:lang="sr-Cyrl">Маркдаун документ</comment>
+  <sub-class-of type="text/plain"/>
+  <glob pattern="*.md"/>
+</mime-type>
+"#;
+
+/// A description whose only comment is never closed, on line 2.
+pub(super) const UNCLOSED_XML: &str =
+    "<mime-type type=\"text/markdown\">\n  <comment>Markdown document\n</mime-type>\n";
+
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 /// A temporary folder holding a person's and a system's data and configuration folders.

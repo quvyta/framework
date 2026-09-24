@@ -14,13 +14,15 @@ Bir klasör uygulamanın konusunun parçasıysa dosya yöneticisi kullanılır: 
 2. Yönetici ekrana gelince kökü oku: `self.manager.load(Msg::Files)`, `init`'ten ya da ekrana girildiğinde. İlk seferinde kökü, sonrasında açık her klasörü yeniden okur.
 3. Her mesajı ona ver: `Msg::Files(m) => self.manager.update(m, Msg::Files)`. Okumalar ve dosya işlemleri arka planda çalışır; çizim onları beklemez.
 4. Çiz: `FileManager::new(&self.manager, Msg::Files).on_open(|yol| Msg::Open(yol.to_path_buf())).show(ui).fill()`.
-5. Yalnızca senin bildiğini ekle: "burada terminal aç" için `on_open_terminal`, satırın menüsündeki kendi öğelerin için `menu_items(|key, targets| …)`, bir girdinin senin için ne anlama geldiği için `row_mark(|key| …)`. Her dosyanın türü kişi için önemliyse `kind_icons(true)`; bir dosya yöneticisinde neredeyse her zaman önemlidir.
-6. Silinen girdinin nereye gideceğini söyle: kişinin kendi çöp kutusu için `.trashing()`, kalıcı silme için hiçbir şey. Nokta dosyalarını gösteren bir yönetici için `.showing_hidden(true)`.
-7. Başka programları takip etmek için durumda `.following(true)`, ya da yönetici ekrandayken `set_following(true)`, ekrandan çıkınca `false`.
+5. Fareyi olduğu gibi bırak: her masaüstü dosya gezgininde olduğu gibi tık seçer, çift tık açar. `open_on(Click::Single)`'ı yalnızca satırları hep açılan, hiç taşınmayan ve birlikte seçilmeyen bir seçici için iste.
+6. Yalnızca senin bildiğini ekle: "burada terminal aç" için `on_open_terminal`, satırın menüsündeki kendi öğelerin için `menu_items(|key, targets| …)`, bir girdinin senin için ne anlama geldiği için `row_mark(|key| …)`. Her dosyanın türü kişi için önemliyse `kind_icons(true)`; bir dosya yöneticisinde neredeyse her zaman önemlidir.
+7. Silinen girdinin nereye gideceğini söyle: kişinin kendi çöp kutusu için `.trashing()`, kalıcı silme için hiçbir şey. Nokta dosyalarını gösteren bir yönetici için `.showing_hidden(true)`.
+8. Başka programları takip etmek için durumda `.following(true)`, ya da yönetici ekrandayken `set_following(true)`, ekrandan çıkınca `false`.
 
 ## Nasıl çalışır
 
 - **Okuma hiçbir zaman çizim sırasında olmaz.** Bir klasör bir kez, tek cevapta okunur ve görünüm elde olandan kurulur. On bin girdi tek parça gelir ve bir kez çizilir; parça parça akıtılmaz, çünkü her yeniden çizim uzak bağlantıda yeni bir ekran demektir.
+- **Fare bir dosya gezgininin faresidir.** Tık yalnızca seçer, böylece bir sürüklemeyi ya da seçimi başlatmakta serbest kalır; çift tık — aynı girdiye 400 ms içinde iki basış — ya da Enter açar: dosyayı `on_open` ile, klasörü listede ve simgelerde içine girerek, ağaçta ise yerinde açarak. Ağaçta ok işareti ve ← → yine tek tıkla açıp kapatır. Ctrl+tık girdiyi seçime ekler ya da çıkarır, Shift+tık son tıklanandan buna kadar aralığı seçer, boş yerden başlayan sürükleme de bir alan çizer ve kapladığını seçer; Ctrl basılıysa var olan seçime ekler. Alan çerçeveyle değil, hücrelerin üstüne düşen bir tonla çizilir. Seçili bir girdiden başlayan sürükleme bütün seçimi taşır: bir klasörün üstünde bırakılırsa oraya taşınır, bırakırken Ctrl basılıysa kopyalanır; başka bir yerde bırakılırsa hiçbir şey olmaz. Ctrl'yi fare olayında bildirmeyen terminal düpedüz taşır ve klasörde zaten olan hiçbir şeyin üzerine yazılmaz.
 - **Düz görünüm tek klasör gösterir.** Liste ve simgeler `state.folder()`'ın söylediği klasörü gösterir; en üstte o klasörün kendi satırı durur: menüsü oradadır ve o satır klasörden çıkmanın yoludur, bir klasör satırı ise içine girer. Tuşlar, menüler ve bütün işlemler üç biçimde de aynıdır.
 - **Liste bir sayfa okur, klasörü değil.** Boyut, tarih ve izin, o tek girdi için sisteme bir çağrı daha demektir; bu yüzden liste imlecin çevresindeki iki yüz girdilik bir sayfayı ister ve geleni saklar. Ağaç ile simgeler hiçbir şey istemez. Hangi satırları çizdiğini tam olarak bilen bir uygulama onları `state.detail(anahtarlar, sar)` ile ister.
 - **Yalnızca görünen satırlar boyanır.** On bin girdilik klasör iki yüz girdilik klasör kadar tutar: ekrandaki satırlar, o kadar. Ağaç satırı boyut, tarih ya da izin diye hiçbir şey okumaz.
@@ -40,6 +42,7 @@ Bir klasör uygulamanın konusunun parçasıysa dosya yöneticisi kullanılır: 
 
 ## Tuzaklar
 
+- **Tıkı yakalayıp kendin açma.** Açan bir tık sürüklemeyi ya da seçimi başlatamaz; bir şeyin hemen açılması gerekiyorsa o `open_on(Click::Single)`'dır ve yönetici öteki hareketlerini onun etrafında çalışır tutar.
 - **Zamanlayıcıyla yeniden okuma.** Kendi işlemin bitince, yönetici ekrana dönünce ve bir izleme değişiklik dediğinde yenile.
 - **Dosyanın ne olduğuna karar verme.** Görüntüleyiciler ve programlar uygulamanın işidir; yönetici yalnızca yolu verir. Türe göre ikon bir görünüştür, içerik hakkında bir söz değil.
 - **Kendi tür tablonu çizme.** `file_kind`'a sor ya da `kind_icons`'ı aç; böylece bir Rust dosyası ekosistemin her uygulamasında aynı görünür. Bir türü işaretle değil, ikon kümesinde anahtar anahtar yeniden biçimlendir.

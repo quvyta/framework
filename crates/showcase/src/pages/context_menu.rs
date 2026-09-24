@@ -86,7 +86,7 @@ fn items(state: &State) -> Vec<ContextItem<AppMsg>> {
         action("logs", "file", "enter"),
         action("restart", "arrow-right", "ctrl r"),
         if state.paused { action("resume", "arrow-right", "") } else { action("pause", "dot-outline", "") },
-        action("attach", "prompt", "").disabled(true),
+        action("attach", "prompt", "").detail(t!("context-menu.attach-detail")).disabled(true),
     ];
     if state.submenu {
         items.push(ContextItem::submenu(
@@ -152,6 +152,21 @@ mod tests {
         h.mouse(MouseKind::Up(MouseButton::Right), x, y);
         h.click_text("Restart");
         assert!(h.screen().contains("restart"), "{}", h.screen());
+    }
+
+    #[test]
+    fn the_disabled_row_says_why_in_a_quiet_note() {
+        let mut h = showcase_on(PAGE);
+        h.set_reduced_motion(true);
+        let (x, y) = h.find("redis-cache").expect("list on screen");
+        h.mouse(MouseKind::Down(MouseButton::Right), x, y);
+        h.mouse(MouseKind::Up(MouseButton::Right), x, y);
+        let (x, y) = h.find("no shell in image").expect("the note is drawn");
+        let (label_x, label_y) = h.find("Attach terminal").expect("the label is drawn");
+        assert_eq!(y, label_y);
+        assert!(x > label_x, "the note sits right of the label");
+        let fg = h.fg(u16::try_from(x).unwrap(), u16::try_from(y).unwrap());
+        assert_eq!(fg, h.env().theme().color("muted"));
     }
 
     #[test]

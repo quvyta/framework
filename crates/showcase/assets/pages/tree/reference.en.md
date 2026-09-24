@@ -8,6 +8,9 @@
 - `.context_menu(|key| items)` — the `ContextItem`s of the node with that key.
 - `.multi_select(&selected, |keys| msg)` — several nodes can be selected; `selected` are their keys and `keys` is always the whole new selection. `.selected(..)` is the cursor.
 - `.droppable(|drop| msg, |key| accepts)` — dragged nodes drop into the nodes `accepts` says yes to; `drop` is a `TreeDrop` with `keys` (in tree order, without nodes inside another moving node) and `into` (`None` for the top level).
+- `.on_copy_drop(|drop| msg)` — a drop released with Ctrl held asks for a copy with this instead of the move; a terminal that does not report Ctrl with the pointer always moves.
+- `.activate_on(Click::Single | Click::Double)` — `Single` by default: a click selects and does what Enter does. With `Double` a click only selects and a second press on the same row within `Click::INTERVAL` (400 ms) opens, closes or activates it; the chevron, ← and → still open and close with one click.
+- `.box_select(bool)` — with `multi_select`, a drag from the free space below the rows draws a box in the `text-selection` tone and the rows it covers become the selection, or join it with Ctrl held at the press; a click there clears the selection.
 - `TreeNode::new(key, label)`, `.children(nodes)`, `.expanded(bool)`, `.expandable(bool)`, `.loading(bool)`.
 - `.icon(key, Some(token))`, `.detail(text)`, `.faint(bool)`.
 

@@ -12,12 +12,13 @@ use super::layout::Placed;
 use super::{MARK, SortDirection, Table, TableCell};
 
 /// What every row of one frame is painted with: whether the table has the focus, whether an
-/// activation is flashing, and which row's context menu is open.
+/// activation is flashing, which row's context menu is open and which row a drag would drop on.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct RowPaint {
     pub(super) focused: bool,
     pub(super) pressed: bool,
     pub(super) menu_row: Option<usize>,
+    pub(super) target: Option<usize>,
 }
 
 impl<Msg: 'static> Table<Msg> {
@@ -94,10 +95,23 @@ impl<Msg: 'static> Table<Msg> {
             None => cx.pointer().is_some_and(|(x, y)| rect.contains(x, y)),
         };
         let flashed = cx.memory::<RowScroll>().flashed == Some(index);
-        let states = rows::row_states(hovered, Some(index) == self.selected, frame.focused, frame.pressed && flashed);
-        let style = cx.style("list-item", row.faint.then_some("faint"), &states);
+        let cursor = Some(index) == self.selected;
+        let multi = self.picking.is_multi();
+        let selected = if multi { self.picking.is_chosen(index) } else { cursor };
+        // A cursor outside the selection of a multi-select table is raised like a hovered row, so
+        // the keys still show where they start; rows selected beside the cursor share its tone but
+        // neither its pillar nor its slide.
+        let hovered = hovered || (multi && cursor && !selected);
+        let pillar = !multi || cursor || hovered;
+        let states = rows::row_states(hovered, selected, frame.focused && cursor, frame.pressed && flashed);
+        let style = if frame.target == Some(index) {
+            cx.style("tree-drop", None, &[])
+        } else {
+            cx.style("list-item", row.faint.then_some("faint"), &states)
+        };
+        let style = if pillar { style } else { style.without("pillar") };
         let text_style = rows::paint_row(cx, rect, &style);
-        let shift = rows::slide(cx, &states);
+        let shift = if pillar { rows::slide(cx, &states) } else { 0 };
 
         // The check mark is a fixed mark: it keeps its column while the first cell slides.
         if let Some(checked) = &self.checked {
@@ -116,7 +130,6 @@ impl<Msg: 'static> Table<Msg> {
             } else {
                 (place.x, place.width)
             };
-            let selected = Some(index) == self.selected;
             Self::paint_cell(cx, cell, (x, rect.y), width, self.columns[place.column].align, text_style, selected);
         }
     }

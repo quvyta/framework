@@ -4,6 +4,57 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.23 - 2026-09-24
+
+### Changed
+
+- `FileManager`'s mouse works the way a desktop file explorer's does, in the tree, the list and
+  the icons. A click only selects, so it can start a drag or a selection instead of opening
+  something; a double click (two presses on one entry within `Click::INTERVAL`, 400 ms) or Enter
+  opens: a file through `on_open`, a folder by stepping into it or, in the tree, by opening or
+  closing it, where the chevron and ← → still do that with one click. Ctrl+click and Shift+click
+  select several in every view, a drag from the free space draws a box in the `text-selection`
+  tone that selects what it covers (adding to the selection with Ctrl), and a drag from the
+  selection onto a folder moves it there, or copies it when Ctrl is held at the release
+  (`FileManagerMsg::DropCopy`). A terminal that does not report Ctrl with the pointer moves; a
+  release anywhere but a folder does nothing; nothing is overwritten. The flat views show the
+  selection in the selection tone instead of a check beside each row. `open_on(Click::Single)`
+  keeps a click that opens.
+
+### Added
+
+- `Click::Single | Click::Double` and three layers for rows a pointer picks, each off until
+  asked for: `activate_on(Click)` on `Tree`, `Table` and `CardGrid`; `box_select(bool)` on the
+  three, a box drawn from the free space that selects the rows it covers; and `on_copy_drop` on
+  the three for a drop released with Ctrl held. `Table` and `CardGrid` gain `multi_select` (Ctrl
+  and Shift clicks, Space) and `droppable`, which answers with a `RowDrop { rows, into }`.
+- `qframe::i18n::active_code()`: the code of the active language (`tr`, `pt-BR`) where there is
+  no `Env`, in `update`, `init` and the other `App` methods. It is the code the view reads from
+  `env.i18n().active()`, also right after `Command::set_locale`, so an application can pick text
+  in the person's language from a source that is not a locale file.
+- `ContextItem::detail(text)`: a faint note on the right of a menu row, in the muted tone, that
+  says why an entry cannot be used (`bsdtar needed`). It sits before the shortcut or the submenu
+  arrow, is drawn on disabled rows too and has its own theme key, `context-item-detail`. The menu
+  widens to fit it; in a narrow space the note is cut before the label, and left out when fewer
+  than four cells remain.
+- `DesktopApp::launch` starts the program in the file's folder, for terminal and graphical
+  programs alike, as desktop file managers do: relative paths and "Save as" begin beside the file.
+  The harness records the folder: `HandoffRequest::dir` and `OpenRequest::dir` hold what
+  `Handoff::dir` and `Open::dir` gave, `None` without it.
+- `MimeDb::comment(mime, lang)`: what a kind of file is called in words ("Rust source code" for
+  `text/x-rust`), from the `<comment>` lines of shared-mime-info's `mime/<kind>.xml`, the
+  person's data folder first. An alias is followed to the kind's own name; the comment in `lang`
+  wins, then its base language (`pt` for `pt-BR`), then the one with no language.
+  `MimeDb::comment_with_diagnostics` also reports a broken file, which is skipped. The Open with
+  page of the showcase shows it above the type.
+
+### Fixed
+
+- A list the application reads again on its own word, after an archive is unpacked or a program
+  it handed the screen to returns, shows its rows' size, date and permissions again without
+  waiting for a key. The list asked for them only when the person was quiet, which such a read
+  does not end.
+
 ## 0.1.22 - 2026-09-24
 
 ### Added

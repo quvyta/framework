@@ -10,6 +10,8 @@
 - `db.sniff(yol) -> String` — klasör `inode/directory`, boru, soket ya da aygıt kendi `inode/*`'u; değilse ad, hiçbir desen tutmazsa ilk 4 KiB: `text/plain` ya da `application/octet-stream`.
 - `db.canonical(mime) -> String` — `mime` bir takma adsa türün kendi adı.
 - `db.ancestors(mime) -> Vec<String>` — önce `mime`, sonra genişlik öncelikli olarak onun çeşidi olduğu her tür; her `text/*` bir `text/plain`'dir, `inode/*` dışındakilerin hepsi `application/octet-stream` ile biter.
+- `db.comment(mime, dil) -> Option<String>` — türün sözle adı ("Rust kaynak kodu"); veri klasörlerindeki `mime/<tür>.xml` dosyasının `<comment>` satırlarından, önce kişininki. Önce takma ad izlenir; `dil`'deki yorum (`pt-BR`, `tr_TR.UTF-8`) kazanır, sonra dilin kökü (`pt`), sonra dilsiz olan. XML karakter göndermeleri çözülür. Türü hiçbir klasör anlatmıyorsa `None`.
+- `db.comment_with_diagnostics(mime, dil, &mut Vec<Diagnostic>) -> Option<String>` — aynısı; UTF-8 olmayan, kapanmayan bir `<comment>` taşıyan ya da düzenli dosya olmayan her dosya için bir tanı ekler. Böyle dosya atlanır, daha az önemli bir klasör yine cevap verebilir.
 - `db.diagnostics() -> &[Diagnostic]`.
 
 ## Programlar
@@ -30,7 +32,7 @@
 
 - `graphical_session(arama) -> bool` — `DISPLAY` ya da `WAYLAND_DISPLAY` dolu.
 - `app.can_start(grafik) -> bool` — terminal programı her zaman, grafik program yalnızca grafik oturumda açılır.
-- `app.launch(&Path, grafik, bitince) -> Result<Command<Msg>, LaunchError>` — terminal programı için `Handoff`, grafik program için `Open::program`.
+- `app.launch(&Path, grafik, bitince) -> Result<Command<Msg>, LaunchError>` — terminal programı için `Handoff`, grafik program için `Open::program`; ikisi de dosyanın klasöründe çalışır, test koşumu bunu `dir` olarak kaydeder.
 - `Launched::Returned { code }`, `Launched::Started`, `Launched::Failed(sebep)`.
 - `LaunchError::NoGraphicalSession`, `LaunchError::NoCommand`.
 
@@ -40,4 +42,4 @@
 - `Type=Application` olmayan ve `Hidden=true` girdiler kimliklerini alır ama program sunmaz. `NoDisplay` programlar kalır: dosya açmaya devam ederler.
 - Bir dosyanın kendi `[Removed Associations]`'ı kendi eklemelerini geri almaz; daha az önemli dosyaların eklediğini ve girdilerin saydığını çıkarır.
 - Yalnızca 16 MiB'a kadar düzenli dosyalar okunur; veritabanı adını taşıyan bir boru hiçbir şeyi bekletmez.
-- İkili `magic` kuralları ve XML açıklamaları okunmaz. Hiçbir şey yazılmaz.
+- İkili `magic` kuralları okunmaz; XML açıklamalarından yalnızca `<comment>` satırları, satır satır ve XML ayrıştırıcısı olmadan okunur. Hiçbir şey yazılmaz.

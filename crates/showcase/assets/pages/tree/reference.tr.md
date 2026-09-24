@@ -8,6 +8,9 @@
 - `.context_menu(|anahtar| öğeler)` — o anahtarlı düğümün `ContextItem`'ları.
 - `.multi_select(&seçili, |anahtarlar| mesaj)` — birden çok düğüm seçilebilir; `seçili` onların anahtarlarıdır, `anahtarlar` her zaman seçimin yeni halinin tamamıdır. `.selected(..)` imleçtir.
 - `.droppable(|bırakma| mesaj, |anahtar| kabul)` — sürüklenen düğümler `kabul`ün evet dediği düğümlere bırakılır; `bırakma`, `keys` (ağaçtaki sırasıyla, taşınan başka bir düğümün içindekiler hariç) ve `into` (en üst seviye için `None`) taşıyan bir `TreeDrop`'tur.
+- `.on_copy_drop(|bırakma| mesaj)` — Ctrl basılıyken yapılan bırakma, taşıma yerine bununla kopyalama ister; Ctrl'yi fare olayında bildirmeyen terminal her zaman taşır.
+- `.activate_on(Click::Single | Click::Double)` — varsayılanı `Single`: tık seçer ve Enter'ın yaptığını yapar. `Double` ile tık yalnızca seçer, aynı satıra `Click::INTERVAL` (400 ms) içinde ikinci basış onu açar, kapatır ya da etkinleştirir; ok işareti, ← ve → yine tek tıkla açıp kapatır.
+- `.box_select(bool)` — `multi_select` ile, satırların altındaki boş yerden sürüklemek `text-selection` tonunda bir alan çizer, kapladığı satırlar seçim olur ya da basarken Ctrl basılıysa seçime eklenir; orada tıklamak seçimi bırakır.
 - `TreeNode::new(anahtar, etiket)`, `.children(düğümler)`, `.expanded(bool)`, `.expandable(bool)`, `.loading(bool)`.
 - `.icon(anahtar, Some(token))`, `.detail(metin)`, `.faint(bool)`.
 

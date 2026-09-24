@@ -9,7 +9,8 @@
 //!   application, a fake tree in a test, so no test ever reads the machine's own databases.
 //! - [`MimeDb`] tells what a file is: from its name ([`MimeDb::guess`]), from its first 4 KiB when
 //!   the name says nothing ([`MimeDb::sniff`]), and what else it is a case of
-//!   ([`MimeDb::ancestors`]: Rust source is plain text).
+//!   ([`MimeDb::ancestors`]: Rust source is plain text), and what it is called in words in the
+//!   person's language ([`MimeDb::comment`]: "Rust source code").
 //! - [`Apps`] lists the programs for a kind and the one to use; [`Openers::for_file`] answers both
 //!   for one file as [`Choices`].
 //! - [`DesktopApp::command`] gives the command line, never handed to a shell;
@@ -22,10 +23,11 @@
 //! defaults are their desktop's setting.
 //!
 //! Not read, on purpose: the binary `magic` rules of shared-mime-info (a name no pattern knows is
-//! told apart only as text or bytes) and its XML descriptions, so there is no human-readable
-//! comment for a kind: that would take an XML parser for one sentence.
+//! told apart only as text or bytes). Of its XML descriptions only the `<comment>` lines are
+//! read, line by line in the shape `update-mime-database` writes them, with no XML parser.
 
 mod apps;
+mod comment;
 mod exec;
 mod keyfile;
 mod launch;

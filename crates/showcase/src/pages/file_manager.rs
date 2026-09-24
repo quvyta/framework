@@ -8,7 +8,7 @@ use std::time::Duration;
 use qframe::prelude::*;
 use qframe::runtime::Task;
 use qframe::widgets::{
-    ContextItem, FileManager, FileManagerMsg, FileManagerState, FileView, FolderEntry, RowMark, Select,
+    Click, ContextItem, FileManager, FileManagerMsg, FileManagerState, FileView, FolderEntry, RowMark, Select,
 };
 
 use super::{PageMsg, setting, toggle};
@@ -110,6 +110,8 @@ pub struct State {
     kinds: bool,
     /// Whether those icons take their family's colour.
     tones: bool,
+    /// Whether one click opens an entry, rather than a double click.
+    single: bool,
     /// The latest things the application was asked for, newest last.
     asked: Vec<String>,
 }
@@ -133,6 +135,7 @@ impl Default for State {
             hidden: false,
             kinds: false,
             tones: false,
+            single: false,
             asked: Vec::new(),
         };
         // The showcase builds page states once at start-up, before any view; the root is read here
@@ -203,6 +206,7 @@ pub enum Msg {
     Hidden(bool),
     Kinds(bool),
     Tones(bool),
+    Single(bool),
 }
 
 fn send(message: FileManagerMsg) -> AppMsg {
@@ -311,6 +315,11 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             log.push(PAGE, "Playground", format!("kind tones = {on}"));
             Command::none()
         }
+        Msg::Single(on) => {
+            state.single = on;
+            log.push(PAGE, "Playground", format!("open on one click = {on}"));
+            Command::none()
+        }
     }
 }
 
@@ -354,6 +363,10 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             .view(VIEWS[state.view])
             .root_label(t!("file-manager.root"))
             .on_open(|path| send_page(Msg::Open(path.to_path_buf())))
+            // A click selects and a double click opens, the way a desktop file explorer does, so a
+            // click is free to start a drag or a selection. A picker whose rows are only ever
+            // opened asks for one click instead.
+            .open_on(if state.single { Click::Single } else { Click::Double })
             // Each icon says what its file is before the name is read: a Rust file, a picture,
             // an archive. The colours are a further layer on top, and a mark wins over the kind.
             .kind_icons(state.kinds)
@@ -434,6 +447,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("file-manager.disabled"), |ui| {
             ui.add(toggle(state.disabled, |on| send_page(Msg::Disable(on)))).id("disabled");
         });
+        setting(ui, t!("file-manager.single"), |ui| {
+            ui.add(toggle(state.single, |on| send_page(Msg::Single(on)))).id("single");
+        });
         ui.add(Text::new(t!("file-manager.keys")).role("faint"));
     })
     .fill_width();
@@ -454,9 +470,11 @@ mod tests {
         assert!(screen.contains("README.md") && screen.contains("notes"), "{screen}");
         assert!(screen.contains("Nothing has been asked for yet"), "{screen}");
 
-        h.click_text("notes").advance(MOMENT);
-        assert!(h.screen().contains("tide.md"), "a folder opens:\n{}", h.screen());
+        h.click_text("notes").click_text("notes").advance(MOMENT);
+        assert!(h.screen().contains("tide.md"), "a double click opens a folder:\n{}", h.screen());
         h.click_text("tide.md").advance(MOMENT);
+        assert!(h.screen().contains("Nothing has been asked for yet"), "a click only selects:\n{}", h.screen());
+        h.click_text("tide.md").click_text("tide.md").advance(MOMENT);
         let screen = h.screen();
         assert!(screen.contains("Open tide.md"), "opening is the application's own:\n{screen}");
 
@@ -556,9 +574,9 @@ mod tests {
         assert!(h.screen().contains(" B "), "a size was read for the rows on screen:\n{}", h.screen());
 
         // A folder is stepped into and the row of the folder itself is the way back out.
-        h.click_text("notes").advance(MOMENT);
+        h.click_text("notes").click_text("notes").advance(MOMENT);
         assert!(h.screen().contains("tide.md"), "{}", h.screen());
-        h.click_text("notes").advance(MOMENT);
+        h.click_text("notes").click_text("notes").advance(MOMENT);
         assert!(h.screen().contains("README.md"), "{}", h.screen());
 
         h.send(send_page(Msg::View(2))).advance(MOMENT);
@@ -596,6 +614,20 @@ mod tests {
         let toned = h.fg(icon.0, icon.1);
         assert_ne!(toned, quiet, "the picture takes its family's tone");
         assert_eq!(toned, h.env().theme().color("series-3"));
+    }
+
+    #[test]
+    fn the_playground_opens_on_one_click_when_asked() {
+        // Tall enough to show the playground's last switch under the manager.
+        let mut h = crate::tests::showcase_tall(crate::app::Showcase::new(), PAGE, 90);
+        h.click_text("README.md").advance(MOMENT);
+        assert!(h.app().pages.file_manager.asked.is_empty(), "a click only selects:\n{}", h.screen());
+        // The playground's switches stand after their labels' column of 24 cells.
+        let (x, y) =
+            h.find("Open with one click").unwrap_or_else(|| panic!("the switch is on screen:\n{}", h.screen()));
+        h.click(x + 25, y).advance(MOMENT);
+        h.click_text("README.md").advance(MOMENT);
+        assert!(h.screen().contains("Open README.md"), "one click opens now:\n{}", h.screen());
     }
 
     #[test]

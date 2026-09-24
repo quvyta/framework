@@ -17,13 +17,15 @@ mod focus_action_rules;
 #[cfg(unix)]
 mod foreground;
 mod frame_limit;
-mod handoff;
+pub(crate) mod handoff;
 mod harness;
 #[cfg(test)]
 mod layer_rules;
 #[cfg(test)]
 mod lifecycle_rules;
 mod live_child;
+#[cfg(test)]
+mod locale_rules;
 #[cfg(test)]
 mod map_rules;
 mod open;

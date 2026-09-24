@@ -326,21 +326,35 @@ mod tests {
         TerminalSession::spawn("/bin/sh".as_ref(), &["-c", &script], Path::new("/")).expect("pty")
     }
 
+    /// How long a report may take on a loaded machine: generous, because only a report that never
+    /// comes should fail, and finite, so such a test ends.
+    const PATIENCE: Duration = Duration::from_secs(60);
+
     /// Drives the session's watch until `done` holds for its screen.
     fn wait(session: &TerminalSession, done: impl Fn(&Screen) -> bool) {
+        wait_within(session, PATIENCE, done);
+    }
+
+    /// Drives the session's watch until `done` holds for its screen, for at most `bound`.
+    fn wait_within(session: &TerminalSession, bound: Duration, done: impl Fn(&Screen) -> bool) {
         let watch = session.watch();
         // The watch blocks until output comes; ending the program after a while turns a report
-        // that never arrives into a failure instead of a test that never finishes.
-        let timer = session.clone();
+        // that never arrives into a failure instead of a test that never finishes. Only a wait
+        // still going ends it: a wait that got its answer leaves the program to the next one.
+        let waiting = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (timer, still) = (session.clone(), std::sync::Arc::clone(&waiting));
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_secs(10));
-            timer.kill();
+            std::thread::sleep(bound);
+            if still.load(std::sync::atomic::Ordering::SeqCst) {
+                timer.kill();
+            }
         });
         let started = Instant::now();
         while !done(session.parser().screen()) {
             let _ = watch.next();
-            assert!(started.elapsed() < Duration::from_secs(10), "{}", session.parser().screen().contents());
+            assert!(started.elapsed() < bound, "{}", session.parser().screen().contents());
         }
+        waiting.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// A program with SGR mouse mode `mode` on, and a harness showing it.
@@ -357,6 +371,18 @@ mod tests {
 
     fn shift_mouse(kind: MouseKind, x: i32, y: i32) -> Event {
         Event::Mouse(MouseEvent { kind, x, y, mods: Modifiers { shift: true, ..NONE } })
+    }
+
+    #[test]
+    fn a_wait_that_is_over_leaves_the_program_running() {
+        // A wait that has its answer must not end the program later: the next wait of the same
+        // test would find it killed halfway through a report.
+        let session = start("printf 'ready'");
+        wait_within(&session, Duration::from_millis(500), contains("ready"));
+        std::thread::sleep(Duration::from_secs(1));
+        session.write(b"after").expect("write");
+        wait(&session, contains("after"));
+        session.kill();
     }
 
     #[test]

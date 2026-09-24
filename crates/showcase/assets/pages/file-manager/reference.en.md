@@ -2,7 +2,8 @@
 
 - `FileManager::new(&state, wrap)` — `wrap` turns a `FileManagerMsg` into your message: a function such as `Msg::Files`, or a closure that captures what it needs. Any `Fn(FileManagerMsg) -> Msg + 'static`.
 - `.root_label(text)` — what the top row says; the root folder's own name by default.
-- `.on_open(|path| Msg)` — a click or Enter on a file. Without it a click on a file only selects it.
+- `.on_open(|path| Msg)` — a double click or Enter on a file. Without it a double click on a file only selects it.
+- `.open_on(Click::Double | Click::Single)` — how many clicks open an entry; `Click::Double` by default, with a click that only selects. `Click::INTERVAL` is the 400 ms two presses on one entry must fall within.
 - `.on_open_terminal(|path| Msg)` — adds "Open a terminal here" to a folder's menu, with that folder's path.
 - `.menu_items(|key, targets| Vec<ContextItem<Msg>>)` — your own items, in a group of their own; `targets` is what an action on that row acts on.
 - `.row_mark(|key| RowMark)` — what the application says about a row's look; `RowMark::new()` for a row with nothing to say.
@@ -19,7 +20,7 @@
 - Details: `details(key) -> Option<Option<&FileDetails>>` (nothing asked for / asked for and nothing there), `has_details(key)`, `detail(keys, wrap)` for an exact range, `detail_page(folder, wrap)` for a page around the cursor, `detail_gaps(folder)` for what a page still lacks. `FileDetails { size, modified, mode, readonly }` with `size_text(folder)`, `modified_text()`, `permissions_text(folder)` and `FileDetails::read(path)`.
 - Flat views: `folder()` — the folder the list and the icons show; `FileManagerMsg::Enter(key)` steps into a folder, `FileManagerMsg::Leave` steps out of it.
 - `FolderEntry { name, folder, executable }` with `.is_hidden()`; `executable` is only read for a file whose name says nothing of its kind, and `FolderEntry::read_folder(path) -> Result<Vec<FolderEntry>, String>`, for an application that reads a folder its own way.
-- `FileManagerMsg::Select | Choose | Expand | Read | Listed | NewFile | NewFolder | Rename | Cut | Copy | Paste | DropCut | Drop | Delete | DeleteConfirmed | Trash | ShowHidden | Refresh | Name | Submit | CloseNaming | Done | Changed | Detail | Detailed | Enter | Leave`. `Read` is what an application's own read answers with, in the system's words; `Listed` is the manager's own and keeps a `FileError`, so the words are chosen where the language is known.
+- `FileManagerMsg::Select | Choose | Expand | Read | Listed | NewFile | NewFolder | Rename | Cut | Copy | Paste | DropCut | Drop | DropCopy | Delete | DeleteConfirmed | Trash | ShowHidden | Refresh | Name | Submit | CloseNaming | Done | Changed | Detail | Detailed | Enter | Leave`. `Read` is what an application's own read answers with, in the system's words; `Listed` is the manager's own and keeps a `FileError`, so the words are chosen where the language is known.
 - `copy_into(root, key, into, confined) -> Result<FileChange, FileError>`, for an application that copies a path its own way.
 - `FileWork` — the long operation running now: `id()` (its `TaskId`, to show it in a `Tasks` model or stop it yourself), `done()`, `note()`, `entries()`.
 - `FileChange::Created(key) | Moved(from, to) | Deleted(key) | Copied(key) | Trashed(key)`; `FileError::Name | Outside | IntoItself | Taken(name) | CrossDevice | Denied | NotReadable | Missing | NoTrash | NoRoom | Stopped | System(text)`, each with `.message()`.
@@ -30,12 +31,16 @@
 
 ## Behaviour
 
-- The list has four columns — name, size, changed, permissions — and scrolls them sideways when they do not fit. Both flat views put a check beside each row for choosing several, and a row under them says how many entries the folder holds, or spins while a read takes longer than about 300 ms.
+- The list has four columns — name, size, changed, permissions — and scrolls them sideways when they do not fit. In both flat views the selected entries share the selection tone while only the cursor's row carries the pillar, as in the tree, and a row under them says how many entries the folder holds, or spins while a read takes longer than about 300 ms.
 
 - Rows: the root first, then folders and files, each group in name order. An entry whose name the platform does not spell as text is shown lossily rather than left out.
 - A folder is read once when it opens; opening it again shows what is known. Closing it while it is read throws the answer away, so a new folder of the same name starts closed and unread.
-- `up` `down` `home` `end` move the cursor, `left` `right` and `enter` open and close a folder, `enter` on a file opens it, `space` and `ctrl`+click select several, `shift+f10` opens the row's menu. Rows dragged onto a folder move there; dropped on the free space below the rows they move to the root.
-- A right click keeps the selection when it is on one of the selected rows and makes the row the selection otherwise, so the menu acts on what was clicked.
+- The mouse, in all three views: a click selects the entry and nothing more. A double click opens: a file through `on_open`, a folder by stepping into it in a flat view (the folder's own row steps out) and by opening or closing it in the tree. In the tree the chevron opens and closes with one click. A press that turns into a drag, or one with Ctrl or Shift held, starts no double click.
+- `ctrl`+click adds an entry to the selection or takes it out; `shift`+click selects the entries from the last one clicked without Shift to this one, and a second Shift+click reshapes the same range.
+- A press on the free space — below the rows, or between and after the icons — and a drag draw a box: the cells it covers take the tone of selected text, never a frame, and the entries it covers become the selection while it is drawn. With `ctrl` held at the press they join the selection there was. A click on the free space without a drag lets the selection go. A folder's own row in a flat view is never part of the selection.
+- A drag from a selected entry carries the whole selection, from any other entry that entry alone. The folder under the pointer takes the accent tone while it can take them. Released on a folder, they move into it; with `ctrl` held at the release they are copied, as a background task like any copy. A terminal that does not report Ctrl with the pointer moves. Released on a file, on one of the dragged entries or outside the rows of a flat view, nothing happens; in the tree the free space below the rows is the root. A name the folder already has is refused with the reason, and nothing is overwritten.
+- `up` `down` `home` `end` move the cursor, `left` `right` and `enter` open and close a folder, `enter` on a file opens it, `space` adds the cursor's entry to the selection or takes it out, `shift+f10` opens the row's menu.
+- A right click keeps the selection when it is on one of the selected rows and opens the menu of the selection; on any other row it makes that row the selection and opens its menu, so the menu acts on what was clicked.
 - A folder's menu: New file, New folder, then Rename and Cut (not at the root), then Paste here and Cancel the move while something is cut, then your items, then Refresh at the root or Delete below it. A file's menu leaves out what only a folder can do. A row of several selected offers Cut and Delete for all of them and no Rename, since a name is given to one entry at a time.
 - Pasting into the folder that was cut, or into one inside it, is shown and cannot be chosen.
 - Renaming opens with the name before its extension selected, so typing keeps the kind of file; a folder and a dotfile are selected whole.
@@ -57,7 +62,7 @@
 
 ## Theme keys
 
-- The manager uses the tree's styles: `list-item` (with `faint`), `tree-chevron`, `tree-drop`, `list-detail`, `spinner`, and the scrollbar's.
+- The manager uses the tree's styles: `list-item` (with `faint`), `tree-chevron`, `tree-drop`, `list-detail`, `spinner`, and the scrollbar's; the icons take `card`. The selection box is drawn in `text-selection`.
 - The menu and the dialog use `context-menu`, `context-item` (with `danger`, `disabled`), `modal`, `modal-title`, `text-input`, `field-error`, `button.primary`.
 - Icons: `folder`, `file`, `tree-expanded`, `tree-collapsed`; with `kind_icons`, the `file-*` and `folder-*` keys of the icon set, such as `file-rust`, `file-archive`, `folder-git`, `folder-downloads`.
 - Strings: `quvyta.file-manager.*`.

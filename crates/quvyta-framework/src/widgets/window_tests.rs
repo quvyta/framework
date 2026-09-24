@@ -482,19 +482,26 @@ mod with_a_terminal {
         TerminalSession::spawn("/bin/sh".as_ref(), &["-c", &script], Path::new("/")).expect("pty")
     }
 
-    /// Drives the session until `done` holds for its screen, for at most ten seconds.
+    /// Drives the session until `done` holds for its screen, for at most a minute: generous on a
+    /// loaded machine, and finite. Only a wait still going ends the program; one that got its
+    /// answer leaves it running for the next.
     fn wait(session: &TerminalSession, done: impl Fn(&vt100::Screen) -> bool) {
+        const PATIENCE: Duration = Duration::from_secs(60);
         let watch = session.watch();
-        let timer = session.clone();
+        let waiting = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (timer, still) = (session.clone(), std::sync::Arc::clone(&waiting));
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_secs(10));
-            timer.kill();
+            std::thread::sleep(PATIENCE);
+            if still.load(std::sync::atomic::Ordering::SeqCst) {
+                timer.kill();
+            }
         });
         let started = Instant::now();
         while !done(session.parser().screen()) {
             let _ = watch.next();
-            assert!(started.elapsed() < Duration::from_secs(10), "{}", session.parser().screen().contents());
+            assert!(started.elapsed() < PATIENCE, "{}", session.parser().screen().contents());
         }
+        waiting.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     #[test]

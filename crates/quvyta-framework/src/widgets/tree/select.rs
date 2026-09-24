@@ -5,11 +5,14 @@
 //! plain tree, which stays the cursor: the row the keys move from, the row with the pillar. The
 //! tree only ever reports whole new selections, so the application never merges anything.
 
-use crate::event::{KeyEvent, KeyKind};
+use crate::event::{KeyEvent, KeyKind, MouseButton, MouseEvent, MouseKind};
+use crate::geometry::Rect;
 use crate::keymap::{Key, KeyChord, Modifiers};
 use crate::widget::EventCx;
 
-use super::super::rows::Step;
+use super::super::click::{Click, LastPress};
+use super::super::rows::{RowScroll, Step};
+use super::super::select_box::SelectBox;
 use super::{Flat, Tree};
 
 /// Where a range selection starts: the row last clicked or moved to without Shift, kept in the
@@ -17,7 +20,84 @@ use super::{Flat, Tree};
 #[derive(Debug, Default)]
 struct Anchor(Option<String>);
 
+/// The last press on a row, to tell a double click, kept in the tree's memory by key.
+#[derive(Debug, Default)]
+struct Presses(LastPress<String>);
+
+/// The selection box being drawn over the tree, kept in its memory while the button is held.
+#[derive(Debug, Default)]
+pub(super) struct TreeBox(Option<SelectBox<String>>);
+
+impl TreeBox {
+    /// The cells of the box being drawn, while it is.
+    pub(super) fn drawn(&self) -> Option<Rect> {
+        self.0.as_ref().map(SelectBox::rect)
+    }
+}
+
 impl<Msg: 'static> Tree<Msg> {
+    /// Counts a press on the row of `key`; true when it makes a double click in a tree that opens
+    /// rows with two clicks. A tree that opens with one click counts nothing.
+    pub(super) fn double_press(&self, cx: &mut EventCx<'_, Msg>, key: &str) -> bool {
+        if self.activate_on != Click::Double {
+            return false;
+        }
+        let now = cx.now();
+        cx.memory::<Presses>().0.press(key.to_owned(), now)
+    }
+
+    /// Forgets the last press: it became a drag or a modified click.
+    pub(super) fn forget_press(&self, cx: &mut EventCx<'_, Msg>) {
+        cx.memory::<Presses>().0.forget();
+    }
+
+    /// The keys of the rows of `flat` that the cells of `rect` cover, in tree order.
+    fn covered(cx: &mut EventCx<'_, Msg>, flat: &[Flat<'_>], rect: Rect) -> Vec<String> {
+        let area = cx.area();
+        let offset = cx.memory::<RowScroll>().offset;
+        (rect.y.max(area.y)..rect.bottom().min(area.bottom()))
+            .filter_map(|y| usize::try_from(y - area.y).ok())
+            .filter_map(|row| flat.get(offset + row))
+            .map(|row| row.node.key.clone())
+            .collect()
+    }
+
+    /// Pointer input of a tree that selects by box, with `index` the row under the pointer: a
+    /// press on the free space starts a box, a drag stretches it and the release ends it, the
+    /// covered rows reported as the selection all along. `None` when the event is not the box's.
+    pub(super) fn box_pointer(
+        &self,
+        cx: &mut EventCx<'_, Msg>,
+        mouse: &MouseEvent,
+        flat: &[Flat<'_>],
+        index: Option<usize>,
+    ) -> Option<bool> {
+        let at = (mouse.x, mouse.y);
+        let drawn = match mouse.kind {
+            MouseKind::Down(MouseButton::Left) => {
+                let free = Self::rows_area(cx.area(), flat.len()).contains(mouse.x, mouse.y) && index.is_none();
+                if !self.box_select || !self.is_multi() || !free {
+                    return None;
+                }
+                self.forget_press(cx);
+                cx.capture_pointer();
+                SelectBox::new(at, mouse.mods.ctrl && !mouse.mods.alt, &self.chosen)
+            }
+            MouseKind::Drag(MouseButton::Left) | MouseKind::Up(MouseButton::Left) => {
+                let mut drawn = cx.memory::<TreeBox>().0.take()?;
+                drawn.stretch(at);
+                drawn
+            }
+            _ => return None,
+        };
+        let covered = Self::covered(cx, flat, drawn.rect());
+        self.choose(cx, drawn.selection(covered));
+        if mouse.kind != MouseKind::Up(MouseButton::Left) {
+            cx.memory::<TreeBox>().0 = Some(drawn);
+        }
+        Some(true)
+    }
+
     /// Whether the tree selects several nodes.
     pub(super) fn is_multi(&self) -> bool {
         self.on_choose.is_some()
@@ -108,6 +188,10 @@ impl<Msg: 'static> Tree<Msg> {
     ) -> bool {
         if !self.is_multi() || mods.alt {
             return false;
+        }
+        if mods.ctrl != mods.shift {
+            // A modified click is never the first half of a double click.
+            self.forget_press(cx);
         }
         match (mods.ctrl, mods.shift) {
             (true, false) => self.toggle(cx, flat, index),

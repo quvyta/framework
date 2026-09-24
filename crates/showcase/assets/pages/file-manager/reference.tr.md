@@ -2,7 +2,8 @@
 
 - `FileManager::new(&durum, sar)` — `sar` bir `FileManagerMsg`'i senin mesajına çevirir: `Msg::Files` gibi bir fonksiyon ya da gerekeni yakalayan bir kapanış. Herhangi bir `Fn(FileManagerMsg) -> Msg + 'static`.
 - `.root_label(metin)` — en üstteki satırın yazısı; varsayılanı kök klasörün kendi adı.
-- `.on_open(|yol| Msg)` — bir dosyaya tık ya da Enter. Bu olmadan dosyaya tık yalnızca seçer.
+- `.on_open(|yol| Msg)` — bir dosyaya çift tık ya da Enter. Bu olmadan dosyaya çift tık yalnızca seçer.
+- `.open_on(Click::Double | Click::Single)` — bir girdiyi kaç tıkın açtığı; varsayılanı `Click::Double`, tek tık yalnızca seçer. `Click::INTERVAL`, aynı girdiye iki basışın içinde kalması gereken 400 ms'dir.
 - `.on_open_terminal(|yol| Msg)` — klasör menüsüne "Burada terminal aç" ekler, o klasörün yoluyla.
 - `.menu_items(|key, targets| Vec<ContextItem<Msg>>)` — kendi öğelerin, kendi grubunda; `targets` o satırdaki bir işlemin neye işlediğidir.
 - `.row_mark(|key| RowMark)` — uygulamanın o satırın görünüşü hakkında söyledikleri; söyleyecek bir şeyi olmayan satır için `RowMark::new()`.
@@ -17,7 +18,7 @@
 - Durumu okumak: `root()`, `path(key)`, `children(key)`, `work()`, `shown_children(key)`, `copied()`, `pending()`, `is_copying()`, `is_open(key)`, `is_loading(key)`, `is_folder(key)`, `folder_keys()`, `visible_folders()`, `selected()`, `chosen()`, `targets(key)`, `cut()`, `is_cut(key)`, `error()`, `naming()`, `naming_problem()`, `select(key)`.
 - `FileManagerState::ROOT` — kökün anahtarı, boş dizge.
 - `FolderEntry { name, folder, executable }` (`executable` yalnızca adı türü hakkında bir şey söylemeyen dosyada okunur) ve `FolderEntry::read_folder(yol) -> Result<Vec<FolderEntry>, String>`; bir klasörü kendi yolundan okuyan uygulama için.
-- `FileManagerMsg::Select | Choose | Expand | Read | NewFile | NewFolder | Rename | Cut | Paste | DropCut | Drop | Delete | DeleteConfirmed | Refresh | Name | Submit | CloseNaming | Done | Changed | Detail | Detailed | Enter | Leave`.
+- `FileManagerMsg::Select | Choose | Expand | Read | NewFile | NewFolder | Rename | Cut | Paste | DropCut | Drop | DropCopy | Delete | DeleteConfirmed | Refresh | Name | Submit | CloseNaming | Done | Changed | Detail | Detailed | Enter | Leave`.
 - Ayrıntılar: `details(key) -> Option<Option<&FileDetails>>` (hiç istenmedi / istendi ve orada bir şey yok), `has_details(key)`, tam bir aralık için `detail(anahtarlar, sar)`, imlecin çevresindeki sayfa için `detail_page(klasör, sar)`, sayfada hâlâ eksik olanlar için `detail_gaps(klasör)`. `FileDetails { size, modified, mode, readonly }`; `size_text(klasör_mü)`, `modified_text()`, `permissions_text(klasör_mü)` ve `FileDetails::read(yol)`.
 - Düz görünümler: `folder()` — liste ve simgelerin gösterdiği klasör; `FileManagerMsg::Enter(key)` bir klasöre girer, `FileManagerMsg::Leave` ondan çıkar.
 - `FileChange::Created(key) | Moved(from, to) | Deleted(key)`; `FileError::Name | Outside | IntoItself | Taken(ad) | CrossDevice | Denied | System(metin)`, her birinde `.message()`.
@@ -32,12 +33,16 @@
 
 ## Davranış
 
-- Listenin dört sütunu vardır — ad, boyut, değişti, izinler — ve sığmadıklarında yana kayarlar. İki düz görünüm de her satırın yanına çoklu seçim için bir işaret koyar; altlarındaki satır klasörün kaç öğe tuttuğunu söyler ya da okuma 300 ms'yi aşarsa döner.
+- Listenin dört sütunu vardır — ad, boyut, değişti, izinler — ve sığmadıklarında yana kayarlar. İki düz görünümde de, ağaçta olduğu gibi, seçili girdiler seçim tonunu paylaşır, çubuğu yalnızca imlecin satırı taşır; altlarındaki satır klasörün kaç öğe tuttuğunu söyler ya da okuma 300 ms'yi aşarsa döner.
 
 - Satırlar: önce kök, sonra klasörler ve dosyalar, her grup ad sırasında. Adı platformun metin olarak yazamadığı girdi dışarıda bırakılmaz, kayıplı gösterilir.
 - Klasör açıldığında bir kez okunur; tekrar açmak bilineni gösterir. Okunurken kapatılırsa cevap atılır, böylece aynı adda yeni bir klasör kapalı ve okunmamış başlar.
-- `up` `down` `home` `end` imleci taşır, `left` `right` ve `enter` klasörü açıp kapatır, dosyada `enter` onu açar, `space` ve `ctrl`+tık çoklu seçer, `shift+f10` satırın menüsünü açar. Bir klasörün üstüne sürüklenen satırlar oraya taşınır; satırların altındaki boş alana bırakılırsa köke gider.
-- Sağ tık, seçili satırlardan birinin üstündeyse seçimi korur, değilse satırı seçim yapar; böylece menü tıklanan şeye işler.
+- Fare, üç görünümde de: tık girdiyi seçer, başka bir şey yapmaz. Çift tık açar: dosyayı `on_open` ile, klasörü düz görünümde içine girerek (klasörün kendi satırı dışarı çıkar), ağaçta açıp kapatarak. Ağaçta ok işareti tek tıkla açar ve kapatır. Sürüklemeye dönen ya da Ctrl veya Shift basılıyken yapılan basış çift tık başlatmaz.
+- `ctrl`+tık girdiyi seçime ekler ya da çıkarır; `shift`+tık, Shift'siz son tıklanandan buna kadar olan girdileri seçer, ikinci bir Shift+tık aynı aralığı yeniden biçimler.
+- Boş yere — satırların altına, simgelerin arasına ya da sonrasına — basıp sürüklemek bir alan çizer: kapladığı hücreler çerçeveyle değil seçili metnin tonuyla boyanır ve kapladığı girdiler çizilirken seçim olur. Basarken `ctrl` basılıysa var olan seçime eklenirler. Boş yere sürüklemeden tıklamak seçimi bırakır. Düz görünümde klasörün kendi satırı hiçbir zaman seçime girmez.
+- Seçili bir girdiden başlayan sürükleme bütün seçimi, başka bir girdiden başlayan yalnızca o girdiyi taşır. İmlecin altındaki klasör onları alabildiği sürece vurgu tonunu alır. Bir klasörün üstünde bırakılınca içine taşınırlar; bırakırken `ctrl` basılıysa her kopyalama gibi arka planda bir iş olarak kopyalanırlar. Ctrl'yi fare olayında bildirmeyen terminal taşır. Bir dosyanın, sürüklenenlerden birinin üstünde ya da düz görünümde satırların dışında bırakılırsa hiçbir şey olmaz; ağaçta satırların altındaki boş alan köktür. Klasörde zaten olan bir ad sebebiyle reddedilir, hiçbir şeyin üzerine yazılmaz.
+- `up` `down` `home` `end` imleci taşır, `left` `right` ve `enter` klasörü açıp kapatır, dosyada `enter` onu açar, `space` imlecin girdisini seçime ekler ya da çıkarır, `shift+f10` satırın menüsünü açar.
+- Sağ tık, seçili satırlardan birinin üstündeyse seçimi korur ve seçimin menüsünü açar; başka bir satırdaysa o satırı seçim yapar ve onun menüsünü açar; böylece menü tıklanan şeye işler.
 - Klasör menüsü: Yeni dosya, Yeni klasör, sonra Yeniden adlandır ve Kes (kökte yok), bir şey kesilmişse Buraya yapıştır ve Taşımaktan vazgeç, sonra senin öğelerin, sonra kökte Yenile ya da altında Sil. Dosya menüsü yalnızca klasörün yapabildiklerini içermez. Birkaç seçili satırdan biri hepsi için Kes ve Sil sunar, Yeniden adlandır sunmaz: ad tek girdiye verilir.
 - Kesilen klasörün kendisine ya da içindeki bir klasöre yapıştırmak görünür ama seçilemez.
 - Yeniden adlandırma, uzantıdan önceki kısım seçili açılır; böylece yazmak dosyanın türünü korur. Klasör ve baştan noktalı dosya bütünüyle seçilir.
@@ -59,7 +64,7 @@
 
 ## Tema anahtarları
 
-- Yönetici ağacın biçimlerini kullanır: `list-item` (`faint` ile), `tree-chevron`, `tree-drop`, `list-detail`, `spinner` ve kaydırma çubuğunun biçimleri.
+- Yönetici ağacın biçimlerini kullanır: `list-item` (`faint` ile), `tree-chevron`, `tree-drop`, `list-detail`, `spinner` ve kaydırma çubuğunun biçimleri; simgeler `card` alır. Seçim alanı `text-selection` ile çizilir.
 - Menü ve diyalog `context-menu`, `context-item` (`danger`, `disabled` ile), `modal`, `modal-title`, `text-input`, `field-error`, `button.primary` kullanır.
 - İkonlar: `folder`, `file`, `tree-expanded`, `tree-collapsed`; `kind_icons` ile ikon kümesinin `file-*` ve `folder-*` anahtarları, örneğin `file-rust`, `file-archive`, `folder-git`, `folder-downloads`.
 - Metinler: `quvyta.file-manager.*`.

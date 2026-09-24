@@ -12,6 +12,7 @@ use crate::keymap::Key;
 use crate::widget::{EventCx, PaintCx, Widget};
 
 use super::super::TabEdit;
+use super::super::click::Click;
 use super::super::context_item;
 use super::super::context_menu::{self, ContextMenu};
 use super::super::edge_scroll::{Edge, EdgeScroll, Zone};
@@ -197,6 +198,11 @@ impl<Msg: 'static> Tree<Msg> {
                     return Some(true);
                 }
                 let key = flat[index].node.key.clone();
+                if self.double_press(cx, &key) {
+                    self.select_one(cx, flat, index);
+                    self.open_or_activate(cx, index, flat[index].node);
+                    return Some(true);
+                }
                 // A press on one of several selected rows keeps them all, so they can be dragged
                 // together; a click without a drag reduces them to this row on release.
                 let reduce = self.is_among_many(&key);
@@ -223,8 +229,15 @@ impl<Msg: 'static> Tree<Msg> {
                 let dragging = press.dragging;
                 let keys = press.keys.clone();
                 // Reordering moves one node: dragging one of several selected ones carries it alone.
-                if starts && press.reduce && self.dropping.is_none() {
+                let carried_alone = starts && press.reduce && self.dropping.is_none();
+                if carried_alone {
                     press.reduce = false;
+                }
+                if starts {
+                    // A press that became a drag is not the first half of a double click.
+                    self.forget_press(cx);
+                }
+                if carried_alone {
                     self.choose(cx, keys.clone());
                 }
                 self.edge_scroll(cx, mouse.y, flat.len(), dragging);
@@ -244,12 +257,14 @@ impl<Msg: 'static> Tree<Msg> {
                 if press.dragging {
                     let offset = cx.memory::<RowScroll>().offset;
                     let aim = self.aim(&press.keys, at, Self::rows_area(area, flat.len()), offset);
-                    self.release(cx, press.keys, aim);
+                    self.release(cx, press.keys, aim, mouse.mods.ctrl);
                 } else if let Some(row) = flat.iter().position(|row| row.node.key == press.key) {
                     if press.reduce {
                         self.select_one(cx, flat, row);
                     }
-                    self.open_or_activate(cx, row, flat[row].node);
+                    if self.activate_on == Click::Single {
+                        self.open_or_activate(cx, row, flat[row].node);
+                    }
                 }
                 Some(true)
             }

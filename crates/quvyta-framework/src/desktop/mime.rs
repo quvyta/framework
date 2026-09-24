@@ -1,10 +1,10 @@
 //! What kind a file is, as shared-mime-info tells it: from its name first, from its first bytes
-//! when the name says nothing.
+//! when the name says nothing. What a kind is called in words is in `comment.rs`.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{XdgDirs, lines, read_small, warn};
 use crate::diagnostics::Diagnostic;
@@ -39,6 +39,9 @@ pub struct MimeDb {
     parents: HashMap<String, Vec<String>>,
     /// The problems found while reading, in the order the files were read.
     diagnostics: Vec<Diagnostic>,
+    /// The data folders, the person's own first, where a kind's own file is read from when its
+    /// words are asked for.
+    pub(super) data: Vec<PathBuf>,
 }
 
 /// One line of `globs2`.
@@ -61,7 +64,7 @@ impl MimeDb {
     /// program.
     #[must_use]
     pub fn load(dirs: &XdgDirs) -> Self {
-        let mut db = Self::default();
+        let mut db = Self { data: dirs.data().cloned().collect(), ..Self::default() };
         // Kinds a more important folder has said "no patterns from below" for.
         let mut sealed: HashSet<String> = HashSet::new();
         for dir in dirs.data() {

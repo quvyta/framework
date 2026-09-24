@@ -96,6 +96,8 @@ A language is more than its words. Where it puts a number's decimals, which way 
 
 `Command::set_theme`, `Command::set_locale` and `Command::set_icon_mode` change everything at once, without restarting. The lists for a settings screen come from `env.themes()` and `env.i18n().list()`. Saving the choice is up to the application.
 
+The view reads the active language with `ui.env().i18n().active()`. In `update`, `init` and the other `App` methods, where there is no `Env`, `qframe::i18n::active_code()` gives the same code (`tr`, `pt-BR`), also right after a `Command::set_locale`: use it to pick text from a source that is not a locale file, such as the comments a desktop database carries in many languages.
+
 ## Common mistakes
 
 - **Hard-coding colours in widgets.** Use tokens; a hex value in code will not follow the theme.

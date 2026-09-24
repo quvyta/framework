@@ -8,6 +8,11 @@
 - `.empty_text(text)` — shown under the header when there are no rows.
 - `.context_menu(|index| Vec<ContextItem<Msg>>)` — gives every row a menu of its own, built for the row it opens on.
 - `.menu_on_activate(bool)` — Enter and a click open the row's menu instead of sending `on_activate`; an empty menu opens nothing. Off by default.
+- `.activate_on(Click::Single | Click::Double)` — `Single` by default: a click selects and activates. With `Double` a click only selects and a second press on the same row within `Click::INTERVAL` (400 ms) activates it; Enter activates either way.
+- `.multi_select(&selected, |rows| msg)` — several rows are selected at once: Ctrl+click adds or removes a row, Shift+click selects a range, Space toggles the cursor's row; `rows` is always the whole new selection and `.selected(..)` is the cursor. Selected rows share the selection tone; only the cursor's row has the pillar.
+- `.box_select(bool)` — with `multi_select`, a drag from the free space below the rows draws a box in the `text-selection` tone and the rows it covers become the selection, or join it with Ctrl held at the press; a click there clears the selection.
+- `.droppable(|drop| msg, |index| accepts)` — the pressed row, or the selection it is part of, is dragged onto a row `accepts` says yes to, which takes the `tree-drop` tone; `drop` is a `RowDrop { rows, into }`. A release anywhere else does nothing. With `Click::Single` a row then activates on release, so a press that becomes a drag activates nothing.
+- `.on_copy_drop(|drop| msg)` — a drop released with Ctrl held asks for a copy with this instead of the move.
 - `Column::new(title)`, `.width(ColumnWidth::Fixed(n) | Fit | Fill(weight))`, `.min(cells)`, `.align(Align)`, `.sortable(bool)`.
 - `TableRow::new(cells)`, `.faint(bool)`; `TableCell::new(text)`, `.icon(glyph, color)`, `.color(token)`; strings convert into cells. `glyph` is an icon key (`"dot"`, `Glyph::key(..)`) or `Glyph::literal(..)`, drawn as the glyph, a space and the text; with `Some(token)` it is drawn in that colour, with `None` it is `muted` and takes the row's text colour when the row is selected. Truncation cuts the text only.
 - `SortDirection::Ascending | Descending`, `.reversed()`.

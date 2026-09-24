@@ -8,7 +8,7 @@
 - `.pause(true)` — waits for one key press after the program ends; off by default.
 - `Command::handoff(handoff)` — asks the runtime for it.
 - `HandoffOutcome::Finished { code: Option<i32> }`, `HandoffOutcome::Failed(String)`.
-- `Harness::handoffs() -> &[HandoffRequest]` — what was asked for, oldest first; `HandoffRequest` carries `program`, `args`, `notice` and `pause`.
+- `Harness::handoffs() -> &[HandoffRequest]` — what was asked for, oldest first; `HandoffRequest` carries `program`, `args`, `dir` (the working folder `.dir` gave, `None` without it), `notice` and `pause`.
 - `Harness::set_handoff_outcome(outcome)` — the answer every handoff from then on gets; `Finished { code: Some(0) }` without it.
 - `DetachedHandoff::new(program, |DetachedOutcome| msg)` — a program that owns the terminal until its first line; takes `.arg`, `.args`, `.dir`, `.env`, `.notice` and `.pause` like a handoff (`pause` waits only when the program ended without a first line).
 - `.on_line(|ChildLine| msg)` — the program's later lines as messages; without it they are read and dropped.
@@ -23,7 +23,7 @@
 - `Open::arg(arg)`, `Open::args(args)`, `Open::dir(path)`, `Open::env(key, value)` — as a handoff has them.
 - `Open::answer(|outcome| message)` — optional; without it nothing is delivered.
 - `OpenOutcome::Opened` — the program was started with what it was given. `OpenOutcome::Failed(reason)` — it could not be started at all.
-- `OpenRequest { program, args, target }` — what a `Harness` recorded; `target` is what `Open::new` was given and `None` after `Open::program`.
+- `OpenRequest { program, args, target, dir }` — what a `Harness` recorded; `target` is what `Open::new` was given and `None` after `Open::program`; `dir` is the working folder `Open::dir` gave, `None` without it.
 - `Harness::opens() -> &[OpenRequest]`, `Harness::set_open_outcome(outcome)` — `Opened` without it.
 ## Behaviour
 

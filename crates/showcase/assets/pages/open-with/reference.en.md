@@ -10,6 +10,8 @@
 - `db.sniff(path) -> String` — a folder is `inode/directory`, a pipe, socket or device its own `inode/*`; otherwise the name, and when no pattern fits the first 4 KiB: `text/plain` or `application/octet-stream`.
 - `db.canonical(mime) -> String` — the kind's own name when `mime` is an alias.
 - `db.ancestors(mime) -> Vec<String>` — `mime` first, then every kind it is a case of, breadth first; every `text/*` is `text/plain`, and all but `inode/*` end in `application/octet-stream`.
+- `db.comment(mime, lang) -> Option<String>` — the kind in words ("Rust source code"), from the `<comment>` lines of `mime/<kind>.xml` in the data folders, the person's own first. An alias is followed first; the comment in `lang` (`pt-BR`, `tr_TR.UTF-8`) wins, then its base language (`pt`), then the one with no language. XML's character references are decoded. `None` when no folder describes the kind.
+- `db.comment_with_diagnostics(mime, lang, &mut Vec<Diagnostic>) -> Option<String>` — the same, with a diagnostic for each file that is not UTF-8, has a `<comment>` never closed, or is not a regular file; such a file is skipped and a less important folder may still answer.
 - `db.diagnostics() -> &[Diagnostic]`.
 
 ## Programs
@@ -30,7 +32,7 @@
 
 - `graphical_session(lookup) -> bool` — `DISPLAY` or `WAYLAND_DISPLAY` is set and not empty.
 - `app.can_start(graphical) -> bool` — a terminal program always can, a graphical one only in a graphical session.
-- `app.launch(&Path, graphical, on_done) -> Result<Command<Msg>, LaunchError>` — a `Handoff` for a terminal program, an `Open::program` for a graphical one.
+- `app.launch(&Path, graphical, on_done) -> Result<Command<Msg>, LaunchError>` — a `Handoff` for a terminal program, an `Open::program` for a graphical one; either runs in the file's folder, which the harness records as `dir`.
 - `Launched::Returned { code }`, `Launched::Started`, `Launched::Failed(reason)`.
 - `LaunchError::NoGraphicalSession`, `LaunchError::NoCommand`.
 
@@ -40,4 +42,4 @@
 - Entries that are not `Type=Application` and `Hidden=true` entries take their id without offering a program. `NoDisplay` programs are kept: they still open files.
 - A file's own `[Removed Associations]` do not undo its own additions; they remove what less important files add and what entries declare.
 - Only regular files up to 16 MiB are read, so a pipe with a database's name never blocks.
-- The binary `magic` rules and the XML descriptions are not read. Nothing is ever written.
+- The binary `magic` rules are not read, and of the XML descriptions only the `<comment>` lines, line by line, with no XML parser. Nothing is ever written.

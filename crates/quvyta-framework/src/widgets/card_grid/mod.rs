@@ -13,9 +13,12 @@ use crate::text;
 use crate::theme::State;
 use crate::widget::{Axis, EventCx, Flex, IdleScope, Length, MeasureCx, Node, PaintCx, View, Widget};
 
+use super::click::Click;
 use super::empty_state::EmptyState;
 use super::row_menu::{self, RowAnchor, RowMenuItems};
+use super::row_pointer::{self, PickedRows, Picking, RowDrop, Spot};
 use super::scrollbar::{self, ScrollbarStyle};
+use super::select_box;
 use super::{ContextItem, IndexMessage};
 use layout::{Layout, Sizing, Step};
 
@@ -45,6 +48,13 @@ type CardBuilder<Msg> = Box<dyn Fn(&mut View<'_, Msg>, usize)>;
 /// activating otherwise. A click selects and activates a card; with checks on, a click on the
 /// mark in a card's top right corner only toggles it. The wheel scrolls a row of cards at a
 /// time, and the scrollbar can be pressed and dragged.
+///
+/// Four capabilities make the cards work the way the icons of a file explorer do, each off until
+/// asked for: [`activate_on(Click::Double)`](Self::activate_on) selects on a click and activates
+/// on a double click; [`multi_select`](Self::multi_select) selects several cards with Ctrl+click,
+/// Shift+click and Space; [`box_select`](Self::box_select) draws a box from the free space between
+/// and after the cards and selects the cards it touches; [`droppable`](Self::droppable) drags the
+/// selection onto a card that takes it.
 ///
 /// ```
 /// use std::rc::Rc;
@@ -102,7 +112,8 @@ type CardBuilder<Msg> = Box<dyn Fn(&mut View<'_, Msg>, usize)>;
 ///
 /// Style keys: `card` (`bg`, `padding`, `pillar`) with `hover`, `selected`, `focus`, `pressed`;
 /// `card-mark` for a checked card's mark and `card-mark.off` for the faint mark a lit card
-/// offers while checks are on; `scrollbar`.
+/// offers while checks are on; `tree-drop` (`bg`) for the card a drag would drop on;
+/// `text-selection` (`bg`) for the selection box; `scrollbar`.
 pub struct CardGrid<Msg> {
     count: usize,
     min_width: u16,
@@ -120,6 +131,7 @@ pub struct CardGrid<Msg> {
     card: Option<CardBuilder<Msg>>,
     menu: Option<RowMenuItems<Msg>>,
     empty: Vec<Node<Msg>>,
+    picking: Picking<Msg>,
 }
 
 /// What a grid remembers between frames.
@@ -165,6 +177,7 @@ impl<Msg: 'static> CardGrid<Msg> {
             card: None,
             menu: None,
             empty: Vec::new(),
+            picking: Picking::default(),
         }
     }
 
@@ -267,6 +280,70 @@ impl<Msg: 'static> CardGrid<Msg> {
         self
     }
 
+    /// How many clicks activate a card: [`Click::Single`], the default, selects and activates at
+    /// once; [`Click::Double`] only selects on a click and activates on a second press on the same
+    /// card within [`Click::INTERVAL`]. Enter activates either way.
+    #[must_use]
+    pub fn activate_on(mut self, click: Click) -> Self {
+        self.picking.activate_on = click;
+        self
+    }
+
+    /// Lets several cards be selected at once: `selected` holds their indexes and
+    /// `message(cards)` asks the application to make `cards` the whole new selection.
+    ///
+    /// The card given to [`selected`](Self::selected) stays the one the keys move from, while
+    /// every selected card takes the selected surface. Ctrl+click adds a card or takes it out,
+    /// Shift+click selects the cards from the last plain or Ctrl click to this one in reading
+    /// order, Space adds or takes out the card the keys are on and a plain click selects that one
+    /// card. A right click on a selected card keeps the selection for its menu; on another card it
+    /// makes that card the selection first.
+    #[must_use]
+    pub fn multi_select(mut self, selected: &[usize], message: impl Fn(Vec<usize>) -> Msg + 'static) -> Self {
+        self.picking.chosen = selected.to_vec();
+        self.picking.on_choose = Some(Box::new(message));
+        self
+    }
+
+    /// Lets a drag from the free space between and after the cards draw a box: every card it
+    /// touches becomes the selection while it is drawn, or joins it when Ctrl was held at the
+    /// press, and a click there without a drag clears the selection. The box is a tone laid over
+    /// the cells it covers, never a frame. It needs [`multi_select`](Self::multi_select) and does
+    /// nothing without it.
+    #[must_use]
+    pub fn box_select(mut self, on: bool) -> Self {
+        self.picking.box_select = on;
+        self
+    }
+
+    /// Lets cards be dragged onto other cards, such as files onto a folder: `accepts(index)` tells
+    /// whether a card takes drops and `message(RowDrop)` asks the application to move the cards.
+    ///
+    /// A drag carries the pressed card, or the whole [selection](Self::multi_select) when it is
+    /// pressed on one of its cards; a click on a selected card without a drag makes it the one
+    /// selected card on release. The card under the pointer takes the accent tone while it can
+    /// take the drag. A release anywhere else, or on one of the dragged cards, does nothing. With
+    /// [`Click::Single`] a card activates on release rather than on press, so pressing a card to
+    /// drag it does not activate it.
+    #[must_use]
+    pub fn droppable(
+        mut self,
+        message: impl Fn(RowDrop) -> Msg + 'static,
+        accepts: impl Fn(usize) -> bool + 'static,
+    ) -> Self {
+        self.picking.dropping = Some((Box::new(message), Box::new(accepts)));
+        self
+    }
+
+    /// A drop released with Ctrl held asks for a copy with `message` instead of the move of
+    /// [`droppable`](Self::droppable), the way a file explorer copies. A terminal that does not
+    /// report Ctrl with the pointer always moves. It does nothing without `droppable`.
+    #[must_use]
+    pub fn on_copy_drop(mut self, message: impl Fn(RowDrop) -> Msg + 'static) -> Self {
+        self.picking.copy_drop = Some(Box::new(message));
+        self
+    }
+
     /// Offers `event` to the card menu; see [`context_menu`](Self::context_menu).
     fn menu_event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
         row_menu::event(
@@ -278,7 +355,11 @@ impl<Msg: 'static> CardGrid<Msg> {
                 let memory = cx.memory::<GridMemory>();
                 let (layout, offset) = (memory.layout, memory.offset);
                 let index = layout.index_at(x, y, offset)?;
-                if !self.is_checked(index).unwrap_or(false) {
+                if self.picking.is_multi() {
+                    if !self.picking.is_chosen(index) {
+                        self.picking.select_one(cx, self, index);
+                    }
+                } else if !self.is_checked(index).unwrap_or(false) {
                     self.select(cx, index);
                 }
                 Some(RowAnchor { row: index, at: Rect::new(x, y, 1, 1), keyboard: false })
@@ -344,6 +425,15 @@ impl<Msg: 'static> CardGrid<Msg> {
         }
     }
 
+    /// The card whose check mark is at `(x, y)`, when one is.
+    fn mark_at(&self, cx: &mut EventCx<'_, Msg>, x: i32, y: i32) -> Option<usize> {
+        let memory = cx.memory::<GridMemory>();
+        let (layout, offset) = (memory.layout, memory.offset);
+        let index = layout.index_at(x, y, offset)?;
+        let env = cx.env();
+        mark_zone(env, layout.card_rect(index, offset), card_padding(env)).contains(x, y).then_some(index)
+    }
+
     /// The card the keys act on: the one the pointer carries the highlight to, else the
     /// selected one.
     fn current(&self, cx: &mut EventCx<'_, Msg>) -> Option<usize> {
@@ -374,7 +464,11 @@ impl<Msg: 'static> CardGrid<Msg> {
         if let Some(step) = step {
             let target = cx.memory::<GridMemory>().layout.step(step, current);
             if let Some(target) = target {
-                self.select(cx, target);
+                if self.picking.is_multi() {
+                    self.picking.select_one(cx, self, target);
+                } else {
+                    self.select(cx, target);
+                }
             }
             return target.is_some();
         }
@@ -382,13 +476,15 @@ impl<Msg: 'static> CardGrid<Msg> {
             return false;
         };
         self.select(cx, index);
-        if key.is_plain(Key::Space) && self.toggle(cx, index) {
+        if key.is_plain(Key::Space) && (self.picking.toggle(cx, self, index) || self.toggle(cx, index)) {
             return true;
         }
         self.activate(cx, index)
     }
 
     fn on_mouse(&self, cx: &mut EventCx<'_, Msg>, mouse: &crate::event::MouseEvent) -> bool {
+        // A press on a card's check mark only toggles it.
+        let marked = self.toggles().then(|| self.mark_at(cx, mouse.x, mouse.y)).flatten();
         let memory = cx.memory::<GridMemory>();
         let layout = memory.layout;
         let bar = layout.bar();
@@ -419,23 +515,8 @@ impl<Msg: 'static> CardGrid<Msg> {
                 memory.dragging = false;
                 true
             }
-            MouseKind::Down(MouseButton::Left) => {
-                let offset = memory.offset;
-                let Some(index) = layout.index_at(mouse.x, mouse.y, offset) else {
-                    return false;
-                };
-                if self.toggles() {
-                    let card = layout.card_rect(index, offset);
-                    let padding = card_padding(cx.env());
-                    if mark_zone(cx.env(), card, padding).contains(mouse.x, mouse.y) {
-                        return self.toggle(cx, index);
-                    }
-                }
-                self.select(cx, index);
-                self.activate(cx, index);
-                true
-            }
-            _ => false,
+            MouseKind::Down(MouseButton::Left) if let Some(index) = marked => self.toggle(cx, index),
+            _ => self.picking.mouse(cx, mouse, self).unwrap_or(false),
         }
     }
 }
@@ -581,20 +662,34 @@ impl<Msg: Clone + 'static> Widget<Msg> for CardGrid<Msg> {
             None => pointer.filter(|_| pointed).and_then(|(x, y)| layout.index_at(x, y, offset)),
         };
 
+        // The card a drag is over takes the accent tone when it can take what is dragged.
+        let target = row_pointer::dragged(cx).and_then(|((x, y), carried)| {
+            layout.index_at(x, y, offset).filter(|index| self.picking.takes_drop(&carried, *index))
+        });
+        let drawn = row_pointer::drawn_box(cx);
         cx.with_clip(layout.body, |cx| {
             for index in layout.shown(offset) {
                 let rect = layout.card_rect(index, offset);
                 let is_hovered = hovered == Some(index);
                 // While the pointer carries the highlight, the selected card rests unless it is
                 // the one under the pointer.
-                let lit = self.selected == Some(index) && (!pointed || is_hovered);
+                let cursor = self.selected == Some(index) && (!pointed || is_hovered);
+                // With several selected, the selected cards take the selected surface and the
+                // card the keys are on is raised like a hovered one when it is not among them,
+                // so the keys still show where they start.
+                let (lit, raised) = if self.picking.is_multi() {
+                    let chosen = self.picking.is_chosen(index);
+                    (chosen, is_hovered || (cursor && !chosen))
+                } else {
+                    (cursor, is_hovered)
+                };
                 let mut states = Vec::new();
-                if is_hovered {
+                if raised {
                     states.push(State::Hover);
                 }
                 if lit {
                     states.push(State::Selected);
-                    if focus_visible {
+                    if focus_visible && (cursor || !self.picking.is_multi()) {
                         states.push(State::Focus);
                     }
                 }
@@ -602,6 +697,16 @@ impl<Msg: Clone + 'static> Widget<Msg> for CardGrid<Msg> {
                     states.push(State::Pressed);
                 }
                 self.paint_card(cx, rect, index, &states, padding);
+                if target == Some(index) {
+                    // The card keeps what it shows and takes the tone of a place that takes a drop.
+                    let drop = cx.style("tree-drop", None, &[]).text();
+                    let bg = drop.bg.unwrap_or_else(|| cx.color("accent"));
+                    let readable = drop.fg.unwrap_or_else(|| cx.color("text"));
+                    cx.fill_keeping_text_readable(rect, bg, readable);
+                }
+            }
+            if let Some(drawn) = drawn {
+                select_box::paint(cx, drawn, layout.body);
             }
         });
 
@@ -639,5 +744,33 @@ impl<Msg: Clone + 'static> Widget<Msg> for CardGrid<Msg> {
 
     fn children_mut(&mut self) -> &mut [Node<Msg>] {
         &mut self.empty
+    }
+}
+
+impl<Msg: 'static> PickedRows<Msg> for CardGrid<Msg> {
+    fn spot(&self, cx: &mut EventCx<'_, Msg>, x: i32, y: i32) -> Spot {
+        let memory = cx.memory::<GridMemory>();
+        if !memory.layout.body.contains(x, y) {
+            return Spot::Outside;
+        }
+        memory.layout.index_at(x, y, memory.offset).map_or(Spot::Free, Spot::Row)
+    }
+
+    fn covered(&self, cx: &mut EventCx<'_, Msg>, rect: Rect) -> Vec<usize> {
+        let memory = cx.memory::<GridMemory>();
+        let (layout, offset) = (memory.layout, memory.offset);
+        layout.shown(offset).filter(|index| !layout.card_rect(*index, offset).intersect(rect).is_empty()).collect()
+    }
+
+    fn cursor(&self) -> Option<usize> {
+        self.selected
+    }
+
+    fn select(&self, cx: &mut EventCx<'_, Msg>, index: usize) {
+        CardGrid::select(self, cx, index);
+    }
+
+    fn open(&self, cx: &mut EventCx<'_, Msg>, index: usize, _at: (i32, i32)) {
+        self.activate(cx, index);
     }
 }

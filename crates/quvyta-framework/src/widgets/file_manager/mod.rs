@@ -20,7 +20,7 @@ use std::rc::Rc;
 use crate::icons::UserFolders;
 use crate::widget::{Length, NodeMut, View};
 
-use super::{Button, ContextItem, Field, Form, FormErrors, Modal, ProgressBar, Text, TextInput, Tree, TreeNode};
+use super::{Button, Click, ContextItem, Field, Form, FormErrors, Modal, ProgressBar, Text, TextInput, Tree, TreeNode};
 
 pub use details::FileDetails;
 pub use flat::FileView;
@@ -65,6 +65,20 @@ const NAMING_WIDTH: u16 = 48;
 /// folder, renaming with the name checked as it is typed, and deleting behind a question. Each
 /// operation says what it changed or why it was refused, entry by entry when there were several.
 ///
+/// The mouse works as it does in a desktop file explorer, in all three views. A click only
+/// selects; a double click or Enter opens: a file through [`on_open`](Self::on_open), a folder by
+/// stepping into it in the list and the icons and by opening or closing it in the tree, where
+/// its chevron and ← and → still do that with one click. Ctrl+click adds an entry to the
+/// selection or takes it out, and Shift+click selects the entries from the last one clicked. A
+/// drag from the free space draws a box, a tone over the cells it covers, and selects the
+/// entries inside it, adding to the selection when Ctrl was held. A drag from a selected entry
+/// carries the whole selection: released on a folder it moves there, or is copied there when
+/// Ctrl is held at the release, and released anywhere else it does nothing. A terminal that does
+/// not report Ctrl with the pointer always moves. A name already taken in the folder is never
+/// overwritten; the entry says why it stayed. A right click on a selected entry opens the menu of
+/// the selection, and on any other entry selects it and opens its menu.
+/// [`open_on(Click::Single)`](Self::open_on) opens with one click instead.
+///
 /// What it draws: the root as the top row, so the folder itself has a place for its menu; folders
 /// then files, each in name order; an entry whose name the platform does not spell as text shown
 /// lossily rather than left out; what was cut faint until it is pasted or let go.
@@ -74,8 +88,8 @@ const NAMING_WIDTH: u16 = 48;
 /// root.
 ///
 /// Keys: the tree's own (↑/↓ between rows, ←/→ and Enter to open and close a folder, Enter on a
-/// file to open it, Space and Ctrl to select several, Home and End, the menu key on the row the
-/// cursor is on).
+/// file to open it, Space to select several, Home and End, the menu key on the row the cursor is
+/// on).
 ///
 /// What it can add: each row's icon by the kind of the entry, see [`kind_icons`](Self::kind_icons),
 /// and those icons in the colours of their families, see [`kind_tones`](Self::kind_tones).
@@ -91,6 +105,7 @@ pub struct FileManager<'a, Msg> {
     menu: Option<Menu<Msg>>,
     marks: Option<Marks>,
     view: FileView,
+    open_on: Click,
     disabled: bool,
     kind_icons: bool,
     kind_tones: bool,
@@ -115,6 +130,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
             menu: None,
             marks: None,
             view: FileView::Tree,
+            open_on: Click::Double,
             disabled: false,
             kind_icons: false,
             kind_tones: false,
@@ -131,14 +147,27 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         self
     }
 
-    /// A file was asked to be opened: a click or Enter on its row.
+    /// A file was asked to be opened: a double click or Enter on its row, or a click with
+    /// [`open_on(Click::Single)`](Self::open_on).
     ///
     /// The manager has no viewer, tab or window of its own; one application opens the path in a
-    /// tab, another in a window, and a dialog returns it as the answer. Without this a click on a
-    /// file only selects it.
+    /// tab, another in a window, and a dialog returns it as the answer. Without this a double
+    /// click on a file only selects it.
     #[must_use]
     pub fn on_open(mut self, message: impl Fn(&Path) -> Msg + 'static) -> Self {
         self.on_open = Some(Rc::new(message));
+        self
+    }
+
+    /// How many clicks open an entry: [`Click::Double`], the default, the way a desktop file
+    /// explorer opens, so a click is free to select or to start a drag; or [`Click::Single`], a
+    /// click that selects and opens at once, for a picker whose rows are only ever opened.
+    ///
+    /// A double click is two presses on the same entry within [`Click::INTERVAL`]. Enter opens
+    /// either way, and a folder's chevron in the tree opens and closes it with one click.
+    #[must_use]
+    pub fn open_on(mut self, click: Click) -> Self {
+        self.open_on = click;
         self
     }
 
@@ -329,6 +358,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         let expand = Rc::clone(&self.wrap);
         let choose = Rc::clone(&self.wrap);
         let drop = Rc::clone(&self.wrap);
+        let copy = Rc::clone(&self.wrap);
         let accepts = state.folder_keys();
         let tree = tree
             .selected(state.selected())
@@ -338,10 +368,13 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
                 move |dropped| drop(FileManagerMsg::Drop(dropped)),
                 move |key| key == ROOT || accepts.contains(key),
             )
+            .on_copy_drop(move |dropped| copy(FileManagerMsg::DropCopy(dropped)))
+            .activate_on(self.open_on)
+            .box_select(true)
             .on_expand(move |key, open| expand(FileManagerMsg::Expand(key.to_owned(), open)))
             .context_menu(self.menu_for());
-        // Enter or a click on a file opens it; on a folder they open the folder, which the tree
-        // does itself. Space and the modified clicks select instead.
+        // Enter or a double click on a file opens it; on a folder they open the folder, which the
+        // tree does itself. Space and the modified clicks select instead.
         match &self.on_open {
             Some(open) => {
                 let (open, root) = (Rc::clone(open), state.root().to_path_buf());

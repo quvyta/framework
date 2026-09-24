@@ -34,6 +34,38 @@ text/x-typescript text/plain
 application/x-compressed-tar application/gzip
 ";
 
+/// What three of the demo's types are called in words, as `update-mime-database` writes them:
+/// the path under `data/mime` and the file. Every other type has none, and the page says nothing.
+const DESCRIPTIONS: [(&str, &str); 3] = [
+    (
+        "text/x-rust.xml",
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<mime-type xmlns="http://www.freedesktop.org/standards/shared-mime-info" type="text/x-rust">
+  <comment>Rust source code</comment>
+  <comment xml:lang="tr">Rust kaynak kodu</comment>
+</mime-type>
+"#,
+    ),
+    (
+        "text/markdown.xml",
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<mime-type xmlns="http://www.freedesktop.org/standards/shared-mime-info" type="text/markdown">
+  <comment>Markdown document</comment>
+  <comment xml:lang="tr">Markdown belgesi</comment>
+</mime-type>
+"#,
+    ),
+    (
+        "text/plain.xml",
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<mime-type xmlns="http://www.freedesktop.org/standards/shared-mime-info" type="text/plain">
+  <comment>Plain text document</comment>
+  <comment xml:lang="tr">Düz metin belgesi</comment>
+</mime-type>
+"#,
+    ),
+];
+
 /// A graphical editor for plain text.
 const EDITOR: &str = "[Desktop Entry]
 Type=Application
@@ -123,6 +155,9 @@ impl Demo {
         };
         write("data/mime/globs2", GLOBS.as_bytes())?;
         write("data/mime/subclasses", SUBCLASSES.as_bytes())?;
+        for (path, xml) in DESCRIPTIONS {
+            write(&format!("data/mime/{path}"), xml.as_bytes())?;
+        }
         write("data/applications/editor.desktop", EDITOR.as_bytes())?;
         write("data/applications/pager.desktop", PAGER.as_bytes())?;
         write("data/applications/images.desktop", IMAGES.as_bytes())?;
@@ -326,6 +361,8 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
                 // region: open-with-type
                 let Choices { mime, apps, default } = openers.for_file(&path);
                 let kinds = openers.mime.ancestors(&mime);
+                // The type in words, in the language the page speaks: "Rust source code".
+                let called = openers.mime.comment(&mime, &lang);
                 // endregion
                 let how = if path.is_dir() {
                     t!("open-with.is-folder")
@@ -334,6 +371,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
                 } else {
                     t!("open-with.by-contents")
                 };
+                if let Some(called) = &called {
+                    fact(ui, t!("open-with.called"), called);
+                }
                 fact(ui, t!("open-with.type"), &format!("{mime}  {how}"));
                 let kinds = if kinds.len() > 1 { kinds[1..].join("  ") } else { t!("open-with.nothing-more") };
                 fact(ui, t!("open-with.kind-of"), &kinds);
@@ -414,6 +454,7 @@ mod tests {
         let h = page();
         let screen = h.screen();
         assert!(screen.contains("text/x-rust"), "{screen}");
+        assert!(screen.contains("Rust source code"), "the type in words, from the demo's own file:\n{screen}");
         assert!(screen.contains("text/plain"), "the type it is a kind of:\n{screen}");
         for name in ["Pager", "Text Editor"] {
             assert!(screen.contains(name), "{name} is missing:\n{screen}");
@@ -447,6 +488,9 @@ mod tests {
             pick(&mut h, index);
             let screen = h.screen();
             assert!(screen.contains(expected), "{expected} for file {index}:\n{screen}");
+            let words = index == 4;
+            assert_eq!(screen.contains("Plain text document"), words, "only plain text is described:\n{screen}");
+            assert_eq!(screen.contains("Called"), words, "a type without words has no such line:\n{screen}");
         }
     }
 
@@ -457,11 +501,14 @@ mod tests {
         let handoffs = h.handoffs();
         assert_eq!(handoffs.len(), 1, "the default for Rust source is the pager, a terminal program");
         assert_eq!(handoffs[0].program, "less");
+        let files = h.app().pages.open_with.demo.as_ref().expect("the demo").root.join("files");
+        assert_eq!(handoffs[0].dir.as_ref(), Some(&files), "the pager runs in the file's folder");
         assert!(h.screen().contains("came back"), "{}", h.screen());
         pick(&mut h, 2);
         open(&mut h);
         assert_eq!(h.opens().len(), 1, "a graphical program starts beside the application");
         assert_eq!(h.opens()[0].program, "image viewer");
+        assert_eq!(h.opens()[0].dir.as_ref(), Some(&files), "so does the image viewer");
     }
 
     #[test]

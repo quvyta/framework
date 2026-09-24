@@ -6,6 +6,7 @@
 - `ContextItem::gap()` — an empty row between groups.
 - `.icon(key)` — icon before the label.
 - `.shortcut(label)` — faint key label at the right edge (display only).
+- `.detail(text)` — faint note on the right in the muted tone, before the shortcut or the submenu arrow, drawn on disabled rows too; e.g. why the row cannot be used. The menu widens to fit it; in a narrow space it is cut before the label, and left out below four cells.
 - `.disabled(bool)` — greyed out, skipped by the keyboard. Default: `false`.
 - `.danger(bool)` — drawn in the danger colour. Default: `false`.
 
@@ -22,7 +23,7 @@
 
 - `context-menu` — `bg` (default `$overlay`).
 - `context-item` with `hover` (`bg`, `fg`, `pillar`) and `disabled`; `context-item.danger` with `hover`.
-- `context-item-shortcut` and `context-item-chevron` with the row's `hover` and `disabled`; the built-in theme brightens only the chevron on `hover`.
+- `context-item-shortcut`, `context-item-chevron` and `context-item-detail` with the row's `hover` and `disabled`; the built-in theme draws all three in `$muted` and brightens only the chevron on `hover`.
 
 ## Icons
 

@@ -14,13 +14,15 @@ Use a file manager when a folder is part of what your application is about: a pr
 2. Read the root when the manager comes on screen: `self.manager.load(Msg::Files)`, from `init` or when your screen is entered. It reads the root the first time and every open folder again after that.
 3. Hand every message over: `Msg::Files(m) => self.manager.update(m, Msg::Files)`. Reads and file operations run on background threads; drawing never waits for them.
 4. Draw it: `FileManager::new(&self.manager, Msg::Files).on_open(|path| Msg::Open(path.to_path_buf())).show(ui).fill()`.
-5. Add what only you know: `on_open_terminal` for "Open a terminal here", `menu_items(|key, targets| …)` for your own items on a row's menu, and `row_mark(|key| …)` for what an entry means to you. `kind_icons(true)` when the kind of each file matters to the person, which in a file manager it nearly always does.
-6. Say where a deleted entry goes: `.trashing()` for the person's own trash, or nothing for deleting for good. `.showing_hidden(true)` for a manager that shows the dotfiles.
-7. To follow other programs, `.following(true)` on the state, or `set_following(true)` while the manager is on screen and `false` when it leaves.
+5. Leave the mouse as it is: a click selects and a double click opens, the way every desktop file explorer works. Ask for `open_on(Click::Single)` only for a picker whose rows are opened and never moved or selected together.
+6. Add what only you know: `on_open_terminal` for "Open a terminal here", `menu_items(|key, targets| …)` for your own items on a row's menu, and `row_mark(|key| …)` for what an entry means to you. `kind_icons(true)` when the kind of each file matters to the person, which in a file manager it nearly always does.
+7. Say where a deleted entry goes: `.trashing()` for the person's own trash, or nothing for deleting for good. `.showing_hidden(true)` for a manager that shows the dotfiles.
+8. To follow other programs, `.following(true)` on the state, or `set_following(true)` while the manager is on screen and `false` when it leaves.
 
 ## How it works
 
 - **Reading never happens while drawing.** A folder is read once, in one answer, and the view is built from what is already known. Ten thousand entries arrive as one batch and are drawn once; they are never streamed in pieces, because every redraw is a whole screen over a remote connection.
+- **The mouse is a file explorer's.** A click only selects, so it is free to start a drag or a selection; a double click — two presses on the same entry within 400 ms — or Enter opens: a file through `on_open`, a folder by stepping into it in the list and the icons and by opening it where it stands in the tree, where the chevron and ← → still open and close with one click. Ctrl+click adds an entry or takes it out, Shift+click takes the range from the last entry clicked, and a drag from the free space draws a box that selects what it covers — adding to the selection when Ctrl was held. The box is a tone laid over the cells, never a frame. A drag from a selected entry carries the whole selection: on a folder it moves there, and with Ctrl held at the release it is copied; anywhere else it does nothing. A terminal that does not report Ctrl with the pointer simply moves, and nothing already in the folder is ever overwritten.
 - **A flat view shows one folder.** The list and the icons show the folder `state.folder()` names, with its own row at the top: that row carries the folder's menu and is the way back out of it, and a folder row steps into it. The keys, the menus and every operation are the same in all three shapes.
 - **The list reads a page, never a folder.** Size, date and permissions each mean one more call to the system for that one entry, so the list asks for a page of two hundred entries around the cursor and remembers what came back. The tree and the icons ask for nothing at all. An application that knows exactly which rows it draws asks for those with `state.detail(keys, wrap)`.
 - **Only the visible rows are painted.** A folder of ten thousand entries costs what a folder of two hundred costs: the rows on screen, and no more. A tree row reads no size, date or permissions at all.
@@ -40,6 +42,7 @@ Use a file manager when a folder is part of what your application is about: a pr
 
 ## Pitfalls
 
+- **Do not catch the click to open things yourself.** A click that opens cannot start a drag or a selection; if something must open at once, that is `open_on(Click::Single)`, and the manager keeps its other gestures working around it.
 - **Do not reread on a timer.** Refresh when your own operation finished, when the manager comes back on screen, and when a watch says something changed.
 - **Do not decide what a file is.** Viewers and programs are your application's business; the manager only hands over the path. Its icon by kind is a look, never a promise about what is inside.
 - **Do not draw your own table of kinds.** Ask `file_kind` or turn on `kind_icons`, so a Rust file looks the same in every application of the ecosystem; restyle a kind through the icon set, key by key, rather than with a sign.

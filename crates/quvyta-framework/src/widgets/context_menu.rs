@@ -429,7 +429,7 @@ mod tests {
         }
     }
 
-    fn right_click(h: &mut Harness<Demo>, x: i32, y: i32) {
+    fn right_click<A: App>(h: &mut Harness<A>, x: i32, y: i32) {
         h.mouse(MouseKind::Down(MouseButton::Right), x, y);
         h.mouse(MouseKind::Up(MouseButton::Right), x, y);
     }
@@ -522,5 +522,80 @@ mod tests {
         right_click(&mut h, 3, 9);
         let (_, y) = h.find("Delete").expect("open");
         assert_eq!(y, 8);
+    }
+
+    /// A menu whose rows carry notes: one beside a shortcut, one on a disabled row.
+    struct Notes;
+
+    impl App for Notes {
+        type Msg = Msg;
+        fn update(&mut self, _msg: Msg) -> Command<Msg> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, Msg>) {
+            let items = [
+                ContextItem::new("Open", Msg::Chose("open")),
+                ContextItem::new("Compress", Msg::Chose("compress")).detail("slow").shortcut("ctrl k"),
+                ContextItem::new("Extract here", Msg::Chose("extract")).detail("bsdtar needed").disabled(true),
+            ];
+            ui.add_with(ContextMenu::new(items), |ui| {
+                ui.add(Text::new("archive.tar"));
+            })
+            .fill();
+        }
+    }
+
+    /// The foreground at a cell `find` returned.
+    fn fg_at<A: App>(h: &Harness<A>, x: i32, y: i32) -> Option<crate::color::Rgb> {
+        h.fg(u16::try_from(x).unwrap(), u16::try_from(y).unwrap())
+    }
+
+    fn open_notes(width: u16) -> Harness<Notes> {
+        let mut h = Harness::new(Notes, width, 8);
+        h.set_reduced_motion(true);
+        right_click(&mut h, 0, 0);
+        h
+    }
+
+    #[test]
+    fn a_note_sits_on_the_right_in_the_muted_tone_also_on_a_disabled_row() {
+        let h = open_notes(60);
+        let screen = h.screen();
+        let (x, y) = h.find("bsdtar needed").expect("the note of the disabled row is drawn");
+        let muted = h.env().theme().color("muted");
+        assert_eq!(fg_at(&h, x, y), muted, "{screen}");
+        assert_eq!(fg_at(&h, x + 12, y), muted);
+        let line = screen.lines().nth(usize::try_from(y).unwrap()).unwrap();
+        assert_eq!(line.trim(), "Extract here    bsdtar needed", "plain text, no brackets: {screen}");
+    }
+
+    #[test]
+    fn the_shortcut_stays_outermost_with_the_note_before_it() {
+        let h = open_notes(60);
+        let screen = h.screen();
+        let (note_x, y) = h.find("slow").expect("note drawn");
+        let (key_x, key_y) = h.find("ctrl k").expect("shortcut drawn");
+        assert_eq!(y, key_y);
+        assert_eq!(key_x, note_x + 4 + 2, "two cells between the note and the shortcut: {screen}");
+        assert_eq!(fg_at(&h, note_x, y), h.env().theme().color("muted"));
+        // The shortcut ends where the other rows' notes end: at the menu's right margin.
+        let (other_x, _) = h.find("bsdtar needed").expect("note drawn");
+        assert_eq!(key_x + 6, other_x + 13, "{screen}");
+    }
+
+    #[test]
+    fn a_narrow_screen_cuts_the_note_before_the_label() {
+        let h = open_notes(24);
+        let screen = h.screen();
+        assert!(screen.contains("Extract here"), "the label is whole: {screen}");
+        assert!(!screen.contains("bsdtar needed"), "{screen}");
+        let (x, y) = h.find("bsd").expect("the note is cut, not dropped, while it has room");
+        assert!(screen.lines().nth(usize::try_from(y).unwrap()).unwrap().contains('…'), "{screen}");
+        assert_eq!(fg_at(&h, x, y), h.env().theme().color("muted"));
+
+        let h = open_notes(18);
+        let screen = h.screen();
+        assert!(screen.contains("Extract here"), "the label is still whole: {screen}");
+        assert!(!screen.contains("bsd"), "with no room left the note goes: {screen}");
     }
 }

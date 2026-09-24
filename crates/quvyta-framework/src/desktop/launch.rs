@@ -71,8 +71,13 @@ impl DesktopApp {
     /// instead of tried. The arguments are those of [`DesktopApp::command`], so no shell is
     /// involved.
     ///
+    /// Either way the program runs in the file's folder, as desktop file managers start it:
+    /// relative paths, "Save as" and a shell opened from the program begin beside the file, not
+    /// wherever the application happened to be started. A file given without a folder leaves the
+    /// application's own.
+    ///
     /// In a [`Harness`](crate::runtime::Harness) nothing runs: the handoff or the opening is
-    /// recorded, and a test reads it from `handoffs()` or `opens()`.
+    /// recorded, and a test reads it, folder included, from `handoffs()` or `opens()`.
     ///
     /// # Errors
     ///
@@ -87,25 +92,52 @@ impl DesktopApp {
         if !self.can_start(graphical) {
             return Err(LaunchError::NoGraphicalSession);
         }
+        Ok(match self.start(file, on_done)? {
+            Start::Terminal(handoff) => Command::handoff(handoff),
+            Start::Beside(open) => Command::open_with(open),
+        })
+    }
+
+    /// The handoff or the opening that starts this program on `file` in the file's folder.
+    fn start<Msg: Send + 'static>(
+        &self,
+        file: &Path,
+        on_done: impl FnOnce(Launched) -> Msg + Send + 'static,
+    ) -> Result<Start<Msg>, LaunchError> {
         let mut words = self.command(file).ok_or(LaunchError::NoCommand)?.into_iter();
         let program = words.next().ok_or(LaunchError::NoCommand)?;
+        // `Path::parent` of a bare name is the empty path, which is no folder to start in.
+        let folder = file.parent().filter(|folder| !folder.as_os_str().is_empty());
         if self.terminal {
-            let handoff = Handoff::new(program, move |outcome| {
+            let mut handoff = Handoff::new(program, move |outcome| {
                 on_done(match outcome {
                     HandoffOutcome::Finished { code } => Launched::Returned { code },
                     HandoffOutcome::Failed(reason) => Launched::Failed(reason),
                 })
-            });
-            return Ok(Command::handoff(handoff.args(words)));
+            })
+            .args(words);
+            if let Some(folder) = folder {
+                handoff = handoff.dir(folder);
+            }
+            return Ok(Start::Terminal(handoff));
         }
-        let open = Open::program(program).args(words).answer(move |outcome| {
+        let mut open = Open::program(program).args(words).answer(move |outcome| {
             on_done(match outcome {
                 OpenOutcome::Opened => Launched::Started,
                 OpenOutcome::Failed(reason) => Launched::Failed(reason),
             })
         });
-        Ok(Command::open_with(open))
+        if let Some(folder) = folder {
+            open = open.dir(folder);
+        }
+        Ok(Start::Beside(open))
     }
+}
+
+/// How [`DesktopApp::launch`] starts a program: handed the terminal, or beside the application.
+enum Start<Msg> {
+    Terminal(Handoff<Msg>),
+    Beside(Open<Msg>),
 }
 
 #[cfg(test)]
@@ -181,6 +213,94 @@ mod tests {
         assert_eq!(handoffs[0].args, [OsString::from(FILE)]);
         assert!(harness.opens().is_empty());
         assert_eq!(harness.app().heard, [Launched::Returned { code: Some(0) }], "the harness answers it");
+    }
+
+    #[test]
+    fn a_terminal_program_runs_in_the_files_folder() {
+        let mut harness = opener(app("less %f", true), false);
+        harness.send(Msg::Open);
+        assert_eq!(harness.handoffs()[0].dir, Some(PathBuf::from("/home/ada")), "beside the file, not the app");
+    }
+
+    #[test]
+    fn a_graphical_program_runs_in_the_files_folder() {
+        let mut harness = opener(app("editor %F", false), true);
+        harness.send(Msg::Open);
+        assert_eq!(harness.opens()[0].dir, Some(PathBuf::from("/home/ada")), "beside the file, not the app");
+    }
+
+    #[test]
+    fn a_file_named_without_a_folder_leaves_the_applications_own() {
+        for (terminal, graphical) in [(true, false), (false, true)] {
+            let file = PathBuf::from("notes.txt");
+            let app = app("editor %f", terminal);
+            let mut harness = Harness::new(Opener { app, graphical, file, heard: Vec::new(), refused: None }, 20, 2);
+            harness.send(Msg::Open);
+            let dir = if terminal { harness.handoffs()[0].dir.clone() } else { harness.opens()[0].dir.clone() };
+            assert_eq!(dir, None, "an empty folder is no folder to start in (terminal: {terminal})");
+        }
+    }
+
+    /// A folder of this test's own with a file in it, removed when the test ends.
+    struct Folder(PathBuf);
+
+    impl Folder {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!("qframe-launch-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("the temporary folder can be made");
+            std::fs::write(path.join("notes.txt"), "notes\n").expect("the file can be written");
+            Self(path.canonicalize().expect("the folder is there"))
+        }
+
+        /// What `pwd` wrote into the folder it ran in.
+        fn heard(&self) -> String {
+            std::fs::read_to_string(self.0.join("notes.txt.where")).unwrap_or_default().trim().to_owned()
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// `sh` writes the folder it runs in beside the file it was given (`$0`), wherever it runs.
+    const PWD: &str = "sh -c \"pwd >\\\"\\$0.where\\\"\" %f";
+
+    #[test]
+    fn a_terminal_program_really_starts_in_the_files_folder() {
+        let folder = Folder::new("terminal");
+        let Ok(Start::Terminal(handoff)) = app(PWD, true).start(&folder.0.join("notes.txt"), |launched| launched)
+        else {
+            panic!("a terminal program is handed the terminal");
+        };
+        let mut release = |_: Option<&str>| Ok(());
+        let mut take = || Ok(());
+        let mut wait_for_key = || Ok(());
+        let launched = crate::runtime::handoff::run(
+            handoff,
+            &mut crate::runtime::handoff::HandoffScreen {
+                release: &mut release,
+                take: &mut take,
+                wait_for_key: &mut wait_for_key,
+            },
+        );
+        assert_eq!(launched, Launched::Returned { code: Some(0) });
+        assert_eq!(folder.heard(), folder.0.to_string_lossy(), "the program ran in the file's folder");
+    }
+
+    #[test]
+    fn a_graphical_program_really_starts_in_the_files_folder() {
+        let folder = Folder::new("graphical");
+        let Ok(Start::Beside(open)) = app(PWD, false).start(&folder.0.join("notes.txt"), |launched| launched) else {
+            panic!("a graphical program starts beside the application");
+        };
+        let (launched, child) = open.start();
+        assert_eq!(launched, Some(Launched::Started));
+        let status = child.expect("a child").wait().expect("it ends");
+        assert_eq!(status.code(), Some(0));
+        assert_eq!(folder.heard(), folder.0.to_string_lossy(), "the program ran in the file's folder");
     }
 
     #[test]

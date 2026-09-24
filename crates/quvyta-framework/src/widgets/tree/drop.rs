@@ -155,12 +155,16 @@ impl<Msg: 'static> Tree<Msg> {
         }
     }
 
-    /// Sends the drop or the reorder a drag of `keys` released at `aim` asks for.
-    pub(super) fn release(&self, cx: &mut EventCx<'_, Msg>, keys: Vec<String>, aim: Aim) {
+    /// Sends the drop or the reorder a drag of `keys` released at `aim` asks for: a copy rather
+    /// than a move when `copy` (Ctrl held at the release) and the tree copies.
+    pub(super) fn release(&self, cx: &mut EventCx<'_, Msg>, keys: Vec<String>, aim: Aim, copy: bool) {
         match aim {
             Aim::Into(into) => {
-                if let Some(dropping) = &self.dropping {
-                    cx.emit((dropping.message)(TreeDrop { keys, into }));
+                let drop = TreeDrop { keys, into };
+                match (&self.copy_drop, &self.dropping) {
+                    (Some(copying), Some(_)) if copy => cx.emit(copying(drop)),
+                    (_, Some(dropping)) => cx.emit((dropping.message)(drop)),
+                    (_, None) => {}
                 }
             }
             Aim::Reorder(Some((from, to))) => {

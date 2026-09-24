@@ -16,9 +16,12 @@ use crate::geometry::{Rect, Size, clamp_u16};
 use crate::keymap::{Key, KeyChord, Modifiers};
 use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
 
+use super::click::Click;
 use super::row::LEAD;
 use super::row_menu::{self, RowAnchor, RowMenuItems};
+use super::row_pointer::{self, PickedRows, Picking, RowDrop, Spot};
 use super::rows::{self, RowScroll, Step};
+use super::select_box;
 use super::{ContextItem, IndexMessage};
 use layout::Placed;
 pub use model::{Column, ColumnWidth, SortDirection, TableCell, TableRow};
@@ -52,11 +55,24 @@ type SortMessage<Msg> = Box<dyn Fn(usize, SortDirection) -> Msg>;
 /// (or the cell after it) only toggles, a click on a sortable title sorts by it and a second
 /// click reverses it, and a click on a header arrow scrolls the columns one step.
 ///
+/// Four capabilities make the rows work the way a file explorer's do, each off until asked for:
+///
+/// - [`activate_on(Click::Double)`](Self::activate_on): a click only selects a row and a double
+///   click activates it, so a click can start a drag or a selection without opening anything.
+/// - [`multi_select`](Self::multi_select): several rows are selected at once with Ctrl+click,
+///   Shift+click and Space; they share the selection tone while only the cursor's row carries the
+///   pillar and slides.
+/// - [`box_select`](Self::box_select): a drag from the free space below the rows draws a box, and
+///   the rows it covers become the selection.
+/// - [`droppable`](Self::droppable): the selection is dragged onto a row that takes it, such as a
+///   folder, which takes the accent tone while the drag is over it.
+///
 /// Style keys: rows use `list-item` (`hover`, `selected`, `focus`, `pressed`) and
 /// `list-item.faint` like [`List`](super::List); `table-header` (`bg`, `fg`) with `hover` over a
 /// sortable title and `selected` on the sorted one; `table-sort` for the sort arrow;
 /// `table-scroll` (`fg`, `bg`) with `hover` for the header arrows; `list-header` for the empty
-/// text; `scrollbar`.
+/// text; `tree-drop` for the row a drag would drop on; `text-selection` (`bg`) for the selection
+/// box; `scrollbar`.
 pub struct Table<Msg> {
     columns: Vec<Column>,
     rows: Arc<[TableRow]>,
@@ -70,6 +86,7 @@ pub struct Table<Msg> {
     on_sort: Option<SortMessage<Msg>>,
     menu: Option<RowMenuItems<Msg>>,
     menu_on_activate: bool,
+    picking: Picking<Msg>,
 }
 
 #[derive(Debug, Default)]
@@ -102,6 +119,7 @@ impl<Msg: 'static> Table<Msg> {
             on_sort: None,
             menu: None,
             menu_on_activate: false,
+            picking: Picking::default(),
         }
     }
 
@@ -191,6 +209,69 @@ impl<Msg: 'static> Table<Msg> {
         self
     }
 
+    /// How many clicks activate a row: [`Click::Single`], the default, selects and activates at
+    /// once; [`Click::Double`] only selects on a click and activates on a second press on the same
+    /// row within [`Click::INTERVAL`]. Enter activates either way.
+    #[must_use]
+    pub fn activate_on(mut self, click: Click) -> Self {
+        self.picking.activate_on = click;
+        self
+    }
+
+    /// Lets several rows be selected at once: `selected` holds their indexes and `message(rows)`
+    /// asks the application to make `rows` the whole new selection.
+    ///
+    /// The row given to [`selected`](Self::selected) stays the cursor: the row the keys move from
+    /// and the only one with the pillar, while every selected row takes the selection tone.
+    /// Ctrl+click adds a row or takes it out, Shift+click selects the rows from the last plain or
+    /// Ctrl click to this one, Space adds or takes out the cursor's row and a plain click selects
+    /// that one row. A right click on a selected row keeps the selection for its menu; on another
+    /// row it makes that row the selection first.
+    #[must_use]
+    pub fn multi_select(mut self, selected: &[usize], message: impl Fn(Vec<usize>) -> Msg + 'static) -> Self {
+        self.picking.chosen = selected.to_vec();
+        self.picking.on_choose = Some(Box::new(message));
+        self
+    }
+
+    /// Lets a drag from the free space below the rows draw a box: the rows it covers become the
+    /// selection while it is drawn, or join it when Ctrl was held at the press, and a click there
+    /// without a drag clears the selection. The box is a tone laid over the cells it covers, never
+    /// a frame. It needs [`multi_select`](Self::multi_select) and does nothing without it.
+    #[must_use]
+    pub fn box_select(mut self, on: bool) -> Self {
+        self.picking.box_select = on;
+        self
+    }
+
+    /// Lets rows be dragged onto other rows, such as files onto a folder: `accepts(index)` tells
+    /// whether a row takes drops and `message(RowDrop)` asks the application to move the rows.
+    ///
+    /// A drag carries the pressed row, or the whole [selection](Self::multi_select) when it is
+    /// pressed on one of its rows; a click on a selected row without a drag makes it the one
+    /// selected row on release. The row under the pointer takes the accent tone while it can take
+    /// the drag. A release anywhere else, or on one of the dragged rows, does nothing. With
+    /// [`Click::Single`] a row activates on release rather than on press, so pressing a row to
+    /// drag it does not activate it.
+    #[must_use]
+    pub fn droppable(
+        mut self,
+        message: impl Fn(RowDrop) -> Msg + 'static,
+        accepts: impl Fn(usize) -> bool + 'static,
+    ) -> Self {
+        self.picking.dropping = Some((Box::new(message), Box::new(accepts)));
+        self
+    }
+
+    /// A drop released with Ctrl held asks for a copy with `message` instead of the move of
+    /// [`droppable`](Self::droppable), the way a file explorer copies. A terminal that does not
+    /// report Ctrl with the pointer always moves. It does nothing without `droppable`.
+    #[must_use]
+    pub fn on_copy_drop(mut self, message: impl Fn(RowDrop) -> Msg + 'static) -> Self {
+        self.picking.copy_drop = Some(Box::new(message));
+        self
+    }
+
     /// The cells the rows have to themselves: the scrollbar column is not part of a row.
     fn rows_width(area: Rect, overflows: bool) -> u16 {
         area.width.saturating_sub(u16::from(overflows))
@@ -217,7 +298,9 @@ impl<Msg: 'static> Table<Msg> {
                 let offset = cx.memory::<RowScroll>().offset;
                 let row = usize::try_from(y - body.y).ok().map(|row| offset + row).filter(|row| *row < total)?;
                 let checked = self.checked.as_ref().is_some_and(|checked| checked.get(row).copied().unwrap_or(false));
-                if !checked {
+                if self.picking.is_multi() && !self.picking.is_chosen(row) {
+                    self.picking.select_one(cx, self, row);
+                } else if !checked && !self.picking.is_multi() {
                     self.select(cx, row);
                 }
                 Some(RowAnchor { row, at: Rect::new(x, y, 1, 1), keyboard: false })
@@ -393,9 +476,18 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
         }
         let offset = cx.memory::<RowScroll>().follow(self.selected, total, visible);
         let row_width = Self::rows_width(area, overflows);
+        let rows_rect = Rect::new(area.x, body.y, row_width, body.height);
+        // The row a drag is over takes the accent tone when it can take what is dragged.
+        let target = row_pointer::dragged(cx).and_then(|((x, y), carried)| {
+            let index = offset + usize::try_from(y - body.y).ok()?;
+            (rows_rect.contains(x, y) && index < total && self.picking.takes_drop(&carried, index)).then_some(index)
+        });
         for (row, index) in (offset..total).take(visible).enumerate() {
             let rect = Rect::new(area.x, body.y + i32::try_from(row).unwrap_or(0), row_width, 1);
-            self.paint_row(cx, rect, index, &placed, RowPaint { focused, pressed, menu_row });
+            self.paint_row(cx, rect, index, &placed, RowPaint { focused, pressed, menu_row, target });
+        }
+        if let Some(drawn) = row_pointer::drawn_box(cx) {
+            select_box::paint(cx, drawn, rows_rect);
         }
         rows::paint_scrollbar(cx, body, total, offset, None);
     }
@@ -417,7 +509,11 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
                     let Some(target) = step.apply(self.selected, total, usize::from(body.height)) else {
                         return false;
                     };
-                    self.select(cx, target);
+                    if self.picking.is_multi() {
+                        self.picking.select_one(cx, self, target);
+                    } else {
+                        self.select(cx, target);
+                    }
                     return true;
                 }
                 if key.is_plain(Key::Left) || key.is_plain(Key::Right) {
@@ -433,7 +529,7 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
                 }
                 if key.is_plain(Key::Space) {
                     let Some(index) = self.selected else { return false };
-                    return self.toggle(cx, index) || self.activate(cx, index);
+                    return self.picking.toggle(cx, self, index) || self.toggle(cx, index) || self.activate(cx, index);
                 }
                 let shift_s = KeyChord { key: Key::Char('s'), mods: Modifiers { shift: true, ..Modifiers::default() } };
                 if self.on_sort.is_some() && (key.is_plain(Key::Char('s')) || key.chord == shift_s) {
@@ -456,35 +552,26 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
                 if rows::scroll_mouse(cx, mouse, body, total) {
                     return true;
                 }
-                if mouse.kind != MouseKind::Down(MouseButton::Left) {
-                    return false;
-                }
-                if mouse.y == area.y {
-                    if let Some(forward) = Self::scroll_arrow_at(cx, area, mouse.x) {
-                        return Self::scroll_columns(cx, forward);
+                if mouse.kind == MouseKind::Down(MouseButton::Left) {
+                    if mouse.y == area.y {
+                        if let Some(forward) = Self::scroll_arrow_at(cx, area, mouse.x) {
+                            return Self::scroll_columns(cx, forward);
+                        }
+                        let placed = cx.memory::<TableMemory>().placed.clone();
+                        let Some(place) = placed.iter().find(|place| Self::spans(place, mouse.x)) else {
+                            return false;
+                        };
+                        return self.request_sort(cx, place.column, self.click_sort(place.column));
                     }
-                    let placed = cx.memory::<TableMemory>().placed.clone();
-                    let Some(place) = placed.iter().find(|place| Self::spans(place, mouse.x)) else {
-                        return false;
-                    };
-                    return self.request_sort(cx, place.column, self.click_sort(place.column));
+                    if self.checked.is_some()
+                        && mouse.x < area.x + i32::from(LEAD + MARK)
+                        && let Spot::Row(index) = self.spot(cx, mouse.x, mouse.y)
+                        && self.toggle(cx, index)
+                    {
+                        return true;
+                    }
                 }
-                let offset = cx.memory::<RowScroll>().offset;
-                let Some(index) = usize::try_from(mouse.y - body.y).ok().map(|row| offset + row).filter(|i| *i < total)
-                else {
-                    return false;
-                };
-                if self.checked.is_some() && mouse.x < area.x + i32::from(LEAD + MARK) && self.toggle(cx, index) {
-                    return true;
-                }
-                self.select(cx, index);
-                if self.activation_is_menu() {
-                    let anchor = RowAnchor { row: index, at: Rect::new(mouse.x, mouse.y, 1, 1), keyboard: false };
-                    row_menu::open_as_action(cx, self.menu.as_ref(), &anchor);
-                } else {
-                    self.activate(cx, index);
-                }
-                true
+                self.picking.mouse(cx, mouse, self).unwrap_or(false)
             }
             _ => false,
         }
@@ -492,5 +579,49 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
 
     fn focusable(&self) -> bool {
         !self.rows.is_empty()
+    }
+}
+
+impl<Msg: 'static> PickedRows<Msg> for Table<Msg> {
+    fn spot(&self, cx: &mut EventCx<'_, Msg>, x: i32, y: i32) -> Spot {
+        let area = cx.area();
+        let body = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1));
+        let total = self.rows.len();
+        let overflows = total > usize::from(body.height);
+        let rows = Rect::new(area.x, body.y, Self::rows_width(area, overflows), body.height);
+        if !rows.contains(x, y) {
+            return Spot::Outside;
+        }
+        let index = cx.memory::<RowScroll>().offset + usize::try_from(y - body.y).unwrap_or(0);
+        if index < total { Spot::Row(index) } else { Spot::Free }
+    }
+
+    fn covered(&self, cx: &mut EventCx<'_, Msg>, rect: Rect) -> Vec<usize> {
+        let area = cx.area();
+        let body = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1));
+        let offset = cx.memory::<RowScroll>().offset;
+        let (top, bottom) = (rect.y.max(body.y), rect.bottom().min(body.bottom()));
+        (top..bottom)
+            .filter_map(|y| usize::try_from(y - body.y).ok())
+            .map(|row| offset + row)
+            .filter(|index| *index < self.rows.len())
+            .collect()
+    }
+
+    fn cursor(&self) -> Option<usize> {
+        self.selected
+    }
+
+    fn select(&self, cx: &mut EventCx<'_, Msg>, index: usize) {
+        Table::select(self, cx, index);
+    }
+
+    fn open(&self, cx: &mut EventCx<'_, Msg>, index: usize, (x, y): (i32, i32)) {
+        if self.activation_is_menu() {
+            let anchor = RowAnchor { row: index, at: Rect::new(x, y, 1, 1), keyboard: false };
+            row_menu::open_as_action(cx, self.menu.as_ref(), &anchor);
+        } else {
+            self.activate(cx, index);
+        }
     }
 }

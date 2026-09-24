@@ -16,6 +16,8 @@ use crate::runtime::{App, Command, Harness, TaskEvent, TaskOutcome};
 use crate::widget::View;
 use crate::widgets::TreeDrop;
 
+mod mouse;
+
 use super::ops::{
     FileChange, FileError, NameProblem, check_name, copy_into, create_file, create_folder, delete, move_into, rename,
     to_trash,
@@ -80,6 +82,8 @@ struct Demo {
     /// Whether the work the manager asks for is dropped, so a read never finishes and the reading
     /// state can be looked at.
     slow: bool,
+    /// How many clicks open an entry, when the demo asks for it rather than taking the default.
+    open_on: Option<Click>,
 }
 
 impl Demo {
@@ -102,6 +106,7 @@ impl Demo {
             driven: false,
             view: FileView::Tree,
             slow: false,
+            open_on: None,
         }
     }
 }
@@ -161,6 +166,9 @@ impl App for Demo {
             .view(self.view)
             .on_open(|path| Msg::Open(path.to_path_buf()))
             .disabled(self.disabled);
+        if let Some(click) = self.open_on {
+            manager = manager.open_on(click);
+        }
         if self.extras {
             manager = manager.on_open_terminal(|path| Msg::Terminal(path.to_path_buf())).menu_items(|key, targets| {
                 vec![ContextItem::new(format!("Note {} of {}", key, targets.len()), Msg::Note(key.to_owned()))]
@@ -726,10 +734,10 @@ fn the_application_adds_its_own_items_and_a_terminal_to_a_folders_menu() {
 }
 
 #[test]
-fn a_click_or_enter_on_a_file_asks_the_application_to_open_it_while_ctrl_click_only_chooses() {
+fn a_double_click_or_enter_on_a_file_asks_the_application_to_open_it_while_ctrl_click_only_chooses() {
     let scratch = Scratch::new("open-or-choose");
     let mut h = harness(&scratch);
-    h.click_text("src").advance(MOMENT);
+    h.click_text("src").click_text("src").advance(MOMENT);
     let (x, y) = h.find("README.md").expect("the file's row");
     h.events(&[
         Event::Mouse(MouseEvent { kind: MouseKind::Down(MouseButton::Left), x, y, mods: CTRL }),
@@ -741,10 +749,12 @@ fn a_click_or_enter_on_a_file_asks_the_application_to_open_it_while_ctrl_click_o
     assert!(h.app().opened.is_empty(), "Space chooses too, it does not open");
 
     h.click_text("main.rs").advance(MOMENT);
-    assert_eq!(h.app().opened, [scratch.root().join("src/main.rs")], "a plain click asks for the path");
+    assert!(h.app().opened.is_empty(), "a plain click only selects");
     assert_eq!(state(&h).chosen(), ["src/main.rs"], "and makes it the one selected entry");
+    h.click_text("main.rs").click_text("main.rs").advance(MOMENT);
+    assert_eq!(h.app().opened, [scratch.root().join("src/main.rs")], "a double click asks for the path");
 
-    h.click_text("README.md").advance(MOMENT);
+    h.click_text("README.md").press("enter").advance(MOMENT);
     assert_eq!(h.app().opened.len(), 2, "{:?}", h.app().opened);
     assert_eq!(h.app().opened[1], scratch.root().join("README.md"));
 }
@@ -1664,14 +1674,14 @@ fn a_flat_view_shows_one_folder_and_steps_into_it_and_out_of_it() {
         assert!(screen.contains("README.md") && screen.contains("src"), "{view:?}:\n{screen}");
         assert!(!screen.contains("main.rs"), "a flat view shows one folder, not the tree:\n{screen}");
 
-        h.click_text("src").advance(MOMENT);
+        h.click_text("src").click_text("src").advance(MOMENT);
         assert_eq!(state(&h).folder(), "src", "{view:?}");
         let screen = h.screen();
         assert!(screen.contains("main.rs"), "{view:?}:\n{screen}");
         assert!(!screen.contains("README.md"), "the folder that was left is gone:\n{screen}");
 
         // The folder's own row is the way back out.
-        h.click_text("src").advance(MOMENT);
+        h.click_text("src").click_text("src").advance(MOMENT);
         assert_eq!(state(&h).folder(), FileManagerState::ROOT, "{view:?}");
         assert!(h.screen().contains("README.md"), "{view:?}:\n{}", h.screen());
         assert_eq!(state(&h).selected(), Some("src"), "the cursor is on the folder that was left");
@@ -1692,6 +1702,24 @@ fn the_list_shows_the_size_the_date_and_the_permissions_of_its_rows() {
     #[cfg(unix)]
     assert!(h.screen().contains(&details.permissions_text(false)), "{}", h.screen());
     assert!(!state(&h).has_details(FileManagerState::ROOT), "the folder's own row says nothing about itself");
+}
+
+#[test]
+fn a_reread_the_application_starts_brings_the_details_back_without_a_key() {
+    let scratch = Scratch::new("reread-details");
+    let mut h = viewing(&scratch, FileView::List);
+    let size_of =
+        |h: &Harness<Demo>| state(h).details("README.md").flatten().map(|details| format!("{} B", details.size));
+    let before = size_of(&h).expect("the list read the details once");
+    assert!(h.screen().contains(&before), "the size is drawn:\n{}", h.screen());
+    // Another program writes the file; the application reads the folder again on its own, as it
+    // does after an archive is unpacked or a program it handed the screen to comes back.
+    fs::write(scratch.root().join("README.md"), "a longer text than before, so the size changes\n").expect("a write");
+    h.send(Msg::Files(FileManagerMsg::Refresh));
+    h.advance(MOMENT).advance(MOMENT);
+    let after = size_of(&h).expect("the details came back without a key being pressed");
+    assert_ne!(after, before, "they are the file's new ones");
+    assert!(h.screen().contains(&after), "and the new size is drawn:\n{}", h.screen());
 }
 
 #[test]

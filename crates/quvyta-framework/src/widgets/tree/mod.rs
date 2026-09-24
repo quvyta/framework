@@ -8,9 +8,11 @@ use crate::text;
 use crate::theme::State;
 use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
 
+use super::click::Click;
 use super::delayed::DelayedIndicator;
 use super::row::{self, LEAD};
 use super::rows::{self, RowScroll, Step};
+use super::select_box;
 use super::{ContextItem, SpinnerStyle, tab_model};
 
 mod drop;
@@ -25,6 +27,7 @@ pub use drop::TreeDrop;
 use drop::{Aim, Dropping};
 use edit::Arrange;
 pub use edit::TreeMove;
+use select::TreeBox;
 
 /// Cells of indentation per level.
 const INDENT: u16 = 2;
@@ -155,6 +158,9 @@ type MoveMessage<Msg> = Box<dyn Fn(TreeMove) -> Msg>;
 /// Builds a message from a whole new selection.
 type SelectionMessage<Msg> = Box<dyn Fn(Vec<String>) -> Msg>;
 
+/// Builds a message from a drop into a node.
+type DropMessage<Msg> = Box<dyn Fn(TreeDrop) -> Msg>;
+
 /// Builds the context menu entries of a node from its key.
 type MenuItems<Msg> = Box<dyn Fn(&str) -> Vec<ContextItem<Msg>>>;
 
@@ -175,9 +181,11 @@ type MenuItems<Msg> = Box<dyn Fn(&str) -> Vec<ContextItem<Msg>>>;
 /// Keys while focused: ↑/↓ or k/j, PgUp/PgDn, Home/End move; → opens a node or moves to its
 /// first child; ← closes it or moves to its parent; Enter opens or closes a node with children
 /// and activates a leaf; Space activates. A click selects a row and opens, closes or activates
-/// it like Enter; a click on the chevron only opens or closes.
+/// it like Enter; a click on the chevron only opens or closes. With
+/// [`activate_on(Click::Double)`](Self::activate_on) a click only selects and a double click does
+/// what Enter does, while the chevron still opens and closes with one click.
 ///
-/// Four capabilities are off until asked for:
+/// Five capabilities are off until asked for:
 ///
 /// - [`multi_select`](Self::multi_select): several nodes are selected at once with Ctrl+click,
 ///   Shift+click, Shift+arrows and Space; they share the selection tone while only the cursor's
@@ -192,6 +200,8 @@ type MenuItems<Msg> = Box<dyn Fn(&str) -> Vec<ContextItem<Msg>>>;
 /// - [`droppable`](Self::droppable): drag the selection into a node that takes it, such as a
 ///   folder; the target takes the accent tone, a refused one stays faint, and a closed one opens
 ///   when the drag rests on it.
+/// - [`box_select`](Self::box_select): with several selected, a drag from the free space below the
+///   rows draws a box and the rows it covers become the selection.
 /// - [`context_menu`](Self::context_menu): a right click on a row opens a menu of actions for that
 ///   node at the pointer and keeps the row raised while it is open; the menu key or Shift+F10
 ///   opens the menu of the selected node below its row. With several nodes selected, the menu of
@@ -203,8 +213,8 @@ type MenuItems<Msg> = Box<dyn Fn(&str) -> Vec<ContextItem<Msg>>>;
 /// (`fg`) with `hover` and `selected`; `spinner` for loading nodes; `scrollbar`. Icons:
 /// `tree-collapsed`, `tree-expanded`, `spinner`. A drag uses `tab-drop` for the landing slot and
 /// `tab-ghost` for the row following the pointer, like the tabs; a drop target uses `tree-drop`
-/// (`bg`, `fg`, `bold`) and a refused one `list-item.faint`; the menu uses the keys of
-/// [`ContextItem`].
+/// (`bg`, `fg`, `bold`) and a refused one `list-item.faint`; the selection box uses
+/// `text-selection` (`bg`); the menu uses the keys of [`ContextItem`].
 pub struct Tree<Msg> {
     roots: Vec<TreeNode>,
     selected: Option<String>,
@@ -217,6 +227,9 @@ pub struct Tree<Msg> {
     chosen: Vec<String>,
     on_choose: Option<SelectionMessage<Msg>>,
     dropping: Option<Dropping<Msg>>,
+    copy_drop: Option<DropMessage<Msg>>,
+    activate_on: Click,
+    box_select: bool,
 }
 
 impl<Msg: 'static> Tree<Msg> {
@@ -235,6 +248,9 @@ impl<Msg: 'static> Tree<Msg> {
             chosen: Vec::new(),
             on_choose: None,
             dropping: None,
+            copy_drop: None,
+            activate_on: Click::Single,
+            box_select: false,
         }
     }
 
@@ -318,6 +334,35 @@ impl<Msg: 'static> Tree<Msg> {
         accepts: impl Fn(&str) -> bool + 'static,
     ) -> Self {
         self.dropping = Some(Dropping::new(message, accepts));
+        self
+    }
+
+    /// A drop released with Ctrl held asks for a copy with `message` instead of the move of
+    /// [`droppable`](Self::droppable), the way a file explorer copies. A terminal that does not
+    /// report Ctrl with the pointer always moves. It does nothing without `droppable`.
+    #[must_use]
+    pub fn on_copy_drop(mut self, message: impl Fn(TreeDrop) -> Msg + 'static) -> Self {
+        self.copy_drop = Some(Box::new(message));
+        self
+    }
+
+    /// How many clicks open a row: [`Click::Single`], the default, selects a row and opens,
+    /// closes or activates it at once; [`Click::Double`] only selects on a click and does what
+    /// Enter does on a second press on the same row within [`Click::INTERVAL`]. The chevron opens
+    /// and closes with one click either way, and so do ← and →.
+    #[must_use]
+    pub fn activate_on(mut self, click: Click) -> Self {
+        self.activate_on = click;
+        self
+    }
+
+    /// Lets a drag from the free space below the rows draw a box: the rows it covers become the
+    /// selection while it is drawn, or join it when Ctrl was held at the press, and a click there
+    /// without a drag clears the selection. The box is a tone laid over the cells it covers, never
+    /// a frame. It needs [`multi_select`](Self::multi_select) and does nothing without it.
+    #[must_use]
+    pub fn box_select(mut self, on: bool) -> Self {
+        self.box_select = on;
         self
     }
 
@@ -603,6 +648,9 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
                 }
             }
         }
+        if let Some(drawn) = cx.memory::<TreeBox>().drawn() {
+            select_box::paint(cx, drawn, Self::rows_area(area, flat.len()));
+        }
         // The dragged node follows the pointer as a ghost row, kept inside the tree.
         if let Some(drag) = &drag
             && matches!(aim, Some(Aim::Reorder(_)))
@@ -682,6 +730,9 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
                     let chevron = Self::chevron_x(area, row.depth);
                     row.node.expandable && (chevron..=chevron + 1).contains(&mouse.x)
                 });
+                if let Some(used) = self.box_pointer(cx, mouse, &flat, index) {
+                    return used;
+                }
                 if (self.on_move.is_some() || self.dropping.is_some())
                     && !on_chevron
                     && let Some(used) = self.drag_pointer(cx, mouse, &flat, index)
@@ -702,7 +753,9 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
                     return true;
                 }
                 self.select_one(cx, &flat, index);
-                self.open_or_activate(cx, index, row.node);
+                if self.activate_on == Click::Single || self.double_press(cx, &row.node.key) {
+                    self.open_or_activate(cx, index, row.node);
+                }
                 true
             }
             _ => false,

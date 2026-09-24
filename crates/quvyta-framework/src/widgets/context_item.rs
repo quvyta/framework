@@ -10,12 +10,13 @@ use super::cells;
 /// One row of a menu: an action, a submenu or a gap between groups.
 ///
 /// Style keys: `context-menu` (`bg`), `context-item` with `hover` and `disabled`,
-/// `context-item.danger`, `context-item-shortcut`, `context-item-chevron`.
+/// `context-item.danger`, `context-item-shortcut`, `context-item-chevron`, `context-item-detail`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextItem<Msg> {
     label: String,
     icon: Option<String>,
     shortcut: Option<String>,
+    detail: Option<String>,
     message: Option<Msg>,
     submenu: Vec<ContextItem<Msg>>,
     disabled: bool,
@@ -30,6 +31,7 @@ impl<Msg> ContextItem<Msg> {
             label,
             icon: None,
             shortcut: None,
+            detail: None,
             message: None,
             submenu: Vec::new(),
             disabled: false,
@@ -68,6 +70,16 @@ impl<Msg> ContextItem<Msg> {
     #[must_use]
     pub fn shortcut(mut self, label: impl Into<String>) -> Self {
         self.shortcut = Some(label.into());
+        self
+    }
+
+    /// A faint note on the right of the row, before the shortcut or the submenu arrow when there is
+    /// one, e.g. why the entry cannot be used: `"bsdtar needed"`. It is plain text in the quiet
+    /// tone, drawn on disabled rows too. The menu widens to fit it, and where the menu has no room
+    /// the note is cut before the label is.
+    #[must_use]
+    pub fn detail(mut self, text: impl Into<String>) -> Self {
+        self.detail = Some(text.into());
         self
     }
 
@@ -118,6 +130,7 @@ pub(crate) fn keyed<Msg>(items: Vec<ContextItem<Msg>>) -> (Vec<ContextItem<usize
                     label: item.label,
                     icon: item.icon,
                     shortcut: item.shortcut,
+                    detail: item.detail,
                     message,
                     submenu: key(item.submenu, messages),
                     disabled: item.disabled,
@@ -131,6 +144,10 @@ pub(crate) fn keyed<Msg>(items: Vec<ContextItem<Msg>>) -> (Vec<ContextItem<usize
     let items = key(items, &mut messages);
     (items, messages)
 }
+
+/// The fewest cells a cut note keeps; with less room it is left out rather than shown as an
+/// ellipsis alone.
+const MIN_DETAIL: u16 = 4;
 
 /// Cells of the icon column of `items`: the widest icon and a space, or nothing when no row has
 /// an icon. Labels line up after it, so rows without an icon keep the column empty.
@@ -154,7 +171,13 @@ pub(crate) fn size<Msg>(cx: &PaintCx<'_>, items: &[ContextItem<Msg>]) -> Size {
         .map(|item| {
             let shortcut = item.shortcut.as_deref().map_or(0, text::width);
             let chevron = if item.has_submenu() { text::width(&icons.glyph("chevron-right")) } else { 0 };
-            shortcut.max(chevron)
+            let end = shortcut.max(chevron);
+            match item.detail.as_deref().map(text::width) {
+                // The note, then the same two-cell gap the label keeps, then the shortcut.
+                Some(detail) if end > 0 => cells::sum([detail, 2, end]),
+                Some(detail) => detail,
+                None => end,
+            }
         })
         .max()
         .unwrap_or(0);
@@ -244,7 +267,23 @@ pub(crate) fn paint<Msg>(
             let shift = i32::from(slide && states.contains(&State::Hover));
             let mut x = rect.x + 2 + shift;
             // The label column keeps one spare cell for the slide and stops short of the trail.
-            let limit = trail_x - 2;
+            let mut limit = trail_x - 2;
+            if let Some(detail) = &item.detail {
+                let end = if trail_x < right { trail_x - 2 } else { right };
+                // The label keeps its whole width, its spare slide cell and a two-cell gap; the
+                // note takes what is left, so a narrow menu cuts the note first.
+                let label_end = rect.x + 2 + i32::from(icon_column) + i32::from(text::width(&item.label)) + 3;
+                let room = clamp_u16(end - label_end);
+                let width = text::width(detail);
+                if room >= width.min(MIN_DETAIL) {
+                    let shown = text::truncate(detail, room).into_owned();
+                    let shown_width = text::width(&shown);
+                    let detail_x = end - i32::from(shown_width);
+                    let detail_style = cx.style("context-item-detail", None, &states).text();
+                    cx.text(detail_x, rect.y, &shown, detail_style, shown_width);
+                    limit = detail_x - 2;
+                }
+            }
             let mut label_style = text_style;
             label_style.bg = None;
             if let Some(icon) = &item.icon {
