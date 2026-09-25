@@ -1,24 +1,27 @@
 ## When to use
 
-Every application of the Quvyta ecosystem speaks the same language, draws with the same theme and the same icons unless the user chose otherwise for one of them. Use `Ecosystem::preferences` at start to resolve those three, and put the ready-made `Appearance` rows on your settings page instead of building language, theme, icon, reduced motion and pillar rows yourself.
+Every application of the Quvyta ecosystem speaks the same language, draws with the same theme and the same icons, and moves as much as the person wants, unless they chose otherwise for one of them. Use `Ecosystem::preferences` at start to resolve those four, and put the ready-made `Appearance` rows on your settings page instead of building language, theme, icon, reduced motion and pillar rows yourself.
 
 ## Step by step
 
-1. At start, after `Ecosystem::adopt` and `Settings::load_member`, resolve the shared preferences: `let prefs = Ecosystem::QUVYTA.preferences("code", &i18n);`. The first application that starts creates `quvyta.conf` with the values detected on the machine.
-2. Start the runtime with them, after your own settings: `Runtime::new(app).settings(&settings).preferences(&prefs)`.
+1. After `Ecosystem::adopt`, start the runtime as a member of the ecosystem: `Runtime::new(app).member(Ecosystem::QUVYTA, "code")`. It loads your settings and the shared preferences, applies them before the first frame and follows both files while the application runs. The first application that starts creates `quvyta.conf` with the values detected on the machine.
+2. Resolve the preferences for your own state too, `let prefs = Ecosystem::QUVYTA.preferences("code", &i18n);`, and answer `App::preferences` with a message that hands the new ones to `Appearance::refresh`. (The two calls `.settings(&settings).preferences(&prefs)` still work; `member` does both and follows.)
 3. Keep an `Appearance` in your state: `Appearance::new(Ecosystem::QUVYTA, "code", prefs)`.
 4. Place it in a settings list: `SettingsList::show(ui, |list| self.appearance.section(list, Msg::Appearance))`. A setup wizard's first step uses `rows` instead, without the heading.
 5. Hand every change back: `Msg::Appearance(change) => self.appearance.update(change, &mut self.settings)`. It saves the change and returns the command that shows it at once.
 
 ## How it works
 
-- **Each key on its own.** For language, theme and icons: the application's own value when its file names one, else `quvyta.conf`, else what the machine suggests. A missing key and the value `"quvyta"` both mean "follow the ecosystem".
+- **Each key on its own.** For language, theme, icons and reduced motion: the application's own value when its file names one, else `quvyta.conf`, else what the machine suggests. A missing key and the value `"quvyta"` both mean "follow the ecosystem".
 - **Back to the ecosystem, on its own.** `Ecosystem::follow(app, key)` writes the ecosystem's id in that application's file and nothing else: the shared file is neither read nor written, so one member goes back to following without changing what the whole ecosystem draws with. `Ecosystem::set(.., Scope::Ecosystem)` also writes the shared value, which is what you want on the application's own settings page and not what you want on a row for another member.
 - **The box under a shared row is the scope.** Checked, a change goes to `quvyta.conf` and the application's file says `"quvyta"`, so every application that follows the ecosystem changes with it. Cleared, the change stays in the application's own file. An application that chose its own value is never changed from another one.
 - **Two writers keep both changes.** Each file is read right before it is written and only the changed key is written, with the folder held by an advisory lock on Unix.
 - **Nothing stops on a broken line.** That key falls back to the detected value and the reason, with file, line and column, is in `Preferences::diagnostics`.
-- **Reduced motion and the pillar are the application's own.** They sit in the same section and are saved in the application's file. When `QUVYTA_REDUCED_MOTION` decides, the row is disabled and says so.
+- **Reduced motion is shared, the pillar is the application's own.** Reduced motion is a need of the person, not a look of one application: someone who turns it on in one application wants it in all of them, so it has the same box as the language. A shared file written before it was shared does not hold it and reads as motion. The pillar sits in the same section and is saved in the application's file. When `QUVYTA_REDUCED_MOTION` decides, the reduced motion row and its box are disabled and the row says so.
 - **Where a value came from.** `Resolved::source` is `App`, `Ecosystem` or `Detected`.
+- **Live, while it runs.** A member watches the ecosystem's folder with the system's own events, on a thread that sleeps until something changes. When `quvyta.conf` or its own file changes, the preferences are resolved again without writing anything, and only what differs is applied: language, theme, icons and reduced motion, and the pillar when its own file changed it. An application that chose its own theme keeps it. `App::preferences` hears the new values; a file written again with the same values reaches nobody, so saving your own change never loops. Where the folder cannot be watched the application keeps what it started with.
+- **One look at old files.** An application that used to write a choice meant for every member into its own file alone calls `Ecosystem::settle(app)` once at start, before loading its settings. Each shared key its file fixes to the same value as `quvyta.conf` goes back to `"quvyta"`; a different value stays, since the person chose it. The file then keeps `shared-checked = true`, so a later choice of the shared value for this application alone is never undone; a missing file is made with that mark alone.
+- **Every member in one list.** `Ecosystem::QUVYTA.members()` names each member's id, the id of its settings file (`desktop` for qdesk, `launcher` for quvyta), its title, package and command, so a screen that lists the members never guesses a file name.
 
 
 ## Saying when an update is out
@@ -46,4 +49,4 @@ Msg::NewVersion(update) => Command::toast(update.toast()),
 - **Declaring `language` with a fixed list and self-healing.** Call `Settings::member_of(&Ecosystem::QUVYTA)` before `self_heal`, or load with `load_member`, so `"quvyta"` is kept.
 - **Saving the whole settings file from an old copy.** Pass your in-memory settings to `Appearance::update`; they take the change too.
 - **Using `Scope::Ecosystem` to make another application follow.** It rewrites `quvyta.conf` with the value you pass, so a settings table that lists every member would change the ecosystem's theme from one member's row. Use `follow` there.
-- **Writing the user's real files in tests.** Use `preferences_in`, `set_in` and `Appearance::in_folder` with a temporary folder.
+- **Writing the user's real files in tests.** Use `preferences_in`, `set_in` and `Appearance::in_folder` with a temporary folder, and `Harness::member_in` with `poll_preferences` to test the live follow.

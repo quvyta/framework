@@ -47,9 +47,11 @@ mod healing_tests;
 mod instance_lock;
 mod lock;
 mod machine;
+mod member;
 mod migrate;
 mod preferences;
 mod schema;
+mod settle;
 mod update_notice;
 mod user_dirs;
 mod value;
@@ -73,10 +75,17 @@ pub use folder_watch::{FolderChange, FolderChangeKind, FolderChanges, FolderWatc
 pub use instance_lock::InstanceLock;
 pub use lock::{AppLock, holder_pid};
 pub use machine::machine_name;
+pub use member::{MEMBERS, Member};
 pub use migrate::Migration;
 pub use preferences::{Preferences, Resolved, Scope, Shared, Source};
 pub use schema::{Schema, SettingKind};
 pub use value::{Setting, SettingValue};
+
+/// The name of the file application or ecosystem `id` keeps in the ecosystem's folder, such as
+/// `code.conf`; for the runtime, which watches those files.
+pub(crate) fn ecosystem_file_name(id: &str) -> String {
+    ecosystem::file_name(id)
+}
 
 use crate::diagnostics::{Diagnostic, Location};
 use crate::doc::Doc;
@@ -125,6 +134,10 @@ impl Settings {
     /// The key of the update notice, in an ecosystem's shared file: whether its applications ask once
     /// a day if a newer version is out. On when the key is missing.
     pub const UPDATE_NOTICE: &'static str = "update-notice";
+    /// The key [`Ecosystem::settle`] leaves in an application's own file once it has looked at
+    /// the shared keys there, so it never looks again. Every member's settings know it, whatever
+    /// their [schema](Self::schema) says, so self-healing keeps it.
+    pub const SHARED_CHECKED: &'static str = "shared-checked";
 
     /// Settings that live only in memory; saving does nothing. For tests and for applications
     /// run without a config directory.
@@ -304,7 +317,7 @@ impl Settings {
         for key in keys {
             let location = self.origin(&key);
             let Some(rule) = schema.get(&key) else {
-                if schema.is_open(&key) {
+                if schema.is_open(&key) || (self.ecosystem.is_some() && key == Self::SHARED_CHECKED) {
                     continue;
                 }
                 if heal {
@@ -412,7 +425,7 @@ impl Settings {
 
     /// Stores `value` under `key`, replacing an existing value where it is so the key keeps its
     /// place. Returns whether anything changed.
-    fn store(&mut self, key: &str, value: SettingValue) -> bool {
+    pub(crate) fn store(&mut self, key: &str, value: SettingValue) -> bool {
         match self.values.iter_mut().find(|(k, _)| k == key) {
             Some((_, current)) if *current == value => false,
             Some((_, current)) => {

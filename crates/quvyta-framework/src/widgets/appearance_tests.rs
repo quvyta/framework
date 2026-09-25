@@ -73,6 +73,15 @@ fn code_in(dir: &Path, env: Env) -> Harness<Code> {
     Harness::with_env(Code { settings, appearance }, env, 70, 24)
 }
 
+/// Where `text` is first drawn below row `after`.
+fn below(app: &Harness<Code>, text: &str, after: i32) -> Option<(i32, i32)> {
+    let screen = app.screen();
+    screen.lines().enumerate().skip(usize::try_from(after).ok()? + 1).find_map(|(y, line)| {
+        let byte = line.find(text)?;
+        Some((i32::try_from(line[..byte].chars().count()).ok()?, i32::try_from(y).ok()?))
+    })
+}
+
 fn shared_file(dir: &Path) {
     fs::write(dir.join("quvyta.conf"), "language = \"en\"\ntheme = \"monochrome\"\nicons = \"unicode\"\n")
         .expect("shared file");
@@ -93,7 +102,7 @@ fn the_rows_speak_the_active_language() {
         for text in texts {
             assert!(screen.contains(text), "{code}: `{text}` missing in\n{screen}");
         }
-        assert_eq!(screen.matches(texts[2]).count(), 3, "one box under each shared row");
+        assert_eq!(screen.matches(texts[2]).count(), 4, "one box under each shared row");
     }
     fs::remove_dir_all(&dir).expect("clean");
 }
@@ -144,6 +153,14 @@ fn forced_reduced_motion_is_disabled_says_why_and_does_not_change() {
     }
     assert!(!app.env().reduced_motion(), "still kept");
     assert!(!read(&dir, "code.conf").contains("reduced-motion"), "{}", read(&dir, "code.conf"));
+    assert!(!read(&dir, "quvyta.conf").contains("reduced-motion"), "{}", read(&dir, "quvyta.conf"));
+    // The box under the row is kept as well: a click on it changes nothing.
+    let (_, row) = app.find("Reduce motion").expect("the row");
+    let (x, y) = below(&app, "In every Quvyta application", row).expect("the box under reduced motion");
+    for x in x..70 {
+        app.click(x, y);
+    }
+    assert_eq!(app.app().appearance.preferences().source(Shared::ReducedMotion), Source::Detected);
     fs::remove_dir_all(&dir).expect("clean");
 }
 
@@ -172,17 +189,41 @@ fn the_box_decides_which_file_a_change_goes_to() {
 }
 
 #[test]
-fn the_applications_own_rows_go_to_its_own_file() {
+fn the_pillar_goes_to_the_applications_own_file() {
     let dir = folder("own");
     shared_file(&dir);
     fs::write(dir.join("code.conf"), "engine = \"podman\"\n").expect("code.conf");
     let mut app = code_in(&dir, Env::builtin());
-    app.send(Msg::Appearance(AppearanceChange::ReducedMotion(true)));
     app.send(Msg::Appearance(AppearanceChange::Pillar(PillarStyle::Thin)));
-    assert!(app.env().reduced_motion());
     assert_eq!(app.env().pillar_style(), Some(PillarStyle::Thin));
-    assert_eq!(read(&dir, "code.conf"), "engine = \"podman\"\nreduced-motion = true\npillar = \"thin\"\n");
+    assert_eq!(read(&dir, "code.conf"), "engine = \"podman\"\npillar = \"thin\"\n");
     assert!(!read(&dir, "quvyta.conf").contains("pillar"));
+    fs::remove_dir_all(&dir).expect("clean");
+}
+
+#[test]
+fn reduced_motion_is_shared_unless_its_box_is_cleared() {
+    let dir = folder("motion");
+    shared_file(&dir);
+    fs::write(dir.join("code.conf"), "engine = \"podman\"\n").expect("code.conf");
+    let mut app = code_in(&dir, Env::builtin());
+    // The switch, as a person turns it: its row picked with a click, then space.
+    app.click_text("Reduce motion");
+    app.press("space");
+    assert!(app.env().reduced_motion(), "applied at once\n{}", app.screen());
+    assert!(read(&dir, "quvyta.conf").contains("reduced-motion = true"), "{}", read(&dir, "quvyta.conf"));
+    assert_eq!(read(&dir, "code.conf"), "engine = \"podman\"\nreduced-motion = \"quvyta\"\n");
+    let focus = Ecosystem::QUVYTA.preferences_in(&dir, "focus", &I18n::builtin());
+    assert!(focus.reduced_motion().value, "another application reduces motion too");
+
+    // The box under it, cleared: the need stays, now in code's own file.
+    app.press("down").press("space");
+    assert_eq!(app.app().appearance.preferences().source(Shared::ReducedMotion), Source::App);
+    assert_eq!(read(&dir, "code.conf"), "engine = \"podman\"\nreduced-motion = true\n", "a boolean, not text");
+    app.press("up").press("space");
+    assert!(!app.env().reduced_motion());
+    assert!(read(&dir, "code.conf").contains("reduced-motion = false"));
+    assert!(read(&dir, "quvyta.conf").contains("reduced-motion = true"), "the ecosystem keeps its own");
     fs::remove_dir_all(&dir).expect("clean");
 }
 

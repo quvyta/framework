@@ -9,6 +9,7 @@ use ratatui_core::style::{Color, Modifier};
 use super::app::App;
 use super::detached::DetachedOutcome;
 use super::engine::{Engine, TaskMode};
+use super::follow::{Member, Start};
 use super::handoff::{HandoffOutcome, HandoffRequest};
 use super::open::{OpenOutcome, OpenRequest};
 use super::termination::Termination;
@@ -54,6 +55,50 @@ impl<A: App> Harness<A> {
         };
         harness.render();
         harness
+    }
+
+    /// A harness for `app` started as member `name` of `ecosystem`, the way
+    /// [`Runtime::member_in`](super::Runtime::member_in) starts it, with `config_dir` as the
+    /// ecosystem's folder: the application's own settings and the shared preferences are read
+    /// from there and applied before the first frame, and
+    /// [`App::preferences`](super::App::preferences) hears them before [`App::init`]. A missing
+    /// shared file is written with the detected values, as it is on a first start.
+    ///
+    /// The folder is not watched: after writing a file, as another application would,
+    /// [`poll_preferences`](Self::poll_preferences) reads the files again the way the runtime
+    /// does when its watch hears them change.
+    pub fn member_in(
+        app: A,
+        ecosystem: crate::storage::Ecosystem,
+        config_dir: &std::path::Path,
+        name: &str,
+        width: u16,
+        height: u16,
+    ) -> Self {
+        let mut env = Env::builtin();
+        let start = Start { theme: None, settings: None, preferences: None };
+        let follow = start.apply(&mut env, Some(Member::new(ecosystem, name, Some(config_dir.to_path_buf()))), false);
+        let mut engine = Engine::new(app, env, TaskMode::Inline);
+        if let Some(follow) = follow {
+            engine.follow(follow);
+        }
+        let mut harness =
+            Self { engine, buffer: Buffer::empty(BufferRect::new(0, 0, width, height)), now: Duration::ZERO };
+        harness.render();
+        harness
+    }
+
+    /// Reads the member's files again and applies what changed, exactly as the runtime does when
+    /// its watch hears the ecosystem's shared file or the application's own file change; see
+    /// [`Runtime::member`](super::Runtime::member). A frame is drawn only when something changed:
+    /// a file written again with what it already said changes nothing and reaches no hook. A
+    /// harness not made with [`member_in`](Self::member_in) has nothing to read.
+    pub fn poll_preferences(&mut self) -> &mut Self {
+        self.engine.check_preferences();
+        if self.engine.dirty {
+            self.render();
+        }
+        self
     }
 
     /// Paints the current view.

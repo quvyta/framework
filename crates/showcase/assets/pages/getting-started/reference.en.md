@@ -9,6 +9,7 @@
 - `fn init(&mut self) -> Command<Msg>` — runs once at the start of the first frame, before its view is built; a `Command::focus` it returns is in place before the first key. Optional.
 - `fn resized(&self, Size) -> Option<Msg>` — the terminal size at start (before `init`) and after every resize, the same size `ui.size()` reports; its message goes through `update`. Optional.
 - `fn graphics(&self, Graphics) -> Option<Msg>` — how the terminal draws pictures, `env.graphics()`: at start (after `resized`, before `init`) and whenever it changes, e.g. the glyph mode switched to ASCII; its message goes through `update`, where a picture is decoded at the size shown. `Graphics::can_draw()` tells whether any picture is drawn. Optional.
+- `fn preferences(&self, &Preferences) -> Option<Msg>` — the ecosystem's shared preferences of an application started with `Runtime::member`: at start (after `graphics`, before `init`) and whenever `quvyta.conf` or the application's own file changes them while it runs; the screen is already switched, so a settings screen refreshes here. Optional.
 - `fn before_quit(&self) -> Option<Msg>` — asked before the runtime quits for the user (the quit binding, the quit action from the command palette); a message keeps the application running and is delivered instead. `Command::quit()` is never asked about. Optional.
 - `fn terminating(&self, Termination) -> Option<Msg>` — hears that the system is ending the application: `Termination::Terminate` for a `SIGTERM` or an outside `SIGINT`, `Termination::Hangup` for a `SIGHUP`. `None` quits at once; a message keeps it running to save and quit. By default a terminate is answered by `before_quit` and a hangup quits. Optional.
 
@@ -56,6 +57,7 @@
 - `.theme_source(file, text)`, `.icon_source(file, text)`, `.locale_source(file, text)`, `.keymap_source(file, text)` — load the same files given as text, e.g. `include_str!("../locales/en.toml")`, so an installed program needs no files beside it. Text wins over the matching path, and for themes and icon sets the file stem is the id. A path named as well is then optional: when it cannot be read the text stands in for it and the reason becomes a diagnostic instead of stopping the program.
 - `.theme(id)` — start with a theme other than Monochrome.
 - `.settings(&settings)` — start with the look the user saved; saved values win over `.theme`.
+- `.member(Ecosystem::QUVYTA, "code")` — one call for a member of the ecosystem: loads its settings and the shared preferences, applies them before the first frame, and follows both files while it runs. `.member_in(ecosystem, folder, app)` in a folder of the application's choosing. Settings or preferences also given with `.settings` or `.preferences` are used as given.
 - `.run()` — takes over the terminal until the application quits; restores it on exit and on panic. On Unix it catches `SIGTERM`, `SIGINT` and `SIGHUP`, tells `App::terminating`, and always ends in bounded time: after the grace, at once on a second `SIGTERM` or `SIGINT`, and by the signal itself a second later when the loop is stuck. A signal during a handoff reaches its program first.
 
 ## Termination
@@ -67,6 +69,7 @@
 ## Harness
 
 - `Harness::new(app, width, height)` — built-in environment, rendered at once, which reports the size to `resized` and runs `init`; `Harness::with_env(app, env, width, height)` for your own.
+- `Harness::member_in(app, ecosystem, &folder, "code", width, height)` — starts a member as `Runtime::member_in` does, in a folder of the test's own; `.poll_preferences()` reads its files again as the runtime does when they change, and draws only when something changed.
 - `.resize(width, height)` — resizes the screen, reports the new size to `resized` and draws in full.
 - `.press("ctrl+s")`, `.key(event)`, `.type_text("hi")`, `.paste(text)` — keyboard input.
 - `.click(x, y)`, `.click_text("Save")`, `.hover(x, y)`, `.drag(from, to)`, `.mouse(kind, x, y)` — mouse input.

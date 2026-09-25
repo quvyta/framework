@@ -7,8 +7,10 @@ Uygulamanın tuttuğu durum; `Msg` uygulamanın kendi mesaj türü.
 - `.on_finish(msg)` — sihirbaz ortak anahtarları yazıp dosyayı oluşturunca uygulamaya gönderilen mesaj.
 - `.install(Install)` — `Install::new()` yerine başka bir kurulum, örneğin geçici bir klasöre.
 - `.font_dirs(Vec<PathBuf>)` — Nerd Font'un aranacağı başka klasörler.
-- `.needed() -> bool` — sihirbaz hâlâ gösterilecek mi: uygulamanın kendi dosyası yok ve sihirbaz bitmedi.
-- `.step() -> usize` — bulunduğu adım; görünüm adımı 0.
+- `.appearance_only()` — uygulama kendi adımı eklemiyor: ortak dosya bir dil, bir tema ve ikonlar tutuyorsa uygulamanın dosyası hemen, ekosistemi izleyerek yazılır ve sihirbaz gerekmez. O zaman `on_finish` mesajı gönderilmez.
+- `.needed() -> bool` — sihirbaz hâlâ gösterilecek mi: uygulamanın kendi ayarı yok (dosya yok ya da yalnızca `shared-checked` işaretini tutuyor), sihirbaz bitmedi ve `appearance_only` işi bitirmedi.
+- `.asks_appearance() -> bool` — görünüm adımı gösteriliyor mu; ortak dosya onu zaten cevaplıyorsa yanlış.
+- `.step() -> usize` — bulunduğu adım; görünüm adımı gösterilse de gösterilmese de 0, yani uygulamanın ilk adımı 1.
 - `.preferences() -> &Preferences` — ilk adımın şu andaki ortak değerleri, henüz hiçbir şey yazılmadan.
 - `.update(SetupMsg, &mut Settings) -> Command<Msg>` — mesajı uygular ve onu gösteren komutu döndürür. `Finish`'te yazar.
 

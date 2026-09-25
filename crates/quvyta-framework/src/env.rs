@@ -476,11 +476,13 @@ impl Env {
         }
     }
 
-    /// Switches to the language, theme and icons the ecosystem's preferences resolved.
+    /// Switches to the language, theme, icons and reduced motion the ecosystem's preferences
+    /// resolved; `QUVYTA_REDUCED_MOTION`, when set, still decides reduced motion.
     pub(crate) fn apply_preferences(&mut self, preferences: &crate::storage::Preferences) {
         self.set_theme(&preferences.theme().value);
         self.set_locale(&preferences.language().value);
         self.set_icon_mode(preferences.icons().value);
+        self.set_reduced_motion(preferences.reduced_motion().value);
     }
 
     fn rebuild_icons(&mut self) {

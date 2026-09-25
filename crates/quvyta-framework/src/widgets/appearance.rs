@@ -1,6 +1,6 @@
-//! The appearance rows every application of an ecosystem shows the same way: language, theme and
-//! icons, each with the choice of changing it everywhere or here only, then reduced motion and
-//! the pillar; and, for an application that asks for its updates, the ecosystem's update notice.
+//! The appearance rows every application of an ecosystem shows the same way: language, theme,
+//! icons and reduced motion, each with the choice of changing it everywhere or here only, then the
+//! pillar; and, for an application that asks for its updates, the ecosystem's update notice.
 
 use std::io;
 use std::path::PathBuf;
@@ -55,24 +55,23 @@ pub enum AppearanceChange {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Row {
     Shared(Shared),
-    ReducedMotion,
     Pillar,
     UpdateNotice,
 }
 
-/// The appearance section of a settings page or a setup wizard: language, theme and icons as the
-/// ecosystem shares them, reduced motion and the pillar, as rows of a
+/// The appearance section of a settings page or a setup wizard: language, theme, icons and reduced
+/// motion as the ecosystem shares them, and the pillar, as rows of a
 /// [`SettingsList`](super::SettingsList); and, where the application asks for its updates, the
 /// ecosystem's update notice with [`updates`](Self::updates).
 ///
 /// Each shared row has a box under it, "In every Quvyta application", checked while the
 /// application follows the ecosystem: a change then goes to the ecosystem's shared file and every
 /// application that follows it changes too. Cleared, the change stays in the application's own
-/// file. Reduced motion and the pillar are the application's own. The update notice is one switch
+/// file. The pillar is the application's own. The update notice is one switch
 /// for the whole ecosystem, kept in the shared file; see [`Ecosystem::update_notice`]. A change is applied at once
 /// and saved at once, each file read again right before it is written; see
 /// [`Ecosystem::set`]. When the `QUVYTA_REDUCED_MOTION` environment variable decides, the reduced
-/// motion row is disabled and says why. Texts come from the framework's language files.
+/// motion row and its box are disabled and the row says why. Texts come from the framework's language files.
 ///
 /// ```
 /// use qframe::i18n::I18n;
@@ -157,8 +156,21 @@ impl Appearance {
         &self.preferences
     }
 
-    /// Adds an "Appearance" heading, the three [shared rows](Self::rows) and the application's own
-    /// rows, reduced motion and the pillar, to `list`.
+    /// Takes `preferences` resolved again after the files changed while the section is open, such
+    /// as the ones [`App::preferences`](crate::runtime::App::preferences) hears when another
+    /// application switches the theme for the whole ecosystem. The rows then show the new values
+    /// and the box under each shared row whether the application follows the ecosystem now, and
+    /// the next change is saved where that box says.
+    ///
+    /// Nothing is written and nothing is applied: the runtime has already switched the screen.
+    /// What the person is doing on the section stays as it is: an open list stays open, and a
+    /// reason a change could not be saved stays under its row until the next change.
+    pub fn refresh(&mut self, preferences: Preferences) {
+        self.preferences = preferences;
+    }
+
+    /// Adds an "Appearance" heading, the three [shared rows](Self::rows), reduced motion with its
+    /// box and the application's own pillar to `list`.
     pub fn section<Msg: Clone + 'static>(
         &self,
         list: &mut SettingsRows<'_, Msg>,
@@ -166,7 +178,7 @@ impl Appearance {
     ) {
         list.heading(crate::t!("quvyta.appearance.heading"));
         self.rows(list, message.clone());
-        self.own_rows(list, message);
+        self.motion_and_pillar(list, message);
     }
 
     /// Adds the ecosystem's update notice switch to `list`, with the text saying what it asks and
@@ -234,7 +246,7 @@ impl Appearance {
                 .on_select(move |index| send(AppearanceChange::Language(codes[index].clone())));
             ui.add(select).width(Length::Cells(width));
         });
-        self.everywhere(list, Shared::Language, &message);
+        self.everywhere(list, Shared::Language, false, &message);
 
         let ids: Vec<String> = themes.iter().map(|(id, _)| id.clone()).collect();
         let chosen = ids.iter().position(|id| *id == theme);
@@ -246,7 +258,7 @@ impl Appearance {
                 .on_select(move |index| send(AppearanceChange::Theme(ids[index].clone())));
             ui.add(select).width(Length::Cells(width));
         });
-        self.everywhere(list, Shared::Theme, &message);
+        self.everywhere(list, Shared::Theme, false, &message);
 
         let chosen = IconMode::ALL.iter().position(|mode| *mode == icons);
         let send = message.clone();
@@ -256,11 +268,11 @@ impl Appearance {
                 .on_select(move |index| send(AppearanceChange::Icons(IconMode::ALL[index])));
             ui.add(select).width(Length::Cells(width));
         });
-        self.everywhere(list, Shared::Icons, &message);
+        self.everywhere(list, Shared::Icons, false, &message);
     }
 
-    /// Adds the rows that are the application's own, reduced motion and the pillar, to `list`.
-    fn own_rows<Msg: Clone + 'static>(
+    /// Adds reduced motion with its box, and the pillar, which is the application's own, to `list`.
+    fn motion_and_pillar<Msg: Clone + 'static>(
         &self,
         list: &mut SettingsRows<'_, Msg>,
         message: impl Fn(AppearanceChange) -> Msg + Clone + 'static,
@@ -275,7 +287,7 @@ impl Appearance {
             (false, _) => crate::t!("quvyta.appearance.reduce-motion-text"),
         };
         let row = SettingRow::new(crate::t!("quvyta.appearance.reduce-motion")).disabled(forced);
-        let row = match self.failed(Row::ReducedMotion) {
+        let row = match self.failed(Row::Shared(Shared::ReducedMotion)) {
             Some(failure) => row.description(failure),
             None => row.description(note),
         };
@@ -285,6 +297,7 @@ impl Appearance {
                 Switch::new(reduced).disabled(forced).on_toggle(move |on| send(AppearanceChange::ReducedMotion(on))),
             );
         });
+        self.everywhere(list, Shared::ReducedMotion, forced, &message);
 
         let styles = PillarStyle::ALL.map(|style| crate::t!(&format!("quvyta.appearance.pillar-{}", style.name())));
         let chosen = PillarStyle::ALL.iter().position(|style| *style == pillar).unwrap_or(0);
@@ -313,18 +326,24 @@ impl Appearance {
             .map(|(_, reason)| crate::t!("quvyta.appearance.not-saved", reason = reason.as_str()))
     }
 
-    /// The box under shared row `key`: checked while the application follows the ecosystem.
+    /// The box under shared row `key`: checked while the application follows the ecosystem, and
+    /// `disabled` with its row.
     fn everywhere<Msg: Clone + 'static>(
         &self,
         list: &mut SettingsRows<'_, Msg>,
         key: Shared,
+        disabled: bool,
         message: &(impl Fn(AppearanceChange) -> Msg + Clone + 'static),
     ) {
         let checked = self.preferences.source(key) != Source::App;
         let label = crate::t!("quvyta.appearance.everywhere", family = self.ecosystem.title());
         let send = message.clone();
-        list.row(SettingRow::new(label).nested(true), |ui| {
-            ui.add(Checkbox::new(checked).on_toggle(move |on| send(AppearanceChange::Everywhere(key, on))));
+        list.row(SettingRow::new(label).nested(true).disabled(disabled), |ui| {
+            ui.add(
+                Checkbox::new(checked)
+                    .disabled(disabled)
+                    .on_toggle(move |on| send(AppearanceChange::Everywhere(key, on))),
+            );
         });
     }
 
@@ -354,8 +373,8 @@ impl Appearance {
                 (Row::Shared(key), self.share(key, &value, Some(scope), settings), Command::none())
             }
             AppearanceChange::ReducedMotion(on) => {
-                let saved = self.own(Settings::REDUCED_MOTION, on, settings);
-                (Row::ReducedMotion, saved, Command::set_reduced_motion(on))
+                let saved = self.share(Shared::ReducedMotion, &on.to_string(), None, settings);
+                (Row::Shared(Shared::ReducedMotion), saved, Command::set_reduced_motion(on))
             }
             AppearanceChange::Pillar(style) => {
                 let saved = self.own(Settings::PILLAR, style.name().to_owned(), settings);
@@ -376,7 +395,7 @@ impl Appearance {
             Scope::Ecosystem => self.ecosystem.id().to_owned(),
             Scope::App => value.to_owned(),
         };
-        settings.set(key.key(), written);
+        settings.store(key.key(), key.setting(&written));
         let source = if scope == Scope::Ecosystem { Source::Ecosystem } else { Source::App };
         self.preferences.record(key, value, source);
         if !self.saving {

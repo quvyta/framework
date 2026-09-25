@@ -7,8 +7,10 @@ The state the application holds; `Msg` is the application's own message type.
 - `.on_finish(msg)` — what the application is sent once the wizard has written the shared keys and made the file.
 - `.install(Install)` — another install than `Install::new()`, e.g. into a temporary folder.
 - `.font_dirs(Vec<PathBuf>)` — other folders to look for a Nerd Font in.
-- `.needed() -> bool` — whether the wizard is still to be shown: the application has no file of its own and the wizard has not finished.
-- `.step() -> usize` — the step it is on; the appearance step is 0.
+- `.appearance_only()` — the application adds no steps of its own: when the shared file holds a language, a theme and icons, its file is written at once, following the ecosystem, and the wizard is not needed. The `on_finish` message is not sent then.
+- `.needed() -> bool` — whether the wizard is still to be shown: the application has no settings of its own (no file, or one with only the `shared-checked` mark), the wizard has not finished and `appearance_only` did not settle it.
+- `.asks_appearance() -> bool` — whether the appearance step is shown; false when the shared file already answers it.
+- `.step() -> usize` — the step it is on; the appearance step is 0 whether or not it is shown, so the application's first step is 1.
 - `.preferences() -> &Preferences` — the shared values as the first step has them now, before anything is written.
 - `.update(SetupMsg, &mut Settings) -> Command<Msg>` — applies a message and returns the command that shows it. On `Finish` it writes.
 

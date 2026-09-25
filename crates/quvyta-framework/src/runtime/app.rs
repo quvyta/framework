@@ -6,6 +6,7 @@ use super::frame_limit::FrameLimit;
 use super::termination::Termination;
 use crate::geometry::Size;
 use crate::graphics::Graphics;
+use crate::storage::Preferences;
 use crate::widget::View;
 
 /// An application built with quvyta-framework: data, a function that draws it and a function that
@@ -51,21 +52,24 @@ use crate::widget::View;
 ///
 /// # Lifecycle
 ///
-/// Besides `update` and `view`, five optional hooks follow the application through its life.
+/// Besides `update` and `view`, six optional hooks follow the application through its life.
 /// Each has a default, so an application implements only the ones it needs:
 ///
 /// 1. [`App::resized`] hears the size of the screen: first when the application starts, then
 ///    whenever it changes.
 /// 2. [`App::graphics`] hears the way the terminal draws pictures, right after that first size
 ///    and whenever it changes, so a picture is decoded at the size it will be shown.
-/// 3. [`App::init`] runs once, right after the first size and graphics, before the first frame
-///    is built.
-/// 4. [`App::before_quit`] is asked whenever the runtime is about to quit on the user's behalf.
-/// 5. [`App::terminating`] hears that the system is ending the application: a `SIGTERM` or a
+/// 3. [`App::preferences`] hears the ecosystem's shared preferences of an application started
+///    with [`Runtime::member`](super::Runtime::member): right after the graphics, and whenever
+///    another application changes them while this one runs.
+/// 4. [`App::init`] runs once, right after the first size, graphics and preferences, before the
+///    first frame is built.
+/// 5. [`App::before_quit`] is asked whenever the runtime is about to quit on the user's behalf.
+/// 6. [`App::terminating`] hears that the system is ending the application: a `SIGTERM` or a
 ///    `SIGHUP`, when the SSH connection or the terminal went away. It is the one chance to save.
 ///
-/// The hooks that only report something ([`App::resized`], [`App::graphics`], [`App::before_quit`],
-/// [`App::terminating`], like
+/// The hooks that only report something ([`App::resized`], [`App::graphics`],
+/// [`App::preferences`], [`App::before_quit`], [`App::terminating`], like
 /// [`App::action`] and [`App::clipboard`]) read the state and answer with a message, which then
 /// goes through `update` like every other; the one that starts work ([`App::init`]) returns a
 /// [`Command`] like `update` does. The [`Harness`](super::Harness) runs every hook exactly
@@ -194,6 +198,75 @@ pub trait App: 'static {
     ///
     /// The default ignores it.
     fn graphics(&self, _graphics: Graphics) -> Option<Self::Msg> {
+        None
+    }
+
+    /// Hears the ecosystem's shared preferences, for an application started as a member of an
+    /// ecosystem with [`Runtime::member`](super::Runtime::member): once when it starts, after
+    /// [`App::graphics`] and before [`App::init`], with what it starts with; and afterwards
+    /// whenever the ecosystem's shared file or the application's own file changes what they
+    /// resolve to, such as when another application of the ecosystem switches the theme for all
+    /// of them.
+    ///
+    /// The runtime has already switched the screen by then: language, theme, icons and reduced
+    /// motion as the ecosystem resolves them, and the pillar when the application's own file
+    /// changed it. Nothing has to be applied here. An application with a settings screen
+    /// refreshes it here, so an open screen shows the new values: an
+    /// [`Appearance`](crate::widgets::Appearance) section takes them with
+    /// [`Appearance::refresh`](crate::widgets::Appearance::refresh).
+    ///
+    /// A file written again with what it already said is not reported, so an application that
+    /// saves its own change hears at most what it saved, once, and never loops. An application
+    /// started without [`Runtime::member`](super::Runtime::member) is never told.
+    /// [`Harness::member_in`](super::Harness::member_in) starts a test the same way, and
+    /// [`Harness::poll_preferences`](super::Harness::poll_preferences) reads the files again as
+    /// the runtime does when they change.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    /// use qframe::storage::{Ecosystem, Preferences, Scope, Shared};
+    ///
+    /// #[derive(Default)]
+    /// struct Notes {
+    ///     theme: String,
+    /// }
+    ///
+    /// enum Msg {
+    ///     Preferences(Preferences),
+    /// }
+    ///
+    /// impl App for Notes {
+    ///     type Msg = Msg;
+    ///
+    ///     fn preferences(&self, preferences: &Preferences) -> Option<Msg> {
+    ///         Some(Msg::Preferences(preferences.clone()))
+    ///     }
+    ///
+    ///     fn update(&mut self, msg: Msg) -> Command<Msg> {
+    ///         match msg {
+    ///             Msg::Preferences(preferences) => self.theme = preferences.theme().value.clone(),
+    ///         }
+    ///         Command::none()
+    ///     }
+    ///
+    ///     fn view(&self, ui: &mut View<'_, Msg>) {
+    ///         ui.add(Text::new(self.theme.clone()));
+    ///     }
+    /// }
+    ///
+    /// # let folder = std::env::temp_dir().join(format!("quvyta-app-preferences-doc-{}", std::process::id()));
+    /// # std::fs::remove_dir_all(&folder).ok();
+    /// let ecosystem = Ecosystem::QUVYTA;
+    /// let mut app = Harness::member_in(Notes::default(), ecosystem, &folder, "notes", 30, 3);
+    /// assert_eq!(app.app().theme, "monochrome");
+    /// // Another application switches every follower to amber.
+    /// ecosystem.set_in(&folder, "desk", Shared::Theme, "amber", Scope::Ecosystem).expect("saved");
+    /// app.poll_preferences();
+    /// assert_eq!(app.app().theme, "amber");
+    /// assert_eq!(app.env().theme().id(), "amber");
+    /// # std::fs::remove_dir_all(&folder).ok();
+    /// ```
+    fn preferences(&self, _preferences: &Preferences) -> Option<Self::Msg> {
         None
     }
 

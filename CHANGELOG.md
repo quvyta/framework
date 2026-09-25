@@ -4,6 +4,69 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.29 - 2026-09-24
+
+### Added
+
+- `Runtime::member(ecosystem, app)`: one call starts an application as a member of the
+  ecosystem. It loads the application's settings (`Settings::load_member`) and the shared
+  preferences (`Ecosystem::preferences`, in the language files the runtime loads), applies both
+  before the first frame, and follows them while the application runs. `member_in` does the same
+  in a folder of the application's choosing. Settings or preferences also given with `.settings`
+  or `.preferences` are used as given and not read twice.
+- Live follow of the shared preferences: a member watches the ecosystem's folder with the
+  system's own events, on a thread that sleeps until something changes. When `quvyta.conf` or the
+  application's own file changes, the preferences are resolved again without writing anything and
+  only what differs is applied: language, theme and icons, and reduced motion and the pillar when
+  the application's own file changed them. A value the application chose for itself stays. The
+  same values written again change nothing, so an application saving its own change never loops.
+  Where the folder cannot be watched, the application keeps what it started with.
+- `App::preferences(&self, &Preferences) -> Option<Msg>`: hears a member's shared preferences
+  before the first frame (after `graphics`, before `init`) and whenever another application
+  changes them. The default ignores them.
+- `Appearance::refresh(preferences)`: an open appearance section takes preferences resolved again,
+  so its rows and boxes show them and the next change is saved where the box now says.
+- `Harness::member_in(app, ecosystem, folder, app_id, width, height)` and
+  `Harness::poll_preferences()`: a member started in a test's own folder, and its files read again
+  the way the runtime does when they change.
+- `storage::Member`, `storage::MEMBERS` and `Ecosystem::members()`: every member of Quvyta with its
+  id, the id of its settings file, its title, package and command, in one place. qdesk's settings
+  file is `desktop.conf`, the showcase's `showcase.conf` and the launcher's `launcher.conf`; a
+  screen that lists the members reads them from here instead of guessing.
+- `Ecosystem::settle(app)` and `settle_in(folder, app)`: one look at an application's own file for
+  shared keys written there as fixed values. A value equal to the one in `quvyta.conf` goes back to
+  following the ecosystem, a different one stays as the person's choice, and the file keeps
+  `shared-checked = true` (`Settings::SHARED_CHECKED`) so a later choice is never undone. For the
+  members that used to write "in every Quvyta application" into their own file alone.
+- `Setup::appearance_only()`: an application without steps of its own needs no wizard when the
+  shared file already holds a language, a theme and icons; its file is written following them.
+- `Setup::asks_appearance()`: whether the wizard shows the appearance step.
+- `Shared::ReducedMotion` and `Preferences::reduced_motion()`: reduced motion is shared like the
+  language. `quvyta.conf` may hold `reduced-motion = true`, an application's own file a boolean of
+  its own or `"quvyta"`; `Ecosystem::set` takes `true` or `false` for it and writes a boolean.
+
+### Changed
+
+- The setup wizard leaves out the appearance step when `quvyta.conf` already holds a language, a
+  theme and icons, and opens on the application's own first step; Finish makes the application
+  follow the shared values. Without a whole shared file it asks as before. `Setup::step()` still
+  counts the appearance step as 0.
+- A settings file holding nothing but the `shared-checked` mark does not count as a setup, so the
+  wizard still opens over it; an empty file still counts, as before. Every member's settings know the mark, and self-healing keeps it.
+- A finish that cannot be saved says why on the step Finish was pressed on, not only on the
+  appearance step.
+- Reduced motion is a shared preference. The `Appearance` section gives it the "In every Quvyta
+  application" box the language has, and a switch turned with the box checked saves
+  `reduced-motion = true` in `quvyta.conf` and `reduced-motion = "quvyta"` in the application's
+  file, where it used to save `reduced-motion = true` there alone. The pillar stays the
+  application's own. `Preferences::apply` switches reduced motion too, `Runtime::preferences` and
+  `Runtime::member` start with it and a member follows it live; `QUVYTA_REDUCED_MOTION` still
+  decides over all of them. A new shared file leaves the key out, and a missing key reads as motion,
+  as before. `Ecosystem::settle` turns an application's `reduced-motion = false` back into
+  following when the shared file does not hold the key; a `true` stays.
+- `Shared` is `#[non_exhaustive]`, so a later shared preference is not a breaking change; a `match`
+  on it needs a `_` arm. `Shared::ALL` has four entries.
+
 ## 0.1.28 - 2026-09-24
 
 ### Added

@@ -14,6 +14,9 @@ use crate::widget::{Length, NodeMut, View};
 
 use super::{Appearance, AppearanceChange, Button, ProgressBar, SettingsList, Text, Wizard};
 
+/// The shared keys the appearance step asks: a shared file that holds these answers it.
+const ASKED: [Shared; 3] = [Shared::Language, Shared::Theme, Shared::Icons];
+
 /// One step an application adds: its name and the page it builds.
 type AppStep<'a, Msg> = (String, Box<dyn FnOnce(&mut View<'_, Msg>) + 'a>);
 
@@ -46,9 +49,15 @@ pub enum SetupMsg {
 ///
 /// An application makes one at start, whether or not the wizard is needed, and asks
 /// [`Setup::needed`] before drawing its own screen: the wizard opens while the application has no
-/// settings file of its own, however much the ecosystem has already shared. Nothing is written until
-/// it finishes, so closing the application half-way leaves the settings folder as it was and the
-/// wizard comes again next start.
+/// settings of its own. Nothing is written until it finishes, so closing the application half-way
+/// leaves the settings folder as it was and the wizard comes again next start.
+///
+/// When the ecosystem's shared file already holds a language, a theme and icons, the question has
+/// been answered in another member: the appearance step is left out, the wizard opens on the
+/// application's first step of its own and Finish makes the application follow the shared values.
+/// An application without steps of its own says so with [`Setup::appearance_only`], and then the
+/// wizard is not needed at all. Without a whole shared file the appearance step comes first, filled
+/// in from what there is.
 ///
 /// ```
 /// use qframe::i18n::I18n;
@@ -117,6 +126,8 @@ pub struct Setup<Msg> {
     folder: Option<PathBuf>,
     appearance: Appearance,
     step: usize,
+    /// The first step shown: 1 when the shared file answers the appearance step, else 0.
+    first: usize,
     /// Whether the wizard is still wanted: the application had no file of its own and the wizard
     /// has not finished.
     needed: bool,
@@ -166,7 +177,7 @@ impl<Msg: Clone + Send + 'static> Setup<Msg> {
         let app = app.into();
         let preferences = ecosystem.preferences_without_saving(&app, i18n);
         let own_file = ecosystem.config_dir().map(|dir| dir.join(format!("{app}.conf")));
-        let needed = own_file.is_none_or(|file| !file.is_file());
+        let needed = own_file.is_none_or(|file| !set_up(&file));
         Self::build(ecosystem, app, None, preferences, needed, wrap)
     }
 
@@ -182,7 +193,7 @@ impl<Msg: Clone + Send + 'static> Setup<Msg> {
     ) -> Self {
         let app = app.into();
         let preferences = ecosystem.preferences_without_saving_in(config_dir, &app, i18n);
-        let needed = !config_dir.join(format!("{app}.conf")).is_file();
+        let needed = !set_up(&config_dir.join(format!("{app}.conf")));
         Self::build(ecosystem, app, Some(config_dir.to_path_buf()), preferences, needed, wrap)
     }
 
@@ -200,12 +211,17 @@ impl<Msg: Clone + Send + 'static> Setup<Msg> {
         }
         let font_dirs = crate::icons::default_font_dirs(|name| std::env::var(name).ok());
         let installed = nerd_font::installed_in(&font_dirs);
+        // Without a file of its own the application's keys can only follow the shared file or be
+        // detected; all three following means the shared file answers every row of the step.
+        let answered = ASKED.iter().all(|key| appearance.preferences().source(*key) == Source::Ecosystem);
+        let first = usize::from(needed && answered);
         Self {
             ecosystem,
             app,
             folder,
             appearance,
-            step: 0,
+            step: first,
+            first,
             needed,
             install: Install::new(),
             font_dirs,
@@ -241,14 +257,47 @@ impl<Msg: Clone + Send + 'static> Setup<Msg> {
         self
     }
 
-    /// Whether the wizard is still to be shown: the application has no settings file of its own
-    /// and the wizard has not finished.
+    /// Says that the application adds no steps of its own, so a wizard whose appearance step is
+    /// answered by the shared file would have nothing to ask. Then it is finished here and now: the
+    /// application's file is written following the ecosystem for language, theme and icons, so
+    /// the question is not asked again, and [`needed`](Self::needed) is false. The message of
+    /// [`on_finish`](Self::on_finish) is not sent; the application's settings, loaded after this,
+    /// read the file as it now is.
+    ///
+    /// Without a whole shared file the wizard is needed as before, with the appearance step
+    /// alone. A write that fails leaves it needed too, on the appearance step and saying why.
+    #[must_use]
+    pub fn appearance_only(mut self) -> Self {
+        if self.needed && self.first == 1 {
+            match self.write(&mut Settings::in_memory()) {
+                Ok(()) => self.needed = false,
+                Err(error) => {
+                    self.first = 0;
+                    self.step = 0;
+                    self.failure = Some(error.to_string());
+                }
+            }
+        }
+        self
+    }
+
+    /// Whether the wizard is still to be shown: the application has no settings of its own (no
+    /// file, or one holding nothing but the mark [`Ecosystem::settle`] leaves), the wizard has not
+    /// finished, and [`appearance_only`](Self::appearance_only) did not find the question
+    /// answered already.
     #[must_use]
     pub fn needed(&self) -> bool {
         self.needed
     }
 
-    /// The step the wizard is on, counting the appearance step as 0.
+    /// Whether the appearance step is shown. False when the shared file already holds a
+    /// language, a theme and icons: the wizard then opens on the application's first step, 1.
+    #[must_use]
+    pub fn asks_appearance(&self) -> bool {
+        self.first == 0
+    }
+
+    /// The step the wizard is on, counting the appearance step as 0 whether or not it is shown.
     #[must_use]
     pub fn step(&self) -> usize {
         self.step
@@ -288,7 +337,7 @@ impl<Msg: Clone + Send + 'static> Setup<Msg> {
                 Command::none()
             }
             SetupMsg::Back => {
-                self.step = self.step.saturating_sub(1);
+                self.step = self.step.saturating_sub(1).max(self.first);
                 Command::none()
             }
             SetupMsg::Next => {
@@ -296,8 +345,9 @@ impl<Msg: Clone + Send + 'static> Setup<Msg> {
                 Command::none()
             }
             SetupMsg::Step(step) => {
-                // Only a finished step can be gone back to; the steps on top offer no other.
-                self.step = step.min(self.step);
+                // Only a finished step can be gone back to; the steps on top offer no other. They
+                // count from the first step shown.
+                self.step = (step + self.first).min(self.step);
                 Command::none()
             }
             SetupMsg::Finish => match self.write(settings) {
@@ -317,9 +367,11 @@ impl<Msg: Clone + Send + 'static> Setup<Msg> {
         }
     }
 
-    /// Writes the three shared keys, each where its box says, which makes both files.
+    /// Writes the three shared keys the step asks, each where its box says, which makes both
+    /// files. Reduced motion is not asked; missing from the application's file, it follows the
+    /// ecosystem.
     fn write(&self, settings: &mut Settings) -> io::Result<()> {
-        for key in Shared::ALL {
+        for key in ASKED {
             let value = self.preferences().text(key);
             let scope = if self.preferences().source(key) == Source::App { Scope::App } else { Scope::Ecosystem };
             // The file says plainly where the value comes from: the value itself, or the ecosystem.
@@ -394,14 +446,17 @@ impl<'a, Msg: Clone + Send + 'static> SetupWizard<'a, Msg> {
     /// Adds the wizard to `ui`.
     pub fn show<'v>(self, ui: &'v mut View<'_, Msg>) -> NodeMut<'v, Msg> {
         let setup = self.setup;
-        let mut labels = vec![crate::t!("quvyta.appearance.heading")];
+        let mut labels = Vec::new();
+        if setup.asks_appearance() {
+            labels.push(crate::t!("quvyta.appearance.heading"));
+        }
         let mut pages = Vec::new();
         for (title, page) in self.steps {
             labels.push(title);
             pages.push(page);
         }
         let mut wizard = Wizard::new(labels)
-            .current(setup.step)
+            .current(setup.step - setup.first)
             .on_back(setup.send(SetupMsg::Back))
             .on_next(setup.send(SetupMsg::Next))
             .on_finish(setup.send(SetupMsg::Finish))
@@ -421,6 +476,9 @@ impl<'a, Msg: Clone + Send + 'static> SetupWizard<'a, Msg> {
                 if let Some(page) = pages.into_iter().nth(index) {
                     page(ui);
                 }
+                // Finish is pressed on the last of these steps; without the appearance step
+                // there is no other place to say why it could not be saved.
+                failure(setup, ui);
             }
         })
     }
@@ -454,13 +512,31 @@ fn appearance_step<Msg: Clone + Send + 'static>(setup: &Setup<Msg>, ui: &mut Vie
             .id("setup-install");
     }
     install_progress(setup, ui);
+    failure(setup, ui);
+    ui.spacer().height(Length::Cells(1));
+    ui.add(Button::new(crate::t!("quvyta.setup.defaults")).on_press(setup.send(SetupMsg::Finish))).id("setup-defaults");
+}
+
+/// Why finishing could not be saved, until the next try.
+fn failure<Msg: Clone + Send + 'static>(setup: &Setup<Msg>, ui: &mut View<'_, Msg>) {
     if let Some(reason) = &setup.failure {
         let mark = ui.env().icons().glyph("warning").into_owned();
         let reason = crate::t!("quvyta.setup.not-saved", reason = reason.as_str());
         ui.add(Text::new(format!("{mark} {reason}")).color("danger")).fill_width().id("setup-failure");
     }
-    ui.spacer().height(Length::Cells(1));
-    ui.add(Button::new(crate::t!("quvyta.setup.defaults")).on_press(setup.send(SetupMsg::Finish))).id("setup-defaults");
+}
+
+/// Whether the application's own file at `path` counts as a setup: any file but one holding the
+/// mark [`Ecosystem::settle`] leaves in a file it had to make, and nothing else. An empty file the
+/// application wrote itself counts, as it always has. A file that cannot be read counts too, so a
+/// broken file is repaired by the application rather than asked over.
+fn set_up(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    let settings = Settings::open(path);
+    let mut keys = settings.keys().peekable();
+    !settings.diagnostics().is_empty() || keys.peek().is_none() || keys.any(|key| key != Settings::SHARED_CHECKED)
 }
 
 /// How far the font install is, and the honest word once it is done.

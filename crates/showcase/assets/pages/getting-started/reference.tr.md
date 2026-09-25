@@ -9,6 +9,7 @@
 - `fn init(&mut self) -> Command<Msg>` — ilk karenin başında, görünümü kurulmadan önce bir kez çalışır; döndürdüğü `Command::focus` ilk tuştan önce yerindedir. İsteğe bağlı.
 - `fn resized(&self, Size) -> Option<Msg>` — terminal ölçüsü, açılışta (`init`'ten önce) ve her yeniden boyutlanmada; `ui.size()`'ın bildirdiğiyle aynıdır, mesajı `update`'ten geçer. İsteğe bağlı.
 - `fn graphics(&self, Graphics) -> Option<Msg>` — terminalin resmi nasıl çizdiği, `env.graphics()`: açılışta (`resized`'dan sonra, `init`'ten önce) ve her değiştiğinde, örneğin glif kipi ASCII'ye geçince; mesajı `update`'ten geçer, resim orada gösterildiği boyutta çözülür. Herhangi bir resim çizilir mi, `Graphics::can_draw()` söyler. İsteğe bağlı.
+- `fn preferences(&self, &Preferences) -> Option<Msg>` — `Runtime::member` ile başlatılan bir uygulamanın ekosistemle paylaştığı tercihler: açılışta (`graphics`'ten sonra, `init`'ten önce) ve uygulama çalışırken `quvyta.conf` ya da uygulamanın kendi dosyası onları her değiştirdiğinde; ekran zaten değişmiştir, ayar ekranı burada tazelenir. İsteğe bağlı.
 - `fn before_quit(&self) -> Option<Msg>` — çalışma motoru kullanıcı adına çıkmadan önce sorulur (çıkış bağı, komut paletinden çıkış eylemi); bir mesaj uygulamayı açık tutar ve onun yerine teslim edilir. `Command::quit()` hiç sorulmaz. İsteğe bağlı.
 - `fn terminating(&self, Termination) -> Option<Msg>` — uygulamayı sistemin kapattığını duyar: bir `SIGTERM` ya da dışarıdan gelen `SIGINT` için `Termination::Terminate`, bir `SIGHUP` için `Termination::Hangup`. `None` hemen çıkar; bir mesaj kaydedip çıkması için açık tutar. Varsayılan olarak terminate'e `before_quit` cevap verir, kopuş çıkar. İsteğe bağlı.
 
@@ -56,6 +57,7 @@
 - `.theme_source(dosya, metin)`, `.icon_source(dosya, metin)`, `.locale_source(dosya, metin)`, `.keymap_source(dosya, metin)` — aynı dosyaları metin olarak yükler, ör. `include_str!("../locales/tr.toml")`; kurulan programın yanında dosya taşıması gerekmez. Metin, eşleşen yoldan sonra gelir ve kazanır; tema ve ikon setlerinde dosya adının kökü id olur. Ayrıca verilen yol artık zorunlu değildir: okunamadığında metin onun yerine geçer ve sebep, programı durdurmak yerine bir tanılamaya dönüşür.
 - `.theme(id)` — Monochrome yerine başka bir temayla başlar.
 - `.settings(&ayarlar)` — kullanıcının kaydettiği görünümle başlar; kayıtlı değerler `.theme` seçiminden güçlüdür.
+- `.member(Ecosystem::QUVYTA, "code")` — ekosistemin bir üyesi için tek çağrı: ayarlarını ve ortak tercihleri yükler, ilk kareden önce uygular ve uygulama çalışırken iki dosyayı da izler. `.member_in(ekosistem, klasör, uygulama)` uygulamanın seçtiği klasörde. `.settings` ya da `.preferences` ile ayrıca verilen ayarlar ve tercihler olduğu gibi kullanılır.
 - `.run()` — uygulama kapanana kadar terminali yönetir; çıkışta ve panikte terminali eski haline getirir. Unix'te `SIGTERM`, `SIGINT` ve `SIGHUP`'ı yakalar, `App::terminating`'e bildirir ve her zaman sınırlı sürede biter: süre dolunca, ikinci bir `SIGTERM` ya da `SIGINT`'te hemen, döngü takılmışsa bir saniye sonra sinyalin kendisiyle. Devir sırasında gelen sinyal önce devredilen programa ulaşır.
 
 ## Termination
@@ -67,6 +69,7 @@
 ## Harness
 
 - `Harness::new(app, genişlik, yükseklik)` — gömülü ortam, hemen çizilmiş halde; ölçüyü `resized`'a bildirir ve `init`'i çalıştırır. Kendi ortamın için `Harness::with_env(app, ortam, genişlik, yükseklik)`.
+- `Harness::member_in(app, ekosistem, &klasör, "code", genişlik, yükseklik)` — bir üyeyi `Runtime::member_in` gibi, testin kendi klasöründe başlatır; `.poll_preferences()` dosyalarını çalışma motorunun değişiklik duyunca yaptığı gibi yeniden okur ve yalnızca bir şey değiştiyse çizer.
 - `.resize(genişlik, yükseklik)` — ekranı yeniden boyutlar, yeni ölçüyü `resized`'a bildirir ve baştan çizer.
 - `.press("ctrl+s")`, `.key(olay)`, `.type_text("merhaba")`, `.paste(metin)` — klavye girdisi.
 - `.click(x, y)`, `.click_text("Kaydet")`, `.hover(x, y)`, `.drag(nereden, nereye)`, `.mouse(tür, x, y)` — fare girdisi.

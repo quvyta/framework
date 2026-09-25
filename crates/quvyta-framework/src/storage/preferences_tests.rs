@@ -320,11 +320,11 @@ fn the_files_sit_in_the_xdg_config_folder_on_linux() {
 }
 
 #[test]
-fn apply_switches_the_three_keys() {
+fn apply_switches_the_four_keys() {
     let dir = folder("apply");
     write(&dir, "quvyta.conf", "language = \"de\"\ntheme = \"amber\"\nicons = \"ascii\"\n");
     let command: Command<()> = resolve(&dir, "code").apply();
-    assert_eq!(command.actions.len(), 3);
+    assert_eq!(command.actions.len(), 4);
     fs::remove_dir_all(&dir).expect("clean");
 }
 
@@ -354,4 +354,45 @@ fn the_theme_a_machine_starts_with_is_the_one_the_registry_falls_back_to() {
     assert_eq!(fallback.id(), DETECTED_THEME, "the detected theme is the registry's own default");
     let ids: Vec<String> = crate::theme::ThemeRegistry::builtin().list().into_iter().map(|(id, _)| id).collect();
     assert!(ids.iter().any(|id| id == DETECTED_THEME), "and it is a built-in theme: {ids:?}");
+}
+
+#[test]
+fn reduced_motion_resolves_like_the_other_shared_keys() {
+    let dir = folder("motion");
+    let flag = |value: bool, source: Source| Resolved { value, source };
+    write(&dir, "quvyta.conf", "language = \"de\"\ntheme = \"amber\"\nicons = \"ascii\"\n");
+    assert_eq!(resolve(&dir, "code").reduced_motion(), &flag(false, Source::Detected), "missing everywhere: motion");
+    write(&dir, "quvyta.conf", "language = \"de\"\ntheme = \"amber\"\nicons = \"ascii\"\nreduced-motion = true\n");
+    assert_eq!(resolve(&dir, "code").reduced_motion(), &flag(true, Source::Ecosystem));
+    write(&dir, "code.conf", "reduced-motion = \"quvyta\"\n");
+    let prefs = resolve(&dir, "code");
+    assert_eq!(prefs.reduced_motion(), &flag(true, Source::Ecosystem));
+    assert!(prefs.diagnostics().is_empty(), "the ecosystem's id is a value of the flag: {:?}", prefs.diagnostics());
+    write(&dir, "code.conf", "reduced-motion = false\n");
+    assert_eq!(resolve(&dir, "code").reduced_motion(), &flag(false, Source::App), "a need of its own stays");
+    fs::remove_dir_all(&dir).expect("clean");
+}
+
+#[test]
+fn reduced_motion_is_written_as_a_boolean_and_nothing_else_is_taken() {
+    let dir = folder("motion-set");
+    write(&dir, "quvyta.conf", "language = \"de\"\n");
+    Ecosystem::QUVYTA.set_in(&dir, "code", Shared::ReducedMotion, "true", Scope::Ecosystem).expect("everywhere");
+    assert_eq!(read(&dir, "quvyta.conf"), "language = \"de\"\nreduced-motion = true\n");
+    assert_eq!(read(&dir, "code.conf"), "reduced-motion = \"quvyta\"\n");
+    Ecosystem::QUVYTA.set_in(&dir, "code", Shared::ReducedMotion, "false", Scope::App).expect("here");
+    assert_eq!(read(&dir, "code.conf"), "reduced-motion = false\n");
+    let error = Ecosystem::QUVYTA.set_in(&dir, "code", Shared::ReducedMotion, "sometimes", Scope::App);
+    assert_eq!(error.expect_err("not a flag").kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(read(&dir, "code.conf"), "reduced-motion = false\n", "untouched");
+    fs::remove_dir_all(&dir).expect("clean");
+}
+
+#[test]
+fn a_new_shared_file_leaves_reduced_motion_out() {
+    let dir = folder("motion-new");
+    let prefs = resolve(&dir, "code");
+    assert!(!prefs.reduced_motion().value);
+    assert!(!read(&dir, "quvyta.conf").contains("reduced-motion"), "{}", read(&dir, "quvyta.conf"));
+    fs::remove_dir_all(&dir).expect("clean");
 }

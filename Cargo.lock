@@ -849,7 +849,7 @@ dependencies = [
 
 [[package]]
 name = "quvyta-framework"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "crossterm",
  "dirs",
@@ -872,7 +872,7 @@ dependencies = [
 
 [[package]]
 name = "quvyta-framework-shots"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "quvyta-framework",
  "ratatui-core",
@@ -882,7 +882,7 @@ dependencies = [
 
 [[package]]
 name = "quvyta-framework-showcase"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "quvyta-framework",
  "quvyta-framework-shots",

@@ -1,6 +1,6 @@
 ## Methods
 
-- `Ecosystem::preferences(app, &i18n)` — resolves language, theme and icons of `app`; creates the shared file with the detected values when it is missing.
+- `Ecosystem::preferences(app, &i18n)` — resolves language, theme, icons and reduced motion of `app`; creates the shared file with the detected values when it is missing.
 - `Ecosystem::preferences_in(folder, app, &i18n)` — the same in `folder` instead of the platform's ecosystem folder.
 - `Ecosystem::set(app, Shared::Theme, "nordic", Scope::Ecosystem)` — writes one shared key; `Scope::App` writes the application's file only. `set_in(folder, …)` in another folder.
 - `Ecosystem::follow(app, Shared::Theme)` — puts `app` back on the ecosystem's value: `<app>.conf` alone takes `theme = "quvyta"`, the shared file is untouched. `follow_in(folder, …)` in another folder.
@@ -8,7 +8,13 @@
 - `Preferences::apply()` — the commands that switch a running application to the resolved values.
 - `Preferences::diagnostics()` — located problems of the shared file.
 - `Runtime::preferences(&prefs)` — start with the resolved values; they win over the same keys of `Runtime::settings`.
-- `Settings::member_of(&ecosystem)` — the ecosystem's id is a valid value of the shared keys and reads as "not set here".
+- `Runtime::member(Ecosystem::QUVYTA, "code")` — settings and preferences loaded, applied before the first frame, and followed while the application runs; `member_in(ecosystem, folder, app)` in another folder.
+- `App::preferences(&self, &prefs) -> Option<Msg>` — hears the preferences a member starts with and every change another application makes to them.
+- `Appearance::refresh(prefs)` — an open section takes preferences resolved again: the rows and the boxes show them, and the next change is saved where the box now says.
+- `Harness::member_in(app, ecosystem, &folder, app_id, width, height)`, `poll_preferences()` — a member in a test's folder, and the files read again as the runtime does when they change.
+- `Settings::member_of(&ecosystem)` — the ecosystem's id is a valid value of the shared keys and reads as "not set here"; the `shared-checked` mark is always a known key.
+- `Ecosystem::settle(app) -> io::Result<Vec<Shared>>` — once per application: each shared key its file fixes to the value `quvyta.conf` holds follows the ecosystem again, a different value stays, and the file takes `shared-checked = true` (`Settings::SHARED_CHECKED`), after which it changes nothing. Returns the keys that now follow. `settle_in(folder, app)` in another folder.
+- `Ecosystem::members() -> &[Member]`, `storage::MEMBERS` — every member of Quvyta: `id`, `settings_id`, `title`, `package`, `command`; empty for another ecosystem.
 - `Appearance::new(ecosystem, app, prefs)` — the rows' state; `.in_folder(folder)` saves elsewhere.
 - `Appearance::section(list, msg)` — a heading and the rows; `rows(list, msg)` without the heading.
 - `Appearance::update(change, &mut settings)` — saves an `AppearanceChange` and returns the command that shows it.
@@ -23,6 +29,7 @@
 - Box under the row checked: `quvyta.conf` takes `theme = "nordic"`, `code.conf` takes `theme = "quvyta"`.
 - Box cleared: `quvyta.conf` is unchanged, `code.conf` takes `theme = "nordic"`.
 - `follow`: `quvyta.conf` is unchanged and not even read, `code.conf` takes `theme = "quvyta"`; a missing file is created holding only that key.
+- `settle`: `quvyta.conf` says `theme = "nordic"`; `desktop.conf` with `theme = "nordic"` takes `theme = "quvyta"`, with `theme = "iris"` keeps it, and takes `shared-checked = true` either way. `quvyta.conf` is only read.
 
 ## Behaviour
 
@@ -31,4 +38,6 @@
 - The shared file cannot follow itself; `"quvyta"` in it is reported and the detected value is used.
 - `follow` on a key that already follows the ecosystem changes nothing and is not an error; on a file that cannot be read it fails with `InvalidData` and leaves the file as it was.
 - A change that cannot be saved is still applied, and its row says why until the next change.
-- The reduced motion row is disabled while `QUVYTA_REDUCED_MOTION` decides.
+- The reduced motion row and its box are disabled while `QUVYTA_REDUCED_MOTION` decides.
+- `Shared::ReducedMotion` — reduced motion as a shared key: `Preferences::reduced_motion()`, written as a boolean (`true`/`false` in `Ecosystem::set`). `Shared` is `#[non_exhaustive]`.
+- A member follows `quvyta.conf` and its own file: on a change both are read again without writing, and only a value that differs from the last reading and from the screen is applied. The same values written again reach no hook and draw no frame.

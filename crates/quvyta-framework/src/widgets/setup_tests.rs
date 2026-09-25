@@ -267,3 +267,99 @@ fn a_finish_that_cannot_be_saved_says_so_and_the_wizard_comes_again() {
     assert!(h.screen().contains("could not be saved"), "{}", h.screen());
     let _ = fs::remove_file(&folder);
 }
+
+/// The shared file of a member that has already answered the appearance step.
+const ANSWERED: &str = "language = \"tr\"\ntheme = \"nordic\"\nicons = \"unicode\"\n";
+
+/// A folder whose shared file says `shared`, with no file of the application's own.
+fn shared_folder(name: &str, shared: &str) -> PathBuf {
+    let folder = folder(name);
+    fs::create_dir_all(&folder).expect("the folder");
+    fs::write(folder.join("quvyta.conf"), shared).expect("quvyta.conf");
+    folder
+}
+
+#[test]
+fn an_answered_shared_file_and_no_steps_of_its_own_need_no_wizard() {
+    let folder = shared_folder("appearance-only", ANSWERED);
+    let setup = Setup::new_in(&folder, Ecosystem::QUVYTA, APP, &I18n::builtin(), Msg::Setup).appearance_only();
+    assert!(!setup.needed(), "nothing is left to ask");
+    let own = file(&folder, "code.conf");
+    for key in ["language", "theme", "icons"] {
+        assert!(own.contains(&format!("{key} = \"quvyta\"")), "{key} follows the ecosystem: {own}");
+    }
+    assert_eq!(file(&folder, "quvyta.conf"), ANSWERED, "the shared file is as it was");
+    let again = Setup::new_in(&folder, Ecosystem::QUVYTA, APP, &I18n::builtin(), Msg::Setup);
+    assert!(!again.needed(), "and the question is not asked next start");
+    let _ = fs::remove_dir_all(&folder);
+}
+
+#[test]
+fn an_answered_shared_file_opens_the_wizard_on_the_application_s_own_step() {
+    let folder = shared_folder("own-step", ANSWERED);
+    let mut h = Harness::new(Demo::new(&folder), 60, 30);
+    assert!(h.app().setup.needed());
+    assert!(!h.app().setup.asks_appearance());
+    assert_eq!(h.app().setup.step(), 1);
+    let screen = h.screen();
+    assert!(screen.contains("podman"), "the application's step is shown: {screen}");
+    assert!(!screen.contains("In every Quvyta application"), "the appearance step is not: {screen}");
+    assert!(!screen.contains("Back"), "there is nothing before it: {screen}");
+    // The steps on top are the only way back here; the application's own is the first of them.
+    h.click_text("Containers");
+    assert_eq!(h.app().setup.step(), 1, "nothing reaches the step left out");
+    h.click_text("Finish");
+    h.advance(Duration::from_millis(0));
+    assert!(h.app().done);
+    let own = file(&folder, "code.conf");
+    for key in ["language", "theme", "icons"] {
+        assert!(own.contains(&format!("{key} = \"quvyta\"")), "{key} follows the ecosystem: {own}");
+    }
+    assert_eq!(file(&folder, "quvyta.conf"), ANSWERED);
+    let _ = fs::remove_dir_all(&folder);
+}
+
+#[test]
+fn without_a_whole_shared_file_the_appearance_step_comes_first() {
+    for (name, shared) in [("no-shared", None), ("half-shared", Some("language = \"tr\"\ntheme = \"nordic\"\n"))] {
+        let folder = folder(name);
+        fs::create_dir_all(&folder).expect("the folder");
+        if let Some(shared) = shared {
+            fs::write(folder.join("quvyta.conf"), shared).expect("quvyta.conf");
+        }
+        let h = Harness::new(Demo::new(&folder), 60, 30);
+        assert!(h.app().setup.asks_appearance(), "{name}");
+        assert_eq!(h.app().setup.step(), 0, "{name}");
+        assert!(h.screen().contains("In every Quvyta application"), "{name}: {}", h.screen());
+        let alone = Setup::new_in(&folder, Ecosystem::QUVYTA, APP, &I18n::builtin(), Msg::Setup).appearance_only();
+        assert!(alone.needed(), "{name}: the appearance step is still asked");
+        assert!(!folder.join("code.conf").exists(), "{name}: and nothing is written before it is");
+        let _ = fs::remove_dir_all(&folder);
+    }
+}
+
+#[test]
+fn a_file_holding_only_the_settle_mark_is_no_settings_yet() {
+    let folder = shared_folder("marked", ANSWERED);
+    fs::write(folder.join("code.conf"), "shared-checked = true\n").expect("code.conf");
+    assert!(Demo::new(&folder).setup.needed(), "the mark alone is not a setup");
+    fs::write(folder.join("code.conf"), "shared-checked = true\nengine = 1\n").expect("code.conf");
+    assert!(!Demo::new(&folder).setup.needed(), "a key of its own is");
+    fs::write(folder.join("code.conf"), "").expect("code.conf");
+    assert!(!Demo::new(&folder).setup.needed(), "an empty file the application wrote is one too");
+    let _ = fs::remove_dir_all(&folder);
+}
+
+#[test]
+fn a_finish_that_cannot_be_saved_on_the_application_s_step_says_so_there() {
+    let folder = shared_folder("own-step-failure", ANSWERED);
+    // A folder where the application's file should be: the file cannot be written.
+    fs::create_dir_all(folder.join("code.conf").join("in-the-way")).expect("the folder in the way");
+    let mut h = Harness::new(Demo::new(&folder), 60, 30);
+    assert_eq!(h.app().setup.step(), 1);
+    h.click_text("Finish");
+    h.advance(Duration::from_millis(0));
+    assert!(!h.app().done);
+    assert!(h.screen().contains("could not be saved"), "{}", h.screen());
+    let _ = fs::remove_dir_all(&folder);
+}

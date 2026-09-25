@@ -21,6 +21,7 @@ use ratatui_crossterm::CrosstermBackend;
 use super::app::App;
 use super::detached::{self, DetachedOutcome};
 use super::engine::{Engine, HandOver, TaskMode};
+use super::follow::{Member, Start};
 use super::graphics_probe::LateAnswer;
 use super::handoff::{self, HandoffOutcome, HandoffScreen};
 use super::present::{Screen, pointer_shapes_supported};
@@ -30,7 +31,7 @@ use super::termination::Termination;
 use crate::env::{AssetDirs, Env};
 use crate::event::{Event, KeyEvent, KeyKind, MouseButton, MouseEvent, MouseKind};
 use crate::keymap::{Key, KeyChord, Modifiers};
-use crate::storage::{Preferences, Settings};
+use crate::storage::{Ecosystem, Preferences, Settings};
 
 /// How long the loop sleeps when nothing is animating and no background work is running.
 const IDLE_WAIT: Duration = Duration::from_millis(500);
@@ -44,12 +45,13 @@ pub struct Runtime<A: App> {
     theme: Option<String>,
     settings: Option<Settings>,
     preferences: Option<Preferences>,
+    member: Option<Member>,
 }
 
 impl<A: App> Runtime<A> {
     /// A runtime for `app` with built-in files only.
     pub fn new(app: A) -> Self {
-        Self { app, dirs: AssetDirs::default(), theme: None, settings: None, preferences: None }
+        Self { app, dirs: AssetDirs::default(), theme: None, settings: None, preferences: None, member: None }
     }
 
     /// Loads theme files from `dir`.
@@ -168,10 +170,10 @@ impl<A: App> Runtime<A> {
         self
     }
 
-    /// Starts with the language, theme and icons of the ecosystem's shared
+    /// Starts with the language, theme, icons and reduced motion of the ecosystem's shared
     /// [`Preferences`], as [`Ecosystem::preferences`](crate::storage::Ecosystem::preferences) resolved
     /// them for this application. They win over [`Runtime::theme`] and over the same keys in
-    /// [`Runtime::settings`], which keeps the rest: reduced motion, pillar and slide.
+    /// [`Runtime::settings`], which keeps the rest: pillar and slide.
     ///
     /// ```no_run
     /// # use qframe::prelude::*;
@@ -193,6 +195,55 @@ impl<A: App> Runtime<A> {
     #[must_use]
     pub fn preferences(mut self, preferences: &Preferences) -> Self {
         self.preferences = Some(preferences.clone());
+        self
+    }
+
+    /// Runs the application as member `app` of `ecosystem`, in one call: its own settings are
+    /// loaded with [`Settings::load_member`], the shared preferences resolved with
+    /// [`Ecosystem::preferences`] in the language files this runtime loads, and both applied
+    /// before the first frame, as [`Runtime::settings`] and [`Runtime::preferences`] apply them.
+    ///
+    /// While the application runs, the ecosystem's folder is watched. When the shared file or the
+    /// application's own file changes, say because another application switched the theme for
+    /// the whole ecosystem, the preferences are resolved again without writing anything and what
+    /// changed is applied at once: language, theme, icons and reduced motion, and the pillar
+    /// when the application's own file changed it. A value the application chose for itself
+    /// stays, since resolving gives it first. [`App::preferences`](super::App::preferences) hears
+    /// the start and every change, so a settings screen can show the new values.
+    ///
+    /// The watch uses the system's own events and a thread that sleeps until the folder changes;
+    /// it costs nothing while nothing changes. Where the folder cannot be watched (no home
+    /// folder, a platform without a folder watch, the system's limit on watches reached), the
+    /// application runs with what it started with, as before. The watch ends with the run.
+    ///
+    /// Settings or preferences also given with [`Runtime::settings`] or [`Runtime::preferences`]
+    /// are used as given and not read a second time, so an application moving over can keep
+    /// its own reading for now.
+    ///
+    /// ```no_run
+    /// # use qframe::prelude::*;
+    /// # use qframe::storage::Ecosystem;
+    /// # struct Hello;
+    /// # impl App for Hello {
+    /// #     type Msg = ();
+    /// #     fn update(&mut self, _: ()) -> Command<()> { Command::none() }
+    /// #     fn view(&self, ui: &mut View<'_, ()>) { ui.add(Text::new("hello")); }
+    /// # }
+    /// # fn main() -> std::io::Result<()> {
+    /// Runtime::new(Hello).member(Ecosystem::QUVYTA, "hello").run()
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn member(mut self, ecosystem: Ecosystem, app: &str) -> Self {
+        self.member = Some(Member::new(ecosystem, app, None));
+        self
+    }
+
+    /// [`member`](Self::member) with `config_dir` as the ecosystem's folder instead of this
+    /// platform's, for an application that keeps its settings where it chooses, and for a demo.
+    #[must_use]
+    pub fn member_in(mut self, ecosystem: Ecosystem, config_dir: impl Into<PathBuf>, app: &str) -> Self {
+        self.member = Some(Member::new(ecosystem, app, Some(config_dir.into())));
         self
     }
 
@@ -226,15 +277,8 @@ impl<A: App> Runtime<A> {
     /// Returns I/O errors from loading asset directories or from the terminal.
     pub fn run(self) -> io::Result<()> {
         let mut env = Env::load(&self.dirs)?;
-        if let Some(theme) = &self.theme {
-            env.set_theme(theme);
-        }
-        if let Some(settings) = &self.settings {
-            env.apply_settings(settings);
-        }
-        if let Some(preferences) = &self.preferences {
-            env.apply_preferences(preferences);
-        }
+        let start = Start { theme: self.theme.as_deref(), settings: self.settings, preferences: self.preferences };
+        let follow = start.apply(&mut env, self.member, true);
         // Before the terminal is taken, so the modes restored if the process has to be ended by
         // force are the ones the user had.
         let signals = Signals::catch()?;
@@ -249,7 +293,10 @@ impl<A: App> Runtime<A> {
         #[cfg(feature = "image")]
         let screen = screen.measure_cell(cell_pixels);
         let mut screen = screen;
-        let engine = Engine::new(self.app, env, TaskMode::Threads);
+        let mut engine = Engine::new(self.app, env, TaskMode::Threads);
+        if let Some(follow) = follow {
+            engine.follow(follow);
+        }
         let result = event_loop(&mut screen, engine, &guard, &signals, late);
         if !guard.abandoned.get() {
             // A resize arrow left behind would follow the user into the shell. Leaving is under
@@ -328,6 +375,7 @@ fn event_loop<A: App>(
         }
         engine.poll_tasks();
         engine.run_queued_work();
+        engine.follow_preferences();
         if gone {
             refuse_handoffs(&mut engine);
         } else {

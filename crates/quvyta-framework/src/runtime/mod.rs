@@ -16,6 +16,9 @@ mod detached_rules;
 mod engine;
 #[cfg(test)]
 mod focus_action_rules;
+mod follow;
+#[cfg(test)]
+mod follow_rules;
 #[cfg(unix)]
 mod foreground;
 mod frame_limit;

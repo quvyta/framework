@@ -10,6 +10,7 @@ mod frames;
 mod idle;
 mod keys;
 mod pointer;
+mod preferences;
 
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -179,6 +180,8 @@ pub(crate) struct Engine<A: App> {
     screen: Option<Size>,
     /// The graphics last reported through [`App::graphics`].
     told_graphics: Option<crate::graphics::Graphics>,
+    /// The member's preferences the engine follows, when the application runs as one.
+    follow: Option<super::follow::Follow>,
     pub(crate) dirty: bool,
     pub(crate) quit: bool,
     /// A termination the application was told about, until the run ends.
@@ -247,6 +250,7 @@ impl<A: App> Engine<A> {
             started: false,
             screen: None,
             told_graphics: None,
+            follow: None,
             dirty: true,
             quit: false,
             ending: None,
@@ -380,7 +384,8 @@ impl<A: App> Engine<A> {
     }
 
     /// The lifecycle hooks due before a frame of `size` is built: the size when it is new, the
-    /// graphics when they are new, then, on the first frame only, [`App::init`]. All come before
+    /// graphics when they are new, then, on the first frame only, the preferences of a member
+    /// ([`App::preferences`]) and [`App::init`]. All come before
     /// the view, so the frame already shows what they changed, and before any input is read, so a
     /// focus `init` asks for is in place for the first key.
     fn begin_frame(&mut self, size: Size) {
@@ -405,6 +410,7 @@ impl<A: App> Engine<A> {
                 self.update(message);
             }
         }
+        self.tell_preferences();
         if !self.started {
             self.started = true;
             let command = {

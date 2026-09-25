@@ -1,4 +1,5 @@
-//! The preferences every application of an ecosystem shares: language, theme and icons.
+//! The preferences every application of an ecosystem shares: language, theme, icons and reduced
+//! motion.
 //!
 //! The ecosystem's shared file holds one value of each, and each application's own file either
 //! names its own value or the ecosystem's id, which means "use the shared one":
@@ -8,10 +9,12 @@
 //! language = "tr"
 //! theme = "monochrome"
 //! icons = "nerd"
+//! reduced-motion = true
 //!
 //! # code.conf
 //! language = "quvyta"
 //! theme = "nordic"
+//! reduced-motion = "quvyta"
 //! ```
 //!
 //! [`Ecosystem::preferences`] resolves each key on its own, in this order:
@@ -41,7 +44,11 @@ const DETECTED_THEME: &str = "monochrome";
 const FALLBACK_LANGUAGE: &str = "en";
 
 /// A preference every application of an ecosystem shares.
+///
+/// More may be added in a later release, so a `match` on it needs a `_` arm; iterate
+/// [`Shared::ALL`] to list them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Shared {
     /// The language, a locale code such as `tr`.
     Language,
@@ -49,11 +56,15 @@ pub enum Shared {
     Theme,
     /// The icon mode: `auto`, `nerd`, `unicode` or `ascii`.
     Icons,
+    /// Reduced motion, `true` or `false`: a need of the person rather than a look of one
+    /// application, so it is shared like the language. Written as a boolean; its text form, in
+    /// [`Ecosystem::set`], is `true` or `false`.
+    ReducedMotion,
 }
 
 impl Shared {
     /// Every shared preference, in the order a settings screen lists them.
-    pub const ALL: [Self; 3] = [Self::Language, Self::Theme, Self::Icons];
+    pub const ALL: [Self; 4] = [Self::Language, Self::Theme, Self::Icons, Self::ReducedMotion];
 
     /// The key the preference is written under, in the shared file and in each application's.
     #[must_use]
@@ -62,6 +73,26 @@ impl Shared {
             Self::Language => Settings::LANGUAGE,
             Self::Theme => Settings::THEME,
             Self::Icons => Settings::ICONS,
+            Self::ReducedMotion => Settings::REDUCED_MOTION,
+        }
+    }
+
+    /// The value under this key in `settings`, in its text form: a boolean as `true` or `false`,
+    /// the rest as written. `None` when missing or of a type the key never holds.
+    pub(crate) fn read(self, settings: &Settings) -> Option<String> {
+        match settings.value(self.key())? {
+            SettingValue::Text(text) => Some(text.clone()),
+            SettingValue::Bool(flag) if self == Self::ReducedMotion => Some(flag.to_string()),
+            _ => None,
+        }
+    }
+
+    /// `text` as it is written under this key: reduced motion's `true` and `false` as booleans,
+    /// every other text, the ecosystem's id among them, as text.
+    pub(crate) fn setting(self, text: &str) -> SettingValue {
+        match (self, text.parse::<bool>()) {
+            (Self::ReducedMotion, Ok(flag)) => SettingValue::Bool(flag),
+            _ => SettingValue::Text(text.to_owned()),
         }
     }
 }
@@ -133,6 +164,7 @@ pub struct Preferences {
     language: Resolved<String>,
     theme: Resolved<String>,
     icons: Resolved<IconMode>,
+    reduced_motion: Resolved<bool>,
     update_notice: bool,
     diagnostics: Vec<Diagnostic>,
 }
@@ -169,6 +201,14 @@ impl Preferences {
         &self.icons
     }
 
+    /// Whether to reduce motion. The `QUVYTA_REDUCED_MOTION` environment variable, when set,
+    /// still decides over it in the running application; see
+    /// [`Env::reduced_motion`](crate::env::Env::reduced_motion).
+    #[must_use]
+    pub fn reduced_motion(&self) -> &Resolved<bool> {
+        &self.reduced_motion
+    }
+
     /// Where `key` came from.
     #[must_use]
     pub fn source(&self, key: Shared) -> Source {
@@ -176,6 +216,7 @@ impl Preferences {
             Shared::Language => self.language.source,
             Shared::Theme => self.theme.source,
             Shared::Icons => self.icons.source,
+            Shared::ReducedMotion => self.reduced_motion.source,
         }
     }
 
@@ -189,6 +230,10 @@ impl Preferences {
                 let mode = IconMode::from_name(value).unwrap_or(self.icons.value);
                 self.icons = Resolved { value: mode, source };
             }
+            Shared::ReducedMotion => {
+                let reduced = value.parse().unwrap_or(self.reduced_motion.value);
+                self.reduced_motion = Resolved { value: reduced, source };
+            }
         }
     }
 
@@ -198,6 +243,7 @@ impl Preferences {
             Shared::Language => self.language.value.clone(),
             Shared::Theme => self.theme.value.clone(),
             Shared::Icons => self.icons.value.name().to_owned(),
+            Shared::ReducedMotion => self.reduced_motion.value.to_string(),
         }
     }
 
@@ -210,8 +256,8 @@ impl Preferences {
         &self.diagnostics
     }
 
-    /// Commands that switch the running application to the resolved language, theme and icons,
-    /// for use after a change in `update`. At start give the preferences to
+    /// Commands that switch the running application to the resolved language, theme, icons and
+    /// reduced motion, for use after a change in `update`. At start give the preferences to
     /// [`Runtime::preferences`](crate::runtime::Runtime::preferences) instead, so the first
     /// frame is already drawn with them.
     #[must_use]
@@ -220,6 +266,7 @@ impl Preferences {
             Command::set_theme(self.theme.value.clone()),
             Command::set_locale(self.language.value.clone()),
             Command::set_icon_mode(self.icons.value),
+            Command::set_reduced_motion(self.reduced_motion.value),
         ])
     }
 }
@@ -256,13 +303,16 @@ impl Detected {
             Shared::Language => self.language.clone(),
             Shared::Theme => DETECTED_THEME.to_owned(),
             Shared::Icons => self.icons.name().to_owned(),
+            Shared::ReducedMotion => false.to_string(),
         }
     }
 
-    /// The shared file as it is first written: the detected value of every key.
+    /// The shared file as it is first written: the detected value of language, theme and icons.
+    /// Reduced motion is left out until someone chooses it, as in every shared file written before
+    /// it was shared; missing, it reads as motion.
     fn file(&self) -> String {
         let mut settings = Settings::in_memory();
-        for key in Shared::ALL {
+        for key in [Shared::Language, Shared::Theme, Shared::Icons] {
             settings.set(key.key(), self.text(key));
         }
         settings.to_toml()
@@ -270,8 +320,8 @@ impl Detected {
 }
 
 impl Ecosystem {
-    /// Resolves the shared preferences of application `app`: for each of language, theme and
-    /// icons, the application's own value when its file names one other than the ecosystem's id,
+    /// Resolves the shared preferences of application `app`: for each of language, theme, icons
+    /// and reduced motion, the application's own value when its file names one other than the ecosystem's id,
     /// else the value in the [shared file](Self::shared_file), else the value detected on this
     /// machine. A key missing from the application's file follows the ecosystem, as the ecosystem's id
     /// does, so a file written by hand before the ecosystem shared anything follows it too.
@@ -279,7 +329,7 @@ impl Ecosystem {
     /// Detection reads the environment: the language as [`I18n::detect`] finds it among the
     /// languages `i18n` knows (English when it knows none of the system's), the theme always
     /// `monochrome`, the icons as the strongest set the terminal and the installed fonts allow
-    /// ([`detect_glyph_mode`]).
+    /// ([`detect_glyph_mode`]), reduced motion always off.
     ///
     /// When the shared file does not exist it is created with the detected values, so the next
     /// application that starts finds them. A broken line never stops anything: that key falls
@@ -398,10 +448,10 @@ impl Ecosystem {
         match scope {
             Scope::Ecosystem => {
                 let shared_file = config_dir.join(super::ecosystem::file_name(self.id()));
-                rewrite(&shared_file, key.key(), SettingValue::Text(value), None)?;
+                rewrite(&shared_file, key.key(), key.setting(&value), None)?;
                 rewrite(&app_file, key.key(), SettingValue::Text(self.id().to_owned()), Some(self))
             }
-            Scope::App => rewrite(&app_file, key.key(), SettingValue::Text(value), Some(self)),
+            Scope::App => rewrite(&app_file, key.key(), key.setting(&value), Some(self)),
         }
     }
 
@@ -488,6 +538,10 @@ impl Ecosystem {
             Shared::Icons => IconMode::from_name(value)
                 .map(|mode| mode.name().to_owned())
                 .ok_or_else(|| invalid(format!("`{value}` is not an icon mode; use auto, nerd, unicode or ascii"))),
+            Shared::ReducedMotion => value
+                .parse::<bool>()
+                .map(|reduced| reduced.to_string())
+                .map_err(|_| invalid(format!("`{value}` is not a value of reduced motion; use true or false"))),
             Shared::Language | Shared::Theme => Ok(value.to_owned()),
         }
     }
@@ -515,15 +569,14 @@ impl Ecosystem {
         let own = Settings::open(config_dir.join(super::ecosystem::file_name(app))).member_of(self);
         let ecosystem_value = |key: Shared| -> Option<String> {
             let shared = shared.as_ref()?;
-            let text = shared.get::<String>(key.key()).filter(|text| valid(key, text))?;
+            let text = key.read(shared).filter(|text| valid(key, text))?;
             (text != self.id()).then_some(text)
         };
-        let app_value = |key: Shared| -> Option<String> {
-            own.get::<String>(key.key()).filter(|text| text != self.id() && valid(key, text))
-        };
+        let app_value =
+            |key: Shared| -> Option<String> { key.read(&own).filter(|text| text != self.id() && valid(key, text)) };
         if let Some(shared) = &shared {
             for key in Shared::ALL {
-                if shared.get::<String>(key.key()).is_some_and(|text| text == self.id()) {
+                if key.read(shared).is_some_and(|text| text == self.id()) {
                     diagnostics.push(Diagnostic::warning(
                         shared.origin(key.key()),
                         format!(
@@ -546,6 +599,7 @@ impl Ecosystem {
 fn valid(key: Shared, text: &str) -> bool {
     match key {
         Shared::Icons => IconMode::from_name(text).is_some(),
+        Shared::ReducedMotion => text.parse::<bool>().is_ok(),
         Shared::Language | Shared::Theme => !text.trim().is_empty(),
     }
 }
@@ -566,10 +620,12 @@ fn resolved_from(
         }
     };
     let icons = text(Shared::Icons);
+    let reduced = text(Shared::ReducedMotion);
     Preferences {
         language: text(Shared::Language),
         theme: text(Shared::Theme),
         icons: Resolved { value: IconMode::from_name(&icons.value).unwrap_or(detected.icons), source: icons.source },
+        reduced_motion: Resolved { value: reduced.value.parse().unwrap_or(false), source: reduced.source },
         update_notice: true,
         diagnostics: Vec::new(),
     }
