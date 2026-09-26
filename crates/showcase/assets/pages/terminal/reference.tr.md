@@ -20,6 +20,7 @@
 ## Davranış
 
 - Odaktayken tuşlar xterm gibi kodlanır: kontrol harfleri, kaçış öneki olarak `alt`, değiştirici kodlarıyla normal ya da uygulama modunda oklar, işlev tuşları; `shift tab` hariç (odağı taşır).
+- `shift`, `ctrl` ya da `alt` ile Enter, program kitty klavye protokolünün ilk bayrağını ittiyse (`CSI > 1 u`; `CSI < u` geri alır, `CSI = bayraklar ; kip u` ayarlar) `CSI 13 ; değiştirici u`, değilse `ESC CR` gider; düz Enter `CR`, `ctrl j` `LF`'dir. `CSI ? u` o an geçerli bayraklarla cevaplanır; yalnızca ilk bayrak tutulur. Ana ve alternatif ekranın yığınları ayrıdır.
 - `ctrl q` uygulamaya bırakılır.
 - Program o modu açtıysa yapıştırmalar köşeli yapıştırma işaretleriyle sarılır; bunu `paste` yapar ve bileşen kişinin yapıştırması için de onu kullanır. Metnin içindeki `\x1b[200~` ya da `\x1b[201~` çıkarılır; böylece başka yerden gelen bir metin yapıştırmayı erken bitirip gerisini tuş gibi okutamaz.
 - Programın bittiği kaydedildikten sonra `write` ve `paste` reddedilir: sözde terminal program gittikten sonra da baytları alır ve onları kimse okumaz.

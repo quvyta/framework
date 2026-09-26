@@ -4,6 +4,35 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.30 - 2026-09-27
+
+### Added
+
+- `Env::cell_pixels()`: the size of one terminal cell in pixels, or `None` where the terminal
+  reports no pixels. An application preparing a picture for an area of the screen (a page
+  rendered off screen, a preview, a wallpaper) asks for the area's columns and rows times this
+  size, so the terminal shows it pixel for pixel instead of guessing ten by twenty. The runtime
+  reads it at start and at every resize, a font size change included, and draws a new frame when
+  it changes. Sixel pictures are shrunk to the same value, and now follow a font size change
+  that leaves the columns and rows as they were. `Harness::set_cell_pixels` sets it in tests.
+  The showcase's terminal panel shows it.
+- `Spinner::delayed(busy)`: a spinner that shows only for work slow enough to notice. Nothing is
+  drawn until the work has run 300 ms, and once shown it stays at least 500 ms, so quick work never
+  blinks an indicator and slow work never flickers one away. Its cells stay blank while hidden, so
+  what sits beside it never moves; it keeps its timing itself and asks for a frame exactly when it
+  is due to appear or disappear. The Spinner page of the showcase demonstrates it with a quick and
+  a slow load.
+
+### Fixed
+
+- `Terminal`: Shift+Enter and Ctrl+Enter no longer reach the program as a plain Enter, which sent
+  the message a chat program was holding instead of starting a new line in it. A program that
+  turned on the kitty keyboard protocol gets `CSI 13;2u` and `CSI 13;5u`; any other program gets
+  `ESC CR`, the bytes of Alt+Enter, which such programs read as a line break. The session keeps
+  the protocol's flag stack for each screen and answers `CSI ? u`, so a program asking whether
+  the protocol is there hears back at once. Only the first flag is followed, and only Enter
+  changes under it.
+
 ## 0.1.29 - 2026-09-24
 
 ### Added

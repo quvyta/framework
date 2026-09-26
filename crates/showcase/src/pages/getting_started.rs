@@ -117,9 +117,10 @@ fn pace(state: &State, ui: &mut View<'_, AppMsg>) {
 
 // region: graphics
 /// The way this terminal can show a picture, as the runtime asked it at start and the rules of
-/// `Env::graphics` weighed the answer.
+/// `Env::graphics` weighed the answer, and the pixels of one of its cells.
 fn graphics(ui: &mut View<'_, AppMsg>) {
     let graphics = ui.env().graphics();
+    let cell = ui.env().cell_pixels();
     ui.add_with(Panel::new().title(t!("getting-started.terminal")).gap(0), |ui| {
         setting(ui, t!("getting-started.graphics"), |ui| {
             let name = t!(&format!("getting-started.graphics-{}", graphics.name()));
@@ -127,6 +128,14 @@ fn graphics(ui: &mut View<'_, AppMsg>) {
         });
         ui.add(Text::new(t!("getting-started.graphics-hint")).role("faint"));
         ui.add(Text::new(t!("getting-started.graphics-override-hint")).role("faint"));
+        setting(ui, t!("getting-started.cell"), |ui| {
+            let size = match cell {
+                Some((width, height)) => t!("getting-started.cell-value", width = width, height = height),
+                None => t!("getting-started.cell-none"),
+            };
+            ui.add(Text::new(size).role("title").no_wrap()).id("cell");
+        });
+        ui.add(Text::new(t!("getting-started.cell-hint")).role("faint"));
     })
     .fill_width();
 }
@@ -419,6 +428,20 @@ mod tests {
         assert!(on_the_row(&h, "Sixel"), "{}", h.screen());
         h.set_depth(qframe::color::ColorDepth::Ansi16);
         assert!(on_the_row(&h, "No pictures"), "{}", h.screen());
+    }
+
+    #[test]
+    fn the_terminal_panel_shows_the_cell_size_and_follows_it() {
+        let mut h = crate::tests::showcase_tall(crate::app::Showcase::new(), PAGE, 80);
+        let on_the_row = |h: &Harness<crate::app::Showcase>, value: &str| {
+            let row = |text: &str| h.find(text).map(|(_, y)| y);
+            row("Cell size").is_some() && row(value) == row("Cell size")
+        };
+        assert!(on_the_row(&h, "Not reported"), "a test asks no terminal: {}", h.screen());
+        h.set_cell_pixels(Some((9, 19)));
+        assert!(on_the_row(&h, "9 × 19 pixels"), "{}", h.screen());
+        h.set_cell_pixels(Some((13, 27)));
+        assert!(on_the_row(&h, "13 × 27 pixels"), "a larger font: {}", h.screen());
     }
 
     #[test]

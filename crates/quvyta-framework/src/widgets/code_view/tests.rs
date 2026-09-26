@@ -432,17 +432,28 @@ fn a_long_file_costs_its_size_rather_than_its_square() {
     // real source file freezes and does not come back. The walk is one pass, so the cost grows
     // with the size of the file.
     //
-    // The bound is deliberately far from the measurement — eight thousand lines take about a
-    // sixth of a second here, so a machine twenty times slower still passes — because a bound
-    // tight enough to measure anything would only cry wolf under load. It is finite because the
-    // shape it guards against is not slowness but a freeze: taking the one pass away puts these
-    // eight thousand lines back at seven to nine seconds, and a real file is far longer.
-    let code = "    let value = compute(other, 1234);\n".repeat(8_000);
-    let started = std::time::Instant::now();
-    let rows = code_rows(&code, Language::Rust, 120);
-    let spent = started.elapsed();
-    assert_eq!(rows.len(), 8_000);
-    assert!(spent < std::time::Duration::from_secs(3), "laying out eight thousand lines took {spent:?}");
+    // The test compares a file with eight times as many lines against a short one instead of
+    // holding a clock to one of them: a machine busy building other programs slows both alike, so
+    // the ratio stays where the shape of the work puts it. One pass makes it about eight; the
+    // square makes it about sixty-four. The fastest of a few tries is taken, because load only
+    // ever adds time.
+    let short = "    let value = compute(other, 1234);\n".repeat(1_000);
+    let long = "    let value = compute(other, 1234);\n".repeat(8_000);
+    let fastest = |code: &str, lines: usize| {
+        (0..3)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                let rows = code_rows(code, Language::Rust, 120);
+                let spent = started.elapsed();
+                assert_eq!(rows.len(), lines);
+                spent
+            })
+            .min()
+            .unwrap_or_default()
+    };
+    let (short, long) = (fastest(&short, 1_000), fastest(&long, 8_000));
+    let ratio = long.as_secs_f64() / short.as_secs_f64().max(1e-6);
+    assert!(ratio < 24.0, "eight times the lines took {ratio:.1} times as long ({short:?} against {long:?})");
 }
 
 #[test]
@@ -491,26 +502,41 @@ fn scrolling_a_long_file_costs_a_screenful_rather_than_the_file() {
     // fifth of a second in a release build and seconds in this one. Remembering the layout and
     // drawing only the rows on screen makes a step cost what the screen shows.
     //
-    // The bound is far from the measurement — the forty steps below take about a sixteenth of a
-    // second here even in a debug build, so a machine eighty times slower still passes — because
-    // a loaded machine must not cry wolf. It is finite because it guards both halves: drawing
-    // every row of the file rather than the screenful puts these steps at about ten seconds, and
-    // laying the file out again on every measure puts them near a minute.
-    let code: String = (0..20_000)
-        .map(|n| match n % 4 {
-            0 => format!("/// Answers the request numbered {n} of the batch.\n"),
-            1 => format!("pub fn answer_{n}(request: &Request) -> Result<Reply, Error> {{\n"),
-            2 => format!("    Ok(Reply::new(request.field(\"name-{n}\")?, {n}u32))\n"),
-            _ => "}\n".to_owned(),
-        })
-        .collect();
-    let mut h = Harness::new(Megabyte { code }, 120, 40);
-    h.press("tab");
-    let started = std::time::Instant::now();
-    for step in 0..40 {
-        h.press(if step % 2 == 0 { "down" } else { "up" });
-    }
-    let spent = started.elapsed();
-    assert!(h.screen().contains("answer_1("), "{}", h.screen());
-    assert!(spent < std::time::Duration::from_secs(5), "forty steps through a megabyte of code took {spent:?}");
+    // So a step through a file eight times as long costs about the same, and the test compares
+    // the two instead of holding a clock to one: a machine busy building other programs slows
+    // both alike. Drawing every row of the file, or laying it out again on every measure, makes
+    // the long file's steps about eight times as costly. The fastest of a few tries is taken,
+    // because load only ever adds time.
+    let code = |lines: usize| -> String {
+        (0..lines)
+            .map(|n| match n % 4 {
+                0 => format!("/// Answers the request numbered {n} of the batch.\n"),
+                1 => format!("pub fn answer_{n}(request: &Request) -> Result<Reply, Error> {{\n"),
+                2 => format!("    Ok(Reply::new(request.field(\"name-{n}\")?, {n}u32))\n"),
+                _ => "}\n".to_owned(),
+            })
+            .collect()
+    };
+    let fastest = |code: String| {
+        let mut h = Harness::new(Megabyte { code }, 120, 40);
+        h.press("tab");
+        let spent = (0..3)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                for step in 0..20 {
+                    h.press(if step % 2 == 0 { "down" } else { "up" });
+                }
+                started.elapsed()
+            })
+            .min()
+            .unwrap_or_default();
+        assert!(h.screen().contains("answer_1("), "{}", h.screen());
+        spent
+    };
+    let (short, long) = (fastest(code(2_500)), fastest(code(20_000)));
+    let ratio = long.as_secs_f64() / short.as_secs_f64().max(1e-6);
+    assert!(
+        ratio < 3.0,
+        "steps through eight times the code took {ratio:.1} times as long ({short:?} against {long:?})"
+    );
 }

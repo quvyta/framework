@@ -6,6 +6,7 @@
 - `.label(metin)` — spinner'dan iki hücre sonra, sığacak kadar kesilen metin.
 - `.variant(isim)` — `"success"`, `"warning"`, `"danger"` gibi tema varyantı.
 - `.done(bool)` — iş bitti: onay işaretini bir kez oynat ve onda kal. Varsayılan kapalı; kapanınca yeniden döner.
+- `.delayed(busy)` — spinner'ı yalnızca yavaş işte gösterir: `busy` true olalı 300 ms geçmeden hiçbir şey, çıktıktan sonra `busy` daha önce false olsa da en az 500 ms. İşin sürüp sürmediğini her görünümde ver. Varsayılan kapalı: spinner her zaman görünür.
 
 ## Stiller
 
@@ -37,6 +38,7 @@ Nerd Font karakterleri Nerd Font v3 ister. Spinner'ın rengi `spinner` (ya da va
 - Kareyi tam bir sonraki kare zamanı geldiğinde ister; işarette duran spinner kare istemez.
 - Baştan `done(true)` ile (ilk çizildiğinde) gelen spinner oynatmadan işarette durur.
 - Hareket azaltıldığında ilk kareyi, `Pulse` için tam tonu gösterir ve kare istemez; bitmiş spinner son kareyi kendi renginde hemen gösterir.
+- `delayed(busy)` ile: görünse de görünmese de aynı ölçüdedir; gizliyken etiketi dahil hiçbir şey çizmez. Zamanı, `busy` diyen ilk görünümden itibaren spinner'ın kendi belleğinde tutulur. Çıkacağı an (iş başladıktan 300 ms sonra) ve kaybolacağı an (çıktıktan 500 ms sonra, iş bitmişse) için bir kare ister; gizli ve boştaki spinner hiçbir şey istemez.
 
 ## Tema anahtarları
 

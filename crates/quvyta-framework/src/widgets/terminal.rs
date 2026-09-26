@@ -32,6 +32,14 @@ const WHEEL_LINES: usize = WHEEL_ROWS as usize;
 /// live screen. The widget asks the session for its size; a running
 /// [`TerminalWatch`](super::TerminalWatch) applies it.
 ///
+/// Enter with a modifier is a new line, not Enter: a program that turned on the kitty keyboard
+/// protocol (`CSI > 1 u`) gets `CSI 13 ; modifier u`, so `shift+enter` is `CSI 13;2u` and
+/// `ctrl+enter` `CSI 13;5u`, and any other program gets `ESC CR`, the bytes of `alt+enter`, which
+/// chat and editor programs read as a line break in what is being written. Plain Enter is always
+/// `CR`. The session answers a program's `CSI ? u` with the flags in force. Of the protocol only
+/// its first flag, telling keys apart, is followed, and only Enter is sent differently under it;
+/// every other key keeps its xterm bytes, which such programs read as well.
+///
 /// Once the program has ended nothing the widget cannot deliver is swallowed: a key, a paste and
 /// a wheel step on the alternate screen are handed back instead. A paste then reaches
 /// [`App::clipboard`](crate::runtime::App::clipboard) as
@@ -156,8 +164,9 @@ fn resolve(cx: &PaintCx<'_>, color: vt100::Color, default: Rgb) -> Rgb {
     }
 }
 
-/// The bytes a key sends to a program, following xterm.
-fn key_bytes(key: &KeyEvent, application_cursor: bool) -> Vec<u8> {
+/// The bytes a key sends to a program, following xterm; `disambiguate` is the kitty keyboard
+/// protocol's first flag, which the program turned on.
+fn key_bytes(key: &KeyEvent, application_cursor: bool, disambiguate: bool) -> Vec<u8> {
     let mods = key.chord.mods;
     let modifier = 1 + u8::from(mods.shift) + 2 * u8::from(mods.alt) + 4 * u8::from(mods.ctrl);
     let cursor = |letter: char| {
@@ -203,7 +212,12 @@ fn key_bytes(key: &KeyEvent, application_cursor: bool) -> Vec<u8> {
         }
         Key::Space if mods.ctrl => alt(vec![0]),
         Key::Space => alt(vec![b' ']),
-        Key::Enter => alt(vec![b'\r']),
+        Key::Enter if modifier > 1 && disambiguate => format!("\x1b[13;{modifier}u").into_bytes(),
+        // Legacy encoding has nothing of its own for Shift+Enter or Ctrl+Enter. Alt+Enter's bytes
+        // are the ones programs read as a new line in what is being written rather than as
+        // sending it, which is what a person holding a modifier over Enter means.
+        Key::Enter if modifier > 1 => b"\x1b\r".to_vec(),
+        Key::Enter => vec![b'\r'],
         Key::Tab if mods.shift => b"\x1b[Z".to_vec(),
         Key::Tab => vec![b'\t'],
         Key::Backspace => alt(vec![0x7f]),
@@ -385,8 +399,12 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
                 if self.session.exit().is_some() {
                     return false;
                 }
-                let application_cursor = self.session.parser().screen().application_cursor();
-                let bytes = key_bytes(key, application_cursor);
+                let bytes = {
+                    let parser = self.session.parser();
+                    let screen = parser.screen();
+                    let disambiguate = parser.callbacks().keyboard.disambiguates(screen.alternate_screen());
+                    key_bytes(key, screen.application_cursor(), disambiguate)
+                };
                 if bytes.is_empty() {
                     return false;
                 }
@@ -433,7 +451,7 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
                     // arrow keys and there is no scrollback to fall back on, so a step a program
                     // that has ended never hears must not be reported as used: handed back it
                     // reaches whatever holds the terminal, which can scroll instead.
-                    if self.session.write(&key_bytes(&key, application_cursor).repeat(WHEEL_LINES)).is_err() {
+                    if self.session.write(&key_bytes(&key, application_cursor, false).repeat(WHEEL_LINES)).is_err() {
                         return false;
                     }
                     return true;
@@ -469,20 +487,87 @@ mod tests {
 
     #[test]
     fn keys_encode_like_xterm() {
-        assert_eq!(key_bytes(&press("a"), false), b"a");
-        assert_eq!(key_bytes(&press("shift+a"), false), b"A");
-        assert_eq!(key_bytes(&press("ctrl+c"), false), [3]);
-        assert_eq!(key_bytes(&press("alt+b"), false), b"\x1bb");
-        assert_eq!(key_bytes(&press("ctrl+space"), false), [0]);
-        assert_eq!(key_bytes(&press("ctrl+alt+space"), false), b"\x1b\0");
-        assert_eq!(key_bytes(&press("enter"), false), b"\r");
-        assert_eq!(key_bytes(&press("backspace"), false), [0x7f]);
-        assert_eq!(key_bytes(&press("up"), false), b"\x1b[A");
-        assert_eq!(key_bytes(&press("up"), true), b"\x1bOA");
-        assert_eq!(key_bytes(&press("ctrl+right"), false), b"\x1b[1;5C");
-        assert_eq!(key_bytes(&press("pgdn"), false), b"\x1b[6~");
-        assert_eq!(key_bytes(&press("f1"), false), b"\x1bOP");
-        assert_eq!(key_bytes(&press("f12"), false), b"\x1b[24~");
+        assert_eq!(key_bytes(&press("a"), false, false), b"a");
+        assert_eq!(key_bytes(&press("shift+a"), false, false), b"A");
+        assert_eq!(key_bytes(&press("ctrl+c"), false, false), [3]);
+        assert_eq!(key_bytes(&press("alt+b"), false, false), b"\x1bb");
+        assert_eq!(key_bytes(&press("ctrl+space"), false, false), [0]);
+        assert_eq!(key_bytes(&press("ctrl+alt+space"), false, false), b"\x1b\0");
+        assert_eq!(key_bytes(&press("enter"), false, false), b"\r");
+        assert_eq!(key_bytes(&press("backspace"), false, false), [0x7f]);
+        assert_eq!(key_bytes(&press("up"), false, false), b"\x1b[A");
+        assert_eq!(key_bytes(&press("up"), true, false), b"\x1bOA");
+        assert_eq!(key_bytes(&press("ctrl+right"), false, false), b"\x1b[1;5C");
+        assert_eq!(key_bytes(&press("pgdn"), false, false), b"\x1b[6~");
+        assert_eq!(key_bytes(&press("f1"), false, false), b"\x1bOP");
+        assert_eq!(key_bytes(&press("f12"), false, false), b"\x1b[24~");
+        assert_eq!(key_bytes(&press("ctrl+j"), false, false), b"\n");
+    }
+
+    #[test]
+    fn enter_with_a_modifier_is_a_new_line_in_either_encoding() {
+        for chord in ["shift+enter", "ctrl+enter", "alt+enter", "ctrl+shift+enter"] {
+            assert_eq!(key_bytes(&press(chord), false, false), b"\x1b\r", "{chord} in legacy encoding");
+        }
+        assert_eq!(key_bytes(&press("shift+enter"), false, true), b"\x1b[13;2u");
+        assert_eq!(key_bytes(&press("alt+enter"), false, true), b"\x1b[13;3u");
+        assert_eq!(key_bytes(&press("ctrl+enter"), false, true), b"\x1b[13;5u");
+        assert_eq!(key_bytes(&press("ctrl+shift+enter"), false, true), b"\x1b[13;6u");
+        assert_eq!(key_bytes(&press("enter"), false, true), b"\r", "plain Enter stays a carriage return");
+        assert_eq!(key_bytes(&press("ctrl+j"), false, true), b"\n");
+    }
+
+    /// A harness with only `session`'s terminal, focused.
+    fn focused(session: &TerminalSession) -> Harness<Pasting> {
+        let mut h = Harness::new(Pasting { session: session.clone(), heard: Vec::new() }, 40, 6);
+        h.press("tab");
+        assert!(h.is_focused("terminal"));
+        h
+    }
+
+    #[test]
+    fn shift_enter_reaches_the_program_as_the_keyboard_protocol_it_turned_on_asks() {
+        // Shows in hex what each key sent: before the program turns the kitty keyboard protocol
+        // on, while it is on, and after it takes it back.
+        let script = "stty raw -echo; printf one; head -c 3 | od -An -tx1; \
+                      printf '\\033[>1utwo'; head -c 15 | od -An -tx1; \
+                      printf '\\033[<uthree'; head -c 3 | od -An -tx1";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&session, "one");
+        let mut h = focused(&session);
+        h.press("shift+enter").press("enter");
+        wait_for(&session, "one 1b 0d 0d");
+        wait_for(&session, "two");
+        h.press("shift+enter").press("ctrl+enter").press("enter");
+        wait_for(&session, "two 1b 5b 31 33 3b 32 75 1b 5b 31 33 3b 35 75 0d");
+        wait_for(&session, "three");
+        h.press("shift+enter").press("enter");
+        wait_for(&session, "three 1b 0d 0d");
+        session.kill();
+    }
+
+    #[test]
+    fn a_program_asking_about_the_keyboard_protocol_is_answered() {
+        let script = "stty raw -echo; printf '\\033[?u'; head -c 5 | od -An -tx1; \
+                      printf '\\033[>1u\\033[?u'; head -c 5 | od -An -tx1";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        // `ESC [ ? 0 u`, then `ESC [ ? 1 u`, with nobody drawing the terminal.
+        wait_for(&session, "1b 5b 3f 30 75");
+        wait_for(&session, "1b 5b 3f 31 75");
+        session.kill();
+    }
+
+    #[test]
+    fn shift_enter_keeps_the_line_being_written() {
+        let script = "stty raw -echo; printf ready; cat >/dev/null";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&session, "ready");
+        let mut h = focused(&session);
+        h.press("h").press("shift+enter");
+        assert!(session.line_pending(), "a new line inside the message did not send it");
+        h.press("enter");
+        assert!(!session.line_pending());
+        session.kill();
     }
 
     fn chord(text: &str) -> KeyChord {
@@ -554,13 +639,15 @@ mod tests {
         }
     }
 
-    /// Waits until the program's screen contains `text`.
+    /// Waits until the program's screen contains `text`. Each look at the watch is bounded, so a
+    /// program that never writes it fails the test instead of holding it forever; the whole wait
+    /// is generous, because only text that never comes should fail.
     fn wait_for(session: &TerminalSession, text: &str) {
         let watch = session.watch();
         let started = Instant::now();
         while !session.parser().screen().contents().contains(text) {
-            let _ = watch.next();
-            assert!(started.elapsed() < Duration::from_secs(10), "{}", session.parser().screen().contents());
+            let _ = watch.next_change_within(Duration::from_millis(200));
+            assert!(started.elapsed() < Duration::from_secs(30), "{}", session.parser().screen().contents());
         }
     }
 

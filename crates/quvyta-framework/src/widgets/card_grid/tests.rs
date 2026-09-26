@@ -262,8 +262,10 @@ fn ten_thousand_cards_build_and_draw_only_the_screen() {
     assert!(per_frame_built <= 72, "only the cards on screen are built: {per_frame_built}");
     assert!(per_frame_built >= 60, "and all of them are: {per_frame_built}");
     assert!(h.screen().contains("app 9999"));
-    // Debug builds on a busy machine included; the release benchmark measures the real cost.
-    assert!(per_frame < Duration::from_millis(200), "a frame took {per_frame:?}");
+    // The counts above are the proof: they do not change with the machine's load. The clock
+    // only keeps the frame finite, far above what a debug build takes on a small computer that
+    // builds other programs at the same time; the release benchmark measures the real cost.
+    assert!(per_frame < Duration::from_secs(3), "a frame took {per_frame:?}");
 }
 
 #[test]

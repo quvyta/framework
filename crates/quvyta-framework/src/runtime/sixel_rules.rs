@@ -175,6 +175,22 @@ fn a_wallpaper_is_a_sixel_until_a_dialog_covers_it_and_again_once_it_closes() {
 }
 
 #[test]
+fn a_sixel_is_shrunk_to_the_cell_size_the_environment_knows() {
+    let mut h = desk(Graphics::Sixel);
+    h.set_cell_pixels(Some((8, 18)));
+    let (mut screen, wire) = screen();
+    let (cursor, raster) = only_sixel(&frame(&mut h, &mut screen, &wire));
+    let rows = HEIGHT + 1 - row_of(&cursor);
+    let height = u32::from(rows) * 18 / 6 * 6;
+    assert_eq!(raster, format!("\"1;1;{};{height}", u32::from(WIDTH) * 8), "the cells' own pixels");
+
+    h.set_cell_pixels(Some((12, 24)));
+    let (_, larger) = only_sixel(&frame(&mut h, &mut screen, &wire));
+    let height = u32::from(rows) * 24 / 6 * 6;
+    assert_eq!(larger, format!("\"1;1;{};{height}", u32::from(WIDTH) * 12), "a larger font, painted again");
+}
+
+#[test]
 fn over_a_remote_link_a_menu_over_part_of_the_picture_turns_it_to_half_blocks_until_it_closes() {
     let mut h = desk(Graphics::Sixel);
     h.set_remote(true);

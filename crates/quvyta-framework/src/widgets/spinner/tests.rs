@@ -322,3 +322,110 @@ fn a_theme_animation_replaces_the_finish_with_its_own_colours_and_timing() {
     h.advance(Duration::from_secs(5));
     assert_eq!(h.screen(), "✓ Working\n", "rests on the last frame");
 }
+
+/// A delayed spinner beside a word, with work the test starts and ends by sending `true` or
+/// `false`.
+struct Loading {
+    busy: bool,
+}
+
+impl App for Loading {
+    type Msg = bool;
+    fn update(&mut self, busy: bool) -> Command<bool> {
+        self.busy = busy;
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, bool>) {
+        ui.row(|ui| {
+            ui.add(Spinner::new().style(SpinnerStyle::Dots).label("Loading").delayed(self.busy));
+            ui.add(crate::widgets::Text::new("next"));
+        })
+        .gap(1);
+    }
+}
+
+/// Work that starts on the first frame, at time zero.
+fn loading() -> Harness<Loading> {
+    Harness::new(Loading { busy: true }, 20, 1)
+}
+
+fn ms(value: u64) -> Duration {
+    Duration::from_millis(value)
+}
+
+/// Whether the spinner and its label are on screen, checking the word beside it never moves.
+fn shows(h: &Harness<Loading>) -> bool {
+    assert_eq!(h.find("next"), Some((11, 0)), "the neighbour stays put: {:?}", h.screen());
+    h.screen().contains("Loading")
+}
+
+#[test]
+fn a_delayed_spinner_shows_only_once_work_has_run_300_ms() {
+    let mut h = loading();
+    assert!(!shows(&h));
+    assert_eq!(h.screen(), "           next\n", "the spinner's cells stay blank");
+    // Nothing animates while it waits, so it must ask for the frame that shows it.
+    assert_eq!(h.next_frame(), Some(ms(300)));
+    h.advance(ms(299));
+    assert!(!shows(&h));
+    h.advance(ms(1));
+    assert!(shows(&h));
+    let first = h.screen();
+    assert!(first.contains(" Loading "), "{first:?}");
+    h.advance(ms(80));
+    assert_ne!(h.screen(), first, "once shown it turns like any spinner");
+    assert!(shows(&h));
+}
+
+#[test]
+fn a_delayed_spinner_stays_500_ms_once_shown() {
+    let mut h = loading();
+    h.advance(ms(300));
+    assert!(shows(&h));
+    h.advance(ms(50));
+    h.send(false);
+    assert!(shows(&h), "work ending at 350 ms keeps it on screen");
+    h.advance(ms(449));
+    assert!(shows(&h), "still there at 799 ms");
+    h.advance(ms(1));
+    assert!(!shows(&h), "gone at 800 ms");
+    assert_eq!(h.screen(), "           next\n");
+}
+
+#[test]
+fn a_delayed_spinner_that_hides_asks_for_the_frame_that_hides_it() {
+    let mut h = Harness::new(Loading { busy: true }, 20, 1);
+    h.set_reduced_motion(true);
+    h.advance(ms(300));
+    assert!(shows(&h));
+    h.send(false);
+    // With reduced motion nothing turns, so only the spinner's own request wakes the loop.
+    assert_eq!(h.next_frame(), Some(ms(800)));
+    h.advance(ms(500));
+    assert!(!shows(&h));
+    assert_eq!(h.next_frame(), None, "an idle spinner never wakes the loop");
+}
+
+#[test]
+fn quick_work_never_shows_a_delayed_spinner() {
+    let mut h = loading();
+    h.advance(ms(299));
+    h.send(false);
+    assert!(!shows(&h));
+    for _ in 0..10 {
+        h.advance(ms(100));
+        assert!(!shows(&h));
+    }
+    assert_eq!(h.next_frame(), None);
+}
+
+#[test]
+fn a_delayed_spinner_stands_still_with_reduced_motion() {
+    let mut h = loading();
+    h.set_reduced_motion(true);
+    h.advance(ms(300));
+    let still = h.screen();
+    assert!(shows(&h));
+    h.advance(ms(400));
+    assert_eq!(h.screen(), still);
+}

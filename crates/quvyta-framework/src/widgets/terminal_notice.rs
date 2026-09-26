@@ -4,6 +4,7 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
+use super::terminal_keyboard::Keyboard;
 use super::terminal_session::TerminalChange;
 
 /// The longest OSC string handed to the parser, in bytes. The parser keeps a whole OSC string in
@@ -95,6 +96,39 @@ impl vt100::Callbacks for Notices {
             [b"777", b"notify", title, rest @ ..] => self.notify(Some(text(title)), joined(rest)),
             _ => {}
         }
+    }
+}
+
+/// Everything the parser hears besides drawing: the notices, which are handed to the application
+/// and start over, and the keyboard the program asked for, which lasts as long as the session.
+#[derive(Debug, Default)]
+pub(crate) struct Heard {
+    pub(crate) notices: Notices,
+    pub(crate) keyboard: Keyboard,
+}
+
+impl vt100::Callbacks for Heard {
+    fn audible_bell(&mut self, screen: &mut vt100::Screen) {
+        self.notices.audible_bell(screen);
+    }
+
+    fn set_window_title(&mut self, screen: &mut vt100::Screen, title: &[u8]) {
+        self.notices.set_window_title(screen, title);
+    }
+
+    fn unhandled_osc(&mut self, screen: &mut vt100::Screen, params: &[&[u8]]) {
+        self.notices.unhandled_osc(screen, params);
+    }
+
+    fn unhandled_csi(
+        &mut self,
+        screen: &mut vt100::Screen,
+        marker: Option<u8>,
+        _: Option<u8>,
+        params: &[&[u16]],
+        end: char,
+    ) {
+        self.keyboard.csi(screen.alternate_screen(), marker, params, end);
     }
 }
 

@@ -20,6 +20,7 @@
 ## Behaviour
 
 - Keys while focused are encoded like xterm: control letters, `alt` as an escape prefix, arrows in normal or application mode with modifier codes, function keys, `shift tab` excepted (it moves focus).
+- Enter with `shift`, `ctrl` or `alt` is `CSI 13 ; modifier u` when the program pushed the kitty keyboard protocol's first flag (`CSI > 1 u`; `CSI < u` pops, `CSI = flags ; mode u` sets), and `ESC CR` otherwise; plain Enter is `CR`, `ctrl j` is `LF`. `CSI ? u` is answered with the flags in force; only the first flag is kept. The main and alternate screens keep separate stacks.
 - `ctrl q` is left to the application.
 - Pastes are wrapped in bracketed-paste markers when the program turned that mode on, by `paste`, which the widget uses for a person's paste as well. A `\x1b[200~` or `\x1b[201~` inside the text is left out, so text from elsewhere cannot end the paste early and have its rest read as keys.
 - `write` and `paste` are refused once the program's end has been recorded: a pseudo-terminal keeps taking bytes after the program is gone and nobody ever reads them.

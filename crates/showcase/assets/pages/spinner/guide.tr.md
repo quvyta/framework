@@ -9,6 +9,7 @@ Bir şey çalışırken ve ne kadar ilerlediğini söyleyemiyorken spinner göst
 3. Varsayılan `Arc` çoğu yere uyar. Yer başka bir şey istiyorsa stil seç: arka planda sakin sağlık durumu için `.style(SpinnerStyle::Pulse)`, yoğun iş için `Dots`, dolan bir pasta için `Slices`.
 4. Durum önemliyse ton ver: yeniden denerken `.variant("warning")`, bağlantı koptuğunda `"danger"`.
 5. İş başarıyla bitince spinner'ı yerinde bitir: `.done(true)` ver ve etiketi sonuca çevir ("deploy-api imajı derlendi"). Önce ve sonra aynı bileşen olsun diye spinner'a bir `.id(..)` ver. İş başarısız olursa spinner'ı kaldır ve neyin ters gittiğini söyle.
+6. İş çoğu zaman hızlıysa (sayfa yüklemek, klasör okumak, arama) spinner'ı yalnızca yavaşsa göster: her görünümde işin sürüp sürmediğiyle `.delayed(busy)`. Spinner'ı görünümde hep tut; ne zaman çıkacağına kendisi karar verir.
 
 ## Nasıl çalışır
 
@@ -20,10 +21,12 @@ Bir şey çalışırken ve ne kadar ilerlediğini söyleyemiyorken spinner göst
 - **Bitiş.** `done` açılınca spinner dönmeyi bırakır, `spinner-done` animasyonunun beş karesini her biri bir `motion.step` sürecek şekilde bir kez oynatır ve sonuncuda kalır. Onay işareti her adımda büyür; rengi spinner'ın renginden (nabız, o anda hangi renkteyse oradan) `$success` rengine, yani temanın başarı rengine eşit adımlarla karışır: ortadaki kare tam ara renktir. `done` kapanınca yeniden döner.
 - **Bitiş karakterleri.** Nerd Font: `nf-md-progress_check`, `nf-fa-check_circle_o`, `nf-oct-check_circle`, `nf-md-check_circle_outline`, `nf-md-checkbox_marked_circle` (U+F0995, U+F05D, U+F49E, U+F05E1, U+F0133); Nerd Font v3 gerekir. Unicode: `·∙✓✔✔`. ASCII: `..vvv`. İki kare aynı karakteri paylaştığında da renk ilerlemeye devam eder.
 - **Hareketi azaltma.** Dönen spinner ilk karesinde sabit durur; bitmiş spinner son işareti son renginde hemen gösterir. İlk göründüğünde zaten bitmiş olan spinner da oynatmadan işarette durur.
+- **Yalnızca yavaşsa.** `.delayed(busy)` ile iş 300 ms sürmeden hiçbir şey görünmez; insanlar beklemeyi bu noktada fark etmeye başlar. Bir kez çıkınca iş daha önce bitse de en az 500 ms kalır. Hızlı işte spinner bir anlığına belirmez, yavaş işte de bir anda kaybolmaz. Gizliyken hücreleri boş kalır, yanındakiler kaymaz; çıkacağı ya da kaybolacağı an için tam o anda bir kare ister. Zamanı kendisi tutar, uygulama yalnızca işin sürüp sürmediğini söyler.
 
 ## Sık yapılan hatalar
 
 - **Hiç bitmeyen spinner.** İş başarısız olursa spinner'ı durdur ve bunu söyle.
 - **Başarısızlık için onay işareti.** `done` işin başarıyla bittiği anlamına gelir; işaret başarı rengindedir. Hata varsa hatayı göster.
 - **Aynı anda çok spinner.** Hareketle dolu bir ekran gürültüdür; işleri tek spinner altında bir sayıyla topla.
+- **Yalnızca iş sürerken eklenen gecikmeli spinner.** `.delayed`, `busy` diyen ilk görünümden itibaren sayar; işle birlikte görünüme girip işle birlikte çıkan spinner her seferinde baştan başlar ve 500 ms'sini dolduramaz. Görünümde tut ve `busy` ver.
 - **Bilinen ilerleme için spinner.** İnsanlar ne kadar süreceğini bilmek ister; `ProgressBar::new(değer)` kullan.

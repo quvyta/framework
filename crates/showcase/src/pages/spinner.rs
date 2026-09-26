@@ -1,8 +1,10 @@
-//! Spinner: single-cell activity indicators in many styles and tones, finishing with a tick.
+//! Spinner: single-cell activity indicators in many styles and tones, finishing with a tick, and
+//! one that shows only for work slow enough to notice.
 
 use std::time::Duration;
 
 use qframe::prelude::*;
+use qframe::runtime::Task;
 use qframe::widgets::{Select, Spinner, SpinnerStyle};
 
 use super::{PageMsg, setting, toggle};
@@ -16,6 +18,11 @@ const TONES: [&str; 4] = ["accent", "success", "warning", "danger"];
 
 /// How long the simulated image build takes.
 const BUILD_TIME: Duration = Duration::from_millis(1600);
+
+/// How long the quick and the slow simulated page loads take: one under the spinner's delay, one
+/// well over it.
+const QUICK_LOAD: Duration = Duration::from_millis(200);
+const SLOW_LOAD: Duration = Duration::from_millis(1500);
 
 /// Where the simulated image build is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -37,11 +44,15 @@ pub struct State {
     label: bool,
     done: bool,
     build: Build,
+    /// Whether a simulated page load runs.
+    loading: bool,
+    /// The last page load that ended: `Some(true)` for the quick one.
+    loaded: Option<bool>,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { style: 0, tone: 0, label: true, done: false, build: Build::Idle }
+        Self { style: 0, tone: 0, label: true, done: false, build: Build::Idle, loading: false, loaded: None }
     }
 }
 
@@ -54,6 +65,10 @@ pub enum Msg {
     Done(bool),
     Build,
     Built,
+    /// Starts a page load, the quick one when `true`.
+    Load(bool),
+    /// The page load started with `Load(quick)` ended.
+    Loaded(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -91,6 +106,23 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::Built => {
             state.build = Build::Finished;
             log.push(PAGE, "Spinner#build-status", "done = true");
+        } // endregion
+        // region: delayed-load
+        Msg::Load(quick) => {
+            state.loading = true;
+            let (button, time) = if quick { ("quick-load", QUICK_LOAD) } else { ("slow-load", SLOW_LOAD) };
+            log.push(PAGE, format!("Button#{button}"), "load started");
+            return Command::task(Task::new("page load", move |cx| {
+                if !cx.sleep(time) {
+                    return Err("stopped".into());
+                }
+                Ok(send(Msg::Loaded(quick)))
+            }));
+        }
+        Msg::Loaded(quick) => {
+            state.loading = false;
+            state.loaded = Some(quick);
+            log.push(PAGE, "Spinner#page-load", "busy = false");
         } // endregion
     }
     Command::none()
@@ -141,6 +173,29 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
                 }
             }
             // endregion
+        })
+        .gap(2)
+        .align(Align::Center);
+    })
+    .fill_width();
+
+    ui.add_with(Panel::new().title(t!("spinner.delayed")), |ui| {
+        ui.add(Text::new(t!("spinner.delayed-hint")).role("secondary"));
+        ui.row(|ui| {
+            let busy = state.loading;
+            ui.add(Button::new(t!("spinner.quick-load")).disabled(busy).on_press(send(Msg::Load(true))))
+                .id("quick-load");
+            ui.add(Button::new(t!("spinner.slow-load")).disabled(busy).on_press(send(Msg::Load(false))))
+                .id("slow-load");
+            // region: delayed
+            ui.add(Spinner::new().label(t!("spinner.loading")).delayed(state.loading)).id("page-load");
+            // endregion
+            let result = match state.loaded {
+                None => t!("spinner.not-loaded"),
+                Some(true) => t!("spinner.loaded-quick"),
+                Some(false) => t!("spinner.loaded-slow"),
+            };
+            ui.add(Text::new(result).role("faint").no_wrap());
         })
         .gap(2)
         .align(Align::Center);
@@ -222,5 +277,40 @@ mod tests {
         let screen = h.screen();
         assert!(screen.contains("✔ Image deploy-api built"), "{screen}");
         assert!(screen.contains("build started") && screen.contains("Spinner#build-status"), "{screen}");
+    }
+
+    #[test]
+    fn the_slow_load_button_shows_the_delayed_spinner_only_after_300_ms() {
+        let mut h = page();
+        assert!(h.screen().contains("No page loaded yet"), "{}", h.screen());
+        let beside = h.find("No page loaded yet");
+        h.click_text("Slow load");
+        assert!(h.app().pages.spinner.loading);
+        assert!(!h.screen().contains("Loading page"), "nothing shows at once:\n{}", h.screen());
+        assert_eq!(h.find("No page loaded yet"), beside, "the hidden spinner keeps its cells");
+        h.advance(Duration::from_millis(299));
+        assert!(!h.screen().contains("Loading page"));
+        h.advance(Duration::from_millis(1));
+        assert!(h.screen().contains("Loading page"), "{}", h.screen());
+        assert_eq!(h.find("No page loaded yet"), beside, "showing it moves nothing");
+        h.advance(Duration::from_millis(1200));
+        let screen = h.screen();
+        assert!(!screen.contains("Loading page") && screen.contains("Loaded in 1.5 s"), "{screen}");
+        assert!(screen.contains("Button#slow-load") && screen.contains("busy = false"), "{screen}");
+    }
+
+    #[test]
+    fn the_quick_load_button_never_shows_the_spinner() {
+        let mut h = page();
+        h.click_text("Quick load");
+        assert!(h.app().pages.spinner.loading);
+        for _ in 0..4 {
+            assert!(!h.screen().contains("Loading page"), "{}", h.screen());
+            h.advance(Duration::from_millis(50));
+        }
+        assert!(!h.app().pages.spinner.loading);
+        h.advance(Duration::from_millis(1000));
+        let screen = h.screen();
+        assert!(!screen.contains("Loading page") && screen.contains("Loaded in 0.2 s"), "{screen}");
     }
 }

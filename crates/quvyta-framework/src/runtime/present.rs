@@ -43,6 +43,10 @@ pub(crate) struct Painted {
     /// Whether the terminal draws those pictures with sixel rather than the kitty protocol.
     #[cfg(feature = "image")]
     pub(crate) sixel: bool,
+    /// The size of a cell in pixels, as [`Env::cell_pixels`](crate::env::Env::cell_pixels)
+    /// knows it, which sixel pictures are shrunk to.
+    #[cfg(feature = "image")]
+    pub(crate) cell: Option<(u16, u16)>,
 }
 
 impl From<PointerShape> for Painted {
@@ -55,13 +59,11 @@ impl From<PointerShape> for Painted {
             painted: Vec::new(),
             #[cfg(feature = "image")]
             sixel: false,
+            #[cfg(feature = "image")]
+            cell: None,
         }
     }
 }
-
-/// Asks the terminal the size of a cell in pixels; `None` when it does not say.
-#[cfg(feature = "image")]
-type MeasureCell = fn() -> Option<(u16, u16)>;
 
 /// The terminal an application draws on, and the frame it shows.
 pub(crate) struct Screen<W: Write> {
@@ -81,9 +83,6 @@ pub(crate) struct Screen<W: Write> {
     /// The pictures painted with sixel, and where.
     #[cfg(feature = "image")]
     sixels: super::sixel::SixelPictures,
-    /// Asks the terminal the size of a cell in pixels, at the first frame and at every new size.
-    #[cfg(feature = "image")]
-    measure_cell: Option<MeasureCell>,
 }
 
 impl<W: Write> Screen<W> {
@@ -98,18 +97,7 @@ impl<W: Write> Screen<W> {
             pictures: super::kitty::KittyPictures::default(),
             #[cfg(feature = "image")]
             sixels: super::sixel::SixelPictures::default(),
-            #[cfg(feature = "image")]
-            measure_cell: None,
         }
-    }
-
-    /// Asks `measure` the size of a cell in pixels at the first frame and at every new size, for
-    /// shrinking sixel pictures to the pixels their cells cover. Without it, or when it answers
-    /// `None`, a cell is taken to be 10 × 20 pixels.
-    #[cfg(feature = "image")]
-    pub(crate) fn measure_cell(mut self, measure: MeasureCell) -> Self {
-        self.measure_cell = Some(measure);
-        self
     }
 
     /// Tells the terminal the pointer's shape, for a terminal that understands OSC 22.
@@ -131,11 +119,11 @@ impl<W: Write> Screen<W> {
         let area = frame.area();
         let painted = render(frame.buffer_mut());
         let before = self.area.replace(area);
+        // Sixel pictures cover the pixels of their cells; where the terminal reports none, a
+        // cell is taken to be 10 × 20 pixels. Only a new size encodes the pictures again.
+        #[cfg(feature = "image")]
+        self.sixels.set_cell(painted.cell.unwrap_or(super::sixel::CELL));
         if before != Some(area) {
-            #[cfg(feature = "image")]
-            if let Some(measure) = self.measure_cell {
-                self.sixels.set_cell(measure().unwrap_or(super::sixel::CELL));
-            }
             // A new size clears the terminal, and pictures with it in some terminals.
             #[cfg(feature = "image")]
             if before.is_some() {

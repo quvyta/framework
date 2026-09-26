@@ -132,6 +132,14 @@ impl<A: App> Harness<A> {
             .expect("a frame")
     }
 
+    /// When the last frame asked to be drawn again, if it did: the time the terminal loop wakes
+    /// for it. A widget whose drawing changes at a known moment, with nothing else animating, is
+    /// only drawn then if it asked.
+    #[cfg(test)]
+    pub(crate) fn next_frame(&self) -> Option<Duration> {
+        self.engine.deadline()
+    }
+
     /// Works out what the terminal would be sent for this frame over a cleared screen, as the
     /// terminal runtime does before writing, so a cell no terminal can take fails the test that
     /// drew it instead of the application that ships it.
@@ -354,6 +362,16 @@ impl<A: App> Harness<A> {
     /// SSH included.
     pub fn set_remote(&mut self, remote: bool) -> &mut Self {
         self.engine.env.set_remote(remote);
+        self.render()
+    }
+
+    /// Draws as a terminal whose cells are `cell` pixels wide and high would:
+    /// [`Env::cell_pixels`](crate::env::Env::cell_pixels) answers it in every view that follows,
+    /// and sixel pictures are shrunk to it. A harness asks no terminal, so until this is called
+    /// the answer is `None`. Calling it again is a font size changing under the same columns
+    /// and rows.
+    pub fn set_cell_pixels(&mut self, cell: Option<(u16, u16)>) -> &mut Self {
+        self.engine.env.set_cell_pixels(cell);
         self.render()
     }
 
@@ -925,5 +943,49 @@ mod graphics_tests {
         assert_eq!(harness.screen(), "remote\n");
         harness.set_remote(false);
         assert_eq!(harness.screen(), "local\n");
+    }
+
+    /// Writes the size of a cell in pixels its view is told, or `none`.
+    struct Cells;
+
+    impl App for Cells {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            let told = ui.env().cell_pixels().map_or_else(|| "none".to_owned(), |(w, h)| format!("{w}x{h}"));
+            ui.add(Text::new(told));
+        }
+    }
+
+    #[test]
+    fn a_harness_knows_no_cell_size_until_told_and_then_the_latest_one() {
+        let mut harness = Harness::new(Cells, 20, 1);
+        assert_eq!(
+            harness.screen(),
+            "none
+",
+            "no terminal is asked in a test"
+        );
+        harness.set_cell_pixels(Some((9, 19)));
+        assert_eq!(
+            harness.screen(),
+            "9x19
+"
+        );
+        harness.set_cell_pixels(Some((12, 26)));
+        assert_eq!(
+            harness.screen(),
+            "12x26
+",
+            "a larger font, the same columns and rows"
+        );
+        harness.set_cell_pixels(None);
+        assert_eq!(
+            harness.screen(),
+            "none
+"
+        );
     }
 }

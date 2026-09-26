@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use super::terminal_bytes::ByteFeed;
-use super::terminal_notice::Notices;
+use super::terminal_notice::{Heard, Notices};
 
 /// Lines kept above the screen for scrolling back, unless [`TerminalBuilder::scrollback`] says
 /// otherwise.
@@ -109,7 +109,7 @@ pub enum TerminalChange {
 
 /// What the reader thread, the watch and the widget share.
 struct Shared {
-    parser: Mutex<vt100::Parser<Notices>>,
+    parser: Mutex<vt100::Parser<Heard>>,
     signal: Mutex<Signal>,
     changed: Condvar,
     /// The shortest time between two reports of output.
@@ -271,12 +271,16 @@ impl TerminalBuilder {
 
         let started = Instant::now();
         let shared = Arc::new(Shared {
-            parser: Mutex::new(vt100::Parser::new_with_callbacks(size.0, size.1, self.scrollback, Notices::default())),
+            parser: Mutex::new(vt100::Parser::new_with_callbacks(size.0, size.1, self.scrollback, Heard::default())),
             signal: Mutex::new(Signal { size, ..Signal::default() }),
             changed: Condvar::new(),
             coalesce: self.coalesce,
             quiet: Mutex::new(Quiet { output: started, input: started, line_pending: false }),
         });
+        let process = Arc::new(Mutex::new(Process { master: pair.master, writer, killer }));
+        // Weak: the reading thread lives until the program ends, and the program is ended when
+        // the last handle to the process goes.
+        let answer_to = Arc::downgrade(&process);
         let thread_shared = Arc::clone(&shared);
         std::thread::spawn(move || {
             let mut buffer = [0u8; 8192];
@@ -288,11 +292,22 @@ impl TerminalBuilder {
                         // Marked where the bytes arrive, before they are parsed: what a caller
                         // asks is when the program last wrote, not when a frame was drawn.
                         lock(&thread_shared.quiet).output = Instant::now();
-                        let heard = {
+                        let (heard, replies) = {
                             let mut parser = lock(&thread_shared.parser);
                             feed.feed(&buffer[..count], &mut *parser);
-                            std::mem::take(parser.callbacks_mut())
+                            let callbacks = parser.callbacks_mut();
+                            (std::mem::take(&mut callbacks.notices), callbacks.keyboard.take_replies())
                         };
+                        // A program asking the terminal something waits for the answer before it
+                        // goes on, so it is written here, where the question was read, and not
+                        // when a frame is next drawn. It is the terminal speaking, not the person,
+                        // so it leaves the input times alone.
+                        if !replies.is_empty()
+                            && let Some(process) = answer_to.upgrade()
+                        {
+                            let mut process = lock(&process);
+                            let _ = process.writer.write_all(&replies).and_then(|()| process.writer.flush());
+                        }
                         let mut signal = lock(&thread_shared.signal);
                         // A watch only needs waking for the first unreported chunk: while one is
                         // pending it is already on its way, or waiting out the coalescing.
@@ -310,8 +325,7 @@ impl TerminalBuilder {
             lock(&thread_shared.signal).exited = Some(code);
             thread_shared.changed.notify_all();
         });
-        let process = Process { master: pair.master, writer, killer };
-        Ok(TerminalSession { shared, process: Arc::new(Mutex::new(process)), pid })
+        Ok(TerminalSession { shared, process, pid })
     }
 }
 
@@ -598,7 +612,7 @@ impl TerminalSession {
     }
 
     /// The parsed screen, locked while the guard lives.
-    pub(crate) fn parser(&self) -> MutexGuard<'_, vt100::Parser<Notices>> {
+    pub(crate) fn parser(&self) -> MutexGuard<'_, vt100::Parser<Heard>> {
         lock(&self.shared.parser)
     }
 }

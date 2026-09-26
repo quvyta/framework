@@ -112,8 +112,10 @@ impl ImageData {
     /// never from `view`. For an [`Image`](super::Image) filling an area, ask for the area's width in
     /// cells and twice its height: a cell shows two pixels, one above the other. Where
     /// [`Env::graphics`](crate::env::Env::graphics) is [`Graphics::Kitty`](crate::graphics::Graphics::Kitty)
-    /// the terminal shows every pixel it is sent, which is the size kept here and never more, so
-    /// ask for about ten times the width and twenty times the height.
+    /// or [`Graphics::Sixel`](crate::graphics::Graphics::Sixel) the terminal shows every pixel it
+    /// is sent, which is the size kept here and never more, so ask for the area's pixels: its
+    /// columns and rows times [`Env::cell_pixels`](crate::env::Env::cell_pixels). Where that
+    /// answers `None`, about ten times the width and twenty times the height is a fair guess.
     ///
     /// # Errors
     ///

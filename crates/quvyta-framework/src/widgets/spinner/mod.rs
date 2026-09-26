@@ -8,6 +8,7 @@ use crate::geometry::{Rect, Size};
 use crate::style::CellStyle;
 use crate::text;
 use crate::widget::{MeasureCx, PaintCx, Widget};
+use crate::widgets::delayed::DelayedIndicator;
 
 /// How a [`Spinner`] moves. Every style is a built-in [cell animation](crate::animation) with
 /// Nerd Font, Unicode and ASCII frames, which themes and applications can replace.
@@ -91,11 +92,12 @@ pub struct Spinner {
     label: Option<String>,
     variant: Option<String>,
     done: bool,
+    delayed: Option<bool>,
 }
 
 impl Default for Spinner {
     fn default() -> Self {
-        Self { animation: SpinnerStyle::default().into(), label: None, variant: None, done: false }
+        Self { animation: SpinnerStyle::default().into(), label: None, variant: None, done: false, delayed: None }
     }
 }
 
@@ -146,6 +148,18 @@ impl Spinner {
         self
     }
 
+    /// Shows the spinner only for work that takes long enough to notice: while `busy` has been
+    /// true for less than 300 ms nothing is drawn, and once it shows it stays at least 500 ms,
+    /// even if `busy` turns false sooner. Quick work never blinks an indicator, and a slow one
+    /// never flickers away. The spinner keeps its cells, blank while hidden, so what sits beside
+    /// it never moves; it asks for a frame whenever it is due to appear or disappear. Pass whether
+    /// the work is running on every view. Without it the spinner always shows.
+    #[must_use]
+    pub fn delayed(mut self, busy: bool) -> Self {
+        self.delayed = Some(busy);
+        self
+    }
+
     /// The style the animation draws in: the `spinner` style, its colour falling back to the accent.
     fn cell_style(&self, cx: &mut PaintCx<'_>) -> CellStyle {
         let style = cx.style("spinner", self.variant.as_deref(), &[]).text();
@@ -173,6 +187,19 @@ impl Spinner {
             _ => Finish::Resting,
         };
         cx.text(area.x, area.y, &cell.glyph, cell.style, 1);
+    }
+
+    /// Whether a delayed spinner shows now, asking for the frame at which that answer changes:
+    /// while it waits or lingers nothing else may be animating to wake the loop.
+    fn delay_allows(cx: &mut PaintCx<'_>, busy: bool) -> bool {
+        let now = cx.now();
+        let indicator = cx.memory::<DelayedIndicator>();
+        let shown = indicator.update(busy, now);
+        let next = indicator.next_change(busy, now);
+        if let Some(delay) = next {
+            cx.request_frame_in(delay);
+        }
+        shown
     }
 
     /// Draws the frame of the turning spinner due now.
@@ -205,6 +232,12 @@ impl<Msg: 'static> Widget<Msg> for Spinner {
     }
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
+        if let Some(busy) = self.delayed
+            && !Self::delay_allows(cx, busy)
+        {
+            // The measured cells stay blank, so nothing beside the spinner moves when it shows.
+            return;
+        }
         if self.done {
             self.paint_done(cx, area);
         } else {

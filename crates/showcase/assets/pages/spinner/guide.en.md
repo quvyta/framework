@@ -9,6 +9,7 @@ Show a spinner when something is working and you cannot say how far along it is:
 3. The default `Arc` suits most places. Pick another style when the place asks for it: `.style(SpinnerStyle::Pulse)` for calm background health, `Dots` for busy work, `Slices` for a filling pie.
 4. Give it a tone when the state matters: `.variant("warning")` while retrying, `"danger"` while a connection is lost.
 5. When the work succeeds, finish it in place: `.done(true)`, and change the label to the result ("Image deploy-api built"). Give the spinner an `.id(..)` so it is the same widget before and after. When the work fails, remove the spinner and say what went wrong.
+6. When the work is often quick — loading a page, reading a folder, searching — show the spinner only if it is slow: `.delayed(busy)` with whether the work runs, on every view. Leave the spinner in the view the whole time; it decides when to appear.
 
 ## How it works
 
@@ -20,10 +21,12 @@ Show a spinner when something is working and you cannot say how far along it is:
 - **The finish.** When `done` turns on, the spinner stops turning and plays the five frames of the animation `spinner-done` once, one `motion.step` each, then rests on the last. The tick grows at every step and its colour blends in equal steps from the spinner's colour (a pulse starts from the colour it had at that moment) to `$success`, the theme's success colour: the middle frame is the middle colour. Turning `done` off spins again.
 - **The finish glyphs.** Nerd Font: `nf-md-progress_check`, `nf-fa-check_circle_o`, `nf-oct-check_circle`, `nf-md-check_circle_outline`, `nf-md-checkbox_marked_circle` (U+F0995, U+F05D, U+F49E, U+F05E1, U+F0133), which need Nerd Font v3. Unicode: `·∙✓✔✔`. ASCII: `..vvv`. Where two frames share a glyph, the colour still moves on.
 - **Reduced motion.** A turning spinner shows its first frame and stands still; a done spinner shows the final tick in the final colour at once. A spinner that is already done when it first appears also rests on the tick without playing.
+- **Only when slow.** With `.delayed(busy)` nothing shows until the work has run 300 ms, the point where people start to notice waiting; once shown it stays at least 500 ms, even when the work ends sooner. Quick work never blinks a spinner and slow work never flickers one away. The hidden spinner keeps its cells blank, so its neighbours never move, and it asks for a frame exactly when it is due to appear or disappear. It keeps this timing itself, so the application only says whether the work runs.
 
 ## Common mistakes
 
 - **Spinners forever.** If work fails, stop the spinner and say so.
 - **A tick for a failure.** `done` means the work succeeded; the tick is the success colour. Show an error instead.
 - **Many spinners at once.** A screen full of motion is noise; group work under one spinner with a count.
+- **A delayed spinner added only while busy.** `.delayed` measures from the first view that says `busy`; a spinner that joins the view with the work and leaves with it starts over each time and cannot stay its 500 ms. Keep it in the view and pass `busy`.
 - **A spinner for known progress.** People want to know how long; use `ProgressBar::new(value)`.

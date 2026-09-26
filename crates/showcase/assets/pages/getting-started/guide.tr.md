@@ -99,7 +99,9 @@ match ui.env().graphics() {
 }
 ```
 
-Testler hiçbir terminale sormaz: `Env::builtin` yarım blok verir, `Harness::set_graphics` aynı kurallarla başka bir terminal gibi cevap verir. Test düzeneği yereldir; `Harness::set_remote(true)` uzak bir bağlantının göreceği ekranı çizer.
+`Env::cell_pixels` bir hücrenin kaç piksel kapladığını söyler, genişlik ve yükseklik: terminalin penceresi için bildirdiği piksel boyunun sütun ve satır sayısına bölümü; bazı terminallerde ve seri hatlarda olduğu gibi bildirmiyorsa `None`. Ekranın bir alanı için hazırlanan resim, alanın sütun ve satırlarının bu boyla çarpımında en keskindir: terminal onu piksel piksel gösterir, ne büyütülüp bulanıklaşır ne de gösterebileceğinden büyüktür. Runtime onu açılışta ve her boyut değişiminde okur; yazı tipi boyunun değişmesi de buna dahildir, o zaman sütun ve satırlar aynı kalır ama hücre değişir. Yeni bir değer yeni bir kare çizdirir, `view` her zaman güncel olanı görür. `App::resized` yalnızca sütun ve satırları duyar. Sixel resimler de aynı sayıya küçültülür.
+
+Testler hiçbir terminale sormaz: `Env::builtin` yarım blok verir, `Harness::set_graphics` aynı kurallarla başka bir terminal gibi cevap verir. Test düzeneği yereldir; `Harness::set_remote(true)` uzak bir bağlantının göreceği ekranı çizer. `Harness::set_cell_pixels(Some((10, 20)))` denene kadar hücre boyunu bilmez.
 
 ## Terminal olmadan test
 

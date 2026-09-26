@@ -68,6 +68,7 @@ pub struct Env {
     slide: Option<bool>,
     remote: bool,
     graphics: GraphicsFacts,
+    cell_pixels: Option<(u16, u16)>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -96,6 +97,7 @@ impl Env {
             slide: None,
             remote: false,
             graphics: GraphicsFacts::default(),
+            cell_pixels: None,
             diagnostics: Vec::new(),
         }
     }
@@ -329,6 +331,32 @@ impl Env {
     /// round trip.
     pub(crate) fn graphics_worth_asking(&self) -> bool {
         self.graphics.worth_asking(self.depth)
+    }
+
+    /// The size of one cell in pixels, width and height, as the terminal reports it; `None` where
+    /// it reports none, as some terminals and serial lines do.
+    ///
+    /// It is the pixel size of the terminal's window divided by its columns and rows, and SSH
+    /// carries it across. An application that prepares a picture for a place on screen asks for
+    /// columns × width by rows × height pixels, so the picture is drawn at the terminal's own
+    /// resolution: neither blurred by enlarging nor decoded larger than it will ever show.
+    ///
+    /// The runtime reads it before the first frame and again at every resize, a change of font
+    /// size included, which gives the same columns and rows but a different cell. A new value
+    /// draws a new frame, so the view sees it; [`App::resized`](crate::runtime::App::resized)
+    /// hears only columns and rows and is not told when only the cell changed. Sixel pictures
+    /// are shrunk to the same number.
+    ///
+    /// [`Env::builtin`], the environment of tests, answers `None`; see
+    /// [`Harness::set_cell_pixels`](crate::runtime::Harness::set_cell_pixels).
+    #[must_use]
+    pub fn cell_pixels(&self) -> Option<(u16, u16)> {
+        self.cell_pixels
+    }
+
+    /// Records the size of a cell the terminal reports; see [`Env::cell_pixels`].
+    pub(crate) fn set_cell_pixels(&mut self, cell: Option<(u16, u16)>) {
+        self.cell_pixels = cell;
     }
 
     /// Draws as a terminal of `depth` would, instead of the depth that was detected. Lets a test

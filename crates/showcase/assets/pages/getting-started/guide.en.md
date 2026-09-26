@@ -99,7 +99,9 @@ match ui.env().graphics() {
 }
 ```
 
-Tests ask no terminal: `Env::builtin` gives half blocks, and `Harness::set_graphics` answers as another terminal would, with the same rules applied. A harness is local; `Harness::set_remote(true)` draws the screen a remote connection gets.
+`Env::cell_pixels` says how many pixels one cell covers, width and height: the pixel size the terminal reports for its window divided by its columns and rows, and `None` where it reports none, as some terminals and serial lines do. A picture prepared for an area of the screen is sharpest at the area's columns and rows times that size: the terminal shows it pixel for pixel, neither blurred by enlarging nor larger than it can show. The runtime reads it at start and at every resize, a change of font size included, which leaves the columns and rows as they were but not the cell; a new value draws a new frame, so `view` always sees the current one. `App::resized` hears columns and rows only. Sixel pictures are shrunk to the same number.
+
+Tests ask no terminal: `Env::builtin` gives half blocks, and `Harness::set_graphics` answers as another terminal would, with the same rules applied. A harness is local; `Harness::set_remote(true)` draws the screen a remote connection gets. It knows no cell size until `Harness::set_cell_pixels(Some((10, 20)))`.
 
 ## Testing without a terminal
 

@@ -289,10 +289,8 @@ impl<A: App> Runtime<A> {
         guard.enhance_keyboard()?;
         install_panic_hook();
         let shapes = pointer_shapes_supported(|name| std::env::var(name).ok());
-        let screen = Screen::new(Terminal::new(CrosstermBackend::new(io::stdout()))?).pointer_shapes(shapes);
-        #[cfg(feature = "image")]
-        let screen = screen.measure_cell(cell_pixels);
-        let mut screen = screen;
+        let mut screen = Screen::new(Terminal::new(CrosstermBackend::new(io::stdout()))?).pointer_shapes(shapes);
+        env.set_cell_pixels(cell_pixels());
         let mut engine = Engine::new(self.app, env, TaskMode::Threads);
         if let Some(follow) = follow {
             engine.follow(follow);
@@ -486,6 +484,8 @@ fn read_input<A: App>(
         let event = ct::read()?;
         if let ct::Event::Resize(..) = event {
             engine.dirty = true;
+            // A font size change is a resize too, with the same columns and rows.
+            took_cell(engine, cell_pixels());
         }
         let more = event_waiting(signals)?;
         ready = more == Some(true);
@@ -508,13 +508,25 @@ fn read_input<A: App>(
 
 /// The size of a cell in pixels, from the window size the terminal reports; `None` where it
 /// reports no pixels, as some terminals and serial lines do. SSH carries the pixels across.
-#[cfg(feature = "image")]
 fn cell_pixels() -> Option<(u16, u16)> {
     let size = crossterm::terminal::window_size().ok()?;
-    if size.columns == 0 || size.rows == 0 || size.width == 0 || size.height == 0 {
-        return None;
+    cell_of(size.columns, size.rows, size.width, size.height)
+}
+
+/// A cell of a window `width` × `height` pixels across `columns` × `rows` cells; `None` when
+/// any of them is zero or the pixels are fewer than the cells, which is no report at all.
+fn cell_of(columns: u16, rows: u16, width: u16, height: u16) -> Option<(u16, u16)> {
+    let cell = (width.checked_div(columns)?, height.checked_div(rows)?);
+    (cell.0 > 0 && cell.1 > 0).then_some(cell)
+}
+
+/// Takes the size of a cell the terminal reports now, and draws a frame when it changed, so the
+/// view sees the new one.
+fn took_cell<A: App>(engine: &mut Engine<A>, cell: Option<(u16, u16)>) {
+    if engine.env.cell_pixels() != cell {
+        engine.env.set_cell_pixels(cell);
+        engine.dirty = true;
     }
-    Some((size.width / size.columns, size.height / size.rows))
 }
 
 /// Takes a kitty `OK` that arrived after the probe stopped waiting, as over a slow link: from the
@@ -906,6 +918,44 @@ mod tests {
         engine.render(&mut buffer, Duration::from_secs(1));
         assert_eq!(engine.app.0, [Graphics::HalfBlock, Graphics::Kitty]);
         assert_eq!(engine.env.graphics(), Graphics::Kitty);
+    }
+
+    #[test]
+    fn a_cell_is_the_window_divided_by_its_columns_and_rows() {
+        assert_eq!(cell_of(80, 24, 800, 480), Some((10, 20)));
+        assert_eq!(cell_of(100, 30, 905, 571), Some((9, 19)), "a margin is left out");
+        assert_eq!(cell_of(80, 24, 0, 0), None, "a terminal that reports no pixels");
+        assert_eq!(cell_of(0, 0, 800, 480), None);
+        assert_eq!(cell_of(80, 24, 40, 480), None, "fewer pixels than columns");
+    }
+
+    /// Keeps the cell sizes its views are told.
+    struct Seen(std::cell::RefCell<Vec<Option<(u16, u16)>>>);
+
+    impl App for Seen {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> crate::runtime::Command<()> {
+            crate::runtime::Command::none()
+        }
+        fn view(&self, ui: &mut crate::widget::View<'_, ()>) {
+            self.0.borrow_mut().push(ui.env().cell_pixels());
+        }
+    }
+
+    #[test]
+    fn a_new_cell_size_is_a_new_frame_and_the_same_one_is_not() {
+        let mut engine = Engine::new(Seen(std::cell::RefCell::default()), Env::builtin(), TaskMode::Inline);
+        took_cell(&mut engine, Some((10, 20)));
+        let area = ratatui_core::layout::Rect::new(0, 0, 10, 4);
+        let mut buffer = ratatui_core::buffer::Buffer::empty(area);
+        engine.render(&mut buffer, Duration::ZERO);
+        engine.dirty = false;
+        took_cell(&mut engine, Some((10, 20)));
+        assert!(!engine.dirty, "nothing changed");
+        took_cell(&mut engine, Some((14, 28)));
+        assert!(engine.dirty, "a font grew under the same columns and rows");
+        engine.render(&mut buffer, Duration::from_secs(1));
+        assert_eq!(*engine.app.0.borrow(), [Some((10, 20)), Some((14, 28))]);
     }
 
     #[test]

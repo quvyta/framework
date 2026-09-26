@@ -6,6 +6,7 @@
 - `.label(text)` — text two cells after the spinner, truncated to fit.
 - `.variant(name)` — theme variant such as `"success"`, `"warning"`, `"danger"`.
 - `.done(bool)` — the work is finished: play the tick once and rest on it. Off by default; turning it off spins again.
+- `.delayed(busy)` — shows the spinner only for slow work: nothing while `busy` has been true for less than 300 ms, then at least 500 ms once shown, even if `busy` turns false sooner. Pass whether the work runs on every view. Off by default: the spinner always shows.
 
 ## Styles
 
@@ -37,6 +38,7 @@ The Nerd Font glyphs need Nerd Font v3. The spinner's colour is `spinner` (or it
 - Requests a frame exactly when the next frame is due; a resting tick requests nothing.
 - `done(true)` from the start (the first time the spinner is drawn) rests on the tick without playing.
 - With reduced motion shows the first frame, or the full tone for `Pulse`, and requests nothing; a done spinner shows the last frame in its colour at once.
+- With `delayed(busy)`: measures the same whether shown or not and draws nothing, label included, while hidden. Its timing is kept in the spinner's own memory, from the first view that says `busy`. Requests a frame at the moment it is due to show (300 ms after the work started) and to hide (500 ms after it showed, when the work has ended); a hidden, idle one requests nothing.
 
 ## Theme keys
 

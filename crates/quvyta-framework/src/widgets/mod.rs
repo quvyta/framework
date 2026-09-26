@@ -103,6 +103,8 @@ mod terminal;
 #[cfg(feature = "pty")]
 mod terminal_bytes;
 #[cfg(feature = "pty")]
+mod terminal_keyboard;
+#[cfg(feature = "pty")]
 mod terminal_mouse;
 #[cfg(feature = "pty")]
 mod terminal_notice;

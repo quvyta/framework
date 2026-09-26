@@ -32,6 +32,7 @@
 ## Grafik
 
 - `env.graphics()` — burada bir resim nasıl çizilebilir: `Graphics::Kitty`, `Graphics::Sixel`, `Graphics::HalfBlock` ya da `Graphics::None`. Terminalin açılıştaki tek soruya cevabı (en çok 150 ms, aygıt özellikleri gelince biter, açılış ağı beklemez; hiçbir zaman tuş olarak gelmez; geç gelen bir kitty `OK`'i yine kitty'ye çevirir), ardından: 16 renk ya da ASCII glifler `None` verir; `TMUX` ya da `STY` kitty ve sixel'i yarım bloğa çevirir. `Env::builtin` yarım blok verir.
+- `env.cell_pixels()` — bir hücrenin piksel boyu, `Some((genişlik, yükseklik))`; terminal piksel bildirmiyorsa `None`. Açılışta ve her boyut değişiminde, yazı tipi boyunun değişmesi dahil, okunur; yeni bir değer yeni bir kare çizdirir. `Env::builtin` `None` verir.
 - `QUVYTA_GRAPHICS=kitty|sixel|halfblock|none` — cevabın ve bütün kuralların üstünde karar verir; başka bir değer yok sayılır ve bir tanılama olur.
 - `Graphics::name()`, `Graphics::from_name(ad)` — değişkenin aldığı adlar.
 
@@ -76,7 +77,7 @@
 - `.send(msg)` — bir mesajı bileşen göndermiş gibi teslim eder.
 - `.advance(süre)` — sahte saati ilerletir; animasyonlar ve parlamalar onu takip eder, süresi dolan bir kapanış çıkar. `.render()` yeniden çizer.
 - `.terminate(Termination::Terminate)`, `.terminate(Termination::Hangup)` — bir `SIGTERM` ya da `SIGHUP`'ı taklit eder: `terminating` onu terminaldeki gibi duyar, ikinci terminate çıkar, tekrarlanan kopuş hiçbir şeyi değiştirmez.
-- `.set_theme(id)`, `.set_locale(kod)`, `.set_glyph_mode(mod)`, `.set_graphics(grafik)` (o, `.set_glyph_mode` ve `.set_depth(derinlik)` grafikteki değişikliği `App::graphics`'e bildirir), `.set_reduced_motion(bool)`, `.set_remote(bool)`, `.set_system_clipboard(Some(metin))` — ortamı değiştirir.
+- `.set_theme(id)`, `.set_locale(kod)`, `.set_glyph_mode(mod)`, `.set_graphics(grafik)` (o, `.set_glyph_mode` ve `.set_depth(derinlik)` grafikteki değişikliği `App::graphics`'e bildirir), `.set_reduced_motion(bool)`, `.set_remote(bool)`, `.set_cell_pixels(Some((g, y)))`, `.set_system_clipboard(Some(metin))` — ortamı değiştirir.
 - `.screen()`, `.find(metin)`, `.fg(x, y)`, `.bg(x, y)`, `.is_bold(x, y)`, `.buffer()`, `.html(başlık)` — çizileni okur. Çift genişlikli karakter, kapladığı hücre olmadan bir kez okunur: `screen().contains("防火墙")` tutar, `find` çizildiği sütunu verir.
 - `.app()`, `.env()`, `.is_focused("isim")`, `.copied()`, `.clipboard()`, `.quit_requested()` — uygulamanın ve motorun durumuna bakar.
 

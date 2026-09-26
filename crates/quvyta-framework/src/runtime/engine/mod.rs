@@ -380,6 +380,8 @@ impl<A: App> Engine<A> {
             painted: self.frame.pictures.iter().map(crate::widgets::image::Picture::image).collect(),
             #[cfg(feature = "image")]
             sixel: self.env.graphics() == crate::graphics::Graphics::Sixel,
+            #[cfg(feature = "image")]
+            cell: self.env.cell_pixels(),
         }
     }
 
