@@ -24,7 +24,7 @@ impl Span {
         Self { text: text.into(), role: None, color: None, background: None, bold: false }
     }
 
-    /// Uses typography role `role` (`title`, `body`, `secondary`, `faint`) for this span.
+    /// Uses typography role `role` (`title`, `body`, `secondary`, `faint`, `heading`) for this span.
     #[must_use]
     pub fn role(mut self, role: impl Into<String>) -> Self {
         self.role = Some(role.into());
@@ -83,7 +83,9 @@ impl Text {
         Self { spans: spans.into_iter().collect(), role: "body".to_owned(), wrap: true, align: Align::Start }
     }
 
-    /// Uses typography role `role` for the whole text.
+    /// Uses typography role `role` for the whole text: `title`, `body` (the default), `secondary`,
+    /// `faint`, or `heading`, which looks like a [`SettingsList`](super::SettingsList)'s group
+    /// headings, for a heading above something that is not a settings list.
     #[must_use]
     pub fn role(mut self, role: impl Into<String>) -> Self {
         self.role = role.into();

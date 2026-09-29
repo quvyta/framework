@@ -13,6 +13,8 @@ mod mapped;
 #[cfg(test)]
 mod mapped_rules;
 mod memory;
+#[cfg(test)]
+mod natural_rules;
 mod place;
 mod pointer_shape;
 #[cfg(test)]
@@ -41,6 +43,30 @@ use mapped::Mapped;
 use crate::event::Event;
 use crate::geometry::{Padding, Rect, Size};
 use crate::keymap::Scope;
+
+/// The size `widget` takes when drawn with `env` and allowed up to `available`: what the layout
+/// asks the widget itself, so the answer is exactly the cells it will cover. For deciding a
+/// layout outside `view`, where there is no [`View`], such as where to split a list from its
+/// detail in `update` from the width of the buttons that must fit. Pass
+/// [`Size::MAX`](crate::geometry::Size::MAX) for the widget's natural size.
+///
+/// A widget that fills whatever it is given, such as a key hint bar, answers with `available`.
+///
+/// ```
+/// use qframe::env::Env;
+/// use qframe::geometry::Size;
+/// use qframe::widget::natural_size;
+/// use qframe::widgets::Button;
+///
+/// let env = Env::builtin();
+/// let save = natural_size(&Button::<()>::new("Save"), &env, Size::MAX);
+/// assert_eq!(save.height, 1);
+/// assert!(save.width > 4, "the label and the padding around it");
+/// ```
+#[must_use]
+pub fn natural_size<Msg>(widget: &impl Widget<Msg>, env: &crate::env::Env, available: Size) -> Size {
+    widget.measure(&mut MeasureCx::new(env), available)
+}
 
 /// Something that can be laid out, painted and interacted with.
 ///

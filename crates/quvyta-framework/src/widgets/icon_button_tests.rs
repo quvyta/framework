@@ -16,6 +16,7 @@ struct Header {
     presses: u32,
     disabled: bool,
     tooltip: bool,
+    selected: bool,
 }
 
 impl App for Header {
@@ -29,7 +30,8 @@ impl App for Header {
         ui.add_with(Panel::new(), |ui| {
             ui.row(|ui| {
                 ui.add(Text::new("qpac")).fill_width();
-                let mut button = IconButton::new("settings").on_press(()).disabled(self.disabled);
+                let mut button =
+                    IconButton::new("settings").on_press(()).disabled(self.disabled).selected(self.selected);
                 if self.tooltip {
                     button = button.tooltip("Settings");
                 }
@@ -153,6 +155,75 @@ fn every_state_keeps_the_glyph_readable_in_every_built_in_theme() {
     let mut h = Harness::new(Header::default(), WIDTH, HEIGHT);
     let themes: Vec<String> = h.env().themes().into_iter().map(|(id, _)| id).collect();
     assert!(themes.len() >= 4, "{themes:?}");
+    for theme in themes {
+        h.set_theme(&theme);
+        h.hover(AWAY.0, AWAY.1);
+        let mut checks = vec![("rest", h.fg(GLYPH.0, GLYPH.1), h.bg(GROUND.0, GROUND.1))];
+        h.hover(i32::from(GLYPH.0), i32::from(GLYPH.1));
+        checks.push(("hover", h.fg(GLYPH.0, GLYPH.1), h.bg(GLYPH.0, GLYPH.1)));
+        h.hover(AWAY.0, AWAY.1).press("tab");
+        checks.push(("focus", h.fg(GLYPH.0, GLYPH.1), h.bg(GLYPH.0, GLYPH.1)));
+        h.press("enter");
+        checks.push(("pressed", h.fg(GLYPH.0, GLYPH.1), h.bg(GLYPH.0, GLYPH.1)));
+        h.advance(Duration::from_millis(300)).press("shift+tab");
+        for (state, fg, bg) in checks {
+            let (Some(fg), Some(bg)) = (fg, bg) else { panic!("{theme} {state}: no colour") };
+            let ratio = fg.contrast_ratio(bg);
+            assert!(ratio >= 4.5, "{theme} {state}: contrast {ratio:.2}");
+        }
+    }
+}
+
+#[test]
+fn a_selected_button_draws_its_glyph_in_the_accent_and_still_lights_and_presses() {
+    let mut plain = Harness::new(Header::default(), WIDTH, HEIGHT);
+    let mut h = Harness::new(Header { selected: true, ..Header::default() }, WIDTH, HEIGHT);
+    let accent = h.env().theme().color("accent");
+    assert_eq!(h.fg(GLYPH.0, GLYPH.1), accent, "at rest the glyph is the accent");
+    assert_ne!(plain.fg(GLYPH.0, GLYPH.1), accent, "an unselected glyph is not");
+    assert_eq!(h.bg(LEFT, GLYPH.1), plain.bg(LEFT, GLYPH.1), "no surface of its own: only the glyph says it");
+    for harness in [&mut plain, &mut h] {
+        harness.hover(i32::from(GLYPH.0), i32::from(GLYPH.1));
+    }
+    assert_eq!(h.bg(GLYPH.0, GLYPH.1), plain.bg(GLYPH.0, GLYPH.1), "the pointer lightens it as usual");
+    assert_eq!(h.fg(GLYPH.0, GLYPH.1), accent, "and the glyph stays the accent");
+    for harness in [&mut plain, &mut h] {
+        harness.hover(AWAY.0, AWAY.1).press("tab");
+    }
+    assert!(h.is_focused("settings"));
+    assert_eq!(h.bg(GLYPH.0, GLYPH.1), plain.bg(GLYPH.0, GLYPH.1), "keyboard focus has its tone too");
+    let light_accent = h.env().theme().color("accent-2");
+    assert_eq!(h.fg(GLYPH.0, GLYPH.1), light_accent, "over the accent-tinted focus tone, the light accent");
+    assert_ne!(plain.fg(GLYPH.0, GLYPH.1), light_accent);
+    h.click(i32::from(GLYPH.0), i32::from(GLYPH.1)).press("enter");
+    assert_eq!(h.app().presses, 2, "a selected button still presses");
+}
+
+#[test]
+fn a_theme_whose_selected_state_keeps_the_resting_colour_still_shows_the_accent() {
+    // A theme that gives the selected state nothing of its own to show: its glyph colour is the
+    // resting one, as in a theme written before the state existed.
+    let theme = "[meta]\nname = \"Quiet\"\nextends = \"monochrome\"\n\n\
+                 [style.\"icon-button:selected\"]\nfg = \"$dim\"\n";
+    let dirs = crate::env::AssetDirs { theme_sources: vec![("quiet.toml".into(), theme.into())], ..Default::default() };
+    // A true-colour terminal, so the cells keep the theme's colours exactly.
+    let lookup = |name: &str| (name == "COLORTERM").then(|| "truecolor".to_owned());
+    let env = crate::env::Env::load_with(&dirs, lookup).expect("the theme loads from text");
+    assert!(env.diagnostics().is_empty(), "{:?}", env.diagnostics());
+    let mut h = Harness::with_env(Header { selected: true, ..Header::default() }, env.clone(), WIDTH, HEIGHT);
+    let mut plain = Harness::with_env(Header::default(), env, WIDTH, HEIGHT);
+    h.set_theme("quiet");
+    plain.set_theme("quiet");
+    assert_eq!(h.env().theme().name(), "Quiet");
+    let accent = h.env().theme().color("accent");
+    assert_eq!(plain.fg(GLYPH.0, GLYPH.1), h.env().theme().color("dim"), "unselected, the resting colour");
+    assert_eq!(h.fg(GLYPH.0, GLYPH.1), accent, "the accent stands in");
+}
+
+#[test]
+fn a_selected_glyph_stays_readable_in_every_state_and_built_in_theme() {
+    let mut h = Harness::new(Header { selected: true, ..Header::default() }, WIDTH, HEIGHT);
+    let themes: Vec<String> = h.env().themes().into_iter().map(|(id, _)| id).collect();
     for theme in themes {
         h.set_theme(&theme);
         h.hover(AWAY.0, AWAY.1);

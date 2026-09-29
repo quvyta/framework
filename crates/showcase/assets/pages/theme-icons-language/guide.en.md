@@ -83,6 +83,24 @@ for key in ["app.save", "app.files"] {
 
 Comparing `translate(key)` with the key does not work for this: a missing key translates to `⟦key⟧`, which is not the key, so such a test passes when the translation is missing.
 
+## Checking the whole set of files at once
+
+`has` asks one question about one key. `i18n::check` asks four questions about a whole set of files at once, in a test: the keys, the placeholders, the plural forms, and whether the language says anything of its own. The first file is the reference, English; every other file is compared with it and nothing with anything else.
+
+```rust
+let files = [("en.toml", en), ("tr.toml", tr)];
+let problems = check::locales(&files);
+assert!(problems.is_empty(), "{}", problems.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n"));
+```
+
+- **`locales(files)`** runs the three checks on shape: every key of the reference in every file and no key of its own, the same `{name}` placeholders wherever both files have a message, and the plural forms each language's own rule chooses from. Russian needs `one`, `few` and `many` where English needs two, and a file without `few` is a problem because 2 would be drawn with the wrong words. The one exception to the keys is a numbered family a language may add on its own, `quvyta.date.month-in-date-1` to `-12`: the month names a language writes its own way inside a date, Russian `января` and Spanish `enero` where the heading says `Январь` and `Enero`, its own answer rather than a key the reference forgot.
+- **`same_keys`, `same_placeholders` and `plural_forms`** are the same three one at a time, for a test that wants only one of them.
+- **`own_words(files, at_least)`** is the one that cannot be left out. A file that copies English passes every check above, so nothing in them would notice. Among the values that say something in any language, at least `at_least` of them must differ from the reference. A pure placeholder (`{n}`), a number, a shape like `{hour}:{minute}` and a key name such as `ctrl+s` are the same in every language by nature and are left out of both the count and the share; a word two languages happen to share is normal, which is what a share rather than a single value is for.
+
+Each problem is a `Problem` with a `file`, `line`, `column`, the `key` it belongs to and an English `message`, and its `Display` is `file:line:column: message`, which is what an editor opens. A file the parser cannot read whole is a problem of its own rather than a panic, because a check that stayed quiet about it would pass a file the runtime cannot draw.
+
+`own_words` is left out of `locales` on purpose: whether a language has been translated is a decision the application makes, not a mistake it made, so a test asks for it by name.
+
 ## The customs of a language
 
 A language is more than its words. Where it puts a number's decimals, which way round it writes a date, how short its unit of time is beside a number: get one of those wrong and the screen reads as a mistake even when every word is right.

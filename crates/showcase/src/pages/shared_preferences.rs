@@ -9,7 +9,7 @@ use qframe::i18n::I18n;
 use qframe::prelude::*;
 use qframe::runtime::Update;
 use qframe::storage::{Ecosystem, Preferences, Scope, Settings, Shared, Source};
-use qframe::widgets::{Appearance, AppearanceChange, CodeView, Language, SettingsList};
+use qframe::widgets::{Appearance, AppearanceChange, AppearanceSave, CodeView, Language, SettingsList, Toast};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -42,7 +42,10 @@ impl Demo {
         let ecosystem = Ecosystem::QUVYTA;
         // An application passes `ecosystem.preferences(APP, &i18n)`; the demo keeps to a folder of its own.
         let preferences = ecosystem.preferences_in(&folder, APP, &I18n::builtin());
-        let appearance = Appearance::new(ecosystem, APP, preferences).in_folder(&folder);
+        // `updates_in_background` is what an application whose settings folder is slow asks for: the
+        // update notice's file is written off the drawing thread and the outcome comes back as a
+        // message of the application's own.
+        let appearance = Appearance::new(ecosystem, APP, preferences).in_folder(&folder).updates_in_background();
         let settings = Settings::open(folder.join(format!("{APP}.conf"))).member_of(&ecosystem);
         // endregion
         Self { folder, appearance, settings }
@@ -88,6 +91,8 @@ fn demo_dir() -> PathBuf {
 #[derive(Debug, Clone)]
 pub enum Msg {
     Appearance(AppearanceChange),
+    /// What became of a save the rows asked to be done in the background.
+    Saved(AppearanceSave),
     /// The second application keeps a theme of its own (`true`) or follows the ecosystem.
     OtherOwnTheme(bool),
     StartOver,
@@ -103,11 +108,28 @@ fn send(message: Msg) -> AppMsg {
 pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<AppMsg> {
     match message {
         Msg::Appearance(change) => {
-            log.push(PAGE, "Appearance::update", format!("{change:?}"));
+            log.push(PAGE, "Appearance::update_saving", format!("{change:?}"));
             let demo = state.demo_mut();
             // region: shared-preferences-update
-            demo.appearance.update(change, &mut demo.settings)
+            demo.appearance.update_saving(change, &mut demo.settings, move |save| send(Msg::Saved(save)))
             // endregion
+        }
+        Msg::Saved(save) => {
+            // region: shared-preferences-saved
+            let outcome = match &save {
+                AppearanceSave::Saved => t!("shared-preferences.save-done"),
+                AppearanceSave::Failed(reason) => t!("shared-preferences.save-failed", reason = reason.as_str()),
+            };
+            log.push(PAGE, "Appearance::saved", outcome.clone());
+            let demo = state.demo_mut();
+            demo.appearance.saved(&save);
+            // endregion
+            match save {
+                AppearanceSave::Saved => Command::none(),
+                // The application's own answer to a save it could not make: a toast, so the reason
+                // is where every other message of the application is.
+                AppearanceSave::Failed(_) => Command::toast(Toast::warning(outcome)),
+            }
         }
         Msg::OtherOwnTheme(own) => {
             let demo = state.demo();
@@ -184,7 +206,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         // region: shared-preferences-rows
         SettingsList::show(ui, |list| {
             demo.appearance.section(list, |change| send(Msg::Appearance(change)));
-            // An application that asks for its updates adds the ecosystem's switch for them.
+            // An application that asks for its updates adds the ecosystem's switch for them; the
+            // demo asks for it in the background, so the files below change a moment after the
+            // switch moves, and a file that cannot be written puts the switch back.
             demo.appearance.updates(list, |change| send(Msg::Appearance(change)));
         })
         .id("appearance");
@@ -300,5 +324,19 @@ mod tests {
         assert!(screen.contains("quvyta-code 0.1.14 is out"), "{screen}");
         assert!(h.update_checks().is_empty(), "the demo never asks the registry");
         std::fs::remove_dir_all(folder(&h)).ok();
+    }
+
+    #[test]
+    fn the_notice_switch_is_saved_in_the_background_and_the_outcome_is_told() {
+        let mut h = showcase_tall(crate::app::Showcase::new(), PAGE, 120);
+        h.set_reduced_motion(true);
+        let folder = folder(&h);
+        assert!(Ecosystem::QUVYTA.update_notice_in(&folder), "on until someone turns it off");
+        h.click_text("Say when an update is out").press("space");
+        let shared = std::fs::read_to_string(folder.join("quvyta.conf")).expect("quvyta.conf");
+        assert!(shared.contains("update-notice = false"), "{shared}");
+        let log: Vec<String> = h.app().log.recent(PAGE, 2).iter().map(|entry| entry.message.clone()).collect();
+        assert_eq!(log, ["UpdateNotice(false)", "Saved in the background"], "{log:?}");
+        std::fs::remove_dir_all(&folder).ok();
     }
 }

@@ -10,7 +10,7 @@
 ## Keys
 
 - Closed: `enter`, `space` or `down` opens.
-- Open: `up` `down` move, `home` `end` jump, `pgup` `pgdn` page, a letter jumps, `enter` or `space` chooses, `esc` closes, `tab` closes and moves focus.
+- Open: `up` `down` move and go round the ends, as in a menu; `home` `end` jump, `pgup` `pgdn` page, a letter jumps, `enter` or `space` chooses, `esc` closes, `tab` closes and moves focus.
 
 ## Mouse
 

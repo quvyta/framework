@@ -3,6 +3,8 @@
 - `Checkbox::new(işaretli)` — `işaretli` durumunu gösteren kutu.
 - `.label(metin)` — kutudan iki hücre sonra metin; tıklamak değiştirir.
 - `.partial(bool)` — kutuyu kısmen işaretli gösterir; değiştirmek `true` ister.
+- `.description(metin)` — etiketin altında, etiketin sütununda başlayıp orada sarılan silik bir açıklama; tıklamak değiştirir.
+- `.label_column()` — kutunun sol kenarından etiketin ilk harfine kadar hücre sayısı; kutunun dışındaki metni hizalamak için.
 - `.style(CheckboxStyle)` — `Box` (varsayılan): iki hücre renk. `Check`: tikli ya da çizgili üç hücre.
 - `.disabled(bool)` — odak alamaz, değiştirilemez.
 - `.on_toggle(|on| mesaj)` — yeni durumla mesaj.

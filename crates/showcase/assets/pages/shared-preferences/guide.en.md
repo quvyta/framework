@@ -9,6 +9,7 @@ Every application of the Quvyta ecosystem speaks the same language, draws with t
 3. Keep an `Appearance` in your state: `Appearance::new(Ecosystem::QUVYTA, "code", prefs)`.
 4. Place it in a settings list: `SettingsList::show(ui, |list| self.appearance.section(list, Msg::Appearance))`. A setup wizard's first step uses `rows` instead, without the heading.
 5. Hand every change back: `Msg::Appearance(change) => self.appearance.update(change, &mut self.settings)`. It saves the change and returns the command that shows it at once.
+6. An application whose settings folder is slow writes the update notice in the background: keep the option with `Appearance::new(...).updates_in_background()`, hand every change to `update_saving` instead (`self.appearance.update_saving(change, &mut self.settings, Msg::Saved)`), and answer the outcome with `Msg::Saved(save)`: `self.appearance.saved(&save)` puts the row back to what the file still says, and a `Failed(reason)` is yours to show as a toast.
 
 ## How it works
 
@@ -44,9 +45,17 @@ Msg::NewVersion(update) => Command::toast(update.toast()),
 - **Only a real newer version.** Yanked versions are passed over and a build newer than the registry says nothing. Versions are ordered as semver orders them: `0.1.0-alpha.9` < `0.1.0-alpha.10` < `0.1.0-beta` < `0.1.0`. A person on a release never hears of a pre-release; a person on a pre-release hears of the newest version after it, the next alpha or the release, so nobody stays on an old alpha.
 - **Tests never reach the network.** A harness records the question (`Harness::update_checks`) and answers it with `Harness::set_latest_version(Some("0.2.0"))`, without touching the check's folders.
 
+## The switch without waiting for the disk
+
+A settings folder can be slow: a network home, a busy disk. `Appearance::updates_in_background()` keeps the update notice's file off the drawing thread.
+
+- **The switch moves at once.** The screen shows the new value as it does for any other change, and the file takes it behind the screen, on a thread of its own.
+- **A file that refuses it puts the switch back.** The write's outcome arrives as the message `update_saving` was given: `AppearanceSave::Saved`, or `AppearanceSave::Failed(reason)` with the reason. `Appearance::saved(&save)` reads the file and shows what it still says, so the switch is where the person left it. Nothing is written under the row, because the application has the reason and shows it as it likes, a toast as this demo does.
+- **Every other row is written where it is drawn.** A theme change is applied and saved at once as before, so nothing about the shared rows changes.
+
 ## Common mistakes
 
 - **Declaring `language` with a fixed list and self-healing.** Call `Settings::member_of(&Ecosystem::QUVYTA)` before `self_heal`, or load with `load_member`, so `"quvyta"` is kept.
-- **Saving the whole settings file from an old copy.** Pass your in-memory settings to `Appearance::update`; they take the change too.
+- **Saving the whole settings file from an old copy.** Pass your in-memory settings to `Appearance::update`; they take the change too. An application that asked for `updates_in_background` passes them to `update_saving` the same way.
 - **Using `Scope::Ecosystem` to make another application follow.** It rewrites `quvyta.conf` with the value you pass, so a settings table that lists every member would change the ecosystem's theme from one member's row. Use `follow` there.
 - **Writing the user's real files in tests.** Use `preferences_in`, `set_in` and `Appearance::in_folder` with a temporary folder, and `Harness::member_in` with `poll_preferences` to test the live follow.

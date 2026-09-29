@@ -18,9 +18,14 @@
 - `Appearance::new(ecosystem, app, prefs)` — the rows' state; `.in_folder(folder)` saves elsewhere.
 - `Appearance::section(list, msg)` — a heading and the rows; `rows(list, msg)` without the heading.
 - `Appearance::update(change, &mut settings)` — saves an `AppearanceChange` and returns the command that shows it.
+- `Appearance::updates_in_background()` — the update notice's file is written on a thread of its own: the switch shows the new value at once, and a file that cannot take it puts the switch back where it was.
+- `Appearance::update_saving(change, &mut settings, saved)` — `update`, and the command that writes the update notice in the background, calling `saved` with what became of the write.
+- `AppearanceSave::Saved`, `AppearanceSave::Failed(reason)` — what the background write left; hand it to `Appearance::saved(&save)`, which takes the row back to what the file still says.
 - `SettingRow::nested(true)` — a row that belongs to the row above: its text starts two cells further in.
 - `Ecosystem::update_notice()`, `update_notice_in(folder)` — whether the ecosystem says when an update is out; on unless `quvyta.conf` says `update-notice = false`. `set_update_notice(on)`, `set_update_notice_in(folder, on)` write it; `Preferences::update_notice()` reads it with the rest. `Appearance::updates(list, msg)` is its row, right after `section`.
+- `Appearance::label(&i18n, Shared)`, `IconMode::label(&i18n)`, `PillarStyle::label(&i18n)` — the words the box uses for a row or a choice, for an application that shows the same preference elsewhere.
 - `UpdateCheck::new(ecosystem, app, package, current, on_newer)` — the question to crates.io, with the `updates` feature; `.in_folders(config, state)` for a test, `.registry(address)` for a mirror or a test server. `Command::check_for_update(check)` asks it. `current` may be a pre-release (`0.1.0-alpha.1`): then later pre-releases are announced too; from a release only releases are.
+- `qframe::version::newer(candidate, installed)` — the order the update notice uses, pre-releases included: `0.1.10` after `0.1.9`, a release after its pre-releases, `alpha.10` after `alpha.9`; a text that is not a version is never newer.
 - `Update::latest()`, `current()`, `package()`, `toast()` — the answer, and the notice every member shows the same way; `Update::new(ecosystem, package, current, latest)` makes one by hand.
 - `Harness::update_checks()`, `set_latest_version(Some("0.2.0"))` — a test's view of the question: recorded, answered with the version given, never asked over the network.
 
@@ -38,6 +43,7 @@
 - The shared file cannot follow itself; `"quvyta"` in it is reported and the detected value is used.
 - `follow` on a key that already follows the ecosystem changes nothing and is not an error; on a file that cannot be read it fails with `InvalidData` and leaves the file as it was.
 - A change that cannot be saved is still applied, and its row says why until the next change.
+- With `updates_in_background`, the update notice's file is written off the drawing thread and nothing is said under its row: the outcome is the application's own message, and `Appearance::saved` reads the file to put the switch back to what it still says.
 - The reduced motion row and its box are disabled while `QUVYTA_REDUCED_MOTION` decides.
 - `Shared::ReducedMotion` — reduced motion as a shared key: `Preferences::reduced_motion()`, written as a boolean (`true`/`false` in `Ecosystem::set`). `Shared` is `#[non_exhaustive]`.
 - A member follows `quvyta.conf` and its own file: on a change both are read again without writing, and only a value that differs from the last reading and from the screen is applied. The same values written again reach no hook and draw no frame.

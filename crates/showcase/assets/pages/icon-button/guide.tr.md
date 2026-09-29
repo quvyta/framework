@@ -15,6 +15,7 @@
 - **Dururken zemin yok.** Çevresindeki zeminin üstünde durur, böylece yan yana birkaçı bir buton sırası gibi değil, sessiz işaretler gibi okunur.
 - **Durumu ton söyler.** İmleç gelince üç hücre birlikte hover tonuna açılır, klavye odağı bir ton daha açar, basış bir ton daha parlatır: dinlenme < hover < odak < basılı, hiç ters dönmez. Vurgu çubuğu yok: üç hücrede glifin önüne çubuk sığmaz, sığsa da glifi ortadan kaydırırdı.
 - **Fare ve klavye eşittir.** Enter ya da Space odaktaki butona basar; tıklama, fare butonun üstünde bırakılınca basar, bırakmadan önce uzaklaşmak iptal eder.
+- **Seçili, açık demektir.** `.selected(true)` glifi vurgu renginde çizer; açık kalan bir kontrol için, örneğin bir süzgeç ya da gösterilen sayfanın yer imi. Yalnızca glif değişir: hücreler zeminini korur, imleç ve odakla her zamanki gibi aydınlanır ve buton basılmaya devam eder; uygulama onu açtığı mesajın aynısıyla kapatır.
 - **Pasif, girdiye kapalı demektir.** Pasif bir ikon butonu soluktur, Tab onu atlar ve tıklamaları yok sayar.
 
 ## Neden Button'un bir seçeneği değil

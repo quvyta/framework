@@ -101,7 +101,11 @@ mod task_list;
 #[cfg(feature = "pty")]
 mod terminal;
 #[cfg(feature = "pty")]
+mod terminal_answers;
+#[cfg(feature = "pty")]
 mod terminal_bytes;
+#[cfg(feature = "pty")]
+mod terminal_focus;
 #[cfg(feature = "pty")]
 mod terminal_keyboard;
 #[cfg(feature = "pty")]
@@ -129,7 +133,7 @@ mod wizard;
 
 pub use accordion::Accordion;
 pub use app_shell::AppShell;
-pub use appearance::{Appearance, AppearanceChange};
+pub use appearance::{Appearance, AppearanceChange, AppearanceSave};
 pub use axis::Axis;
 pub use badge::Badge;
 pub use bar_chart::{Bar, BarChart, Series};
@@ -152,7 +156,8 @@ pub use field::Field;
 pub use file_browser::{FileBrowser, FileEntry, FilePickerMsg, Listing, ListingError, PickMode, read_folder};
 pub use file_manager::{
     FileChange, FileDetails, FileError, FileManager, FileManagerMsg, FileManagerState, FileView, FileWork, FolderEntry,
-    NameFor, NameProblem, Naming, RowMark, child_key, copy_into, is_inside, is_within, name_of, parent_key,
+    MenuTarget, NameFor, NameProblem, Naming, RowMark, child_key, copy_into, is_inside, is_within, name_of, parent_key,
+    path_of,
 };
 pub use file_picker::FilePicker;
 pub use form::{Form, FormFields};

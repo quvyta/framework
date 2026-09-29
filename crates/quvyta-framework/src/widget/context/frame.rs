@@ -46,6 +46,9 @@ pub(crate) struct Frame {
     /// Areas widgets asked to bring into view, with the widget that asked; the nearest scroll
     /// view around each takes it. See [`PaintCx::reveal`](crate::widget::PaintCx::reveal).
     pub(crate) reveals: Vec<(WidgetId, Rect)>,
+    /// The part of each widget the keyboard is on, for widgets taller than a view; see
+    /// [`PaintCx::focus_spot`](crate::widget::PaintCx::focus_spot).
+    pub(crate) focus_spots: IdMap<WidgetId, Rect>,
     /// Pointer shapes widgets asked for over their areas, with the widget that asked, in paint
     /// order; see [`PaintCx::pointer_shape`](crate::widget::PaintCx::pointer_shape).
     pub(crate) pointer_shapes: Vec<(Rect, PointerShape, WidgetId)>,
@@ -117,6 +120,7 @@ impl Frame {
             focus_request,
             measures,
             reveals,
+            focus_spots,
             pointer_shapes,
             #[cfg(feature = "image")]
             pictures,
@@ -144,6 +148,7 @@ impl Frame {
         *focus_request = None;
         measures.clear();
         reveals.clear();
+        focus_spots.clear();
         pointer_shapes.clear();
         #[cfg(feature = "image")]
         {
@@ -243,6 +248,9 @@ pub(crate) struct Interaction {
     /// Whether the clipboard had text when it was read last, or the application copied since:
     /// a Paste menu entry is enabled only then.
     pub(crate) can_paste: bool,
+    /// How many presses in a row the pointer event being handled belongs to, see
+    /// [`EventCx::clicks`](crate::widget::EventCx::clicks); 0 while any other event is handled.
+    pub(crate) clicks: u8,
 }
 
 /// A modal layer the runtime has seen open.

@@ -7,16 +7,20 @@
 - `.icon(key)` — icon from the icon set before the label. Default: none.
 - `.disabled(bool)` — greys it out; not focusable, ignores input. Default: `false`.
 - `.loading(bool)` — spinner instead of the icon; ignores presses. Default: `false`.
+- `.on_middle_press(msg)` — the message sent when the middle button is pressed and released over the button, such as closing a tab. It flashes like any press. Takes effect on a button that has `on_press`. Default: none; the middle button then passes the button by.
 - `.selected(bool)` — makes it a choice button, such as one of a few view modes: selected shows it raised with a steady pillar. A choice button does not flash when pressed. Default: an ordinary button.
+- `.faint(bool)` — a step quieter while nothing is on it; still presses, and hover or focus bring the full tone back.
 
 ## Messages
 
 - The `on_press` message, once per press.
+- The `on_middle_press` message, once per middle click.
 
 ## Keyboard and mouse
 
 - `enter` or `space` while focused — press.
 - Left button released over the button — press. Releasing elsewhere cancels.
+- Middle button released over the button — the middle message, with `on_middle_press`. Releasing elsewhere cancels.
 - Holding a key — one press.
 
 ## Layout

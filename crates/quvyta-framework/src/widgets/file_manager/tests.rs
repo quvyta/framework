@@ -5,7 +5,7 @@
 //! system's temporary folder and takes it away again when it ends.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::*;
@@ -74,6 +74,8 @@ struct Demo {
     noted: Vec<String>,
     /// Whether the application offers a terminal and an item of its own.
     extras: bool,
+    /// Whether the application's own item names the kind and the name of the row it is on.
+    kinds: bool,
     disabled: bool,
     /// The entries the application marks, and how.
     marked: Vec<(String, RowMark)>,
@@ -104,6 +106,7 @@ impl Demo {
             terminals: Vec::new(),
             noted: Vec::new(),
             extras: false,
+            kinds: false,
             disabled: false,
             marked: Vec::new(),
             driven: false,
@@ -175,6 +178,13 @@ impl App for Demo {
         if self.extras {
             manager = manager.on_open_terminal(|path| Msg::Terminal(path.to_path_buf())).menu_items(|key, targets| {
                 vec![ContextItem::new(format!("Note {} of {}", key, targets.len()), Msg::Note(key.to_owned()))]
+            });
+        }
+        if self.kinds {
+            manager = manager.menu_for(|target| {
+                let name = target.path.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+                let kind = if target.folder { "Folder" } else { "File" };
+                vec![ContextItem::new(format!("{kind} named {name}"), Msg::Note(target.key.to_owned()))]
             });
         }
         if !self.marked.is_empty() {
@@ -737,6 +747,28 @@ fn the_application_adds_its_own_items_and_a_terminal_to_a_folders_menu() {
 }
 
 #[test]
+fn the_application_is_told_whether_a_menus_row_is_a_folder_and_where_it_is() {
+    let scratch = Scratch::new("menu-kinds");
+    let mut h = Harness::new(Demo { kinds: true, ..Demo::new(scratch.root()) }, SIZE.0, SIZE.1);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+    right_click(&mut h, "src");
+    assert!(h.screen().contains("Folder named src"), "{}", h.screen());
+    h.press("esc");
+    right_click(&mut h, "README.md");
+    assert!(h.screen().contains("File named README.md"), "{}", h.screen());
+    h.click_text("File named README.md").advance(MOMENT);
+    assert_eq!(h.app().noted, ["README.md"]);
+}
+
+#[test]
+fn a_key_names_its_path_below_the_root() {
+    let root = Path::new("/home/ali");
+    assert_eq!(path_of(root, ""), root);
+    assert_eq!(path_of(root, "notes"), root.join("notes"));
+    assert_eq!(path_of(root, "notes/2026/june.md"), root.join("notes").join("2026").join("june.md"));
+}
+
+#[test]
 fn a_double_click_or_enter_on_a_file_asks_the_application_to_open_it_while_ctrl_click_only_chooses() {
     let scratch = Scratch::new("open-or-choose");
     let mut h = harness(&scratch);
@@ -1206,6 +1238,39 @@ fn an_entry_the_application_marks_takes_its_sign_and_its_tone() {
     h.send(Msg::Mark("src".to_owned(), RowMark::new())).render();
     let (folder_line, _) = row_of(&h, "src");
     assert!(folder_line.contains('\u{25a0}'), "a folder with an empty mark keeps its folder icon:\n{folder_line}");
+}
+
+#[test]
+fn a_plain_sign_changes_the_icon_and_leaves_its_colour_to_the_row() {
+    let scratch = Scratch::new("plain-sign");
+    let mut h = harness(&scratch);
+    h.send(Msg::Mark("README.md".to_owned(), RowMark::new().plain_sign("warning"))).render();
+    let sign = |h: &Harness<Demo>| {
+        let (line, _) = row_of(h, "README.md");
+        let (_, y) = h.find("README.md").expect("the row");
+        let x = line.chars().position(|c| c == '\u{25b2}').unwrap_or_else(|| panic!("the sign:\n{line}"));
+        h.fg(u16::try_from(x).expect("a column"), u16::try_from(y).expect("a row"))
+    };
+    assert_eq!(sign(&h), colour_of(&h, "README.md"), "resting, the sign is the name's colour:\n{}", h.screen());
+    h.click_text("README.md").render();
+    assert_eq!(state(&h).selected(), Some("README.md"));
+    assert_eq!(sign(&h), colour_of(&h, "README.md"), "selected, it rises with the name:\n{}", h.screen());
+}
+
+#[test]
+fn a_copy_pasted_into_a_closed_folder_opens_it_to_show_the_copy() {
+    let scratch = Scratch::new("copy-open");
+    let mut h = harness(&scratch);
+    assert!(!state(&h).is_open("src"));
+    right_click(&mut h, "README.md");
+    h.click_text("Copy").advance(MOMENT);
+    right_click(&mut h, "src");
+    h.click_text("Paste here").advance(MOMENT).render();
+    assert!(scratch.root().join("src/README.md").is_file(), "{}", h.screen());
+    assert_eq!(state(&h).selected(), Some("src/README.md"), "the selection goes to the copy");
+    assert!(state(&h).is_open("src"), "into a folder that opens to show it:\n{}", h.screen());
+    let lit = h.screen().lines().find(|line| line.contains('▌')).unwrap_or_default().to_owned();
+    assert!(lit.contains("README.md"), "the selected row is on screen:\n{}", h.screen());
 }
 
 #[test]

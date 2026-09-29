@@ -186,6 +186,18 @@ pub(crate) fn hint(cx: &PaintCx<'_>, key: &str, label: &str) -> Hint {
     (key.to_owned(), cx.env().i18n().translate(&format!("quvyta.layer.{label}"), &[]))
 }
 
+/// The up and down arrows as one key, `↑↓`, from the icon set, so the ASCII glyph mode shows
+/// `^v` instead of two characters its terminal may not have.
+pub(crate) fn arrows(cx: &PaintCx<'_>) -> String {
+    let icons = cx.env().icons();
+    format!("{}{}", icons.glyph("arrow-up"), icons.glyph("arrow-down"))
+}
+
+/// The Enter key as the icon set draws it: `⏎`, or `>` in the ASCII glyph mode.
+pub(crate) fn enter(cx: &PaintCx<'_>) -> String {
+    cx.env().icons().glyph("enter").into_owned()
+}
+
 /// Cells between two hints.
 const HINT_SPACING: u16 = 3;
 

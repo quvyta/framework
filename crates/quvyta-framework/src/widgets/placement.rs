@@ -86,6 +86,13 @@ pub(crate) fn place(anchor: Rect, size: Size, screen: Rect, preferred: Placement
     (Rect::new(x, y, clamp_u16(width), clamp_u16(height)), side)
 }
 
+/// The width of a layer that opens as wide as the widget it belongs to, cut to what is left of
+/// the screen: a popover under a button and a field's suggestion list both take it, so the
+/// layer's own left and right edges stand where the anchor's do.
+pub(crate) fn anchor_width(anchor: Rect, screen: Rect) -> u16 {
+    anchor.width.min(screen.width)
+}
+
 /// The part shown of a layer at `full`, `progress` of the way (0 to 1) through unfolding from
 /// its anchor on `side`: whole rows grow away from an anchor above or below it, whole columns
 /// from an anchor beside it. At least one row or column shows.
@@ -138,6 +145,12 @@ mod tests {
             place(right_edge, Size::new(8, 3), SCREEN, Placement::Right),
             (Rect::new(26, 5, 8, 3), Placement::Left)
         );
+    }
+
+    #[test]
+    fn a_layer_matching_its_anchor_takes_the_anchor_width_cut_to_the_screen() {
+        assert_eq!(anchor_width(Rect::new(5, 3, 18, 1), SCREEN), 18);
+        assert_eq!(anchor_width(Rect::new(30, 3, 30, 1), Rect::new(0, 0, 20, 10)), 20, "the screen cuts it");
     }
 
     #[test]

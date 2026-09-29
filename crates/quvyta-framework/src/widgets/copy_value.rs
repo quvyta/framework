@@ -30,10 +30,12 @@ const MARKER_GAP: u16 = 2;
 /// in-process clipboard.
 ///
 /// Style keys: `copy-value` (`bg`, `fg`, `padding`) with `hover`, `focus`, `pressed`,
-/// `disabled`; `copy-value-marker` (`fg`) with variant `copied`. Words come from
+/// `disabled`; `copy-value-marker` (`fg`) with variant `copied`; `copy-value-label` (`fg`) for a
+/// [labelled](CopyValue::labelled) value's label and its whole value above a narrow box. Words come from
 /// `quvyta.copy-value.copy` and `quvyta.copy-value.copied`.
 pub struct CopyValue<Msg> {
     value: String,
+    label: Option<String>,
     masked: bool,
     disabled: bool,
     on_copy: Option<Msg>,
@@ -48,7 +50,16 @@ impl<Msg> CopyValue<Msg> {
     /// Shows `value` and copies it.
     #[must_use]
     pub fn new(value: impl Into<String>) -> Self {
-        Self { value: value.into(), masked: false, disabled: false, on_copy: None }
+        Self { value: value.into(), label: None, masked: false, disabled: false, on_copy: None }
+    }
+
+    /// A faint `label` above the value, such as "Install command". When the value does not fit
+    /// its box it is also written out whole above the box, wrapped, so it can be read while the
+    /// box keeps its one line; a masked value is never written out.
+    #[must_use]
+    pub fn labelled(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
     }
 
     /// Draws the value as mask dots while still copying the real text, for secrets.
@@ -87,21 +98,50 @@ fn markers(env: &crate::env::Env) -> (String, String) {
     )
 }
 
-impl<Msg: Clone + 'static> Widget<Msg> for CopyValue<Msg> {
-    fn measure(&self, cx: &mut MeasureCx<'_>, available: Size) -> Size {
-        let style = cx.env().theme().style("copy-value", None, &[]);
+impl<Msg> CopyValue<Msg> {
+    /// The size of the box alone: the value, the marker and the padding.
+    fn box_size(&self, env: &crate::env::Env) -> Size {
+        let style = env.theme().style("copy-value", None, &[]);
         let (vertical, horizontal) = style.pair("padding").unwrap_or((0, 1));
-        let (idle, copied) = markers(cx.env());
+        let (idle, copied) = markers(env);
         let marker = text::width(&idle).max(text::width(&copied));
-        let value = text::width(&self.shown(&cx.env().icons().glyph("mask")));
+        let value = text::width(&self.shown(&env.icons().glyph("mask")));
         Size::new(
             cells::sum([value, MARKER_GAP, marker, horizontal.saturating_mul(2)]),
             vertical.saturating_mul(2).saturating_add(1),
         )
-        .min(available)
+    }
+
+    /// The lines above the box in `width` cells: the label, then the whole value when the box
+    /// cannot show it.
+    fn head(&self, env: &crate::env::Env, width: u16) -> Vec<String> {
+        let Some(label) = &self.label else { return Vec::new() };
+        let mut lines = vec![label.clone()];
+        if !self.masked && self.box_size(env).width > width {
+            lines.extend(text::wrap(&self.value, width.max(1)));
+        }
+        lines
+    }
+}
+
+impl<Msg: Clone + 'static> Widget<Msg> for CopyValue<Msg> {
+    fn measure(&self, cx: &mut MeasureCx<'_>, available: Size) -> Size {
+        let boxed = self.box_size(cx.env());
+        let head = self.head(cx.env(), available.width);
+        let widest = head.iter().map(|line| text::width(line)).max().unwrap_or(0);
+        let rows = u16::try_from(head.len()).unwrap_or(u16::MAX);
+        Size::new(boxed.width.max(widest), boxed.height.saturating_add(rows)).min(available)
     }
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
+        let head = self.head(cx.env(), area.width);
+        let label_style = cx.style("copy-value-label", None, &[]).text();
+        for (y, line) in (area.y..area.bottom()).zip(&head) {
+            let shown = text::truncate(line, area.width).into_owned();
+            cx.text(area.x, y, &shown, label_style, area.width);
+        }
+        let rows = u16::try_from(head.len()).unwrap_or(u16::MAX).min(area.height);
+        let area = Rect::new(area.x, area.y + i32::from(rows), area.width, area.height - rows);
         let states = if self.disabled { vec![State::Disabled] } else { cx.states() };
         let style = cx.style("copy-value", None, &states);
         let surface = style.text();
@@ -309,5 +349,38 @@ mod tests {
         h.press("tab").press("c");
         h.press("tab").press("ctrl+v");
         assert_eq!(h.app().value, "eu-west-3");
+    }
+
+    /// A labelled install command.
+    struct Labelled;
+
+    impl App for Labelled {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(CopyValue::new("cargo install quvyta-notes --locked").labelled("Install command")).fill_width();
+        }
+    }
+
+    #[test]
+    fn a_label_sits_above_the_value_and_a_narrow_box_shows_the_value_whole_above_it() {
+        let wide = Harness::new(Labelled, 60, 4);
+        let screen = wide.screen();
+        let lines: Vec<&str> = screen.lines().collect();
+        assert!(lines[0].starts_with("Install command"), "{screen}");
+        assert!(lines[1].contains("cargo install quvyta-notes --locked"), "the value in its box: {screen}");
+        let muted = wide.env().theme().color("muted");
+        assert_eq!(wide.fg(0, 0), muted, "the label is faint");
+
+        let mut narrow = Harness::new(Labelled, 24, 6);
+        let screen = narrow.screen();
+        let words: Vec<&str> = screen.lines().skip(1).take(2).flat_map(str::split_whitespace).collect();
+        assert_eq!(words, ["cargo", "install", "quvyta-notes", "--locked"], "written out whole: {screen}");
+        assert!(screen.contains('…'), "while the box cuts it: {screen}");
+        let (x, y) = narrow.find("…").expect("the box");
+        narrow.click(x, y);
+        assert_eq!(narrow.copied(), &["cargo install quvyta-notes --locked".to_owned()], "the whole value is copied");
     }
 }

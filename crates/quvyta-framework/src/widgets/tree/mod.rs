@@ -32,6 +32,9 @@ use select::TreeBox;
 /// Cells of indentation per level.
 const INDENT: u16 = 2;
 
+/// Cells of a row's meter, and the gap before it.
+const METER: u16 = 6;
+
 /// One node of a [`Tree`], identified by a key that stays the same while the tree changes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreeNode {
@@ -45,6 +48,8 @@ pub struct TreeNode {
     expanded: bool,
     loading: bool,
     faint: bool,
+    /// The meter's fill in thousandths, kept whole so a node still compares exactly, and its tone.
+    meter: Option<(u16, String)>,
 }
 
 impl TreeNode {
@@ -62,6 +67,7 @@ impl TreeNode {
             expanded: false,
             loading: false,
             faint: false,
+            meter: None,
         }
     }
 
@@ -109,6 +115,19 @@ impl TreeNode {
     #[must_use]
     pub fn detail(mut self, detail: impl Into<String>) -> Self {
         self.detail = Some(detail.into());
+        self
+    }
+
+    /// A small block meter at the right of the row, left of the [`detail`](Self::detail),
+    /// filled to `fraction` (0 to 1) in theme colour `tone`, such as the progress towards a goal.
+    /// A faint row draws it faint too. A row too narrow for its label and the meter drops the
+    /// meter first, so the name is never cut for it; in the ASCII glyph mode it fills whole
+    /// cells.
+    #[must_use]
+    pub fn meter(mut self, fraction: f32, tone: impl Into<String>) -> Self {
+        let fraction = if fraction.is_nan() { 0.0 } else { fraction.clamp(0.0, 1.0) };
+        // In 0..=1000 after the clamp, so the rounded value fits.
+        self.meter = Some(((fraction * 1000.0).round() as u16, tone.into()));
         self
     }
 
@@ -182,7 +201,8 @@ type MenuItems<Msg> = Box<dyn Fn(&str) -> Vec<ContextItem<Msg>>>;
 /// indentation, the chevron (or the loading spinner in its place) and the detail never move, so
 /// the chevron is always where the pointer clicks it.
 ///
-/// Keys while focused: ↑/↓ or k/j, PgUp/PgDn, Home/End move; → opens a node or moves to its
+/// Keys while focused: ↑/↓ or k/j, PgUp/PgDn, Home/End move (↑/↓ round the ends with
+/// [`wrap`](Self::wrap)); → opens a node or moves to its
 /// first child; ← closes it or moves to its parent; Enter opens or closes a node with children
 /// and activates a leaf; Space activates. A click selects a row and opens, closes or activates
 /// it like Enter; a click on the chevron only opens or closes. With
@@ -234,6 +254,7 @@ pub struct Tree<Msg> {
     copy_drop: Option<DropMessage<Msg>>,
     activate_on: Click,
     box_select: bool,
+    wrap: bool,
 }
 
 impl<Msg: 'static> Tree<Msg> {
@@ -255,7 +276,17 @@ impl<Msg: 'static> Tree<Msg> {
             copy_drop: None,
             activate_on: Click::Single,
             box_select: false,
+            wrap: false,
         }
+    }
+
+    /// Lets ↓ (or j) on the last row shown go on to the first and ↑ (or k) on the first go to the
+    /// last, as a menu does. PgUp/PgDn and Home/End still stop at the ends, and Shift with an
+    /// arrow never wraps a range. Off by default: the keys stop at either end.
+    #[must_use]
+    pub fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
+        self
     }
 
     /// The key of the selected node.
@@ -525,6 +556,20 @@ impl<Msg: 'static> Tree<Msg> {
         let node = row.node;
         let text_style = style.text();
         let detail_width = node.detail.as_deref().map_or(0, |d| text::width(d).saturating_add(2));
+        // The meter only where the whole label still fits beside it.
+        let before = [
+            LEAD,
+            row.depth.saturating_mul(INDENT),
+            if row.chevrons { 2 } else { 0 },
+            node.icon.as_ref().map_or(0, |_| 2),
+            text::width(&node.label),
+            detail_width,
+            2,
+        ]
+        .into_iter()
+        .fold(0, u16::saturating_add);
+        let meter = node.meter.as_ref().filter(|_| rect.width >= before.saturating_add(METER + 1));
+        let meter_width = if meter.is_some() { METER + 1 } else { 0 };
 
         // The chevron is a fixed mark: it stays in its column while the icon and label slide.
         // Leaves keep the chevron's column empty so labels of one level line up.
@@ -547,9 +592,22 @@ impl<Msg: 'static> Tree<Msg> {
             fixed: if row.chevrons { &chevrons } else { &[] },
             sliding: &icon,
             label: &node.label,
-            trailing: detail_width,
+            trailing: detail_width.saturating_add(meter_width),
         };
         row::paint_parts(cx, rect, style, slide, &parts);
+        if let Some((fraction, tone)) = meter {
+            let ground = text_style.bg.unwrap_or_else(|| cx.color("surface"));
+            let ink = text_style.fg.unwrap_or_else(|| cx.color("text"));
+            let mut fill = cx.color(tone);
+            if node.faint {
+                fill = fill.mix(ground, 0.45);
+            }
+            let end = rect.right() - 1 - i32::from(detail_width);
+            let bar = Rect::new(end - i32::from(METER), rect.y, METER, 1);
+            cx.fill(bar, ground.mix(ink, 0.12));
+            let fraction = f32::from(*fraction) / 1000.0;
+            super::eighths::horizontal(cx, bar, super::eighths::eighths(fraction, METER), fill);
+        }
         if let Some(detail) = &node.detail {
             let detail_style = cx.style("list-detail", None, states).text();
             row::paint_trailing(cx, rect, detail, detail_style);
@@ -571,6 +629,7 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
                     row.node.icon.as_ref().map_or(0, |_| 2),
                     text::width(&row.node.label),
                     row.node.detail.as_deref().map_or(0, |d| text::width(d).saturating_add(2)),
+                    if row.node.meter.is_some() { METER + 1 } else { 0 },
                     2,
                 ]
                 .into_iter()
@@ -695,7 +754,8 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
                     return true;
                 }
                 if let Some(step) = Step::from_key(key) {
-                    let Some(target) = step.apply(current, flat.len(), usize::from(area.height)) else {
+                    let Some(target) = step.apply_wrapping(current, flat.len(), usize::from(area.height), self.wrap)
+                    else {
                         return false;
                     };
                     self.select_one(cx, &flat, target);

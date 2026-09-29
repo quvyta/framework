@@ -9,6 +9,7 @@ Her Quvyta uygulaması, kullanıcı birinde başka bir şey seçmediyse aynı di
 3. Durumunda bir `Appearance` tut: `Appearance::new(Ecosystem::QUVYTA, "code", prefs)`.
 4. Onu bir ayar listesine yerleştir: `SettingsList::show(ui, |list| self.appearance.section(list, Msg::Appearance))`. Kurulum sihirbazının ilk adımı başlıksız `rows`'u kullanır.
 5. Her değişikliği geri ver: `Msg::Appearance(change) => self.appearance.update(change, &mut self.settings)`. Değişikliği kaydeder ve onu hemen gösteren komutu döndürür.
+6. Ayar klasörü yavaş olan bir uygulama güncelleme bildirimini arka planda yazar: seçeneği `Appearance::new(...).updates_in_background()` ile tut, her değişikliği onun yerine `update_saving`'e ver (`self.appearance.update_saving(change, &mut self.settings, Msg::Saved)`) ve sonucu `Msg::Saved(save)` ile karşıla: `self.appearance.saved(&save)` satırı dosyanın hâlâ söylediğine döndürür, `Failed(neden)` ise uygulamanın kendi bildirimi olarak göstereceği şeydir.
 
 ## Nasıl çalışır
 
@@ -44,9 +45,18 @@ Msg::NewVersion(update) => Command::toast(update.toast()),
 - **Yalnızca gerçekten yeni bir sürüm.** Geri çekilen sürümler sayılmaz, kayıttakinden yeni bir derleme hiçbir şey söylemez. Sürümler semver sırasıyla dizilir: `0.1.0-alpha.9` < `0.1.0-alpha.10` < `0.1.0-beta` < `0.1.0`. Kararlı sürümdeki kişiye ön sürüm hiç önerilmez; ön sürümdeki kişi ondan sonraki en yeni sürümü, bir sonraki alfayı ya da kararlı sürümü duyar, böylece kimse eski bir alfada kalmaz.
 - **Testler ağa hiç çıkmaz.** Bir harness soruyu kaydeder (`Harness::update_checks`) ve `Harness::set_latest_version(Some("0.2.0"))` ile cevaplar; denetimin klasörlerine dokunmaz.
 
+## Diski beklemeden anahtar
+
+Ayar klasörü yavaş olabilir: ağ üzerindeki bir ev, meşgul bir disk. `Appearance::updates_in_background()` güncelleme bildiriminin dosyasını çizen iş parçacığının dışında tutar.
+
+- **Anahtar hemen kıpırdar.** Ekran, her değişiklikte olduğu gibi yeni değeri hemen gösterir; dosya onu ekranın arkasında, kendi iş parçacığında alır.
+- **Alamayan dosya anahtarı eski yerine koyar.** Yazmanın sonucu, `update_saving`'e verilen mesaj olarak gelir: `AppearanceSave::Saved` ya da nedeniyle `AppearanceSave::Failed(neden)`. `Appearance::saved(&save)` dosyayı okur ve hâlâ söylediğini gösterir, böylece anahtar kişinin bıraktığı yerde durur. Satırın altında hiçbir şey yazılmaz, çünkü nedeni uygulamanın elindedir ve istediği gibi gösterir, bu örnek bir bildirim olarak.
+- **Öteki her satır çizildiği yerde yazılır.** Tema değişikliği önceki gibi hemen uygulanır ve kaydedilir, ortak satırlarda hiçbir şey değişmez.
+
+
 ## Sık yapılan hatalar
 
 - **`language`'ı sabit bir listeyle tanımlayıp kendini onarmayı açmak.** `self_heal`'den önce `Settings::member_of(&Ecosystem::QUVYTA)` çağır ya da `load_member` ile yükle; böylece `"quvyta"` korunur.
-- **Bütün ayar dosyasını eski bir kopyadan kaydetmek.** Bellekteki ayarlarını `Appearance::update`'e ver; değişikliği onlar da alır.
+- **Bütün ayar dosyasını eski bir kopyadan kaydetmek.** Bellekteki ayarlarını `Appearance::update`'e ver; değişikliği onlar da alır. `updates_in_background` isteyen bir uygulama onları `update_saving`'e aynı biçimde verir.
 - **Başka bir uygulamayı izler yapmak için `Scope::Ecosystem` kullanmak.** O, `quvyta.conf`'u verdiğin değerle yeniden yazar; her üyeyi listeleyen bir ayar tablosu böylece ekosistemin temasını bir üyenin satırından değiştirir. Orada `follow` kullan.
 - **Testlerde kullanıcının gerçek dosyalarına yazmak.** Geçici bir klasörle `preferences_in`, `set_in` ve `Appearance::in_folder` kullan; canlı izlemeyi sınamak için `Harness::member_in` ile `poll_preferences`.

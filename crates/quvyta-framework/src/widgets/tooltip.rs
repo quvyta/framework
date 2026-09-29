@@ -104,7 +104,8 @@ impl<Msg: 'static> Widget<Msg> for Tooltip<Msg> {
         }
         let now = cx.now();
         let hovered = cx.pointer_within().is_some();
-        let focused = self.on_focus && cx.has_focus_within();
+        // Inside a settings row the list lends its focus to the row's control, so that counts too.
+        let focused = self.on_focus && (cx.has_focus_within() || cx.is_focused());
         let delay = cx.env().theme().motion().hover_delay;
         let memory = cx.memory::<TooltipMemory>();
         memory.hovered_since = if hovered { Some(memory.hovered_since.unwrap_or(now)) } else { None };
@@ -136,13 +137,35 @@ impl<Msg: 'static> Widget<Msg> for Tooltip<Msg> {
 /// `shown_since`. Widgets that explain a part of themselves (rather than wrapping it in a
 /// [`Tooltip`]) call it from their overlay, so every tip looks and moves the same.
 pub(crate) fn paint_tip(cx: &mut PaintCx<'_>, anchor: Rect, text: &str, placement: Placement, shown_since: Duration) {
+    paint_tip_lines(cx, anchor, &[text.to_owned()], placement, shown_since);
+}
+
+/// Paints a tip like [`paint_tip`] whose text is wrapped to at most `width` cells, padding
+/// included, so a longer explanation stays next to what it explains instead of spreading over
+/// the controls beside it.
+pub(crate) fn paint_wrapped_tip(
+    cx: &mut PaintCx<'_>,
+    anchor: Rect,
+    text: &str,
+    width: u16,
+    placement: Placement,
+    shown_since: Duration,
+) {
+    let padding = cx.style("tooltip", None, &[]).padding();
+    let lines = text::wrap(text, width.saturating_sub(padding.horizontal()).max(1));
+    paint_tip_lines(cx, anchor, &lines, placement, shown_since);
+}
+
+fn paint_tip_lines(cx: &mut PaintCx<'_>, anchor: Rect, lines: &[String], placement: Placement, shown_since: Duration) {
     let style = cx.style("tooltip", None, &[]);
     let padding = style.padding();
     let text_style = style.text();
     let background = text_style.bg.unwrap_or_else(|| cx.color("overlay"));
     let foreground = text_style.fg.unwrap_or_else(|| cx.color("text"));
     let screen = cx.clip();
-    let size = Size::new(text::width(text).saturating_add(padding.horizontal()), padding.vertical().saturating_add(1));
+    let widest = lines.iter().map(|line| text::width(line)).max().unwrap_or(0);
+    let height = u16::try_from(lines.len()).unwrap_or(u16::MAX);
+    let size = Size::new(widest.saturating_add(padding.horizontal()), padding.vertical().saturating_add(height));
     let pointer = cx.pointer_anywhere();
     let covers_pointer = |rect: Rect| pointer.is_some_and(|(x, y)| rect.contains(x, y));
     let sides = [placement, placement.opposite(), Placement::Right, Placement::Left];
@@ -168,9 +191,11 @@ pub(crate) fn paint_tip(cx: &mut PaintCx<'_>, anchor: Rect, text: &str, placemen
         cx.lift(rect, lift);
     }
     let inner = rect.inset(padding);
-    let shown = text::truncate(text, inner.width).into_owned();
     let fg = surface.mix(foreground, progress);
-    cx.text(inner.x, inner.y, &shown, CellStyle { fg: Some(fg), bg: None, ..text_style }, inner.width);
+    for (y, line) in (inner.y..inner.bottom()).zip(lines) {
+        let shown = text::truncate(line, inner.width).into_owned();
+        cx.text(inner.x, y, &shown, CellStyle { fg: Some(fg), bg: None, ..text_style }, inner.width);
+    }
 }
 
 #[cfg(test)]

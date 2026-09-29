@@ -18,9 +18,14 @@
 - `Appearance::new(ekosistem, uygulama, prefs)` — satırların durumu; `.in_folder(klasör)` başka yere kaydeder.
 - `Appearance::section(liste, mesaj)` — bir başlık ve satırlar; `rows(liste, mesaj)` başlıksız.
 - `Appearance::update(değişiklik, &mut ayarlar)` — bir `AppearanceChange`'i kaydeder ve onu gösteren komutu döndürür.
+- `Appearance::updates_in_background()` — güncelleme bildiriminin dosyası kendi iş parçacığında yazılır: anahtar yeni değeri hemen gösterir, dosya alamadığında anahtar eski yerine döner.
+- `Appearance::update_saving(değişiklik, &mut ayarlar, saved)` — `update` ve güncelleme bildirimini arka planda yazan komut; yazmanın ne olduğunu `saved`'e söyler.
+- `AppearanceSave::Saved`, `AppearanceSave::Failed(neden)` — arka plandaki yazmanın bıraktığı; `Appearance::saved(&save)`'e verilir, o da satırı dosyanın hâlâ söylediğine döndürür.
 - `SettingRow::nested(true)` — üstteki satıra ait bir satır: metni iki hücre içeriden başlar.
 - `Ecosystem::update_notice()`, `update_notice_in(klasör)` — ekosistemin güncelleme çıkınca haber verip vermediği; `quvyta.conf` `update-notice = false` demedikçe açık. `set_update_notice(açık)`, `set_update_notice_in(klasör, açık)` yazar; `Preferences::update_notice()` ötekilerle birlikte okur. `Appearance::updates(list, msg)` onun satırıdır, `section`'ın hemen ardından.
+- `Appearance::label(&i18n, Shared)`, `IconMode::label(&i18n)`, `PillarStyle::label(&i18n)` — kutunun bir satır ya da seçenek için kullandığı sözcükler; aynı tercihi başka yerde gösteren bir uygulama için.
 - `UpdateCheck::new(ekosistem, uygulama, paket, sürüm, yeni_sürümde)` — crates.io'ya sorulan soru, `updates` özelliğiyle; test için `.in_folders(ayar, durum)`, bir ayna ya da test sunucusu için `.registry(adres)`. `Command::check_for_update(soru)` sorar. `sürüm` bir ön sürüm olabilir (`0.1.0-alpha.1`): o zaman sonraki ön sürümler de bildirilir; kararlı sürümden yalnızca kararlı sürümler.
+- `qframe::version::newer(aday, kurulu)` — güncelleme bildiriminin kullandığı sıra, ön sürümler dahil: `0.1.10`, `0.1.9`'dan sonra; bir sürüm kendi ön sürümlerinden sonra; `alpha.10`, `alpha.9`'dan sonra; sürüm olmayan bir metin asla daha yeni değildir.
 - `Update::latest()`, `current()`, `package()`, `toast()` — cevap ve her üyenin aynı biçimde gösterdiği bildirim; `Update::new(ekosistem, paket, sürüm, en_yeni)` elle bir tane kurar.
 - `Harness::update_checks()`, `set_latest_version(Some("0.2.0"))` — testin sorudan gördüğü: kaydedilir, verilen sürümle cevaplanır, ağ üzerinden hiç sorulmaz.
 
@@ -38,6 +43,7 @@
 - Ortak dosya kendini izleyemez; içindeki `"quvyta"` bildirilir ve algılanan değer kullanılır.
 - Zaten ekosistemi izleyen bir anahtarda `follow` hiçbir şeyi değiştirmez, hata da vermez; okunamayan bir dosyada `InvalidData` ile başarısız olur ve dosyayı olduğu gibi bırakır.
 - Kaydedilemeyen bir değişiklik yine uygulanır; satırı bir sonraki değişikliğe kadar nedenini söyler.
+- `updates_in_background` ile güncelleme bildiriminin dosyası çizen iş parçacığının dışında yazılır ve satırın altında hiçbir şey söylenmez: sonuç uygulamanın kendi mesajıdır, `Appearance::saved` ise anahtarı dosyanın hâlâ söylediğine döndürmek için dosyayı okur.
 - `QUVYTA_REDUCED_MOTION` karar verirken hareketi azalt satırı ve kutusu pasiftir.
 - `Shared::ReducedMotion` — ortak anahtar olarak hareketi azalt: `Preferences::reduced_motion()`, mantıksal değer olarak yazılır (`Ecosystem::set`'te `true`/`false`). `Shared` `#[non_exhaustive]`'dir.
 - Bir üye `quvyta.conf`'u ve kendi dosyasını izler: bir değişiklikte ikisi de yazılmadan yeniden okunur ve yalnızca son okumadan ve ekrandan farklı olan değer uygulanır. Aynı değerlerin yeniden yazılması hiçbir kancaya ulaşmaz ve kare çizdirmez.

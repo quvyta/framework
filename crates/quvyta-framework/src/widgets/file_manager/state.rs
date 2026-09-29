@@ -1452,7 +1452,13 @@ impl FileManagerState {
                 Err(FileError::NoTrash) => without_trash.push(key),
                 Err(error) => refused.push((key, error)),
                 Ok(FileChange::Copied(key)) => {
-                    touched.push(parent_key(&key).to_owned());
+                    // The copy is selected, so the folder it went into opens to show it, as a
+                    // move's does; a cursor on a hidden row is lost to the keys.
+                    let parent = parent_key(&key).to_owned();
+                    if parent != ROOT {
+                        self.open.insert(parent.clone());
+                    }
+                    touched.push(parent);
                     arrived.push(key);
                 }
                 Ok(FileChange::Trashed(key)) => {

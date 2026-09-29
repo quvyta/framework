@@ -63,8 +63,8 @@ impl RadioStyle {
 /// A set of options of which exactly one is chosen, for a few choices that should all stay
 /// visible. For many choices use a `Select`.
 ///
-/// The group takes focus as one control: arrow keys choose the previous or next option, Home
-/// and End the first and last, and a click anywhere on an option, mark or label, chooses it.
+/// The group takes focus as one control: arrow keys choose the previous or next option (going
+/// round the ends with [`wrap`](Self::wrap)), Home and End the first and last, and a click anywhere on an option, mark or label, chooses it.
 /// By default ([`RadioStyle::Square`]) every option shows a small square centred in two cells and
 /// the chosen one differs by colour: choosing blends the new square towards the chosen tone over
 /// two `motion.step`s while the old one blends back. [`RadioStyle::Mark`] also grows the chosen
@@ -86,6 +86,7 @@ pub struct RadioGroup<Msg> {
     horizontal: bool,
     style: RadioStyle,
     disabled: bool,
+    wrap: bool,
     on_select: Option<IndexMessage<Msg>>,
 }
 
@@ -99,6 +100,7 @@ impl<Msg> RadioGroup<Msg> {
             horizontal: false,
             style: RadioStyle::default(),
             disabled: false,
+            wrap: false,
             on_select: None,
         }
     }
@@ -128,6 +130,14 @@ impl<Msg> RadioGroup<Msg> {
     #[must_use]
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Lets the next-option arrow on the last option choose the first and the previous-option
+    /// arrow on the first choose the last. Home and End still stop at the ends. Off by default.
+    #[must_use]
+    pub fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
         self
     }
 
@@ -297,9 +307,15 @@ impl<Msg: 'static> Widget<Msg> for RadioGroup<Msg> {
             let (back, forward) = if self.horizontal { (Key::Left, Key::Right) } else { (Key::Up, Key::Down) };
             let current = self.selected;
             let target = if key.is_plain(back) {
-                Some(current.map_or(0, |i| i.saturating_sub(1)))
+                Some(match current {
+                    Some(0) if self.wrap => last,
+                    _ => current.map_or(0, |i| i.saturating_sub(1)),
+                })
             } else if key.is_plain(forward) {
-                Some(current.map_or(0, |i| (i + 1).min(last)))
+                Some(match current {
+                    Some(i) if self.wrap && i >= last => 0,
+                    _ => current.map_or(0, |i| (i + 1).min(last)),
+                })
             } else if key.is_plain(Key::Home) {
                 Some(0)
             } else if key.is_plain(Key::End) {
@@ -388,6 +404,52 @@ mod tests {
             (theme.color("accent"), theme.color("accent")),
             "the chosen box is filled"
         );
+    }
+
+    struct Wrapping {
+        chosen: Option<usize>,
+        horizontal: bool,
+        wrap: bool,
+    }
+
+    impl App for Wrapping {
+        type Msg = usize;
+        fn update(&mut self, index: usize) -> Command<usize> {
+            self.chosen = Some(index);
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, usize>) {
+            let group = RadioGroup::new(["Podman", "Docker", "Nerdctl"])
+                .selected(self.chosen)
+                .horizontal(self.horizontal)
+                .style(RadioStyle::Box)
+                .wrap(self.wrap)
+                .on_select(|i| i);
+            ui.add(group);
+        }
+    }
+
+    #[test]
+    fn a_wrapping_group_goes_round_its_ends_and_stops_otherwise() {
+        let mut h = Harness::new(Wrapping { chosen: Some(2), horizontal: false, wrap: true }, 20, 3);
+        h.set_reduced_motion(true);
+        let accent = h.env().theme().color("accent");
+        h.press("tab").press("down");
+        assert_eq!(h.bg(0, 0), accent, "down on the last option fills the first box");
+        h.press("up");
+        assert_eq!(h.bg(0, 2), accent, "up on the first option fills the last box");
+        h.press("home").press("up").press("end").press("end");
+        assert_eq!(h.app().chosen, Some(2), "home and end stop at the ends");
+
+        let mut h = Harness::new(Wrapping { chosen: Some(2), horizontal: true, wrap: true }, 40, 1);
+        h.press("tab").press("right");
+        assert_eq!(h.app().chosen, Some(0), "a row wraps with left and right");
+        h.press("left");
+        assert_eq!(h.app().chosen, Some(2));
+
+        let mut h = Harness::new(Wrapping { chosen: Some(2), horizontal: false, wrap: false }, 20, 3);
+        h.press("tab").press("down");
+        assert_eq!(h.app().chosen, Some(2));
     }
 
     #[test]

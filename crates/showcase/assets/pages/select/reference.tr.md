@@ -10,7 +10,7 @@
 ## Tuşlar
 
 - Kapalı: `enter`, `space` ya da `down` açar.
-- Açık: `up` `down` gezinir, `home` `end` atlar, `pgup` `pgdn` sayfa geçer, bir harf atlar, `enter` ya da `space` seçer, `esc` kapatır, `tab` kapatıp odağı taşır.
+- Açık: `up` `down` gezinir ve menüdeki gibi uçlardan öbür uca geçer; `home` `end` atlar, `pgup` `pgdn` sayfa geçer, bir harf atlar, `enter` ya da `space` seçer, `esc` kapatır, `tab` kapatıp odağı taşır.
 
 ## Fare
 

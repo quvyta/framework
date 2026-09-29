@@ -94,6 +94,7 @@ pub struct TableCell {
     pub(super) icon: Option<Glyph>,
     pub(super) icon_color: Option<String>,
     pub(super) color: Option<String>,
+    pub(super) role: Option<String>,
 }
 
 impl TableCell {
@@ -121,6 +122,16 @@ impl TableCell {
     #[must_use]
     pub fn color(mut self, token: impl Into<String>) -> Self {
         self.color = Some(token.into());
+        self
+    }
+
+    /// Draws the text in typography role `role`, as [`Text::role`](crate::widgets::Text::role) does, such
+    /// as `"faint"` for a value that matters less. Unlike a [`color`](Self::color), a role steps
+    /// aside on the selected row, whose text takes the selection's colour like the table's own
+    /// quiet marks, so the row reads as one.
+    #[must_use]
+    pub fn role(mut self, role: impl Into<String>) -> Self {
+        self.role = Some(role.into());
         self
     }
 

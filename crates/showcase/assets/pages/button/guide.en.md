@@ -18,6 +18,7 @@ Give each screen **one primary button**. When everything is emphasised, nothing 
 - **The pillar comes first.** Hover and focus show the pillar `▌` in the button's very first cell, before the shortcut segment and the icon: `▌ ⏎   Save`, never `⏎ ▌ Save`. The cell is part of the button at rest, so nothing moves when the pillar appears. Buttons never slide.
 - **States come from the theme.** Hover raises the surface and shows a soft pillar. Focus reached with the keyboard raises it too and the pillar breathes between the two accent tones; a button focused by a click stays calm under the pointer. A press flashes it one tone brighter for the theme's `motion.flash` duration.
 - **Keyboard and mouse are equal.** Enter or Space presses the focused button; a click presses it when the mouse is released over it, so moving away before releasing cancels.
+- **A middle click can mean something else.** `.on_middle_press(Msg::Close)` gives the middle button a message of its own, as a browser closes a tab or opens a link in a new one with it. The left click and the keys keep sending the `on_press` message. A button without it ignores the middle button, so it reaches whatever the button sits in.
 - **Held keys never repeat.** Holding Enter presses once, even on terminals that report the hold as fast repeated presses. Enter pressed again after another key is a new press, however soon.
 - **Disabled means gone for input.** A disabled or loading button is skipped by Tab and ignores clicks.
 

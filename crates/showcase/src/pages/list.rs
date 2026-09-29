@@ -6,7 +6,7 @@ use std::sync::Arc;
 use qframe::prelude::*;
 use qframe::widgets::Select;
 
-use super::{PageMsg, setting, slide_setting};
+use super::{PageMsg, setting, slide_setting, toggle};
 use crate::app::Msg as AppMsg;
 use crate::log::EventLog;
 
@@ -39,6 +39,7 @@ pub struct State {
     checked: Vec<bool>,
     multi: bool,
     contents: usize,
+    wrap: bool,
     /// The very long list, with the word its rows were labelled in.
     many: RefCell<Option<(String, Arc<[ListItem]>)>>,
 }
@@ -50,6 +51,7 @@ impl Default for State {
             checked: vec![false; CONTAINERS.len()],
             multi: false,
             contents: 0,
+            wrap: true,
             many: RefCell::new(None),
         }
     }
@@ -77,6 +79,7 @@ pub enum Msg {
     Toggle(usize),
     Multi(usize),
     Contents(usize),
+    Wrap(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -108,6 +111,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.selected = Some(0);
             log.push(PAGE, "Playground", format!("contents = {index}"));
         }
+        Msg::Wrap(on) => {
+            state.wrap = on;
+            log.push(PAGE, "Playground", format!("wrap = {on}"));
+        }
     }
     Command::none()
 }
@@ -131,6 +138,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         let mut list = list
             .selected(state.selected)
             .empty_text(t!("list.empty"))
+            .wrap(state.wrap)
+            // A container is chosen by its name; the status only explains it.
+            .label_first(true)
             .on_select(|index| send(Msg::Select(index)))
             .on_activate(|index| send(Msg::Activate(index)));
         if state.multi && contents == Contents::Containers {
@@ -153,6 +163,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             ui.add(Select::new(names).selected(Some(state.contents)).on_select(|i| send(Msg::Contents(i))))
                 .width(Length::Cells(22))
                 .id("contents");
+        });
+        setting(ui, t!("list.wrap"), |ui| {
+            ui.add(toggle(state.wrap, |on| send(Msg::Wrap(on)))).id("wrap");
         });
         slide_setting(ui, PAGE);
         ui.add(Text::new(t!("list.keys")).role("faint"));
@@ -189,6 +202,23 @@ mod tests {
         h.set_locale("en");
         h.send(send(Msg::Contents(2)));
         assert!(h.screen().contains("No containers"));
+    }
+
+    #[test]
+    fn the_keys_go_round_the_ends_until_the_playground_stops_them() {
+        let mut h = showcase_on(PAGE);
+        h.click_text("nightly-tests");
+        h.press("down");
+        assert_eq!(h.app().pages.list.selected, Some(0), "down on the last container reaches the first");
+        h.press("up");
+        assert_eq!(h.app().pages.list.selected, Some(5));
+        // The switch stands after the playground's 24-cell label column.
+        let (x, y) = h.find("Wrap at the ends").expect("wrap row");
+        h.click(x + 25, y);
+        assert!(!h.app().pages.list.wrap);
+        h.click_text("nightly-tests");
+        h.press("down");
+        assert_eq!(h.app().pages.list.selected, Some(5), "without wrapping the keys stop at the end");
     }
 
     #[test]

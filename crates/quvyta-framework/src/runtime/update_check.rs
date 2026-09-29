@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::storage::{Ecosystem, atomic_write};
+use crate::version::Version;
 use crate::widgets::Toast;
 
 /// The registry asked unless another is given: crates.io's index, the one `cargo install` reads.
@@ -343,79 +344,6 @@ fn field<'a>(line: &'a str, name: &str) -> Option<&'a str> {
     match after.strip_prefix('"') {
         Some(text) => Some(&text[..text.find('"')?]),
         None => Some(after[..after.find([',', '}']).unwrap_or(after.len())].trim()),
-    }
-}
-
-/// A version as semver orders it: `major.minor.patch`, then an optional pre-release whose
-/// dot-separated parts compare as numbers when numeric and as ASCII text otherwise. Build
-/// metadata after `+` is left out, as precedence ignores it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Version {
-    release: (u64, u64, u64),
-    pre: Vec<PrePart>,
-}
-
-/// One part of a pre-release. The order of the variants is semver's: a numeric part ranks below a
-/// word.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum PrePart {
-    Number(u64),
-    Word(String),
-}
-
-impl Version {
-    /// `None` for anything that is not a version, so an answer that cannot be read is silence.
-    fn parse(text: &str) -> Option<Self> {
-        let text = text.split('+').next()?;
-        let (release, pre) = match text.split_once('-') {
-            Some((release, pre)) => (release, Some(pre)),
-            None => (text, None),
-        };
-        let mut parts = release.split('.').map(|part| part.parse::<u64>().ok());
-        let release = (parts.next()??, parts.next()??, parts.next()??);
-        if parts.next().is_some() {
-            return None;
-        }
-        let pre = match pre {
-            None => Vec::new(),
-            Some(pre) => pre
-                .split('.')
-                .map(|part| {
-                    let valid = !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
-                    valid.then(|| part.parse().map_or_else(|_| PrePart::Word(part.to_owned()), PrePart::Number))
-                })
-                .collect::<Option<Vec<_>>>()?,
-        };
-        Some(Self { release, pre })
-    }
-
-    fn is_pre_release(&self) -> bool {
-        !self.pre.is_empty()
-    }
-
-    /// Whether this version may be offered to a person running `running`: a release always, a
-    /// pre-release only to someone already on one.
-    fn offered_to(&self, running: &Self) -> bool {
-        !self.is_pre_release() || running.is_pre_release()
-    }
-}
-
-impl Ord for Version {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // A release ranks above its own pre-releases; between two pre-releases the first part
-        // that differs decides, and a longer list wins a tie.
-        self.release.cmp(&other.release).then_with(|| match (self.pre.is_empty(), other.pre.is_empty()) {
-            (true, true) => std::cmp::Ordering::Equal,
-            (true, false) => std::cmp::Ordering::Greater,
-            (false, true) => std::cmp::Ordering::Less,
-            (false, false) => self.pre.cmp(&other.pre),
-        })
-    }
-}
-
-impl PartialOrd for Version {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
     }
 }
 

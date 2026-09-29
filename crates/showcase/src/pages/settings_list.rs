@@ -32,6 +32,7 @@ pub struct State {
     descriptions: bool,
     locked: bool,
     narrow: bool,
+    wrap: bool,
 }
 
 impl Default for State {
@@ -48,6 +49,7 @@ impl Default for State {
             descriptions: true,
             locked: true,
             narrow: false,
+            wrap: true,
         }
     }
 }
@@ -66,6 +68,7 @@ pub enum Msg {
     Descriptions(bool),
     Locked(bool),
     Narrow(bool),
+    Wrap(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -119,6 +122,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.narrow = on;
             log.push(PAGE, "Playground", format!("narrow = {on}"));
         }
+        Msg::Wrap(on) => {
+            state.wrap = on;
+            log.push(PAGE, "Playground", format!("wrap = {on}"));
+        }
     }
     Command::none()
 }
@@ -132,6 +139,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         ui.add(Text::new(t!("settings-list.hint")).role("secondary"));
         ui.spacer().height(Length::Cells(1));
         let list = SettingsList::show(ui, |list| {
+            list.wrap(state.wrap);
             list.heading(t!("settings-list.appearance"));
             list.row(SettingRow::new(t!("settings-list.theme")), |ui| {
                 let themes = ["Monochrome", "Iris", "Nordic", "Amber"];
@@ -149,9 +157,12 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             });
             // endregion
             list.heading(t!("settings-list.containers"));
-            list.row(SettingRow::new(t!("settings-list.engine")), |ui| {
+            // region: settings-hints
+            let engine = SettingRow::new(t!("settings-list.engine")).hint(t!("settings-list.engine-hint"));
+            list.row(engine, |ui| {
                 ui.add(Segmented::new(ENGINES).selected(state.engine).on_select(|i| send(Msg::Engine(i))));
             });
+            // endregion
             let autostart = describe(SettingRow::new(t!("settings-list.autostart")), "settings-list.autostart-text");
             list.row(autostart, |ui| {
                 ui.add(Switch::new(state.autostart).on_toggle(|on| send(Msg::Autostart(on))));
@@ -198,6 +209,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("settings-list.narrow"), |ui| {
             ui.add(toggle(state.narrow, |on| send(Msg::Narrow(on)))).id("narrow");
         });
+        setting(ui, t!("settings-list.wrap"), |ui| {
+            ui.add(toggle(state.wrap, |on| send(Msg::Wrap(on)))).id("wrap");
+        });
         slide_setting(ui, PAGE);
         ui.add(Text::new(t!("settings-list.keys")).role("faint"));
     })
@@ -224,5 +238,20 @@ mod tests {
         assert!(!h.app().pages.settings_list.telemetry, "the locked row is skipped");
         h.send(send(Msg::Narrow(true)));
         assert!(h.screen().contains("…"), "{}", h.screen());
+    }
+
+    #[test]
+    fn the_engine_row_explains_itself_to_the_keyboard_and_the_rows_go_round() {
+        let mut h = showcase_on(PAGE);
+        h.click_text("Density");
+        h.press("down");
+        assert!(!h.screen().contains("Podman needs no"));
+        h.press("down");
+        assert!(h.screen().contains("Podman needs no"), "{}", h.screen());
+        h.press("right");
+        assert_eq!(h.app().pages.settings_list.engine, 1, "the row's control keeps its keys under the hint");
+        // Engine, animations, density, theme, and round past the locked telemetry row to storage.
+        h.press("up").press("up").press("up").press("up").press("enter");
+        assert_eq!(h.app().pages.settings_list.opened, 1, "up on the first row reaches the last enabled one");
     }
 }

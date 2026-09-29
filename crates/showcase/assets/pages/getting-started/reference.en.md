@@ -70,7 +70,9 @@
 ## Harness
 
 - `Harness::new(app, width, height)` — built-in environment, rendered at once, which reports the size to `resized` and runs `init`; `Harness::with_env(app, env, width, height)` for your own.
-- `Harness::member_in(app, ecosystem, &folder, "code", width, height)` — starts a member as `Runtime::member_in` does, in a folder of the test's own; `.poll_preferences()` reads its files again as the runtime does when they change, and draws only when something changed.
+- `Harness::member_in(app, ecosystem, &folder, "code", width, height)` — starts a member as `Runtime::member_in` does, in a folder of the test's own, with the built-in environment; `.poll_preferences()` reads its files again as the runtime does when they change, and draws only when something changed.
+- `Harness::member_in_with_env(app, env, ecosystem, &folder, "code", width, height)` — the same member start with the supplied environment, so an application can test with its own locale files and keymap while shared language, theme, icons and reduced-motion preferences still apply.
+- `Runtime::harness_in(&folder, width, height)` — the application's own `Runtime`, as its `run` would start it (theme, icon, locale and keymap files and sources, settings, preferences, membership), opened in a harness without a terminal; the member's ecosystem folder is `folder`. Build the runtime in one function that both `run` and the tests call, so a lost `.member(..)` or `.locale_source(..)` line fails a test.
 - `.resize(width, height)` — resizes the screen, reports the new size to `resized` and draws in full.
 - `.press("ctrl+s")`, `.key(event)`, `.type_text("hi")`, `.paste(text)` — keyboard input.
 - `.click(x, y)`, `.click_text("Save")`, `.hover(x, y)`, `.drag(from, to)`, `.mouse(kind, x, y)` — mouse input.

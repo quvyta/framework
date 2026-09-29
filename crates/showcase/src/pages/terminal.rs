@@ -1,5 +1,5 @@
 //! Terminal: the user's shell running inside the showcase, in the theme's colours, with the
-//! title, folder, bell and notifications it reports.
+//! title, folder, bell, notifications and copied text it reports.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -177,6 +177,9 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                         None => body,
                     });
                 }
+                // What the program offers to copy goes on the person's clipboard, over OSC 52 as
+                // well as inside the showcase, so pasting it works in the terminal and in here.
+                TerminalChange::Copied(text) => return Command::copy(text),
                 _ => {}
             }
             if let Some(session) = &state.session {
@@ -373,6 +376,8 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         });
         ui.add(Text::new(t!("terminal.scrollback-hint")).role("faint"));
         ui.add(Text::new(t!("terminal.notices-hint")).role("faint"));
+        ui.add(Text::new(t!("terminal.copy-hint")).role("faint"));
+        ui.add(Text::new(t!("terminal.focus-reports-hint")).role("faint"));
         ui.add(Text::new(t!("terminal.deliver-hint")).role("faint"));
         ui.add(Text::new(t!("terminal.view-only-hint")).role("faint"));
     })
@@ -448,6 +453,28 @@ mod tests {
         for shown in ["from the shell", "/tmp/a b", "Build: done", "bell"] {
             assert!(screen.contains(shown), "{shown} missing: {screen}");
         }
+    }
+
+    #[test]
+    fn text_the_shell_offers_to_copy_lands_on_the_clipboard() {
+        // A program that offers a selection, as a yanked line or a copied path would.
+        let script = "printf '\\033]52;c;aGVsbG8=\\007ready'; exit 0";
+        let session =
+            TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], &super::super::home_folder()).expect("pty");
+        let mut showcase = Showcase::new();
+        showcase.pages.terminal.session = Some(session.clone());
+        let mut h = showcase_tall(showcase, PAGE, 60);
+        assert!(h.clipboard().is_none(), "nothing is copied before the shell offers something");
+        h.send(send(Msg::Changed(0, TerminalChange::Output)));
+        // Each step runs one round of the watch chain; the program ends after a few.
+        for _ in 0..20 {
+            if h.clipboard().is_some() {
+                break;
+            }
+            h.render();
+        }
+        assert_eq!(h.clipboard(), Some("hello"), "the offer went on the clipboard");
+        session.kill();
     }
 
     #[test]

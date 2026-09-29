@@ -15,7 +15,8 @@ use super::popup_menu::{OptionList, OptionStyles, type_ahead};
 
 /// A field showing the chosen option that opens a list of options as a layer.
 ///
-/// Closed: Enter, Space, ↓ or a click opens it. Open: ↑/↓, Home/End and PgUp/PgDn move,
+/// Closed: Enter, Space, ↓ or a click opens it. Open: ↑/↓ move and go round the ends, as in a
+/// menu; Home/End and PgUp/PgDn move and stop at them;
 /// typing a letter jumps to the next option starting with it, Enter or Space chooses, Esc or a
 /// click elsewhere closes. A click elsewhere still reaches what it landed on, so one click on
 /// another dropdown opens that one; a click on this field while open only closes it. The pointer
@@ -240,9 +241,10 @@ impl<Msg: 'static> Widget<Msg> for Select<Msg> {
                     Self::close(cx);
                     return false;
                 } else if key.is_plain(Key::Up) {
-                    self.move_highlight(cx, highlight.saturating_sub(1));
+                    // An open list goes round its ends, as a menu does.
+                    self.move_highlight(cx, highlight.checked_sub(1).unwrap_or(last));
                 } else if key.is_plain(Key::Down) {
-                    self.move_highlight(cx, (highlight + 1).min(last));
+                    self.move_highlight(cx, if highlight >= last { 0 } else { highlight + 1 });
                 } else if key.is_plain(Key::Home) {
                     self.move_highlight(cx, 0);
                 } else if key.is_plain(Key::End) {
@@ -355,6 +357,18 @@ mod tests {
         h.press("down").press("down").press("enter");
         assert_eq!(h.app().theme, Some(2));
         assert!(h.screen().contains("below"));
+    }
+
+    #[test]
+    fn the_open_list_goes_round_its_ends() {
+        let mut h = Harness::new(Demo { theme: None }, 30, 6);
+        h.set_reduced_motion(true);
+        h.press("tab").press("enter").press("home").press("up");
+        assert!(h.screen().contains("Amber"), "the last option scrolls into view:\n{}", h.screen());
+        h.press("enter");
+        assert_eq!(h.app().theme, Some(3), "up on the first option reaches the last");
+        h.press("enter").press("end").press("down").press("enter");
+        assert_eq!(h.app().theme, Some(0), "down on the last option reaches the first");
     }
 
     #[test]

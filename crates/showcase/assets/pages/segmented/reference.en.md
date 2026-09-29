@@ -3,6 +3,7 @@
 - `Segmented::new(options)` — segments with the first chosen.
 - `.selected(usize)` — the chosen segment.
 - `.disabled(bool)` — cannot be focused or changed.
+- `.wrap(bool)` — `right` on the last segment chooses the first and `left` on the first chooses the last; `home` `end` still stop at the ends. Default: `false`.
 - `.on_select(|index| msg)` — message for a newly chosen segment.
 
 ## Behaviour

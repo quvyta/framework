@@ -36,7 +36,22 @@ pub use state::{FileManagerMsg, FileManagerState, FileWork, FolderEntry, NameFor
 type Wrap<Msg> = Rc<dyn Fn(FileManagerMsg) -> Msg>;
 
 /// What the application adds to the menu of the row `key`, which acts on `targets`.
-type Menu<Msg> = Rc<dyn Fn(&str, &[String]) -> Vec<ContextItem<Msg>>>;
+type Menu<Msg> = Rc<dyn Fn(&MenuTarget<'_>) -> Vec<ContextItem<Msg>>>;
+
+/// The row a menu was opened on, as [`FileManager::menu_for`] hands it to the application.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct MenuTarget<'a> {
+    /// The row's key, as [`FileManagerState`] names entries.
+    pub key: &'a str,
+    /// Where the entry is on disk.
+    pub path: &'a Path,
+    /// Whether the entry is a folder, the manager's own top row included.
+    pub folder: bool,
+    /// What an action from this menu acts on: the whole selection when the row is one of
+    /// several selected, the row alone otherwise, as [`FileManagerState::targets`] works it out.
+    pub selection: &'a [String],
+}
 
 /// What a row's path becomes for the application.
 type OnPath<Msg> = Rc<dyn Fn(&Path) -> Msg>;
@@ -208,8 +223,19 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
     /// The row's key comes first and what an action there acts on second: the whole selection when
     /// the row is one of several selected, the row alone otherwise, as
     /// [`FileManagerState::targets`] works it out.
+    ///
+    /// [`menu_for`](Self::menu_for) is the same with the row's path and kind as well.
     #[must_use]
-    pub fn menu_items(mut self, items: impl Fn(&str, &[String]) -> Vec<ContextItem<Msg>> + 'static) -> Self {
+    pub fn menu_items(self, items: impl Fn(&str, &[String]) -> Vec<ContextItem<Msg>> + 'static) -> Self {
+        self.menu_for(move |target| items(target.key, target.selection))
+    }
+
+    /// The application's own items on a row's menu, like [`menu_items`](Self::menu_items), told
+    /// everything the manager knows of the row: its key, its path, whether it is a folder and what
+    /// an action there acts on. An application offering "Open" for files and "Add to favourites"
+    /// for folders needs no list of folders of its own.
+    #[must_use]
+    pub fn menu_for(mut self, items: impl Fn(&MenuTarget<'_>) -> Vec<ContextItem<Msg>> + 'static) -> Self {
         self.menu = Some(Rc::new(items));
         self
     }
@@ -419,7 +445,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
             .activate_on(self.open_on)
             .box_select(true)
             .on_expand(move |key, open| expand(FileManagerMsg::Expand(key.to_owned(), open)))
-            .context_menu(self.menu_for());
+            .context_menu(self.row_menu());
         // Enter or a double click on a file opens it; on a folder they open the folder, which the
         // tree does itself. Space and the modified clicks select instead.
         match &self.on_open {
@@ -505,7 +531,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
     }
 
     /// What every row's menu holds.
-    fn menu_for(&self) -> impl Fn(&str) -> Vec<ContextItem<Msg>> + 'static {
+    fn row_menu(&self) -> impl Fn(&str) -> Vec<ContextItem<Msg>> + 'static {
         let state = self.state;
         // The menu is built long after the view, so it takes what it needs along rather than the
         // state itself.
@@ -521,18 +547,21 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
             // The tree keeps the selection when the click is on one of its rows and makes the row
             // the selection otherwise, so the menu acts on what the click was on.
             let targets = state::targets_of(&chosen, key);
-            let mut own = extra.as_ref().map(|items| items(key, &targets)).unwrap_or_default();
+            let folder = key == ROOT || folders.contains(key);
+            let path = path_of(&root, key);
+            let target = MenuTarget { key, path: &path, folder, selection: &targets };
+            let mut own = extra.as_ref().map(|items| items(&target)).unwrap_or_default();
             if let Some(message) = &terminal
-                && (key == ROOT || folders.contains(key))
+                && folder
             {
                 let label = crate::t!("quvyta.file-manager.open-terminal");
-                own.push(ContextItem::new(label, message(&path_of(&root, key))));
+                own.push(ContextItem::new(label, message(&path)));
             }
             let send = |message: FileManagerMsg| wrap(message);
             if targets.len() > 1 {
                 return many_menu(key, targets.len(), &pending, trashing, own, &send);
             }
-            if key == ROOT || folders.contains(key) {
+            if folder {
                 return folder_menu(key, &pending, trashing, own, &send);
             }
             file_menu(key, &pending, trashing, own, &send)
@@ -592,8 +621,17 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
     }
 }
 
-/// The path of the entry `key` under `root`.
-fn path_of(root: &Path, key: &str) -> std::path::PathBuf {
+/// The path of the entry `key` under `root`, the folder a [`FileManagerState`] shows: the root's
+/// own key is `root` itself, and a key's parts separated by `/` are folders below it.
+///
+/// ```
+/// use std::path::Path;
+/// use qframe::widgets::path_of;
+///
+/// assert_eq!(path_of(Path::new("/home/ali"), "notes/2026/june.md"), Path::new("/home/ali/notes/2026/june.md"));
+/// ```
+#[must_use]
+pub fn path_of(root: &Path, key: &str) -> std::path::PathBuf {
     key.split('/').filter(|part| !part.is_empty()).fold(root.to_path_buf(), |path, part| path.join(part))
 }
 

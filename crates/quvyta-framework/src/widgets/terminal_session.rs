@@ -80,8 +80,8 @@ pub enum TerminalEvent {
 /// Something that changed in a [`TerminalSession`], see [`TerminalWatch::next_change`].
 ///
 /// Besides output and the end of the program, what the program says about itself through
-/// escape sequences: its title, its folder, the bell and notifications. The notices are
-/// heard in the output that also brings an [`Output`](Self::Output).
+/// escape sequences: its title, its folder, the bell, its notifications and the text it wants
+/// copied. The notices are heard in the output that also brings an [`Output`](Self::Output).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TerminalChange {
@@ -103,6 +103,31 @@ pub enum TerminalChange {
         /// The message.
         body: String,
     },
+    /// The program asked for this text to be copied (OSC 52, `52;targets;base64`): what a program
+    /// means when it offers a selection, a yanked line or a copied path. The text is decoded and
+    /// unread, and a copy the application has not read replaces the one before, since the
+    /// clipboard holds one thing and the last offer is the one that would be on it.
+    ///
+    /// Answer it with [`Command::copy`](crate::runtime::Command::copy), which puts the text on the
+    /// system clipboard with OSC 52 and on the application's own, so it works over SSH and inside
+    /// the application:
+    ///
+    /// ```no_run
+    /// # use qframe::prelude::*;
+    /// # use qframe::widgets::TerminalChange;
+    /// # fn update(change: TerminalChange) -> Command<()> {
+    /// match change {
+    ///     TerminalChange::Copied(text) => Command::copy(text),
+    ///     _ => Command::none(),
+    /// }
+    /// # }
+    /// ```
+    ///
+    /// A read request (`52;targets;?`, a program asking what the person copied) is never reported
+    /// and never answered: the clipboard belongs to the person. An offer that is not base64, or
+    /// not UTF-8 once decoded, names nothing to copy and is dropped as well. What is offered is
+    /// bounded like every OSC string, so a long document arrives cut rather than whole.
+    Copied(String),
     /// The process ended with this exit code, or the session was dropped (`None`).
     Exited(Option<u32>),
 }
@@ -159,12 +184,73 @@ impl Drop for Process {
     fn drop(&mut self) {
         // The last handle is gone: end the process so its reader and watch finish too.
         let _ = self.killer.kill();
+        // Letting the writer go ends the program's input by writing a newline and the end-of-file
+        // byte into it, which waits for a program that is not reading: a pseudo-terminal holds a
+        // fixed amount, and one filled with what nobody read would hold the thread that lets the
+        // session go for good. The flags are not put back, since the descriptor closes right after.
+        #[cfg(unix)]
+        if let Some(raw) = self.master.as_raw_fd() {
+            answer_at_once(raw);
+        }
     }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // A panic in another thread must not take the terminal down with it; the data stays usable.
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Puts the descriptor `raw` to answering at once instead of waiting for room, with the flags it
+/// had, which [`blocking_again`] puts back. A write to a program that is not reading waits for
+/// room that never comes, and the thread that waits stops for good.
+#[cfg(unix)]
+fn answer_at_once(raw: std::os::unix::io::RawFd) -> Option<nix::fcntl::OFlag> {
+    use nix::fcntl::{FcntlArg, OFlag, fcntl};
+    let was = OFlag::from_bits_retain(fcntl(raw, FcntlArg::F_GETFL).ok()?);
+    fcntl(raw, FcntlArg::F_SETFL(was | OFlag::O_NONBLOCK)).ok()?;
+    Some(was)
+}
+
+/// Gives the descriptor `raw` the flags it had before [`answer_at_once`].
+#[cfg(unix)]
+fn blocking_again(raw: std::os::unix::io::RawFd, was: nix::fcntl::OFlag) {
+    let _ = nix::fcntl::fcntl(raw, nix::fcntl::FcntlArg::F_SETFL(was));
+}
+
+/// Writes back what a program asked the terminal, in as much as its input will take now.
+///
+/// A program that asks again and again without reading fills the input of a pseudo-terminal, and
+/// a write waiting for room in it would stop the reading thread for good: no output parsed, no
+/// key delivered, no end of the program seen. What the input will not take is left out, which a
+/// program whose input is full cannot have been waiting for.
+#[cfg(unix)]
+fn answer(process: &mut Process, replies: &[u8]) {
+    let Some(raw) = process.master.as_raw_fd() else {
+        let _ = process.writer.write_all(replies);
+        return;
+    };
+    // The process is held as long as this runs and every write to it needs the process too, so
+    // nobody meets a master that will not block while the answers go in.
+    let Some(was) = answer_at_once(raw) else { return };
+    let mut left = replies;
+    while !left.is_empty() {
+        match process.writer.write(left) {
+            Ok(0) => break,
+            Ok(written) => left = &left[written..],
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            // The input is full, so the program is not reading and not waiting for this. Any other
+            // failure means as much: nothing more of it will go in.
+            Err(_) => break,
+        }
+    }
+    blocking_again(raw, was);
+}
+
+/// Where there is no master to ask, the answers go in as a person's keys do: in one piece, waiting
+/// for the program to read them.
+#[cfg(not(unix))]
+fn answer(process: &mut Process, replies: &[u8]) {
+    let _ = process.writer.write_all(replies);
 }
 
 /// How to start a [`TerminalSession`]: program, arguments, folder, environment, first size,
@@ -296,7 +382,7 @@ impl TerminalBuilder {
                             let mut parser = lock(&thread_shared.parser);
                             feed.feed(&buffer[..count], &mut *parser);
                             let callbacks = parser.callbacks_mut();
-                            (std::mem::take(&mut callbacks.notices), callbacks.keyboard.take_replies())
+                            (std::mem::take(&mut callbacks.notices), callbacks.take_replies())
                         };
                         // A program asking the terminal something waits for the answer before it
                         // goes on, so it is written here, where the question was read, and not
@@ -306,7 +392,8 @@ impl TerminalBuilder {
                             && let Some(process) = answer_to.upgrade()
                         {
                             let mut process = lock(&process);
-                            let _ = process.writer.write_all(&replies).and_then(|()| process.writer.flush());
+                            answer(&mut process, &replies);
+                            let _ = process.writer.flush();
                         }
                         let mut signal = lock(&thread_shared.signal);
                         // A watch only needs waking for the first unreported chunk: while one is
@@ -338,9 +425,9 @@ impl TerminalBuilder {
 /// The runtime learns about new output through a [`TerminalWatch`]: run
 /// [`TerminalWatch::next`] in a [`Command::perform`](crate::runtime::Command::perform), and
 /// start it again when its message arrives, until it reports [`TerminalEvent::Exited`].
-/// [`TerminalWatch::next_change`] also reports the program's title, folder, bell and
-/// notifications. [`TerminalSession::builder`] sets the environment, the first size, the
-/// scrollback and how often output is reported.
+/// [`TerminalWatch::next_change`] also reports the program's title, folder, bell,
+/// notifications and the text it wants copied. [`TerminalSession::builder`] sets the
+/// environment, the first size, the scrollback and how often output is reported.
 #[derive(Clone)]
 pub struct TerminalSession {
     shared: Arc<Shared>,
@@ -433,6 +520,18 @@ impl TerminalSession {
         self.send(bytes)?;
         lock(&self.shared.quiet).input = Instant::now();
         Ok(())
+    }
+
+    /// A report the terminal sends on its own account, such as the focus a program asked to hear
+    /// about: the terminal speaking, not the person, so it moves neither
+    /// [`last_input`](Self::last_input) nor [`line_pending`](Self::line_pending) and an
+    /// application waiting for a quiet terminal is not held off by it.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the program no longer reads its input, as [`write`](Self::write) does.
+    pub(crate) fn write_report(&self, bytes: &[u8]) -> io::Result<()> {
+        self.send(bytes)
     }
 
     /// Sends `text` as a paste: wrapped in the bracketed-paste markers when the program turned
@@ -693,7 +792,7 @@ impl TerminalWatch {
     /// here. Call it inside [`Command::perform`](crate::runtime::Command::perform), never in
     /// `update` or `view`.
     ///
-    /// Titles, folders, bells and notifications are not reported here; use
+    /// Titles, folders, bells, copied text and notifications are not reported here; use
     /// [`next_change`](Self::next_change) for them.
     #[must_use]
     pub fn next(&self) -> TerminalEvent {
@@ -706,8 +805,9 @@ impl TerminalWatch {
     }
 
     /// Blocks until something changes: output, the end of the program, or a title, folder,
-    /// bell or notification from it (see [`TerminalChange`]). Pending size changes are applied
-    /// here. Call it inside [`Command::perform`](crate::runtime::Command::perform), never in
+    /// bell, notification or copied text from it (see [`TerminalChange`]). Pending size changes
+    /// are applied here. Call it inside
+    /// [`Command::perform`](crate::runtime::Command::perform), never in
     /// `update` or `view`, and start it again when its message arrives, until it reports
     /// [`TerminalChange::Exited`].
     ///
@@ -924,6 +1024,49 @@ mod tests {
             ],
             "{changes:?}"
         );
+    }
+
+    #[test]
+    fn text_a_program_offers_to_copy_is_reported() {
+        let script = "printf '\\033]52;c;aGVsbG8=\\007'; sleep 0.2; printf end; exit 0";
+        let session = sh(script).spawn().expect("pty");
+        let changes = changes_to_exit(&session);
+        let notices: Vec<&TerminalChange> =
+            changes.iter().filter(|change| !matches!(change, TerminalChange::Output)).collect();
+        assert_eq!(notices, [&TerminalChange::Copied("hello".into()), &TerminalChange::Exited(Some(0))], "{changes:?}");
+        assert_eq!(contents(&session), "end", "the offer draws nothing on the screen");
+    }
+
+    #[test]
+    fn a_read_request_is_never_answered() {
+        // Asks what the person copied, then shows, in hex, the first three bytes it is given: the
+        // test's own, or the answer a read request must never get.
+        let script = "stty raw -echo; printf '\\033]52;c;?\\007ready '; head -c 3 | od -An -tx1";
+        let session = sh(script).spawn().expect("pty");
+        wait_for(&session, "ready");
+        assert!(
+            watch_for_copies(&session).is_empty(),
+            "the person owns the clipboard, so a program asking it is told nothing"
+        );
+        session.write(b"end").expect("write");
+        wait_for(&session, "65 6e 64");
+        session.kill();
+    }
+
+    /// The copies a program offers within a bound of silence, and nothing else: a read request
+    /// must leave the watch with nothing to report, and asking again must not find one late.
+    fn watch_for_copies(session: &TerminalSession) -> Vec<String> {
+        let watch = session.watch();
+        let started = Instant::now();
+        let mut copies = Vec::new();
+        while started.elapsed() < BOUND {
+            match watch.next_change_within(Duration::from_millis(100)) {
+                Some(TerminalChange::Copied(text)) => copies.push(text),
+                Some(TerminalChange::Output) | None => {}
+                Some(change) => panic!("{change:?} is not a copy"),
+            }
+        }
+        copies
     }
 
     #[test]
@@ -1253,6 +1396,26 @@ mod tests {
         changes_to_exit(&session);
         assert!(session.paste("too late").is_err(), "the program no longer reads its input");
         assert!(session.write(b"too late").is_err(), "and so is writing to it");
+    }
+
+    #[test]
+    fn a_program_that_asks_about_the_keyboard_without_reading_does_not_stop_the_screen() {
+        // Four thousand questions, more than the input of a pseudo-terminal holds, and not a byte
+        // read back: the answers may not wait for a program that is not reading, or the reading
+        // thread stops where it is and nothing else is ever seen again.
+        let script = "stty raw -echo; q='\\033[?u'; i=0; \
+                      while [ $i -lt 12 ]; do q=\"$q$q\"; i=$((i+1)); done; \
+                      printf \"$q\"; printf LATER";
+        let session = sh(script).spawn().expect("pty");
+        // A program still writing is not one that ended, so this asks within a bound like an
+        // application does instead of waiting for a change that may never come.
+        let watch = session.watch();
+        let started = Instant::now();
+        while started.elapsed() < PATIENCE && !contents(&session).contains("LATER") {
+            let _ = watch.next_change_within(Duration::from_millis(100));
+        }
+        let seen = contents(&session).contains("LATER");
+        assert!(seen, "the screen stopped at the program's questions, and shows nothing of what came after");
     }
 
     fn wait_for(session: &TerminalSession, text: &str) {

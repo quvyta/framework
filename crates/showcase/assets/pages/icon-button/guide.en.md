@@ -15,6 +15,7 @@ Use an icon button for a small, well-known action at the edge of a header or a r
 - **No surface at rest.** It stands on the ground around it, so a row of them reads as quiet marks, not as a row of buttons.
 - **The tone is the state.** Under the pointer all three cells lighten to the hover tone, keyboard focus lightens them one step further, and a press flashes them one step more: rest < hover < focus < pressed, never inverted. There is no pillar: three cells have no room for one before the glyph, and a pillar would push it off centre.
 - **Keyboard and mouse are equal.** Enter or Space presses the focused button; a click presses it when the mouse is released over it, so moving away before releasing cancels.
+- **Selected means on.** `.selected(true)` draws the glyph in the accent colour, for a control that stays on, such as a filter or a bookmark for the page shown. Only the glyph changes: the cells keep their ground and light up under the pointer and focus as usual, and the button still presses, so the application turns it off in the same message that turned it on.
 - **Disabled means gone for input.** A disabled icon button is faint, skipped by Tab and ignores clicks.
 
 ## Why not a Button option

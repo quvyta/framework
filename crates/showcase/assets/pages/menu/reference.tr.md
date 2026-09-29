@@ -6,6 +6,7 @@
 - `.selected(Option<&str>)` — açık öğenin anahtarı.
 - `.on_select(|anahtar| msg)` — açık olandan farklı bir öğe açılınca gönderilir.
 - `.collapsible(|grup, açık| msg)` — başlıklı gruplar katlanır; `.collapsed(anahtarlar)` kapalı olanları listeler.
+- `.wrap(bool)` — son satırda `down` ilk satıra, ilk satırda `up` son satıra geçer; `home` `end` yine uçta durur. Varsayılan: `false`.
 
 ## Davranış
 

@@ -588,13 +588,17 @@ pub(crate) struct Blink {
 }
 
 /// Draws the blinking block cursor over the glyph at `x`. The cursor stays solid for one blink
-/// period after every edit so it never disappears while typing.
+/// period after every edit so it never disappears while typing, and stays solid once nothing has
+/// been typed or clicked for a while, so an idle screen draws no frames.
 pub(crate) fn draw_cursor(cx: &mut PaintCx<'_>, x: i32, y: i32, glyph: &str, blink: Blink, states: &[State]) {
     let since = blink.now.saturating_sub(blink.last_edit);
     let period = blink.period.max(Duration::from_millis(1));
-    let phase = since.as_millis() / period.as_millis();
-    let next = period.saturating_mul(u32::try_from(phase + 1).unwrap_or(u32::MAX)).saturating_sub(since);
-    cx.request_frame_in(next);
+    let rest = cx.motion_rests_at();
+    let phase = if blink.now >= rest { 0 } else { since.as_millis() / period.as_millis() };
+    if blink.now < rest {
+        let next = period.saturating_mul(u32::try_from(phase + 1).unwrap_or(u32::MAX)).saturating_sub(since);
+        cx.request_frame_in(next.min(rest - blink.now));
+    }
     if phase.is_multiple_of(2) {
         let style = cx.style("text-input-cursor", None, states).text();
         cx.text(x, y, glyph, style, text::width(glyph).max(1));
@@ -654,6 +658,22 @@ mod tests {
         assert_eq!(h.app().value, "quvyta ");
         h.press("enter");
         assert_eq!(h.app().submitted.as_deref(), Some("quvyta "));
+    }
+
+    #[test]
+    fn the_cursor_stops_blinking_on_a_screen_nobody_touches_and_blinks_again_at_the_next_key() {
+        let mut h = Harness::new(Demo::default(), 30, 1);
+        h.press("tab").type_text("quiet");
+        assert!(h.next_frame().is_some(), "a cursor just typed with blinks");
+        h.advance(Duration::from_secs(30));
+        assert_eq!(h.next_frame(), None, "a screen left alone asks for no frame");
+        let cursor = |h: &Harness<Demo>| (h.fg(9, 0), h.bg(9, 0));
+        let resting = cursor(&h);
+        assert_ne!(resting, (h.fg(20, 0), h.bg(20, 0)), "the cursor rests drawn, not hidden");
+        h.advance(h.env().theme().motion().cursor_blink);
+        assert_eq!(cursor(&h), resting, "and it stays where it is");
+        h.press("left");
+        assert!(h.next_frame().is_some(), "the next key starts the blinking again");
     }
 
     #[test]

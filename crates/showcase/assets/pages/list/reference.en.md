@@ -9,12 +9,14 @@
 - `.checked(Vec<bool>)` and `.on_toggle(|index| msg)` — multiple selection.
 - `.empty_text(text)` — shown when there are no items.
 - `.scrollbar(ScrollbarStyle)` — pins a scrollbar style instead of the theme's.
+- `.wrap(bool)` — `down` (or `j`) on the last row goes on to the first and `up` (or `k`) on the first to the last, as in a menu; `pgup` `pgdn` `home` `end` still stop at the ends, and headers and gaps are skipped. Default: `false`.
 
 ## ListItem
 
 - `ListItem::new(label)`, `ListItem::header(title)`, `ListItem::gap()`.
 - `.icon(key, Some(token))` — icon before the label, optionally coloured.
-- `.detail(text)` — right-aligned faint text.
+- `.detail(text)` — right-aligned faint text; it keeps its width and the label is cut when both do not fit.
+- `.label_first(bool)` — the detail gives way first instead: cut with `…`, and left out when fewer than four cells of it would remain, so the label stays whole as long as it fits on its own. For rows chosen by their label. Default: `false`.
 - `.faint(bool)` — faint but selectable.
 
 ## Keys

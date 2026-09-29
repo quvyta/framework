@@ -47,7 +47,8 @@ type SortMessage<Msg> = Box<dyn Fn(usize, SortDirection) -> Msg>;
 /// through messages. A hovered or selected row raises its surface and shows the pillar; only its
 /// first cell slides one cell right. The check mark of a multi-select table never moves.
 ///
-/// Keys while focused: ↑/↓ or k/j, PgUp/PgDn, Home/End move; Enter activates; Space toggles in
+/// Keys while focused: ↑/↓ or k/j, PgUp/PgDn, Home/End move (↑/↓ round the ends with
+/// [`wrap`](Self::wrap)); Enter activates; Space toggles in
 /// multi-select tables and activates otherwise; ←/→ scroll columns that overflow; with
 /// [`Table::on_sort`], `s` sorts by the next sortable column and `shift+s` reverses the order.
 ///
@@ -87,6 +88,7 @@ pub struct Table<Msg> {
     menu: Option<RowMenuItems<Msg>>,
     menu_on_activate: bool,
     picking: Picking<Msg>,
+    wrap: bool,
 }
 
 #[derive(Debug, Default)]
@@ -120,7 +122,17 @@ impl<Msg: 'static> Table<Msg> {
             menu: None,
             menu_on_activate: false,
             picking: Picking::default(),
+            wrap: false,
         }
+    }
+
+    /// Lets ↓ (or j) on the last row go on to the first and ↑ (or k) on the first go to the
+    /// last, as a menu does. PgUp/PgDn and Home/End still stop at the ends, and Shift with an
+    /// arrow never wraps a range. Off by default: the keys stop at either end.
+    #[must_use]
+    pub fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
+        self
     }
 
     /// The selected row index.
@@ -516,7 +528,7 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
                     return true;
                 }
                 if let Some(step) = Step::from_key(key) {
-                    let Some(target) = step.apply(self.selected, total, page) else {
+                    let Some(target) = step.apply_wrapping(self.selected, total, page, self.wrap) else {
                         return false;
                     };
                     if self.picking.is_multi() {

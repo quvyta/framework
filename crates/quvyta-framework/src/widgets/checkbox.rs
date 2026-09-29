@@ -49,9 +49,11 @@ pub enum CheckboxStyle {
 /// Space or a click on the box or the label toggles it. The application owns the state.
 ///
 /// Style keys: `checkbox` (`bg`, `fg`) with states `hover`, `focus`, `checked`, `disabled` and
-/// variant `partial` (check style); `checkbox-label` (`fg`, `bold`) with the same states.
+/// variant `partial` (check style); `checkbox-label` (`fg`, `bold`) with the same states;
+/// `checkbox-description` (`fg`) with the same states.
 pub struct Checkbox<Msg> {
     label: Option<String>,
+    description: Option<String>,
     checked: bool,
     partial: bool,
     style: CheckboxStyle,
@@ -63,7 +65,15 @@ impl<Msg> Checkbox<Msg> {
     /// A checkbox showing `checked`.
     #[must_use]
     pub fn new(checked: bool) -> Self {
-        Self { label: None, checked, partial: false, style: CheckboxStyle::Box, disabled: false, on_toggle: None }
+        Self {
+            label: None,
+            description: None,
+            checked,
+            partial: false,
+            style: CheckboxStyle::Box,
+            disabled: false,
+            on_toggle: None,
+        }
     }
 
     /// Text after the box; clicking it toggles too.
@@ -71,6 +81,21 @@ impl<Msg> Checkbox<Msg> {
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
+    }
+
+    /// A faint explanation under the label, starting in the label's column and wrapping there,
+    /// such as what checking the box will do. Clicking it toggles the box, as the label does.
+    #[must_use]
+    pub fn description(mut self, text: impl Into<String>) -> Self {
+        self.description = Some(text.into());
+        self
+    }
+
+    /// Cells from the checkbox's left edge to the first letter of its label: where text that
+    /// belongs to the label, drawn outside the checkbox, lines up with it.
+    #[must_use]
+    pub fn label_column(&self) -> u16 {
+        self.box_width().saturating_add(LABEL_GAP)
     }
 
     /// Shows the box partly checked. Toggling a partly checked box asks for `true`.
@@ -103,6 +128,12 @@ impl<Msg> Checkbox<Msg> {
 
     fn active(&self) -> bool {
         !self.disabled && self.on_toggle.is_some()
+    }
+
+    /// The description wrapped to the room right of the label's column in `width` cells.
+    fn description_lines(&self, width: u16) -> Vec<String> {
+        let room = width.saturating_sub(self.label_column()).max(1);
+        self.description.as_deref().map_or_else(Vec::new, |description| text::wrap(description, room))
     }
 
     fn box_width(&self) -> u16 {
@@ -165,7 +196,14 @@ pub(super) fn paint_box(
 impl<Msg: 'static> Widget<Msg> for Checkbox<Msg> {
     fn measure(&self, _cx: &mut MeasureCx<'_>, available: Size) -> Size {
         let label = self.label.as_deref().map_or(0, |label| text::width(label).saturating_add(LABEL_GAP));
-        Size::new(self.box_width().saturating_add(label), 1).min(available)
+        let lines = self.description_lines(available.width);
+        let described = lines
+            .iter()
+            .map(|line| text::width(line))
+            .max()
+            .map_or(0, |width| width.saturating_add(self.label_column()));
+        let height = u16::try_from(lines.len()).unwrap_or(u16::MAX).saturating_add(1);
+        Size::new(self.box_width().saturating_add(label).max(described), height).min(available)
     }
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
@@ -200,6 +238,12 @@ impl<Msg: 'static> Widget<Msg> for Checkbox<Msg> {
             let budget = area.width.saturating_sub(box_width + LABEL_GAP);
             let shown = text::truncate(label, budget).into_owned();
             cx.text(area.x + i32::from(box_width + LABEL_GAP), area.y, &shown, label_style, budget);
+        }
+        let description_style = cx.style("checkbox-description", None, &states).text();
+        let column = area.x + i32::from(self.label_column());
+        let budget = area.width.saturating_sub(self.label_column());
+        for (y, line) in (area.y + 1..area.bottom()).zip(self.description_lines(area.width)) {
+            cx.text(column, y, &line, description_style, budget);
         }
         if self.active() {
             cx.register_hit(area);
@@ -260,6 +304,55 @@ mod tests {
             )
             .id("box");
         }
+    }
+
+    /// A checkbox with a description, in the style `style`.
+    struct Described {
+        checked: bool,
+        style: CheckboxStyle,
+    }
+
+    impl App for Described {
+        type Msg = bool;
+        fn update(&mut self, on: bool) -> Command<bool> {
+            self.checked = on;
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, bool>) {
+            ui.add(
+                Checkbox::new(self.checked)
+                    .style(self.style)
+                    .label("Keep backups")
+                    .description("Old copies stay in the backup folder for thirty days")
+                    .on_toggle(|on| on),
+            );
+        }
+    }
+
+    fn column_of(h: &Harness<Described>, word: &str) -> (i32, i32) {
+        h.find(word).unwrap_or_else(|| panic!("{word}:\n{}", h.screen()))
+    }
+
+    #[test]
+    fn a_description_starts_in_the_labels_column_and_wraps_there() {
+        for style in [CheckboxStyle::Box, CheckboxStyle::Check] {
+            let h = Harness::new(Described { checked: false, style }, 30, 5);
+            let (label, row) = column_of(&h, "Keep");
+            let (old, below) = column_of(&h, "Old");
+            assert_eq!((old, below), (label, row + 1), "{style:?}:\n{}", h.screen());
+            let (days, last) = column_of(&h, "days");
+            assert!(last > below, "a narrow box wraps the description:\n{}", h.screen());
+            assert!(days >= label, "and every line keeps to the column:\n{}", h.screen());
+            assert_eq!(i32::from(Checkbox::<bool>::new(false).style(style).label_column()), label);
+        }
+    }
+
+    #[test]
+    fn clicking_the_description_toggles_the_box() {
+        let mut h = Harness::new(Described { checked: false, style: CheckboxStyle::Box }, 60, 3);
+        let (x, y) = column_of(&h, "thirty");
+        h.click(x, y);
+        assert!(h.app().checked);
     }
 
     #[test]

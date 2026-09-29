@@ -9,6 +9,7 @@ use crate::text;
 use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
 
 use super::rows::WHEEL_ROWS;
+use super::terminal_answers::Colours;
 use super::terminal_mouse;
 use super::terminal_session::TerminalSession;
 
@@ -39,6 +40,16 @@ const WHEEL_LINES: usize = WHEEL_ROWS as usize;
 /// `CR`. The session answers a program's `CSI ? u` with the flags in force. Of the protocol only
 /// its first flag, telling keys apart, is followed, and only Enter is sent differently under it;
 /// every other key keeps its xterm bytes, which such programs read as well.
+///
+/// A program that asks to hear about the focus (xterm's mode 1004) is told when the terminal gains
+/// it (`ESC [ I`) and when it loses it (`ESC [ O`): once per change, since such a program waits
+/// for the report before it draws, and never for a terminal that only shows or whose program has
+/// ended. The widget knows the focus while it paints, which a focus change always brings round.
+/// These are the terminal's own reports rather than the person's typing, so they move neither
+/// [`TerminalSession::last_input`] nor [`TerminalSession::line_pending`], and an application
+/// waiting for a quiet terminal is not held off by them. The text a program offers to copy
+/// (OSC 52) is not a widget matter: it arrives as
+/// [`TerminalChange::Copied`](super::TerminalChange::Copied) from the watch.
 ///
 /// Once the program has ended nothing the widget cannot deliver is swallowed: a key, a paste and
 /// a wheel step on the alternate screen are handed back instead. A paste then reaches
@@ -75,6 +86,9 @@ pub struct Terminal {
 #[derive(Debug, Default)]
 struct TerminalMemory {
     scrollback: usize,
+    /// The focus last reported to the program, and `None` before it asked to hear about it and
+    /// again while it does not.
+    focus: Option<bool>,
 }
 
 impl Terminal {
@@ -258,6 +272,32 @@ fn scroll_back<Msg>(cx: &mut EventCx<'_, Msg>, up: bool) {
         if up { memory.scrollback + WHEEL_LINES } else { memory.scrollback.saturating_sub(WHEEL_LINES) };
 }
 
+/// Tells the program whether this terminal has the focus, if it asked to hear (xterm's mode 1004)
+/// and only when the answer changed: a program waits for this before it draws, and a report on
+/// every frame says nothing it has not been told.
+///
+/// Painting is where the focus is known for certain, and a focus change always repaints, since the
+/// cursor the widget draws with it is what changes. A view-only terminal is not in the focus order
+/// and never writes to its program, and a program that has ended has no focus left to hear about,
+/// so neither is told anything.
+fn report_focus(cx: &mut PaintCx<'_>, session: &TerminalSession, read_only: bool, focused: bool) {
+    let report =
+        if read_only || session.exit().is_some() { None } else { session.parser().callbacks().focus.report(focused) };
+    let memory = cx.memory::<TerminalMemory>();
+    match report {
+        Some(bytes) if memory.focus != Some(focused) => {
+            memory.focus = Some(focused);
+            // The terminal's own account, not the person's: an application waiting for a quiet
+            // terminal is not held off by it, and a report is not a letter in a line.
+            let _ = session.write_report(bytes);
+        }
+        Some(_) => {}
+        // What the program was told last no longer holds while it has stopped asking, so the next
+        // time it asks it is told the focus as it stands then.
+        None => memory.focus = None,
+    }
+}
+
 impl<Msg: 'static> Widget<Msg> for Terminal {
     fn measure(&self, _cx: &mut MeasureCx<'_>, available: Size) -> Size {
         available
@@ -294,6 +334,9 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
 
         let session = self.session.clone();
         let mut parser = session.parser();
+        // A program asking which colours it is drawn on is told the ones it is drawn on here.
+        let cursor = cursor_style.bg.unwrap_or(default_fg);
+        parser.callbacks_mut().answers.set_colours(Colours { text: default_fg, ground: default_bg, cursor });
         parser.screen_mut().set_scrollback(wanted);
         let screen = parser.screen();
         // Moves are only ever asked for to report them to the program, which a view-only terminal
@@ -348,6 +391,7 @@ impl<Msg: 'static> Widget<Msg> for Terminal {
         }
         drop(parser);
         cx.memory::<TerminalMemory>().scrollback = scrolled;
+        report_focus(cx, &self.session, self.read_only, focused);
 
         let note = if let Some(code) = self.session.exit() {
             let code = code.map_or_else(|| "?".to_owned(), |c| c.to_string());
@@ -519,7 +563,11 @@ mod tests {
 
     /// A harness with only `session`'s terminal, focused.
     fn focused(session: &TerminalSession) -> Harness<Pasting> {
-        let mut h = Harness::new(Pasting { session: session.clone(), heard: Vec::new() }, 40, 6);
+        // As wide as the terminal the session starts in: the widget asks for its own size, and a
+        // narrower one arriving while a program writes cuts the line it was writing, since the
+        // screen does not reflow, which a test reading a whole line of hex would take for bytes
+        // that never came.
+        let mut h = Harness::new(Pasting { session: session.clone(), heard: Vec::new() }, 80, 6);
         h.press("tab");
         assert!(h.is_focused("terminal"));
         h
@@ -567,6 +615,99 @@ mod tests {
         assert!(session.line_pending(), "a new line inside the message did not send it");
         h.press("enter");
         assert!(!session.line_pending());
+        session.kill();
+    }
+
+    /// A live terminal under a button that does something, which is what makes it a tab stop: Tab
+    /// reaches the terminal, and `shift tab` takes the focus back to the button.
+    struct Focusing {
+        session: TerminalSession,
+    }
+
+    impl App for Focusing {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(crate::widgets::Button::new("beside").on_press(())).id("beside");
+            ui.add(Terminal::new(&self.session)).fill().id("terminal");
+        }
+    }
+
+    /// A program that turns mode 1004 on only after two bytes reach it, and then shows three bytes
+    /// at a time, in hex, as they arrive: waiting for the test means the mode is on before the
+    /// focus moves, and one read per report keeps each answer where it is looked for.
+    fn asking_for_focus_reports() -> TerminalSession {
+        let script = "stty raw -echo; printf ready; head -c 2 >/dev/null; printf '\\033[?1004hasking '; \
+                      head -c 3 | od -An -tx1; head -c 3 | od -An -tx1";
+        TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty")
+    }
+
+    #[test]
+    fn a_program_asking_for_focus_reports_is_told_where_the_focus_goes() {
+        let session = asking_for_focus_reports();
+        wait_for(&session, "ready");
+        let mut h = Harness::new(Focusing { session: session.clone() }, 40, 6);
+        h.press("tab").press("tab");
+        assert!(h.is_focused("terminal"), "Tab reaches the terminal");
+        let typed_at = session.last_input();
+        // The mode comes on while the terminal already has the focus, so the program is told at
+        // once instead of waiting for a change that has been over. Its own paste opens the gate,
+        // which is the application writing and not the person.
+        session.paste("go").expect("paste");
+        wait_for(&session, "asking");
+        h.render();
+        wait_for(&session, "1b 5b 49");
+        h.press("shift+tab");
+        assert!(h.is_focused("beside"), "the focus left the terminal");
+        wait_for(&session, "1b 5b 4f");
+        assert_eq!(session.last_input(), typed_at, "the terminal's own reports are not the person");
+        assert!(!session.line_pending(), "and they are not a line either");
+        session.kill();
+    }
+
+    #[test]
+    fn a_program_asking_for_the_ground_colour_and_the_cursor_is_answered_in_that_order() {
+        // Asks the way an editor starts: the ground colour, then where the cursor is, whose answer
+        // tells it the colour answer is not coming. The answers come back with escapes made
+        // visible, so the screen shows what the program read.
+        let script = "stty raw -echo; printf ready; head -c 2 >/dev/null; \
+                      printf '\\033]11;?\\033\\\\\\033[6n'; head -c 31 | tr '\\033' E";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&session, "ready");
+        let mut h = Harness::new(Focusing { session: session.clone() }, 40, 6);
+        h.render();
+        session.paste("go").expect("paste");
+        wait_for(&session, "R");
+        let shown = session.parser().screen().contents();
+        let ground = h.env().theme().color("surface").expect("a ground colour");
+        let wide = |channel: u8| u16::from(channel) * 0x101;
+        let colour = format!("E]11;rgb:{:04x}/{:04x}/{:04x}E\\", wide(ground.r), wide(ground.g), wide(ground.b));
+        let at_colour = shown.find(&colour).unwrap_or_else(|| panic!("no ground colour {colour:?} in {shown:?}"));
+        let at_cursor = shown.find("E[1;6R").unwrap_or_else(|| panic!("no cursor answer in {shown:?}"));
+        assert!(at_colour < at_cursor, "the colour is answered first, as it was asked: {shown:?}");
+        session.kill();
+    }
+
+    #[test]
+    fn a_program_that_did_not_ask_hears_nothing_when_the_focus_moves() {
+        // Echoes what it is given, escapes visible, and asks for nothing: a report the widget
+        // should not send would show up in its own output.
+        let script = "stty raw -echo; printf ready; cat -v";
+        let session = TerminalSession::spawn("/bin/sh".as_ref(), &["-c", script], Path::new("/")).expect("pty");
+        wait_for(&session, "ready");
+        let mut h = Harness::new(Focusing { session: session.clone() }, 40, 6);
+        h.press("tab").press("tab");
+        assert!(h.is_focused("terminal"));
+        h.press("shift+tab");
+        assert!(h.is_focused("beside"));
+        h.press("tab");
+        assert!(h.is_focused("terminal"), "and back again");
+        session.write(b"end").expect("write");
+        wait_for(&session, "end");
+        let shown = session.parser().screen().contents();
+        assert!(!shown.contains("^["), "an escape sequence reached the program: {shown:?}");
         session.kill();
     }
 

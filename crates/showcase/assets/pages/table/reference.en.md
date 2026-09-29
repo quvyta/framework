@@ -13,8 +13,9 @@
 - `.box_select(bool)` — with `multi_select`, a drag from the free space below the rows draws a box in the `text-selection` tone and the rows it covers become the selection, or join it with Ctrl held at the press; a click there clears the selection.
 - `.droppable(|drop| msg, |index| accepts)` — the pressed row, or the selection it is part of, is dragged onto a row `accepts` says yes to, which takes the `tree-drop` tone; `drop` is a `RowDrop { rows, into }`. A release anywhere else does nothing. With `Click::Single` a row then activates on release, so a press that becomes a drag activates nothing.
 - `.on_copy_drop(|drop| msg)` — a drop released with Ctrl held asks for a copy with this instead of the move.
+- `.wrap(bool)` — `down` (or `j`) on the last row goes on to the first and `up` (or `k`) on the first to the last, as in a menu; `pgup` `pgdn` `home` `end` still stop at the ends, and Shift with an arrow never wraps a range. Default: `false`.
 - `Column::new(title)`, `.width(ColumnWidth::Fixed(n) | Fit | Fill(weight))`, `.min(cells)`, `.align(Align)`, `.sortable(bool)`.
-- `TableRow::new(cells)`, `.faint(bool)`; `TableCell::new(text)`, `.icon(glyph, color)`, `.color(token)`; strings convert into cells. `glyph` is an icon key (`"dot"`, `Glyph::key(..)`) or `Glyph::literal(..)`, drawn as the glyph, a space and the text; with `Some(token)` it is drawn in that colour, with `None` it is `muted` and takes the row's text colour when the row is selected. Truncation cuts the text only.
+- `TableRow::new(cells)`, `.faint(bool)`; `TableCell::new(text)`, `.icon(glyph, color)`, `.color(token)`, `.role(role)` (a typography role such as `faint`, which takes the row's text colour when the row is selected); strings convert into cells. `glyph` is an icon key (`"dot"`, `Glyph::key(..)`) or `Glyph::literal(..)`, drawn as the glyph, a space and the text; with `Some(token)` it is drawn in that colour, with `None` it is `muted` and takes the row's text colour when the row is selected. Truncation cuts the text only.
 - `SortDirection::Ascending | Descending`, `.reversed()`.
 
 ## Behaviour

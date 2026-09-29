@@ -18,7 +18,7 @@ use super::scrollbar::{self, ScrollMetrics};
 /// Width of the palette when none is set, in cells.
 const DEFAULT_WIDTH: u16 = 72;
 
-/// Rows of commands shown before the list scrolls.
+/// Rows of commands shown before the list scrolls, at least, whatever the screen.
 const MAX_ROWS: u16 = 10;
 
 /// Global actions that make no sense as commands: moving focus inside the palette, or opening
@@ -120,6 +120,7 @@ pub struct CommandPalette<Msg> {
     recent: Vec<String>,
     placeholder: Option<String>,
     width: u16,
+    max_rows: Option<u16>,
     dismissable: bool,
     on_close: Msg,
     on_run: Option<IdMessage<Msg>>,
@@ -136,6 +137,7 @@ impl<Msg: Clone + 'static> CommandPalette<Msg> {
             recent: Vec::new(),
             placeholder: None,
             width: DEFAULT_WIDTH,
+            max_rows: None,
             dismissable: true,
             on_close,
             on_run: None,
@@ -169,6 +171,14 @@ impl<Msg: Clone + 'static> CommandPalette<Msg> {
     #[must_use]
     pub fn width(mut self, cells: u16) -> Self {
         self.width = cells;
+        self
+    }
+
+    /// Rows of commands shown at most before the list scrolls. Without it the list takes up to
+    /// half the screen's rows, and never fewer than ten, so a tall screen shows more at once.
+    #[must_use]
+    pub fn max_rows(mut self, rows: u16) -> Self {
+        self.max_rows = Some(rows.max(1));
         self
     }
 
@@ -311,7 +321,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for CommandPalette<Msg> {
         let padding = layer::padding(cx, "modal", self.dismissable);
         // The filter and the hint line, each with a blank row.
         let chrome = padding.vertical().saturating_add(4);
-        let room = screen.height.saturating_sub(chrome.saturating_add(2)).clamp(1, MAX_ROWS);
+        let most = self.max_rows.unwrap_or_else(|| MAX_ROWS.max(screen.height / 2));
+        let room = screen.height.saturating_sub(chrome.saturating_add(2)).clamp(1, most);
         let visible = clamp_u16(i32::try_from(rows.len()).unwrap_or(i32::MAX)).clamp(1, room);
         let width = self.width.min(screen.width.saturating_sub(2));
         let look = layer::Look { style: "modal", variant: None, dismissable: self.dismissable };
@@ -420,7 +431,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for CommandPalette<Msg> {
             if self.dismissable {
                 hints.push(layer::hint(cx, "esc", "close"));
             }
-            hints.extend([layer::hint(cx, "↑↓", "move"), layer::hint(cx, "⏎", "run")]);
+            hints.extend([layer::hint(cx, &layer::arrows(cx), "move"), layer::hint(cx, &layer::enter(cx), "run")]);
             layer::paint_hints(cx, inner.x, inner.bottom() - 1, inner.width, &hints);
             let count = format!("{} / {}", Self::entries(&rows), self.commands.len() + actions.len());
             let count_style = cx.style("layer-hint-label", None, &[]).text();
@@ -539,6 +550,7 @@ mod tests {
         recent: Vec<String>,
         count: usize,
         firm: bool,
+        rows: Option<u16>,
     }
 
     #[derive(Clone)]
@@ -579,13 +591,15 @@ mod tests {
                             Msg::Run(format!("pull {i}")),
                         )
                     }));
-                    ui.add(
-                        CommandPalette::new(commands, Msg::Close)
-                            .dismissable(!self.firm)
-                            .keymap(true)
-                            .recent(self.recent.clone())
-                            .on_run(|id| Msg::Ran(id.to_owned())),
-                    );
+                    let mut palette = CommandPalette::new(commands, Msg::Close)
+                        .dismissable(!self.firm)
+                        .keymap(true)
+                        .recent(self.recent.clone())
+                        .on_run(|id| Msg::Ran(id.to_owned()));
+                    if let Some(rows) = self.rows {
+                        palette = palette.max_rows(rows);
+                    }
+                    ui.add(palette);
                 }
             });
         }
@@ -602,6 +616,37 @@ mod tests {
         let mut h = Harness::new(demo, 70, 24);
         h.press("ctrl+p").advance(Duration::from_millis(200));
         h
+    }
+
+    fn visible_pulls(h: &Harness<Demo>) -> usize {
+        h.screen().lines().filter(|line| line.contains("Pull image")).count()
+    }
+
+    #[test]
+    fn a_tall_screen_shows_more_commands_at_once_and_max_rows_caps_them() {
+        let mut h = Harness::new(Demo { count: 20, ..Demo::default() }, 70, 30);
+        h.press("ctrl+p").advance(Duration::from_millis(200));
+        h.type_text("pull");
+        assert!(visible_pulls(&h) > 10, "half of thirty rows, not ten:\n{}", h.screen());
+        let mut small = Harness::new(Demo { count: 20, ..Demo::default() }, 70, 16);
+        small.press("ctrl+p").advance(Duration::from_millis(200));
+        small.type_text("pull");
+        assert!(visible_pulls(&small) <= 10 && visible_pulls(&small) > 0, "{}", small.screen());
+        let mut capped = Harness::new(Demo { count: 20, rows: Some(5), ..Demo::default() }, 70, 30);
+        capped.press("ctrl+p").advance(Duration::from_millis(200));
+        capped.type_text("pull");
+        assert_eq!(visible_pulls(&capped), 5, "{}", capped.screen());
+    }
+
+    #[test]
+    fn the_hint_line_is_ascii_in_the_ascii_glyph_mode() {
+        let mut h = Harness::new(Demo::default(), 70, 24);
+        h.set_glyph_mode(crate::icons::GlyphMode::Ascii);
+        h.press("ctrl+p").advance(Duration::from_millis(200));
+        let screen = h.screen();
+        let hints = screen.lines().find(|line| line.contains("move")).unwrap_or_else(|| panic!("{screen}"));
+        assert!(hints.trim().is_ascii(), "{hints:?}");
+        assert!(hints.contains("^v"), "the arrows from the icon set: {hints:?}");
     }
 
     #[test]

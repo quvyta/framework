@@ -6,6 +6,7 @@ use std::cell::Cell;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::env::{AssetDirs, Env};
 use crate::icons::{IconMode, PillarStyle};
 use crate::runtime::{App, Command, Harness};
 use crate::storage::{Ecosystem, Preferences, Scope, Settings, Shared, Source};
@@ -73,6 +74,126 @@ fn shared(dir: &Path, language: &str, theme: &str) {
 
 fn follower(dir: &Path) -> Harness<Follower> {
     Harness::member_in(Follower::default(), QUVYTA, dir, "code", 30, 3)
+}
+
+#[derive(Default)]
+struct Localized {
+    clicks: u32,
+    actions: u32,
+}
+
+#[derive(Clone)]
+enum LocalizedMsg {
+    Click,
+    Action,
+}
+
+impl App for Localized {
+    type Msg = LocalizedMsg;
+
+    fn update(&mut self, message: LocalizedMsg) -> Command<LocalizedMsg> {
+        match message {
+            LocalizedMsg::Click => self.clicks += 1,
+            LocalizedMsg::Action => self.actions += 1,
+        }
+        Command::none()
+    }
+
+    fn action(&self, name: &str) -> Option<Self::Msg> {
+        (name == "open").then_some(LocalizedMsg::Action)
+    }
+
+    fn view(&self, ui: &mut View<'_, LocalizedMsg>) {
+        let label = ui.env().i18n().translate("member.open", &[]);
+        ui.add(crate::widgets::Button::new(label).on_press(LocalizedMsg::Click));
+    }
+}
+
+fn application_env() -> Env {
+    let english = "[meta]\nname = \"English\"\ncode = \"en\"\n[member]\nopen = \"Open notes\"\n";
+    let turkish = "[meta]\nname = \"Türkçe\"\ncode = \"tr\"\nfallback = \"en\"\n[member]\nopen = \"Notları aç\"\n";
+    let dirs = AssetDirs {
+        locale_sources: vec![
+            ("app-en.toml".to_owned(), english.to_owned()),
+            ("app-tr.toml".to_owned(), turkish.to_owned()),
+        ],
+        keymap_source: Some(("keymap.toml".to_owned(), "[app]\nopen = \"ctrl+o\"\n".to_owned())),
+        ..AssetDirs::default()
+    };
+    Env::load_with(&dirs, |_| None).expect("the application files load")
+}
+
+#[test]
+fn a_member_with_the_application_env_keeps_its_locale_and_keymap() {
+    let dir = folder("member-env");
+    shared(&dir, "en", "nordic");
+    let mut app = Harness::member_in_with_env(Localized::default(), application_env(), QUVYTA, &dir, "code", 40, 3);
+    assert_eq!(app.env().theme().id(), "nordic", "shared preferences still apply");
+    assert!(app.screen().contains("Open notes"), "{}", app.screen());
+    assert!(!app.screen().contains("⟦member.open⟧"), "{}", app.screen());
+    app.click_text("Open notes");
+    assert_eq!(app.app().clicks, 1);
+    app.press("ctrl+o");
+    assert_eq!(app.app().actions, 1, "the application keymap is still in the environment");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_shared_language_uses_the_application_locale() {
+    let dir = folder("member-env-language");
+    shared(&dir, "en", "nordic");
+    QUVYTA.set_in(&dir, "desk", Shared::Language, "tr", Scope::Ecosystem).expect("saved");
+    let mut app = Harness::member_in_with_env(Localized::default(), application_env(), QUVYTA, &dir, "code", 40, 3);
+    assert_eq!(app.env().i18n().active(), "tr");
+    assert_eq!(app.env().theme().id(), "nordic");
+    assert!(app.screen().contains("Notları aç"), "{}", app.screen());
+    assert!(!app.screen().contains("⟦member.open⟧"), "{}", app.screen());
+    app.click_text("Notları aç");
+    assert_eq!(app.app().clicks, 1);
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// The runtime an application would build in its own `runtime()` function: its locale files and
+/// keymap as sources, and membership when `member` is true.
+fn notes_runtime(member: bool) -> crate::runtime::Runtime<Localized> {
+    let english = "[meta]\nname = \"English\"\ncode = \"en\"\n[member]\nopen = \"Open notes\"\n";
+    let turkish = "[meta]\nname = \"Türkçe\"\ncode = \"tr\"\nfallback = \"en\"\n[member]\nopen = \"Notları aç\"\n";
+    let runtime = crate::runtime::Runtime::new(Localized::default())
+        .locale_source("app-en.toml", english)
+        .locale_source("app-tr.toml", turkish)
+        .keymap_source("keymap.toml", "[app]\nopen = \"ctrl+o\"\n");
+    if member { runtime.member(QUVYTA, "notes") } else { runtime }
+}
+
+#[test]
+fn an_application_runtime_opens_in_a_harness_the_way_run_starts_it() {
+    let dir = folder("runtime-harness");
+    shared(&dir, "tr", "nordic");
+    let mut app = notes_runtime(true).harness_in(&dir, 40, 3).expect("the runtime starts");
+    assert_eq!(app.env().theme().id(), "nordic", "the shared theme applies");
+    assert!(
+        app.screen().contains("Notları aç"),
+        "in the shared language, in the application's own words: {}",
+        app.screen()
+    );
+    app.click_text("Notları aç");
+    assert_eq!(app.app().clicks, 1);
+    app.press("ctrl+o");
+    assert_eq!(app.app().actions, 1, "the application's keymap source is in place");
+    shared(&dir, "tr", "amber");
+    app.poll_preferences();
+    assert_eq!(app.env().theme().id(), "amber", "another member's change is heard");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_runtime_that_lost_its_membership_does_not_follow_the_ecosystem() {
+    let dir = folder("runtime-harness-alone");
+    shared(&dir, "tr", "nordic");
+    let app = notes_runtime(false).harness_in(&dir, 40, 3).expect("the runtime starts");
+    assert_ne!(app.env().theme().id(), "nordic", "no member, no shared theme");
+    assert!(app.screen().contains("Open notes"), "{}", app.screen());
+    fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

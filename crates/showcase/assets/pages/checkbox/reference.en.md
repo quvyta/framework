@@ -3,6 +3,8 @@
 - `Checkbox::new(checked)` — a box showing `checked`.
 - `.label(text)` — text two cells after the box; clicking it toggles.
 - `.partial(bool)` — shows the box partly checked; toggling asks for `true`.
+- `.description(text)` — a faint explanation under the label, in the label's column, wrapping there; clicking it toggles.
+- `.label_column()` — cells from the box's left edge to the label's first letter, for lining up text outside the checkbox.
 - `.style(CheckboxStyle)` — `Box` (default): two cells of colour. `Check`: three cells with a check or a dash.
 - `.disabled(bool)` — cannot be focused or toggled.
 - `.on_toggle(|on| msg)` — message with the new state.

@@ -65,6 +65,8 @@
 //! - [`geometry`] and [`text`] — rectangles and padding in cells, and text measured in cells.
 //! - [`desktop`] — which program opens a file: the desktop's shared MIME database, the
 //!   installed programs' `.desktop` files and the person's defaults, read without drawing.
+//! - [`install`] — installing a missing program's package in front of the person: the package
+//!   manager of this machine, the exact command, the question and the handoff that runs it.
 //! - [`date`] — calendar dates, times of day and the local time zone offset.
 //! - [`uptime`] — the monotonic clocks that tell time awake from time the machine slept.
 //! - [`motion`] — easing, moving values and cell-stepped progress.
@@ -90,6 +92,7 @@ pub mod geometry;
 pub mod graphics;
 pub mod i18n;
 pub mod icons;
+pub mod install;
 pub mod keymap;
 pub mod motion;
 pub mod prelude;
@@ -100,6 +103,7 @@ pub mod style;
 pub mod text;
 pub mod theme;
 pub mod uptime;
+pub mod version;
 pub mod widget;
 pub mod widgets;
 

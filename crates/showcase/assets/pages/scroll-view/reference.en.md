@@ -16,7 +16,7 @@
 
 ## Behaviour
 
-- Scrolls to reveal a newly focused widget inside it.
+- Scrolls to reveal a newly focused widget inside it, never for a widget that was clicked into. A widget taller than the view that names where the keyboard is inside it with `PaintCx::focus_spot` (a `SettingsList` names its keyboard row) is shown there; one that names nothing and is already partly on screen stays where it is, so what is above it does not slide away.
 - Keeps its position per id; inside `ui.page` it survives while the page is hidden.
 - With `follow_end`: opens at the end; growth glides to the new end over the theme's `page` duration, or jumps with reduced motion. Scrolling up (wheel, keys, scrollbar) stops following and shows the lines-below note; reaching the bottom again follows. A move to show a focused widget or a revealed area stops following when it leaves the end and keeps it when it ends there. Content that fits always counts as at the end.
 

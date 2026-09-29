@@ -18,11 +18,13 @@ pub struct State {
     icon: usize,
     disabled: bool,
     tooltip: bool,
+    /// Whether the filter the toggle button shows is on.
+    filtering: bool,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { icon: 0, disabled: false, tooltip: true }
+        Self { icon: 0, disabled: false, tooltip: true, filtering: false }
     }
 }
 
@@ -33,6 +35,7 @@ pub enum Msg {
     Icon(usize),
     Disabled(bool),
     Tooltip(bool),
+    Filter(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -54,6 +57,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::Tooltip(on) => {
             state.tooltip = on;
             log.push(PAGE, "Playground", format!("tooltip = {on}"));
+        }
+        Msg::Filter(on) => {
+            state.filtering = on;
+            log.push(PAGE, "IconButton#filter", format!("selected = {on}"));
         }
     }
     Command::none()
@@ -79,6 +86,22 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             // endregion
         })
         .fill_width();
+        ui.spacer().height(Length::Cells(1));
+        ui.add(Text::new(t!("icon-button.toggle-hint")).role("faint"));
+        ui.row(|ui| {
+            // region: icon-toggle
+            ui.add(
+                IconButton::new("search")
+                    .selected(state.filtering)
+                    .tooltip(t!("icon-button.filter"))
+                    .on_press(send(Msg::Filter(!state.filtering))),
+            )
+            .id("filter");
+            // endregion
+            let status = if state.filtering { t!("icon-button.filter-on") } else { t!("icon-button.filter-off") };
+            ui.add(Text::new(status).role("secondary"));
+        })
+        .gap(1);
         ui.spacer().height(Length::Cells(1));
         ui.add(Text::new(t!("icon-button.configured")).role("faint"));
         ui.row(|ui| {
@@ -130,6 +153,22 @@ mod tests {
         assert!(below.contains("Settings"), "the tooltip names it below: {}", h.screen());
         h.click(settings, y);
         assert!(h.screen().contains("IconButton#settings"), "{}", h.screen());
+    }
+
+    #[test]
+    fn the_filter_toggle_turns_on_in_the_accent_and_off_again() {
+        let mut h = showcase_on(PAGE);
+        h.set_glyph_mode(qframe::icons::GlyphMode::Unicode);
+        let (x, y) = h.find("The filter is off").expect("the toggle's status");
+        let glyph = (u16::try_from(x - 3).unwrap_or(0), u16::try_from(y).unwrap_or(0));
+        let accent = h.env().theme().color("accent");
+        assert_ne!(h.fg(glyph.0, glyph.1), accent, "off, the glyph is quiet");
+        h.click(x - 3, y);
+        assert!(h.app().pages.icon_button.filtering);
+        assert!(h.screen().contains("The filter is on"), "{}", h.screen());
+        assert_eq!(h.fg(glyph.0, glyph.1), accent, "on, the glyph is the accent");
+        h.advance(std::time::Duration::from_millis(300)).click(x - 3, y);
+        assert!(!h.app().pages.icon_button.filtering, "a selected button still presses");
     }
 
     #[test]

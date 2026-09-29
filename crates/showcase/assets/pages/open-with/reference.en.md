@@ -17,6 +17,7 @@
 ## Programs
 
 - `Apps::load(&XdgDirs, lang, path_var) -> Apps` — the desktop entries below every `applications` folder and every `mimeapps.list`; names in `lang` (`tr_TR.UTF-8`); `TryExec` looked for on `path_var` (a `PATH` value).
+- `shell_words(line) -> Option<Vec<String>>` — a command line such as `$EDITOR` split the way a POSIX shell splits it, quotes and backslashes followed, nothing expanded; `None` for an unclosed quote. A path with spaces in quotes stays one word.
 - `apps.for_mime(&db, mime) -> Vec<&DesktopApp>` — for the kind and then each kind it is a case of: every file's default, the added programs, then the programs that declare it. Removed and hidden ones never.
 - `apps.default_for(&db, mime) -> Option<&DesktopApp>` — the nearest kind's default, else the first program of `for_mime`.
 - `apps.all()`, `apps.get(id)`, `apps.diagnostics()`.

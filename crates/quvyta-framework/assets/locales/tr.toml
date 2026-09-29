@@ -134,6 +134,15 @@ empty     = "Çalışan iş yok"
 [quvyta.handoff]
 pause = "Dönmek için bir tuşa basın"
 
+# Eksik bir programın paketini kurmak (install::Install); {package} paket, {manager} paket
+# yöneticisinin programı, örneğin pacman.
+[quvyta.install]
+title   = "{package} kurulsun mu?"
+runs    = "Şu komut terminalde, gözünüzün önünde çalışır:"
+asks    = "{manager} orada parolanızı ve kendi sorularını sorabilir."
+confirm = "Kur"
+notice  = "{package}, {manager} ile kuruluyor…"
+
 [quvyta.number]
 # What this language writes between a number's whole part and its decimals.
 decimal = ","

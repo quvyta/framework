@@ -12,6 +12,7 @@
 
 - `.id(name)` — a stable name; state and focus follow it.
 - `.width(Length)`, `.height(Length)`, `.fill()`, `.fill_width()`, `.fill_height()`.
+- `natural_size(&widget, &env, Size::MAX)` — the cells a widget covers when drawn with `env`, asked of the widget itself, for deciding a layout in `update` where there is no `View`: where a list splits from its detail, how wide a row of buttons is. A widget that fills answers with the space it is given.
 - `.padding(Padding)`, `.gap(cells)`, `.justify(Align)`, `.align(Align)`.
 - `.wrap(bool)` — a row moves the children that do not fit to the next line; `gap`, `justify` and spacers work on each line.
 - `.line_gap(rows)` — empty rows between the lines of a wrapping row (default 0).

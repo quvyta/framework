@@ -1,6 +1,7 @@
 ## Methods
 
 - `CopyValue::new(value)` — a value on a raised surface that copies itself.
+- `.labelled(label)` — a faint label above the value; a value too wide for its box is also written whole above it, wrapped (never a masked one).
 - `.masked(bool)` — draws mask dots but copies the real value. Default: `false`.
 - `.disabled(bool)` — greyed out, not focusable, never copies. Default: `false`.
 - `.on_copy(msg)` — sent after every copy.

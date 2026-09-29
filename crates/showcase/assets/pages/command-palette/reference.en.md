@@ -7,6 +7,7 @@
 - `.on_run(|id| msg)` — sent after every command that runs.
 - `.placeholder(text)` — the faint text of the empty filter. Default: `quvyta.palette.placeholder`.
 - `.width(cells)` — width with padding. Default: 72.
+- `.max_rows(n)` — at most `n` commands before the list scrolls; without it up to half the screen, never fewer than ten.
 - `PaletteCommand::new(id, label, msg)` — a command.
 - `.chord(label)` — the key shown on the right, e.g. `"ctrl r"`.
 
@@ -25,6 +26,7 @@
 ## Behaviour
 
 - With a query, entries are sorted by match quality (ties keep their order) without headers.
+- The match is `qframe::text::fuzzy(query, text)`, public so an application's own search finds what the palette finds: every query letter in order, case and query spaces ignored, word starts and runs scoring higher; `score()` and `positions()` (character indices) describe the match.
 - Running sends `on_close`, then the command's message or its keymap action, then `on_run`.
 - Up to 10 rows before scrolling; the filter, highlight and scroll reset when it opens again.
 - The hint line shows `esc close` (while dismissable), `↑↓ move`, `⏎ run` and how many commands match.

@@ -575,3 +575,98 @@ fn a_tree_that_opens_nothing_lines_up_with_a_menu() {
     let nested = column(Harness::new(Side { tree: true, nested: true }, 30, 6).screen(), "Music");
     assert_eq!(nested, menu + 2, "a tree with a folder keeps the column for its chevrons");
 }
+
+/// Goals with meters: empty, half, full and past full.
+struct Goals;
+
+impl App for Goals {
+    type Msg = String;
+    fn update(&mut self, _: String) -> Command<String> {
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, String>) {
+        let goals = [("none", 0.0), ("half", 0.5), ("full", 1.0), ("over", 1.4)].map(|(name, fraction)| {
+            TreeNode::new(name, format!("Reading {name}")).meter(fraction, "accent").detail("3h")
+        });
+        ui.add(Tree::new(goals).on_select(|key: &str| key.to_owned())).fill();
+    }
+}
+
+/// Where the meter of the row showing `name` starts, and the colours of its cells.
+fn meter_cells(h: &Harness<Goals>, name: &str) -> Vec<Option<crate::color::Rgb>> {
+    let (_, y) = h.find(name).unwrap_or_else(|| panic!("{name}:\n{}", h.screen()));
+    let (detail, _) = h
+        .screen()
+        .lines()
+        .nth(usize::try_from(y).unwrap_or(0))
+        .and_then(|line| line.rfind("3h").map(|b| (text::width(&line[..b]), 0)))
+        .expect("detail");
+    let y = u16::try_from(y).unwrap_or(0);
+    (detail - 2 - 6..detail - 2).map(|x| h.bg(x, y)).collect()
+}
+
+#[test]
+fn a_meter_fills_its_share_of_six_cells_in_the_tone() {
+    let h = Harness::new(Goals, 40, 6);
+    let accent = h.env().theme().color("accent");
+    let filled = |name: &str| meter_cells(&h, name).iter().filter(|colour| **colour == accent).count();
+    assert_eq!(filled("none"), 0, "{}", h.screen());
+    assert_eq!(filled("half"), 3, "{}", h.screen());
+    assert_eq!(filled("full"), 6, "{}", h.screen());
+    assert_eq!(filled("over"), 6, "past full stays full");
+}
+
+#[test]
+fn a_narrow_row_drops_the_meter_before_it_cuts_the_name() {
+    let h = Harness::new(Goals, 22, 6);
+    let screen = h.screen();
+    assert!(screen.contains("Reading half") && !screen.contains('…'), "the names are whole:\n{screen}");
+    let accent = h.env().theme().color("accent");
+    let (_, y) = h.find("Reading full").expect("row");
+    let y = u16::try_from(y).unwrap_or(0);
+    assert!((0..22).all(|x| h.bg(x, y) != accent), "no meter:\n{screen}");
+}
+
+#[test]
+fn a_meter_in_the_ascii_glyph_mode_draws_only_ascii() {
+    let mut h = Harness::new(Goals, 40, 6);
+    h.set_glyph_mode(GlyphMode::Ascii);
+    assert!(h.screen().is_ascii(), "{}", h.screen());
+}
+
+struct Wrapping {
+    selected: Option<String>,
+    wrap: bool,
+}
+
+impl App for Wrapping {
+    type Msg = String;
+    fn update(&mut self, key: String) -> Command<String> {
+        self.selected = Some(key);
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, String>) {
+        let roots = [
+            TreeNode::new("src", "src").expanded(true).children([TreeNode::new("main", "main.rs")]),
+            TreeNode::new("readme", "README.md"),
+        ];
+        ui.add(Tree::new(roots).selected(self.selected.as_deref()).wrap(self.wrap).on_select(str::to_owned)).fill();
+    }
+}
+
+#[test]
+fn a_wrapping_tree_goes_round_the_rows_shown_and_stops_otherwise() {
+    let mut h = Harness::new(Wrapping { selected: None, wrap: true }, 24, 4);
+    h.press("tab").press("end");
+    assert_eq!(h.app().selected.as_deref(), Some("readme"));
+    h.press("j");
+    assert_eq!(h.app().selected.as_deref(), Some("src"), "down on the last row reaches the first");
+    h.press("k");
+    assert_eq!(h.app().selected.as_deref(), Some("readme"), "up on the first row reaches the last");
+    h.press("up");
+    assert_eq!(h.app().selected.as_deref(), Some("main"));
+
+    let mut h = Harness::new(Wrapping { selected: None, wrap: false }, 24, 4);
+    h.press("tab").press("end").press("down");
+    assert_eq!(h.app().selected.as_deref(), Some("readme"));
+}

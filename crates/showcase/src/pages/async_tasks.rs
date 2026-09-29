@@ -1,10 +1,13 @@
 //! Async tasks: background work with progress, notes, cancellation and outcomes, shown with a
-//! task list, and a child process whose output is streamed into a log view.
+//! task list, and a child process whose output is streamed into a log view or kept, at the end of
+//! it only.
 
 use std::time::Duration;
 
 use qframe::prelude::*;
-use qframe::runtime::{Line, Process, ProcessOutcome, Task, TaskCx, TaskEvent, TaskId, TaskOutcome, Tasks};
+use qframe::runtime::{
+    Collected, Keep, Line, Process, ProcessOutcome, Task, TaskCx, TaskEvent, TaskId, TaskOutcome, Tasks,
+};
 use qframe::widgets::{LogBuffer, LogLevel, LogLine, LogView, TaskList};
 
 use super::{PageMsg, setting, toggle};
@@ -30,13 +33,30 @@ printf 'downloading 100%%\\n'; \
 echo 'the signature of tools is from an unknown key' >&2; \
 echo 'installed 3 packages'";
 
+/// What the check that is kept writes: a line per step, a warning on standard error and what the
+/// child finds in its own environment, then a step that never comes, since the limit ends it.
+const CHECK: &str = "for step in 1 2 3 4 5 6 7 8 9 10; do echo \"checked $step\"; done; \
+echo 'the clock is 4 seconds fast' >&2; printf 'home: %s\\n' \"${HOME-unset}\"; sleep 30";
+
+/// Bytes of the check's output kept; the last of them.
+const TAIL_BYTES: usize = 512;
+
+/// Lines of the check's output kept; the last of them.
+const TAIL_LINES: usize = 4;
+
+/// Kept lines the log of the check holds.
+const TAIL_CAPACITY: usize = 64;
+
+/// How long the check may run before it is ended with what it has written.
+const TAIL_LIMIT: Duration = Duration::from_secs(1);
+
 /// Streamed lines kept before the oldest ones fall out.
 const OUTPUT_CAPACITY: usize = 2000;
 
 /// The pseudo-terminal the streamed command is given, in cells.
 const OUTPUT_SIZE: (u16, u16) = (60, 12);
 
-/// The tasks the demo started, the streamed output and the playground.
+/// The tasks the demo started, the streamed output, the kept output and the playground.
 #[derive(Debug)]
 pub struct State {
     tasks: Tasks,
@@ -51,6 +71,12 @@ pub struct State {
     terminal: bool,
     /// Whether the frames a `\r` overwrites are shown as well.
     frames: bool,
+    /// The end of the check's output, as a log.
+    tail: LogBuffer,
+    /// How much of it was kept and how the check ended.
+    tail_note: Option<(String, String)>,
+    /// The check, while it runs.
+    check: Option<TaskId>,
 }
 
 impl Default for State {
@@ -64,6 +90,9 @@ impl Default for State {
             stream: None,
             terminal: false,
             frames: false,
+            tail: LogBuffer::new(TAIL_CAPACITY),
+            tail_note: None,
+            check: None,
         }
     }
 }
@@ -89,6 +118,9 @@ pub enum Msg {
     StreamEnded(ProcessOutcome),
     Terminal(bool),
     Frames(bool),
+    Check,
+    StopCheck,
+    Checked(Collected),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -179,14 +211,57 @@ fn run_process(process: Process, frames: bool, cx: &TaskCx<AppMsg>) -> std::io::
 }
 // endregion
 
+// region: process-collect
+/// Runs the check and keeps only the end of what it wrote: the last lines, whichever stream they
+/// came from, and the child is ended when the limit is over, so a check that would never stop
+/// costs the same as a short one. `cancel` is the task's own flag, so stopping the task ends the
+/// child the same way. The environment is cleared, so the child is given the one variable it
+/// cannot do without, the path it finds `sleep` with, and nothing of ours reaches it.
+fn check_output() -> Task<AppMsg> {
+    Task::new("Check the disk", move |cx| {
+        let path = std::env::var("PATH").unwrap_or_default();
+        let process = Process::new("sh").arg("-c").arg(CHECK).clear_env().env("PATH", path).no_stdin();
+        let keep = Keep::bytes(TAIL_BYTES).lines(TAIL_LINES).limit(TAIL_LIMIT);
+        let collected = process.collect(keep, &|| cx.is_cancelled()).map_err(|error| error.to_string())?;
+        Ok(send(Msg::Checked(collected)))
+    })
+    .on_event(|event| send(Msg::Event(event)))
+}
+// endregion
+
+// region: process-collect-note
+/// How much of the check's output was kept and how it ended, in the two lines under it. The
+/// size is what is really left, and a check that was cut says so instead of pretending it ended.
+fn note(collected: &Collected) -> (String, String) {
+    let bytes = collected.text.len();
+    let kept = if collected.trimmed {
+        t!("async-tasks.tail-trimmed", bytes = bytes)
+    } else {
+        t!("async-tasks.tail-whole", bytes = bytes)
+    };
+    let ended = match collected.outcome {
+        ProcessOutcome::Cancelled => t!("async-tasks.tail-cancel"),
+        ProcessOutcome::Finished { .. } if collected.timed_out => t!("async-tasks.tail-limit"),
+        ProcessOutcome::Finished { code: Some(code) } => t!("async-tasks.tail-code", code = code),
+        ProcessOutcome::Finished { code: None } => t!("async-tasks.tail-signal"),
+    };
+    (kept, ended)
+}
+// endregion
+
 /// Applies a demo message.
 pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<AppMsg> {
     match message {
         // region: start
         Msg::Build => return Command::task(build_image()),
         Msg::Event(event) => {
-            if matches!(event, TaskEvent::Finished { .. }) && state.stream == Some(event.id()) {
-                state.stream = None;
+            if matches!(event, TaskEvent::Finished { .. }) {
+                if state.stream == Some(event.id()) {
+                    state.stream = None;
+                }
+                if state.check == Some(event.id()) {
+                    state.check = None;
+                }
             }
             log_event(&event, log);
             state.tasks.apply(&event);
@@ -253,6 +328,25 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             log.push(PAGE, "Playground", format!("overwritten frames = {on}"));
             state.frames = on;
         }
+        // region: process-collect-start
+        Msg::Check => {
+            let task = check_output();
+            state.check = Some(task.id());
+            state.tail.clear();
+            state.tail_note = None;
+            return Command::task(task);
+        }
+        Msg::StopCheck => {
+            if let Some(id) = state.check {
+                return Command::cancel_task(id);
+            }
+        }
+        Msg::Checked(collected) => {
+            for line in collected.text.lines().filter(|line| !line.is_empty()) {
+                state.tail.push(LogLine::new(LogLevel::Info, line.to_owned()));
+            }
+            state.tail_note = Some(note(&collected));
+        } // endregion
     }
     Command::none()
 }
@@ -320,6 +414,31 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     })
     .fill_width();
 
+    ui.add_with(Panel::new().title(t!("async-tasks.tail")).gap(0), |ui| {
+        ui.add(Text::new(t!("async-tasks.tail-hint")).role("secondary"));
+        ui.spacer().height(Length::Cells(1));
+        ui.row(|ui| {
+            ui.add(Button::new(t!("async-tasks.tail-run")).variant("primary").on_press(send(Msg::Check))).id("check");
+            if state.check.is_some() {
+                ui.add(Button::new(t!("async-tasks.tail-stop")).on_press(send(Msg::StopCheck))).id("stop-check");
+            }
+        })
+        .gap(2)
+        .fill_width();
+        ui.spacer().height(Length::Cells(1));
+        // region: process-collect-view
+        ui.add(LogView::new(&state.tail).empty_text(t!("async-tasks.tail-empty")))
+            .width(Length::Fill(1))
+            .height(Length::Cells(6))
+            .id("tail");
+        // endregion
+        if let Some((kept, ended)) = &state.tail_note {
+            ui.add(Text::new(kept.clone()).role("secondary"));
+            ui.add(Text::new(ended.clone()).role("faint"));
+        }
+    })
+    .fill_width();
+
     ui.add_with(Panel::new().title(t!("demo.playground")).gap(0), |ui| {
         setting(ui, t!("async-tasks.terminal"), |ui| {
             ui.add(toggle(state.terminal, |on| send(Msg::Terminal(on)))).id("terminal");
@@ -340,7 +459,11 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::showcase_on;
+    use crate::app::Showcase;
+    use crate::tests::{showcase_on, showcase_tall};
+
+    /// The check's panel sits below the rows the harness paints by default.
+    const TALL: u16 = 76;
 
     #[test]
     fn tasks_progress_fail_and_cancel_without_blocking() {
@@ -385,6 +508,23 @@ mod tests {
         h.click_text("Install packages");
         h.advance(Duration::from_millis(0));
         assert!(h.screen().contains("stdout is a terminal"), "{}", h.screen());
+    }
+
+    #[test]
+    fn a_check_keeps_only_the_end_of_what_it_wrote() {
+        let mut h = showcase_tall(Showcase::new(), PAGE, TALL);
+        assert!(h.screen().contains("The check has not run yet."), "{}", h.screen());
+        h.click_text("Run the check");
+        // The task runs a real command, so the harness waits for it rather than for a clock.
+        h.advance(Duration::from_millis(0));
+        let screen = h.screen();
+        assert!(screen.contains("checked 10"), "the newest line is kept: {screen}");
+        assert!(screen.contains("the clock is 4 seconds fast"), "standard error is kept with it: {screen}");
+        assert!(screen.contains("home: unset"), "the environment was cleared: {screen}");
+        assert!(!screen.contains("checked 8"), "the oldest lines fell out: {screen}");
+        assert!(screen.contains("older output fell out"), "the size that was dropped is said: {screen}");
+        assert!(screen.contains("the limit ended it"), "the check was cut, not finished: {screen}");
+        assert_eq!(h.app().pages.async_tasks.check, None, "the task is finished");
     }
 
     #[test]

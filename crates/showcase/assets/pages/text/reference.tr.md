@@ -2,7 +2,7 @@
 
 - `Text::new(metin)` — gövde metni.
 - `Text::rich([parçalar])` — parçalardan oluşan metin.
-- `.role(isim)` — tipografi rolü: `title`, `body` (varsayılan), `secondary`, `faint`.
+- `.role(isim)` — tipografi rolü: `title`, `body` (varsayılan), `secondary`, `faint`, `heading` (ayar listesi olmayan bir şeyin üstünde başlık; ayar listesinin kendi başlıklarıyla aynı).
 - `.color(değişken)` — kendi rengi olmayan her parça için renk değişkeni.
 - `.bold()` — her parça kalın.
 - `.no_wrap()` — her kaynak satır tek satır, `…` ile kesilir. Varsayılan: sarar.

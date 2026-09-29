@@ -261,10 +261,11 @@ impl PopupMenu {
             }
             Event::Key(key) => {
                 let last = len - 1;
+                // A menu goes round its ends, as a context menu does.
                 if key.is_plain(Key::Up) {
-                    list.move_to(list.highlight.saturating_sub(1), len, visible);
+                    list.move_to(list.highlight.checked_sub(1).unwrap_or(last), len, visible);
                 } else if key.is_plain(Key::Down) {
-                    list.move_to((list.highlight + 1).min(last), len, visible);
+                    list.move_to(if list.highlight >= last { 0 } else { list.highlight + 1 }, len, visible);
                 } else if key.is_plain(Key::Home) {
                     list.move_to(0, len, visible);
                 } else if key.is_plain(Key::End) {
@@ -449,6 +450,18 @@ mod tests {
         scrolls.set_glyph_mode(crate::icons::GlyphMode::Ascii);
         assert!(scrollbar(&scrolls), "{}", scrolls.screen());
         assert!(!scrolls.screen().contains('▐') && !scrolls.screen().contains('▕'));
+    }
+
+    #[test]
+    fn the_keys_go_round_the_ends_of_the_menu() {
+        let mut h = path(7);
+        h.click_text("…").advance(Duration::from_millis(300));
+        h.press("home").press("up");
+        assert_eq!(lit_rows(&h), ["src"], "up on the first row reaches the last:\n{}", h.screen());
+        h.press("down");
+        assert_eq!(lit_rows(&h), ["level-1"], "down on the last row reaches the first:\n{}", h.screen());
+        h.press("enter");
+        assert_eq!(h.app().opened, [1]);
     }
 
     #[test]

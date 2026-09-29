@@ -32,6 +32,7 @@ impl Default for State {
 #[derive(Debug, Clone, Copy)]
 pub enum Msg {
     Pressed(&'static str),
+    MiddlePressed(&'static str),
     Variant(usize),
     Disabled(bool),
     Loading(bool),
@@ -47,6 +48,7 @@ fn send(message: Msg) -> AppMsg {
 pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<AppMsg> {
     match message {
         Msg::Pressed(id) => log.push(PAGE, format!("Button#{id}"), "pressed"),
+        Msg::MiddlePressed(id) => log.push(PAGE, format!("Button#{id}"), "middle pressed"),
         Msg::Variant(index) => {
             state.variant = index;
             log.push(PAGE, "Playground", format!("variant = {}", VARIANTS[index]));
@@ -87,6 +89,17 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             // endregion
         })
         .gap(2);
+        ui.add(Text::new(t!("button.middle-hint")).role("faint"));
+        ui.row(|ui| {
+            // region: middle-press
+            ui.add(
+                Button::new(t!("button.tab"))
+                    .on_press(send(Msg::Pressed("tab")))
+                    .on_middle_press(send(Msg::MiddlePressed("tab"))),
+            )
+            .id("tab");
+            // endregion
+        });
         ui.add(Text::new(t!("button.configured")).role("faint"));
         ui.row(|ui| {
             // region: configured
@@ -133,6 +146,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
 mod tests {
     use super::*;
     use crate::tests::showcase_on;
+    use qframe::event::{MouseButton, MouseKind};
 
     #[test]
     fn presses_are_logged_and_playground_changes_the_button() {
@@ -148,5 +162,15 @@ mod tests {
         h.click_text("Danger");
         assert_eq!(h.app().pages.button.variant, 2);
         assert!(h.screen().contains("variant = danger"));
+    }
+
+    #[test]
+    fn a_middle_click_on_the_tab_logs_its_own_message() {
+        let mut h = showcase_on(PAGE);
+        let (x, y) = h.find("Release notes").expect("the tab button");
+        h.mouse(MouseKind::Down(MouseButton::Middle), x, y).mouse(MouseKind::Up(MouseButton::Middle), x, y);
+        assert!(h.screen().contains("middle pressed"), "{}", h.screen());
+        h.advance(std::time::Duration::from_millis(300)).click(x, y);
+        assert!(h.screen().contains("Button#tab"), "{}", h.screen());
     }
 }

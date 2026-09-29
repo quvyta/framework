@@ -83,6 +83,24 @@ for key in ["app.save", "app.files"] {
 
 `translate(key)` sonucunu anahtarın kendisiyle karşılaştırmak bu işi görmez: eksik anahtar `⟦key⟧` olarak çevrilir, bu da anahtarın kendisi değildir; böyle bir test çeviri eksikken de geçer.
 
+## Dosya kümesinin tamamını bir seferde denetlemek
+
+`has` tek bir anahtar hakkında tek bir soru sorar. `i18n::check` ise bir dosya kümesinin tamamı hakkında dört soruyu bir seferde, bir testin içinden sorar: anahtarlar, yer tutucular, çoğul biçimler ve dilin kendinden bir şey söyleyip söylemediği. İlk dosya referanstır, İngilizce; öteki her dosya onunla karşılaştırılır, hiçbiri başka biriyle değil.
+
+```rust
+let files = [("en.toml", en), ("tr.toml", tr)];
+let problems = check::locales(&files);
+assert!(problems.is_empty(), "{}", problems.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n"));
+```
+
+- **`locales(dosyalar)`** biçim üzerindeki üç denetimi çalıştırır: referansın her anahtarı her dosyada olsun ve hiçbir dosyada kendine ait anahtar bulunmasın, iki dosyada da mesaj olan yerde aynı `{isim}` yer tutucuları olsun, ve her dilin kendi kuralının seçtiği çoğul biçimleri bulunsun. Rusça İngilizcenin iki biçimi yerine `one`, `few` ve `many` ister; `few` olmayan bir dosya sorundur, çünkü 2 yanlış sözcüklerle çizilirdi. Anahtarların tek istisnası, bir dilin kendi başına ekleyebildiği numaralı aile: `quvyta.date.month-in-date-1` ile `-12` arası, bir dilin tarih içinde kendi yazdığı ay adları — başlık `Январь`, `Enero` derken Rusça `января`, İspanyolca `enero` diyen — referansın unuttuğu bir anahtar değil, dilin kendi cevabı.
+- **`same_keys`, `same_placeholders` ve `plural_forms`** aynı üçünü tek tek verir; yalnızca birini isteyen bir test için.
+- **`own_words(dosyalar, en_az)`** bırakılamayacak olanıdır. İngilizceyi kopyalayan bir dosya yukarıdaki her denetimden geçer, yani onlardan hiçbiri bunu fark etmez. Her dilde bir şey söyleyen değerler arasından en az `en_az` tanesi referanstan ayrılmalıdır. Salt yer tutucu (`{n}`), bir sayı, `{hour}:{minute}` gibi bir biçim ve `ctrl+s` gibi bir anahtar adı doğası gereği her dilde aynıdır; hem sayıdan hem paydan çıkarılır. İki dilin tesadüfen paylaştığı bir sözcük olağandır; tek bir değer değil bir pay istemek bunun içindir.
+
+Her sorun, `file`, `line`, `column`, ait olduğu `key` ve İngilizce bir `message` taşıyan bir `Problem`'dür; `Display` çıktısı `dosya:satır:sütun: mesaj` biçimindedir, yani bir düzenleyicinin açtığı şey. Ayrıştırıcının bütün olarak okuyamadığı bir dosya, panik değil kendi başına bir sorumdur; çünkü ondan susan bir denetim, çalışma motorunun çizemediği bir dosyayı geçirirdi.
+
+`own_words` bilerek `locales`'in dışında bırakılmıştır: bir dilin çevrilmiş olması bir uygulamanın verdiği bir karardır, yaptığı bir hata değil; bu yüzden bir test onu adıyla ister.
+
 ## Bir dilin âdetleri
 
 Bir dil sözcüklerinden ibaret değildir. Bir sayının ondalıklarını nereye koyduğu, tarihi hangi sırayla yazdığı, sayının yanındaki zaman biriminin ne kadar kısa olduğu: bunlardan biri yanlışsa, bütün sözcükler doğru olsa bile ekran yanlış okunur.

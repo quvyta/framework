@@ -45,6 +45,25 @@ Add `.pty(cols, rows)` when the child should keep its progress bar and its colou
 
 When you need what a progress bar says, not only where it ends (`Building [=>  ] 12/46` from `cargo`, a download's percentage from `pacman` or `curl`), run it with `.run_with_overwritten(&cancel, &mut on_line, &mut on_frame)` instead of `.run(..)`. Every frame a `\r` is about to overwrite then reaches `on_frame`, tagged `Line::Out` or `Line::Err` like a line, in the order the child wrote it; `on_line` still gets exactly the lines `run` would give. Colour codes and `ESC [K` stay in the text, so strip them before you parse.
 
+## Keeping only the end of the output
+
+Some output is not read line by line at all: a build's whole log, a `systemctl status`, the answer of a program you asked one question, a flood of progress. Reading it line by line means holding all of it. `collect` runs the child the same way and keeps only the end of what it wrote.
+
+1. Ask for a size: `Keep::bytes(64 * 1024)`, and narrow it with `.lines(40)` when the end you want is a number of lines, and with `.limit(Duration::from_secs(30))` when the program must not run forever.
+2. Run it inside a task: `process.collect(keep, &|| cx.is_cancelled())`. It blocks its own thread, never the screen.
+3. Show `collected.text` as one piece of text, and say what the run was: `collected.trimmed` (older output fell out), `collected.timed_out` (the limit ended it) and `collected.cancelled` (the user did).
+
+Both of the child's streams land on one pipe, so the text is in the order the program wrote it and a failure stays among the rest of the output; with `.pty(..)` they land on the terminal, as they always do there. Nothing is held beyond the size you asked for plus one read, so a program that writes for an hour costs the same as a short one, and the cut falls between characters, so no character is half in the text. `.no_stdin()` is what lets the limit and the cancel reach the programs the child started, exactly as with `run`.
+
+Give the child a smaller world with `.clear_env()`: it then gets only the variables you set with `.env(..)`, and nothing of the environment your own shell had — `PATH`, `HOME` and `LANG` included. A build that reads `CC` or `CFLAGS`, a program that behaves differently under a different `LANG`, a test that must not see the user's home: that is what this is for. Give it the variables it needs, `PATH` first, since that is what it looks other programs up with:
+
+```rust
+let path = std::env::var("PATH")?;
+let keep = Keep::bytes(64 * 1024).lines(40).limit(Duration::from_secs(30));
+let collected = Process::new("sh").arg("-c").arg(script).clear_env().env("PATH", path)
+    .collect(keep, &|| cx.is_cancelled())?;
+```
+
 ## Common mistakes
 
 - **Merging the two streams with `2>&1`.** The diagnosis is then lost: many programs keep their standard error empty until something is wrong.
@@ -53,3 +72,7 @@ When you need what a progress bar says, not only where it ends (`Building [=>  ]
 - **Killing the child and expecting its children to go too.** Only a child started with `.no_stdin()` takes its own children with it; without it only the child itself is killed, and a program that starts its own children can leave them running.
 - **Letting a child share the terminal's input.** Without `.no_stdin()` a child that asks something reads the keys meant for your application, and cancelling it leaves its own children running.
 - **Letting a child without input ask for a `sudo` password.** Its group does not own the terminal, so the system stops it when it reads the password; it waits until cancelled. Warm the ticket first with a handoff of `sudo -v`, or run `sudo -n`.
+- **Collecting the whole output and trimming it afterwards.** `Keep` is the memory bound while the program runs, not a cut applied to the text at the end; a program that writes a gigabyte ends what the reader held, so the size has to be there from the start.
+- **Reading a long output line by line to show the end of it.** Every line is a message, every message is applied between frames. `collect` gives the end as one text.
+- **Expecting the exit code of a check that was cut.** The limit ends the child with a signal, so `outcome` is `Finished { code: None }` and `timed_out` is what says why; read the flag, not the code.
+- **Clearing the environment and forgetting the path.** The child then finds no program but the one you named with a path, and a shell that says `sleep: not found`.

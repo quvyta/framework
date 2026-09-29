@@ -1,7 +1,7 @@
 //! Popover: content that opens as a layer next to the widget it belongs to.
 
 use qframe::prelude::*;
-use qframe::widgets::{Placement, Popover, Segmented, Select, Switch};
+use qframe::widgets::{Placement, Popover, Segmented, Select, Switch, TextInput};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -11,6 +11,12 @@ const PAGE: &str = "popover";
 
 /// Container runtimes offered inside the filter popover.
 const RUNTIMES: [&str; 3] = ["Any", "Podman", "Docker"];
+
+/// The searches the search field offers, as a layer as wide as the field.
+const HISTORY: [&str; 3] = ["~/projects/framework", "~/projects/qcode", "~/notes/2026/garden/plans"];
+
+/// The width of the search field, and with `match_anchor_width` of the layer under it.
+const SEARCH_WIDTH: u16 = 28;
 
 /// Filters, open popovers and the playground.
 #[derive(Debug, Default)]
@@ -23,10 +29,13 @@ pub struct State {
     placement: usize,
     focus_inside: bool,
     apart_open: bool,
+    query: String,
+    history_open: bool,
+    match_anchor_width: bool,
 }
 
 /// Demo messages.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Msg {
     ToggleFilters,
     CloseFilters,
@@ -39,6 +48,9 @@ pub enum Msg {
     FocusInside(bool),
     ToggleApart,
     CloseApart,
+    Query(String),
+    CloseHistory,
+    MatchAnchorWidth(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -91,6 +103,19 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::CloseApart => {
             state.apart_open = false;
             log.push(PAGE, "Popover#apart", "dismissed");
+        }
+        Msg::Query(value) => {
+            state.history_open = !value.is_empty();
+            log.push(PAGE, "TextInput#query", format!("changed {value:?}"));
+            state.query = value;
+        }
+        Msg::CloseHistory => {
+            state.history_open = false;
+            log.push(PAGE, "Popover#history", "dismissed");
+        }
+        Msg::MatchAnchorWidth(on) => {
+            state.match_anchor_width = on;
+            log.push(PAGE, "Playground", format!("match_anchor_width = {on}"));
         }
     }
     Command::none()
@@ -168,6 +193,35 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             ui.add(Text::new(t!("popover.details-hint")).role("faint").no_wrap());
         })
         .gap(3);
+        ui.row(|ui| {
+            // region: popover-anchor-width
+            // The layer belongs to the field, so with match_anchor_width it opens exactly as wide as
+            // the field: its edges stand where the field's do and the longest path is cut there.
+            Popover::new(state.history_open)
+                .match_anchor_width(state.match_anchor_width)
+                .on_dismiss(send(Msg::CloseHistory))
+                .anchor(|ui| {
+                    ui.add(
+                        TextInput::new(&state.query)
+                            .placeholder(t!("popover.search"))
+                            .on_change(|value| send(Msg::Query(value))),
+                    )
+                    .fill_width()
+                    .id("query");
+                })
+                .content(|ui| {
+                    ui.column(|ui| {
+                        for path in HISTORY {
+                            ui.add(Text::new(path).no_wrap());
+                        }
+                    });
+                })
+                .show(ui)
+                .width(Length::Cells(SEARCH_WIDTH));
+            // endregion
+            ui.add(Text::new(t!("popover.anchor-width-hint")).role("faint").no_wrap());
+        })
+        .gap(3);
         ui.spacer().height(Length::Cells(10));
     })
     .fill_width();
@@ -180,6 +234,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         });
         setting(ui, t!("popover.focus-inside"), |ui| {
             ui.add(toggle(state.focus_inside, |on| send(Msg::FocusInside(on)))).id("focus-inside");
+        });
+        setting(ui, t!("popover.match-anchor-width"), |ui| {
+            ui.add(toggle(state.match_anchor_width, |on| send(Msg::MatchAnchorWidth(on)))).id("match-anchor-width");
         });
         ui.add(Text::new(t!("popover.keys")).role("faint"));
     })
@@ -279,5 +336,32 @@ mod tests {
         let (x, y) = h.find("Deploy details").expect("anchor on screen");
         let (dx, dy) = h.find("api-gateway").expect("details open");
         assert!(dx > x + 14 && dy >= y - 1, "{}", h.screen());
+    }
+
+    /// The first and last column of row `y` painted in the tone of the cell at `x`. The showcase's
+    /// own surfaces differ from each other, so a run is read from its own tone.
+    fn run(h: &qframe::runtime::Harness<crate::app::Showcase>, y: u16, x: u16) -> Option<(u16, u16)> {
+        let tone = h.bg(x, y);
+        let columns: Vec<u16> = (0..h.buffer().area.width).filter(|column| h.bg(*column, y) == tone).collect();
+        columns.first().zip(columns.last()).map(|(first, last)| (*first, *last))
+    }
+
+    #[test]
+    fn the_search_field_owns_the_width_of_its_layer() {
+        let mut h = showcase_on(PAGE);
+        h.set_reduced_motion(true);
+        let (at, row) = h.find("Search projects").expect("the search field");
+        let (at, row) = (u16::try_from(at).unwrap_or(0), u16::try_from(row).unwrap_or(0));
+        h.click(i32::from(at), i32::from(row)).type_text("qu");
+        let (left, right) = run(&h, row, at).expect("the field's own cells");
+        assert_eq!(right - left + 1, SEARCH_WIDTH, "the field is {SEARCH_WIDTH} cells wide");
+        let layer = row + 1;
+        let screen = h.screen();
+        assert!(run(&h, layer, left).is_some_and(|(_, last)| last > right), "the longest path decides: {screen}");
+
+        let (switch, y) = h.find("Match anchor width").expect("the playground switch");
+        h.click(switch + 26, y).click(i32::from(at), i32::from(row)).type_text("vyta");
+        let screen = h.screen();
+        assert_eq!(run(&h, layer, left), Some((left, right)), "the layer stands where the field stands: {screen}");
     }
 }

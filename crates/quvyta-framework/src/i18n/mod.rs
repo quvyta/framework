@@ -13,7 +13,10 @@
 //! Lookups try the active locale, then its `fallback` chain, then English. A key found
 //! nowhere is shown as `⟦key⟧` so a missing translation is visible on screen.
 //! [`I18n::has`] asks whether one language carries a key itself, without the fallbacks, so a
-//! test can keep every language complete.
+//! test can keep every language complete, and [`check`] is what such a test runs on a set of
+//! locale files.
+
+pub mod check;
 
 mod locale;
 mod plural;

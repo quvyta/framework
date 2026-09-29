@@ -63,7 +63,7 @@ use std::path::{Path, PathBuf};
 use toml::de::{DeTable, DeValue};
 
 pub use atomic::{WriteStep, atomic_write, atomic_write_reporting};
-pub use dirs::{cache_dir, config_dir, data_dir, state_dir};
+pub use dirs::{cache_dir, config_dir, data_dir, display_home, display_home_with, state_dir};
 pub use ecosystem::Ecosystem;
 pub(crate) use user_dirs::user_dir_line;
 pub use user_dirs::{UserDir, documents_dir, user_dir, user_dir_in};

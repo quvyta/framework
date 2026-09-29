@@ -70,7 +70,9 @@
 ## Harness
 
 - `Harness::new(app, genişlik, yükseklik)` — gömülü ortam, hemen çizilmiş halde; ölçüyü `resized`'a bildirir ve `init`'i çalıştırır. Kendi ortamın için `Harness::with_env(app, ortam, genişlik, yükseklik)`.
-- `Harness::member_in(app, ekosistem, &klasör, "code", genişlik, yükseklik)` — bir üyeyi `Runtime::member_in` gibi, testin kendi klasöründe başlatır; `.poll_preferences()` dosyalarını çalışma motorunun değişiklik duyunca yaptığı gibi yeniden okur ve yalnızca bir şey değiştiyse çizer.
+- `Harness::member_in(app, ekosistem, &klasör, "code", genişlik, yükseklik)` — bir üyeyi `Runtime::member_in` gibi, testin kendi klasöründe, gömülü ortamla başlatır; `.poll_preferences()` dosyalarını çalışma motorunun değişiklik duyunca yaptığı gibi yeniden okur ve yalnızca bir şey değiştiyse çizer.
+- `Harness::member_in_with_env(app, ortam, ekosistem, &klasör, "code", genişlik, yükseklik)` — aynı üye başlangıcını verilen ortamla yapar; böylece uygulama kendi dil dosyaları ve tuş haritasıyla test edilebilirken paylaşılan dil, tema, ikon ve hareket tercihleri yine uygulanır.
+- `Runtime::harness_in(&klasör, genişlik, yükseklik)` — uygulamanın kendi `Runtime`'ı, `run`'ın başlatacağı gibi (tema, ikon, dil ve tuş haritası dosyaları ve kaynakları, ayarlar, tercihler, üyelik), terminal açmadan bir harness içinde; üyenin ekosistem klasörü `klasör` olur. Runtime'ı hem `run`'ın hem testlerin çağırdığı tek bir işlevde kur; böylece kaybolan bir `.member(..)` ya da `.locale_source(..)` satırı bir testi düşürür.
 - `.resize(genişlik, yükseklik)` — ekranı yeniden boyutlar, yeni ölçüyü `resized`'a bildirir ve baştan çizer.
 - `.press("ctrl+s")`, `.key(olay)`, `.type_text("merhaba")`, `.paste(metin)` — klavye girdisi.
 - `.click(x, y)`, `.click_text("Kaydet")`, `.hover(x, y)`, `.drag(nereden, nereye)`, `.mouse(tür, x, y)` — fare girdisi.

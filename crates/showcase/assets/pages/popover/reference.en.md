@@ -6,7 +6,12 @@
 - `.on_dismiss(msg)` — sent on Esc and on a press outside the anchor and the layer.
 - `.placement(Placement)` — `Below` (default), `Above`, `Right` or `Left`; flips when there is no room.
 - `.focus_inside(bool)` — focus moves into the layer when it opens and back when it closes. Default: `false`.
+- `.match_anchor_width(bool)` — the layer opens exactly as wide as the anchor, cut to the screen, instead of as wide as its content; the content is measured at that width. Default: `false`.
 - `.show(ui)` — adds it and returns the node, so `.id(…)` and sizes apply to the anchor.
+
+## Width
+
+- The layer is as wide as its content by default. With `.match_anchor_width(true)` its width is the anchor's, cut to the screen, and its content is measured at that width: a line longer than the anchor is cut there rather than widening the layer. The anchor's area is the node `.show(ui)` returns, so `.width(Length::Cells(n))` on it sets how wide the anchor, and with the option the layer, is.
 
 ## Placement
 

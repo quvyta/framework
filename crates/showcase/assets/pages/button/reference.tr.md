@@ -7,16 +7,20 @@
 - `.icon(anahtar)` — etiketten önce ikon setinden bir ikon. Varsayılan: yok.
 - `.disabled(bool)` — soluklaştırır; odak almaz, girdiyi yok sayar. Varsayılan: `false`.
 - `.loading(bool)` — ikonun yerine spinner; basışları yok sayar. Varsayılan: `false`.
+- `.on_middle_press(msg)` — orta tuş butonun üzerinde basılıp bırakılınca gönderilen mesaj; örneğin bir sekmeyi kapatmak. Her basış gibi parlar. `on_press` verilmiş bir butonda etkilidir. Varsayılan: yok; orta tuş o zaman butona uğramadan geçer.
 - `.selected(bool)` — butonu birkaç görünüm modundan biri gibi bir seçim butonu yapar: seçiliyken yükselmiş yüzey ve sabit bir çubukla görünür. Seçim butonu basınca parlamaz. Varsayılan: sıradan buton.
+- `.faint(bool)` — üzerinde bir şey yokken bir adım sessiz; yine basılır, üzerine gelmek ya da odak tam tonu geri getirir.
 
 ## Mesajlar
 
 - `on_press` mesajı, her basışta bir kez.
+- `on_middle_press` mesajı, her orta tıkta bir kez.
 
 ## Klavye ve fare
 
 - Odaklıyken `enter` ya da `space` — basar.
 - Sol tuş butonun üzerinde bırakılırsa — basar. Başka yerde bırakmak iptal eder.
+- Orta tuş butonun üzerinde bırakılırsa — `on_middle_press` varsa orta tık mesajı. Başka yerde bırakmak iptal eder.
 - Tuşu basılı tutmak — tek basış.
 
 ## Yerleşim

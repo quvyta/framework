@@ -6,6 +6,7 @@
 - `.open_on(Click::Double | Click::Single)` — bir girdiyi kaç tıkın açtığı; varsayılanı `Click::Double`, tek tık yalnızca seçer. `Click::INTERVAL`, aynı girdiye iki basışın içinde kalması gereken 400 ms'dir.
 - `.on_open_terminal(|yol| Msg)` — klasör menüsüne "Burada terminal aç" ekler, o klasörün yoluyla.
 - `.menu_items(|key, targets| Vec<ContextItem<Msg>>)` — kendi öğelerin, kendi grubunda; `targets` o satırdaki bir işlemin neye işlediğidir.
+- `.menu_for(|hedef| Vec<ContextItem<Msg>>)` — aynısı, yöneticinin satır hakkında bildiği her şeyle: `hedef.key`, `hedef.path`, `hedef.folder` (en üst satır klasör sayılır) ve `hedef.selection`. `path_of(kök, anahtar)` herhangi bir anahtarın yolunu verir.
 - `.row_mark(|key| RowMark)` — uygulamanın o satırın görünüşü hakkında söyledikleri; söyleyecek bir şeyi olmayan satır için `RowMark::new()`.
 - `.kind_icons(bool)` — her satırın ikonu girdinin türüne göre, satırın kendi renginde; varsayılan kapalı. İşaretin ikonu onun önüne geçer.
 - `.kind_tones(bool)` — bu ikonlar ailelerinin renginde; `kind_icons` olmadan hiçbir şey yapmaz, on altı renkte ve ASCII'de çizilmez.
@@ -28,7 +29,7 @@
 - `FileWork` — şu an süren uzun işlem: `id()` (kendi `Tasks` modelinde göstermek ya da kendin durdurmak için `TaskId`), `done()`, `note()`, `entries()`.
 - `FolderEntry::is_hidden()` — adı noktayla başlayan girdi.
 - `qframe::icons::file_kind(ad, klasör, yürütülebilir) -> FileKind`, `.icon()` (ikon anahtarı, örneğin `file-rust`) ve `.family()` ile; `KindFamily::Folder | Text | Document | Sheet | Code | Data | Image | Audio | Video | Archive | Package | Executable | Key | Font | File`, `.tone()` ile. `UserFolders::english(ev)`, `::parse(ev, metin)`, `::read(ev, ayar_klasörü)`, `::current()`, `.home()`, `.kind(yol)`.
-- `RowMark::new()`, `.sign(ikon, ton)` (ikisi her zaman birlikte), `.faint(bool)`; okumak için: `icon()`, `tone()`, `is_faint()`, `is_empty()`.
+- `RowMark::new()`, `.sign(ikon, ton)` (ikisi her zaman birlikte), `.plain_sign(ikon)` (satırın kendi renginde bir şekil; adla birlikte yükselir ve seçim rengini alır; renkle bir şey söylemeyen satır için, örneğin bir çalışma alanının kökü), `.faint(bool)`; okumak için: `icon()`, `tone()`, `is_faint()`, `is_empty()`.
 - `NameProblem::Empty | Slash | Nul | Dots | Taken` ve `.message()`; `Naming { purpose, folder, value, tried }`; `NameFor::File | Folder | Rename(key)`.
 - Kimlik olarak anahtarlar: `child_key(üst, ad)`, `parent_key(key)`, `name_of(key)`, `is_within(key, klasör)`, `is_inside(key)`.
 
@@ -58,7 +59,7 @@
 - `kind_tones(true)` klasörlere vurgu rengini, dosyalara dört dizi tonunu verir: kod ve yazı `series-2`; resim, ses, video ve yazı tipi `series-3`; veri ve anahtar `series-4`; arşiv, paket ve program `series-5`. Türü bilinmeyen dosya satırın rengini korur.
 - İşaret satırın klasör ya da dosya ikonunun yerine kendi işaretini, kendi tonunda koyar ve satırı solgun çizebilir. Satırı asla daha gür yapamaz: kesilmiş bir girdi ve pasif bir yönetici, işaret ne derse desin solgun kalır. Ton işaretsiz verilemez, böylece işaretli satır on altı renk ve ASCII kipinde de ayırt edilir.
 - Kopyalama tutulan bir iş parçacığı değil bir `Task` olarak çalışır: nereye geldiğini söyler, satırların üstündeki bir satır işi adlandırır, ilerleme çubuğunu çizer ve Durdur sunar. Durdurmak yarı yazılmış girdiyi geri alır ve klasörleri yeniden okur, çünkü kopyalanmış olan diskte kalır. Aynı anda tek kopyalama çalışır; sürerken istenen ikincisi hiçbir şey yapmaz.
-- Kopyalama taşımanın yanındaki işlemdir: `Copy` girdileri `Cut` gibi kenara koyar, `Paste` onları taşımak yerine kopyalar; klasör içindeki her şeyle. Kopyalanan yerinde kalır, bu yüzden onda solgun bir şey yoktur. Bağ, bağ olarak kopyalanır. Hedef klasörde aynı ad varsa reddedilir; hiçbir şeyin üstüne yazılmaz.
+- Kopyalama taşımanın yanındaki işlemdir: `Copy` girdileri `Cut` gibi kenara koyar, `Paste` onları taşımak yerine kopyalar; klasör içindeki her şeyle. Kopyalanan yerinde kalır, bu yüzden onda solgun bir şey yoktur. Bağ, bağ olarak kopyalanır. Hedef klasörde aynı ad varsa reddedilir; hiçbir şeyin üstüne yazılmaz. Taşımadan sonraki gibi, kopyanın gittiği klasör açılır ve kopya seçilir; imleç hiçbir zaman görünmeyen bir satırda kalmaz.
 - `trashing()` ve `trashing_in(klasör)` silmeyi çöpe atmaya çevirir: menülerde Sil'in yerini alır ve hiçbir şey sorulmaz, çünkü çöpe yeniden bakılabilir. Çöp, freedesktop belirtiminin dediği gibi yazılır: girdi `files/` altına, nereden geldiğini ve ne zaman gittiğini söyleyen `info/<ad>.trashinfo` notu ise önce ve `create_new` ile yazılır, böylece adı o ayırır; aynı ad varsa sıradaki numara alınır. Çöpün alamadığı girdi — başka bir dosya sisteminde ya da hiç çöp yok — sessizce silinmez: yönetici kalıcı silmeyi kendi sorusuyla, tehlike renginde sorar.
 - `showing_hidden(bool)` adı noktayla başlayan girdileri gösterir. Onlar her hâlükârda okunur, bu yüzden açmak diske hiç gitmez; yeni bir ad, gizli girdi gösteriliyor olsun olmasın ona karşı da denetlenir.
 - Reddetme sistemin değil kişinin diliyle söylenir: içine bakılamayan klasör, artık orada olmayan şey, dolu disk ve durdurulmuş kopyalama, her birinin kendi cümlesi var.

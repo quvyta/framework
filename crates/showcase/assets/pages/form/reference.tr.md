@@ -7,6 +7,7 @@
 - `.show(ui, |form| …)` — formu ekler; `form.field(alan, |ui| …)` kontrolüyle bir alan ekler, `form.ui()` başka her şeyi.
 - `Field::new(etiket)` — bir etiket ve içine eklenen kontrol, başka bir şey yok.
 - `.hint(metin)` — hata yokken kontrolün altında silik yardım.
+- `.value(metin)` — kontrolün yerinde okunacak bir değer, kontrollerle aynı hizada; etiketi silik.
 - `.error(Option<metin>)` — ipucunun yerine kontrolün altında hata.
 - `.required(bool)` — etiketin ardından silik "zorunlu" sözcüğü.
 - `.disabled(bool)` — soluk etiket; kontrolü de pasif yap.

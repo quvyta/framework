@@ -172,7 +172,10 @@ impl PaintCx<'_> {
         let props = self.env.theme().style(widget, variant, states);
         let style = WidgetStyle::new(props, self.pulse_phase());
         if style.is_animated() && !self.env.reduced_motion() {
-            self.request_frame_in(PULSE_FRAME);
+            let rest = self.pulse_rest();
+            if self.now < rest {
+                self.request_frame_in(PULSE_FRAME.min(rest - self.now));
+            }
         }
         style
     }
@@ -250,16 +253,33 @@ impl PaintCx<'_> {
         elapsed / interval_ms
     }
 
-    /// Where the theme pulse is, `0.0..1.0`; always 0 when motion is reduced.
+    /// Where the theme pulse is, `0.0..1.0`; always 0 when motion is reduced, and 0 again once
+    /// the person has left the keyboard and mouse alone for a few seconds: the pulse breathes after
+    /// every input and then rests at the end of a breath, so an idle screen draws no frames.
     #[must_use]
     pub fn pulse_phase(&self) -> f32 {
-        if self.env.reduced_motion() {
+        if self.env.reduced_motion() || self.now >= self.pulse_rest() {
             return 0.0;
         }
         let period = self.env.theme().motion().pulse_period.as_secs_f64();
         let phase = self.now.as_secs_f64().rem_euclid(period) / period;
         // `phase` is in 0..1, which f32 represents closely enough for colour blending.
         phase as f32
+    }
+
+    /// When motion that repeats for as long as nothing happens, a cursor blinking or a focus
+    /// breathing, comes to rest: [`MOTION_RESTS_AFTER`] after the last input.
+    pub(crate) fn motion_rests_at(&self) -> Duration {
+        self.now.saturating_sub(self.idle).saturating_add(MOTION_RESTS_AFTER)
+    }
+
+    /// When the pulse rests: the end of the first whole breath at or after
+    /// [`motion_rests_at`](Self::motion_rests_at), where its phase is 0 again, so it stops without
+    /// a jump.
+    fn pulse_rest(&self) -> Duration {
+        let period = self.env.theme().motion().pulse_period.as_nanos().max(1);
+        let breaths = self.motion_rests_at().as_nanos().div_ceil(period);
+        Duration::from_nanos(u64::try_from(breaths.saturating_mul(period)).unwrap_or(u64::MAX))
     }
 
     /// The visible area of this widget.
@@ -448,6 +468,15 @@ impl PaintCx<'_> {
     /// be shown changes, not every frame, or the user could not scroll away from it.
     pub fn reveal(&mut self, rect: Rect) {
         self.frame.reveals.push((self.id, rect));
+    }
+
+    /// Names `rect`, a part of this widget's area, as where the keyboard is inside it, such as the
+    /// selected row of a long list. When this widget takes the focus inside a
+    /// [`ScrollView`](crate::widgets::ScrollView), the view shows this part rather than the whole
+    /// widget, so a list taller than the view does not pull the view to its top. Say it every frame
+    /// the widget has such a place.
+    pub fn focus_spot(&mut self, rect: Rect) {
+        self.frame.focus_spots.insert(self.id, rect);
     }
 
     /// Blends the text and background colours already drawn in `rect` towards `color` by
@@ -820,3 +849,9 @@ pub(crate) const ANIMATION_FRAME: Duration = Duration::from_millis(16);
 
 /// How often animated theme colours are redrawn.
 pub(crate) const PULSE_FRAME: Duration = Duration::from_millis(50);
+
+/// How long motion that would otherwise repeat forever goes on after the last key, click or
+/// paste. A screen nobody touches then sends nothing, which over a slow remote connection is the
+/// difference between an idle program and one that keeps the line busy; the next input starts it
+/// again.
+pub(crate) const MOTION_RESTS_AFTER: Duration = Duration::from_secs(5);

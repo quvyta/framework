@@ -11,8 +11,9 @@
 - `.on_copy_drop(|drop| msg)` — a drop released with Ctrl held asks for a copy with this instead of the move; a terminal that does not report Ctrl with the pointer always moves.
 - `.activate_on(Click::Single | Click::Double)` — `Single` by default: a click selects and does what Enter does. With `Double` a click only selects and a second press on the same row within `Click::INTERVAL` (400 ms) opens, closes or activates it; the chevron, ← and → still open and close with one click.
 - `.box_select(bool)` — with `multi_select`, a drag from the free space below the rows draws a box in the `text-selection` tone and the rows it covers become the selection, or join it with Ctrl held at the press; a click there clears the selection.
+- `.wrap(bool)` — `down` (or `j`) on the last row goes on to the first and `up` (or `k`) on the first to the last, as in a menu; `pgup` `pgdn` `home` `end` still stop at the ends among the rows shown, and Shift with an arrow never wraps a range. Default: `false`.
 - `TreeNode::new(key, label)`, `.children(nodes)`, `.expanded(bool)`, `.expandable(bool)`, `.loading(bool)`.
-- `.icon(key, Some(token))`, `.detail(text)`, `.faint(bool)`.
+- `.icon(key, Some(token))`, `.detail(text)`, `.faint(bool)`, `.meter(fraction, tone)` (a six-cell block meter left of the detail; dropped before the name is cut).
 
 ## Behaviour
 

@@ -12,6 +12,7 @@
 
 - `.id(isim)` — kalıcı bir isim; durum ve odak onu takip eder.
 - `.width(Length)`, `.height(Length)`, `.fill()`, `.fill_width()`, `.fill_height()`.
+- `natural_size(&bileşen, &ortam, Size::MAX)` — bir bileşenin o ortamla çizildiğinde kapladığı hücreler, bileşenin kendisine sorularak; `View` olmayan `update` içinde yerleşime karar vermek için: listenin ayrıntıdan nerede ayrılacağı, bir düğme satırının genişliği. Doldurmaya ayarlı bir bileşen verilen alanı söyler.
 - `.padding(Padding)`, `.gap(hücre)`, `.justify(Align)`, `.align(Align)`.
 - `.wrap(bool)` — satır sığmayan çocuklarını alt satıra alır; `gap`, `justify` ve spacer'lar her satırda ayrı çalışır.
 - `.line_gap(satır)` — sarılan bir satırın satırları arasındaki boş satır sayısı (varsayılan 0).

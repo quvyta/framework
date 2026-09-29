@@ -13,6 +13,9 @@ pub struct Size {
 }
 
 impl Size {
+    /// The largest size there is: the space to offer a widget to learn its natural size.
+    pub const MAX: Self = Self::new(u16::MAX, u16::MAX);
+
     /// Creates a size.
     #[must_use]
     pub const fn new(width: u16, height: u16) -> Self {

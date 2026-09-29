@@ -4,6 +4,200 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.31 - 2026-09-29
+
+### Added
+
+- `List::label_first(true)`: a row too narrow for its label and its detail cuts the detail first,
+  with `…`, and leaves it out when fewer than four cells of it would remain, so the label stays
+  whole as long as it fits on its own. Off by default, since some rows are about their detail.
+- `RowMark::plain_sign(icon)`: a file manager row's icon in the row's own colour, so it rises and
+  takes the selection with the name; for a row that says nothing in colour, such as a workspace
+  root.
+- `.wrap(true)` on `List`, `Table`, `Tree`, `Menu`, `RadioGroup` and `Segmented`, and
+  `list.wrap(true)` inside `SettingsList::show`: the next-row key on the last row goes on to the
+  first and the previous-row key on the first goes to the last, as in a menu, skipping headers,
+  gaps and disabled rows. A page and Home/End still stop at the ends, and Shift with an arrow never
+  wraps a range. Off by default, so every list keeps stopping at its ends until asked.
+- `SettingRow::hint(text)`: an explanation that takes no room of its own. It shows under the row,
+  over the rows below, at once while the row is the keyboard's row and after the hover delay while
+  the pointer rests on it, wrapped inside the label column so it never covers a control; the row's
+  control keeps every key.
+- `Appearance::updates_in_background()`: the update notice's switch writes the shared file on a
+  thread of its own, so a settings page never waits for the disk to turn it over. The switch shows
+  the new value at once, and a file that cannot be written puts the switch back where the person
+  left it. What became of the write arrives as a message of the application's own:
+  `AppearanceSave::Saved`, or `AppearanceSave::Failed(reason)` to show as a toast. Hand every
+  change to `Appearance::update_saving(change, &mut settings, saved)` and the outcome back to
+  `Appearance::saved(&save)`. Every other row is saved where it is drawn, as before, and an
+  application that never asks for updates is unaffected.
+- `qframe::widget::natural_size(&widget, &env, available)` and `Size::MAX`: the cells a widget
+  covers when drawn, asked of the widget itself, for a layout decided in `update` where there is no
+  `View`, such as where a list splits from its detail; no copy of a widget's padding can drift.
+- `Checkbox::description(text)`, a faint explanation under the label in the label's column, and
+  `Checkbox::label_column()`.
+- `Field::value(text)`: a value to read in place of a control, lined up with the controls, its
+  label faint. `CopyValue::labelled(label)`: a faint label above the value, and a value too wide
+  for its box written whole above it.
+- `TableCell::role(role)`: a typography role for a cell, such as `faint`, which takes the selected
+  row's colour on that row. `Text::role("heading")`: the look of a settings list's own headings for
+  a heading above anything else.
+- `TreeNode::meter(fraction, tone)`: a small block meter at the right of a tree row, dropped
+  before the name would be cut.
+- `Popover::match_anchor_width(true)`: a popover that opens exactly as wide as the widget it is
+  anchored to, cut to the screen, instead of as wide as its content. A layer of suggestions under a
+  search field then starts at the field's left edge and ends at its right one, whatever its longest
+  line, and a line longer than the field is cut there rather than pushing the layer wider; the
+  content is measured at that width, so it lays itself out to fit. A popover on its own is
+  unchanged. The Popover page of the showcase shows the same layer with the option off and on.
+- `Keymap::label_for(scope, action)`: how the first chord of an action is written, for naming
+  the key in a sentence that follows the person's own bindings; `None` when it has no chord.
+- `KeyHints::action_first(scope, action)`, before every plain hint and the last to drop when the
+  bar narrows; `KeyHints::action_labelled(scope, action, label)`, the key from the keymap and the
+  words from the application; `KeyHints::faint(bool)` and `Button::faint(bool)`, a step quieter
+  for a screen that has gone still, a faint button still pressing and speaking up under the pointer
+  or the keyboard.
+- `CommandPalette::max_rows(n)`; without it the list now takes up to half the screen's rows, never
+  fewer than ten, so a tall screen shows more commands at once.
+- `Appearance::label(&i18n, Shared)`, `IconMode::label(&i18n)` and `PillarStyle::label(&i18n)`: the
+  words the Appearance box uses, for an application that shows the same preference elsewhere.
+- `qframe::text::fuzzy(query, text)` and `FuzzyMatch` (`score()`, `positions()`): the fuzzy
+  matching the filter, the command palette and the pickers find with, public so an application's
+  own search finds exactly what they find.
+- `qframe::desktop::shell_words(line)`: a command line such as `$EDITOR` split into words the way a
+  POSIX shell splits it, quotes and backslashes followed and nothing expanded, so a quoted path
+  with spaces stays one word.
+- `FileManager::menu_for(|target| ..)` and `MenuTarget`: the application's own menu items told the
+  row's key, path, whether it is a folder and what an action acts on, so no list of folders has to
+  be kept beside the manager; `qframe::widgets::path_of(root, key)` gives the path of any key.
+- `Ecosystem::data_dir(app)`: where a member keeps the records a person would miss, such as
+  favourites, beside the ecosystem's config, state and cache folders.
+- `qframe::storage::display_home(path)` and `display_home_with(path, home)`: a path as a person
+  reads it, with the home folder written `~`, and `/home/alice` left alone for the home `/home/ali`.
+- `qframe::version::newer(candidate, installed)`: semver's order, pre-releases included, the one the
+  update notice uses; a text that is not a version is never newer.
+- `qframe::install`: offer to install a missing program's package in front of the person instead
+  of telling them to copy a command. `Install::package(name)` finds this machine's package manager
+  (`pacman`, `apt-get`, `dnf`, `zypper`, `apk` or `brew`, in that order) and builds the exact
+  command, such as `sudo pacman -S --needed libarchive`, with `sudo` only when not root and no
+  "yes" flag, so the manager asks its own question. `.name_for(Manager::Apt, "libarchive-tools")`
+  gives a package its name on one distribution, `install.confirm(msg)` is the question that shows
+  the command line, and `install.handoff(on_finish)` hands the terminal to the package manager,
+  where the password is typed, and keeps its last lines on screen until a key is pressed.
+  `Install::package_with` takes the program search and the root question, so tests never run a
+  package manager. A showcase page shows the question on a pretended machine.
+- `Runtime::harness_in(&folder, width, height)`: the application's own `Runtime` opened in a
+  `Harness`, started exactly as `run` starts it (theme, icon, locale and keymap files and sources,
+  settings, preferences and membership), with the member's ecosystem folder moved to `folder` and
+  nothing read from the machine. An application that builds its runtime in one function called by
+  both `run` and its tests now has a test that fails when a `.member(..)` or `.locale_source(..)`
+  line of that setup is lost.
+- `PaintCx::focus_spot(rect)`: a widget taller than a view names where the keyboard is inside it,
+  and a `ScrollView` shows that part when the widget takes the focus. `SettingsList` names its
+  keyboard row.
+- The `Terminal` widget answers the questions a program asks its terminal, as every real terminal
+  does: where the cursor is (`CSI 6 n`), that it is well (`CSI 5 n`), what kind of terminal it is
+  (`CSI c`), which colours it draws text, ground and cursor in (`OSC 10`, `11`, `12` with `?`, the
+  theme's colours) and whether a mode is on (`CSI ? mode $ p`). An editor that asks for the ground
+  colour and then for the cursor now picks its light or dark colours at once instead of waiting
+  and printing a warning. The answers go back in the order the questions came.
+- `TerminalChange::Copied(text)`: a program inside a `Terminal` offers text to be copied, and the
+  offer is heard like a title or a notification. A program that copies a selection, a yanked line
+  or a path sends OSC 52 (`52;targets;base64`); the text arrives decoded, and an application
+  answers it with `Command::copy(text)`, which puts it on the system clipboard with OSC 52 — so it
+  works over SSH — and on the application's own, so pasting still works where the terminal has no
+  clipboard of its own. This is what a shell's own copy commands, a pager and an editor's yank need
+  to reach the person's clipboard from inside an embedded terminal. A read request, a program asking
+  what the person copied, is never reported and never answered: the clipboard belongs to the person.
+  An offer that is not base64, or not UTF-8 once decoded, is dropped, and what arrives is bounded
+  like every OSC string.
+- Focus reports in the `Terminal` widget: a program that turns xterm's mode 1004 on
+  (`CSI ? 1004 h`, off with `l`) is sent `ESC [ I` when the terminal takes the focus and `ESC [ O`
+  when it loses it. Programs that draw differently depending on whether the window has the focus —
+  editors, pagers, anything with a status line — need this to know, and a program that turns the
+  mode on while the terminal already has the focus is told at once, since it cannot see the state it
+  missed. Only a change is reported, never a frame's worth of the same answer, and only for a live
+  terminal that is not `read_only()`. The reports are the terminal's own rather than the person's
+  typing, so they move neither `TerminalSession::last_input` nor `TerminalSession::line_pending`, and
+  an application waiting for a quiet terminal is not held off by them.
+- `Harness::member_in_with_env(app, env, ecosystem, &folder, "code", width, height)`: starts a
+  member test with the application's own `Env`, so its locale files and keymap are available to
+  the test while the shared language, theme, icons and reduced-motion preferences still apply.
+  `Harness::member_in` remains the built-in-environment form.
+- `EmptyState` can offer several equal action buttons in one centred row, or stack them on narrow
+  screens without losing their individual messages. `EmptyState::tone(ToastKind)` gives an empty
+  state the matching success, warning, danger or info colour and a visible status sign, including in
+  sixteen-colour and ASCII terminals.
+- `EventCx::clicks()`: how many presses in a row the press or release being handled is, counted
+  once by the runtime for every widget: the same button on the same cell within 400 ms counts on
+  (2 for a double click, 3 for a triple click), anything else starts at 1, and other events are 0.
+  A widget tells a double click from two clicks without keeping time itself, and in a `Harness`
+  two clicks on one cell with no time advanced between them are a double click.
+- `TaskCx::recv(&receiver)` and `TaskCx::recv_timeout(&receiver, duration)` with `RecvWait`
+  (`Timeout`, `Cancelled`, `Closed`): a task waits for the next item of a channel another thread
+  feeds, such as a connection handing over what it read, and still stops within 50 ms when it is
+  cancelled. In a `Harness` a waiting task rests like a sleeping one, so no test hangs on it.
+- `IconButton::selected(bool)`: the glyph in the accent colour for a control that is on, such as a
+  filter or a bookmark, with hover, focus and presses as usual; theme key `icon-button:selected`.
+- `Button::on_middle_press(msg)`: a message of its own for a middle click, as a browser closes a
+  tab with it; a button without it ignores the middle button as before.
+- `Process::clear_env()`: a child that gets nothing of the environment but what it was given. A
+  child normally inherits everything, which is right for a build or a package manager and wrong
+  for anything that should not be steered by the shell the application happened to be started
+  from: `PATH`, `HOME` and `LANG` all change how a program behaves. With the environment cleared
+  the child sees exactly what the application said it would see, so the variables it needs are
+  given to it, `PATH` first since that is what it looks other programs up with.
+- `Process::collect(keep, cancel)`: runs a child and keeps only the end of its output, within
+  `Keep`, and gives it back as one piece of text. Both of the child's streams land on one pipe, so
+  the text is in the order the program wrote it, and nothing is held beyond what `Keep` asks for
+  while it runs: a build that writes megabytes, a program that never stops printing and a log far
+  too long to show each cost the size or the line count asked for. `Keep::bytes`,
+  `Keep::lines` and `Keep::limit` are the three knobs, and the limit ends the child and its
+  process group the way cancelling does. `Collected` says in `trimmed`, `timed_out` and
+  `cancelled` how the run ended, and its `text` is lossy UTF-8 cut between characters.
+- `i18n::check`: the checks a multi-language application runs on its own locale files in a test.
+  `locales(files)` asks for every key of the reference file in every other file and no key of its
+  own, the same `{name}` placeholders wherever both files have a message, and the plural forms each
+  language's own plural rule chooses from — Russian needs `one`, `few` and `many` where English
+  needs two. `same_keys`, `same_placeholders` and `plural_forms` are those three one at a time, and
+  `own_words(files, at_least)` asks how much of a file must be words of its own: a file whose
+  values are all copied from English passes every other check, so a share is the only thing that
+  can see it. Left out of both the count and the share are the values that are the same in every
+  language by nature, a pure placeholder, a number, a shape such as `{hour}:{minute}` and a key
+  name like `ctrl+s`, and plural tables, whose forms are a language's wording as a whole. Every
+  problem is a `Problem` with the file, the line, the column, the key and what is wrong, and its
+  `Display` is what an editor opens. The files are read with the parser and the plural rules the
+  runtime reads them with, so a file these calls call complete is one the runtime can draw, and a
+  malformed file is a problem rather than a panic.
+
+### Changed
+
+- An open `Select` list and a popup menu (a breadcrumb's hidden segments) go round their ends
+  with ↑ and ↓, as a context menu always has; Home/End and a page still stop at the ends.
+
+### Fixed
+
+- A copy pasted into a closed folder of a `FileManager` opens the folder, as a move does, so the
+  selected copy is on screen and the keys go on from it.
+- A switch wrapped in a `Tooltip` inside a settings row takes Space and Enter: the list offers a
+  key to the innermost control first and then to each wrapper around it, as focus would. A
+  `Tooltip::on_focus(true)` there shows while its row is the keyboard's row.
+- In the ASCII glyph mode the hint lines of the command palette and the help layer write the
+  arrows and Enter from the icon set (`^v`, `>`) instead of characters such a terminal may lack.
+- A screen nobody touches no longer draws frames: the breathing focus pillar and every other
+  pulsing theme colour come to rest at the end of a breath five seconds after the last key, click
+  or paste, and the text cursor stops blinking and stays drawn; the next input wakes both. Before,
+  a focused list over SSH kept sending about 1.6 KB a second while the person was away.
+- `ScrollView` no longer jumps to the top of a long list that takes the focus: it shows the list's
+  keyboard row, a widget taller than the view that is already partly on screen stays where it is,
+  and a widget that was clicked into never scrolls the view. A warning above a settings list stays
+  in view when the list takes the focus, and clicking from a field back into the list chooses what
+  was clicked instead of moving the page under the pointer.
+- `TerminalSession`: a program that asks the terminal about the keyboard protocol again and again
+  without reading its input no longer stops the session for good. The answer is now written in as
+  much as the program's input will take, so what it cannot have been waiting for is left out, and
+  the session closes again even when the program's input is full.
+
 ## 0.1.30 - 2026-09-27
 
 ### Added

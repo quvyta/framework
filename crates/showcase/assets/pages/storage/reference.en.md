@@ -32,6 +32,7 @@
 - `data_dir(app)` — where `app` keeps its own records: `$XDG_DATA_HOME/<app>` when absolute, else `$HOME/.local/share/<app>` on Linux and other Unix; `$HOME/Library/Application Support/<app>` on macOS, the same folder as the settings, because macOS has no separate data folder for a command line application; `%LOCALAPPDATA%\<app>`, the local folder, on Windows, so records are not copied between machines.
 - `state_dir(app)` — where `app` keeps what it remembers between runs, such as its last background check: `$XDG_STATE_HOME/<app>` when absolute, else `$HOME/.local/state/<app>` on Linux and other Unix; `$HOME/Library/Application Support/<app>` on macOS, the same folder as the data; `%LOCALAPPDATA%\<app>` on Windows.
 - `cache_dir(app)` — where `app` keeps files it can rebuild at any time: `$XDG_CACHE_HOME/<app>` when absolute, else `$HOME/.cache/<app>` on Linux and other Unix; `$HOME/Library/Caches/<app>` on macOS; `%LOCALAPPDATA%\<app>` on Windows.
+- `display_home(path)` and `display_home_with(path, home)` — a path as a person reads it, the home folder written `~` (`~` alone for the home folder, `~/rest` under it, any other path as it is, `/home/alice` untouched for the home `/home/ali`); for showing, never for opening.
 - A `HOME` that is not an absolute path counts as missing in all four, as a relative XDG variable does, so nothing lands under the working directory.
 - An empty variable counts as unset; a relative `XDG_*` path is invalid and ignored.
 - `None` when the platform's variables say nothing. `Settings::load` then keeps everything in memory with a warning diagnostic.
@@ -44,6 +45,7 @@
 - `.shared_file()` — `<config_dir>/<id>.conf`, the settings every member shares.
 - `.app_file(app)` — `<config_dir>/<app>.conf`. An application whose id is the ecosystem's own would get the shared file.
 - `.app_dir(app)` — `<config_dir>/<app>`, for the application's other configuration files.
+- `.data_dir(app)` — `<data folder>/<id>/<app>`, for records the person would miss (favourites, history): `$XDG_DATA_HOME/<id>/<app>` when absolute, else `$HOME/.local/share/<id>/<app>` on Linux and other Unix; `$HOME/Library/Application Support/<title>/<app>` on macOS; `%LOCALAPPDATA%\<title>\<app>` on Windows.
 - `.state_dir(app)` — `<state folder>/<id>/<app>`: `$XDG_STATE_HOME/<id>/<app>` when absolute, else `$HOME/.local/state/<id>/<app>` on Linux and other Unix; `$HOME/Library/Application Support/<title>/<app>` on macOS; `%LOCALAPPDATA%\<title>\<app>` on Windows.
 - `.cache_dir(app)` — `<cache folder>/<id>/<app>`: `$XDG_CACHE_HOME/<id>/<app>` when absolute, else `$HOME/.cache/<id>/<app>` on Linux and other Unix; `$HOME/Library/Caches/<title>/<app>` on macOS; `%LOCALAPPDATA%\<title>\<app>` on Windows.
 - `.workspace_dir(app_title)` — `<documents_dir>/<title>/<app_title>`, where the user's work with the application goes.

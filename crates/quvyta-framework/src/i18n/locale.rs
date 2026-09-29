@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use toml::de::DeTable;
 
 use super::plural::PluralCategory;
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{Diagnostic, Location};
 use crate::doc::{self, Doc};
 
 /// One piece of a message template.
@@ -20,6 +20,19 @@ pub(crate) enum Piece {
 pub(crate) struct Template(pub(crate) Vec<Piece>);
 
 impl Template {
+    /// The words a message says, without its placeholders: what is left of it once a count and a
+    /// name are written over it. Two languages say the same thing when these are the same, which
+    /// is what tells a translated value from a copied one.
+    pub(crate) fn words(&self) -> String {
+        self.0
+            .iter()
+            .filter_map(|piece| match piece {
+                Piece::Text(text) => Some(text.as_str()),
+                Piece::Arg(_) => None,
+            })
+            .collect()
+    }
+
     pub(crate) fn parse(text: &str) -> Result<Self, String> {
         let mut pieces = Vec::new();
         let mut literal = String::new();
@@ -82,6 +95,25 @@ pub(crate) struct Locale {
     pub(crate) name: String,
     pub(crate) fallback: Option<String>,
     pub(crate) messages: BTreeMap<String, Message>,
+    /// Where each message stands in the file, for a check that points at a key the author has to
+    /// change.
+    pub(crate) places: BTreeMap<String, Place>,
+}
+
+/// Where a message stands in its file: the line its key is written on, and the line of each of
+/// its plural forms.
+#[derive(Debug, Clone)]
+pub(crate) struct Place {
+    pub(crate) key: Location,
+    pub(crate) forms: BTreeMap<PluralCategory, Location>,
+}
+
+impl Place {
+    /// Where `category` of this message is written, which is the key's own line for a form the
+    /// file does not have.
+    pub(crate) fn form(&self, category: PluralCategory) -> &Location {
+        self.forms.get(&category).unwrap_or(&self.key)
+    }
 }
 
 /// Parses a locale file. Returns `None` when `[meta]` with `name` and `code` is unusable.
@@ -127,20 +159,21 @@ pub(crate) fn parse(file: &str, text: &str, report: &mut Vec<Diagnostic>) -> Opt
     }
 
     let mut messages = BTreeMap::new();
+    let mut places = BTreeMap::new();
     for (key, value) in &root {
         let key = key.get_ref().as_ref();
         if key == "meta" {
             continue;
         }
         match doc.table(value, key) {
-            Ok(table) => collect(&doc, key, table, &mut messages, report),
+            Ok(table) => collect(&doc, key, table, &mut messages, &mut places, report),
             Err(_) => report.push(doc.error(
                 &value.span(),
                 format!("`{key}` must be a section such as [{key}]; messages live inside sections"),
             )),
         }
     }
-    Some(Locale { code, name, fallback, messages })
+    Some(Locale { code, name, fallback, messages, places })
 }
 
 fn collect(
@@ -148,14 +181,17 @@ fn collect(
     prefix: &str,
     table: &DeTable<'_>,
     messages: &mut BTreeMap<String, Message>,
+    places: &mut BTreeMap<String, Place>,
     report: &mut Vec<Diagnostic>,
 ) {
     for (key, value) in table {
         let full_key = format!("{prefix}.{}", key.get_ref());
+        let key_line = doc.locate(&key.span());
         if let Some(text) = value.get_ref().as_str() {
             match Template::parse(text) {
                 Ok(template) => {
-                    messages.insert(full_key, Message::Plain(template));
+                    messages.insert(full_key.clone(), Message::Plain(template));
+                    places.insert(full_key, Place { key: key_line, forms: BTreeMap::new() });
                 }
                 Err(message) => report.push(doc.error(&value.span(), message)),
             }
@@ -169,10 +205,11 @@ fn collect(
         let is_plural = !inner.is_empty()
             && inner.iter().all(|(k, v)| PluralCategory::from_name(k.get_ref()).is_some() && v.get_ref().is_str());
         if !is_plural {
-            collect(doc, &full_key, inner, messages, report);
+            collect(doc, &full_key, inner, messages, places, report);
             continue;
         }
         let mut forms = BTreeMap::new();
+        let mut form_lines = BTreeMap::new();
         for (category, form) in inner {
             let (Some(category), Some(text)) = (PluralCategory::from_name(category.get_ref()), form.get_ref().as_str())
             else {
@@ -181,12 +218,14 @@ fn collect(
             match Template::parse(text) {
                 Ok(template) => {
                     forms.insert(category, template);
+                    form_lines.insert(category, doc.locate(&form.span()));
                 }
                 Err(message) => report.push(doc.error(&form.span(), message)),
             }
         }
         if forms.contains_key(&PluralCategory::Other) {
-            messages.insert(full_key, Message::Plural(forms));
+            messages.insert(full_key.clone(), Message::Plural(forms));
+            places.insert(full_key, Place { key: key_line, forms: form_lines });
         } else {
             report.push(doc.error(&value.span(), format!("plural message `{full_key}` needs an `other` form")));
         }
@@ -204,6 +243,8 @@ mod tests {
             template.0,
             vec![Piece::Text("Hi ".to_owned()), Piece::Arg("name".to_owned()), Piece::Text(", {literal}".to_owned()),]
         );
+        assert_eq!(template.words(), "Hi , {literal}", "the words without the placeholders over them");
+        assert_eq!(Template::parse("{n} {unit}").expect("valid").words(), " ", "nothing but placeholders");
         assert!(Template::parse("broken {").is_err());
         assert!(Template::parse("Hello {name").is_err(), "a placeholder must be closed");
         assert!(Template::parse("stray }").is_err());
@@ -231,6 +272,22 @@ bad = { one = "only one" }
         assert_eq!(report.len(), 1);
         assert!(report[0].message.contains("needs an `other` form"));
         assert_eq!(report[0].location.as_ref().map(|l| l.line), Some(10));
+    }
+
+    #[test]
+    fn every_message_keeps_the_line_it_is_written_on() {
+        let text = "[meta]\nname = \"English\"\ncode = \"en\"\n\n[files]\ncount = { one = \"{n} file\", other = \"{n} files\" }\n\
+                   open = \"Open\"\n";
+        let mut report = Vec::new();
+        let locale = parse("en.toml", text, &mut report).expect("usable");
+        assert!(report.is_empty(), "{report:?}");
+        let open = locale.places.get("files.open").expect("a place for every message");
+        assert_eq!((open.key.line, open.key.column), (7, 1), "the key's own line");
+        assert!(open.forms.is_empty(), "a plain string has no form of its own");
+        let count = locale.places.get("files.count").expect("a place for a plural table");
+        assert_eq!(count.key.line, 6);
+        assert_eq!(count.form(PluralCategory::One).line, 6, "both forms stand on the key's line");
+        assert_eq!(count.form(PluralCategory::Zero).line, 6, "a form the file does not have is the key's line");
     }
 
     #[test]

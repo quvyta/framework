@@ -8,7 +8,7 @@ Tek tek ve hemen uygulanan tercihler için ayar listesi kullan: tema, animasyonl
 2. Listeyi kur: `SettingsList::show(ui, |list| { … })`.
 3. Satırları başlıklar altında topla: `list.heading(t!("appearance"))`.
 4. Her ayar için tam olarak bir kontrollü satır ekle: `list.row(SettingRow::new(t!("animations")), |ui| { ui.add(Switch::new(state.animations).on_toggle(Msg::Animations)); })`.
-5. Yetenekleri işe yaradığı yerde aç: silik ikinci satır için `.description(…)`, kilitli ayar için `.disabled(true)` (kontrolü de pasif yap), bir şey açan satır için `.on_activate(mesaj)`; örneğin `2.4 GB` gösteren bir değer satırı.
+5. Yetenekleri işe yaradığı yerde aç: silik ikinci satır için `.description(…)`, kişinin ancak emin olmadığında okuyacağı, yer kaplamadan klavyenin satırında ve bekleyen farenin altında görünen açıklama için `.hint(…)`, son satırda ↓ ile ilk satıra geçmek için `list.wrap(true)`, kilitli ayar için `.disabled(true)` (kontrolü de pasif yap), bir şey açan satır için `.on_activate(mesaj)`; örneğin `2.4 GB` gösteren bir değer satırı.
 
 ## Nasıl çalışır
 
@@ -25,4 +25,5 @@ Tek tek ve hemen uygulanan tercihler için ayar listesi kullan: tema, animasyonl
 - **Kaydet'i bekleyen ayarlar.** Ayar listesi hemen uygular; bir grup değer için form kullan.
 - **Bir satırda iki kontrol.** Tuşlar tek kontrole ulaşır; ayarı ikiye böl.
 - **Belge gibi açıklamalar.** Tek kısa satır; uzun yardım rehbere aittir.
+- **Kontrolü saran bir Tooltip'te ipucu.** `SettingRow::hint` klavyeye de fareye de görünür ve kontrollerin yanında satır kırar; `Tooltip` yalnızca kontrolünün altında görünür, klavyeye de ancak `.on_focus(true)` ile.
 - **Pasif satırın kontrolünü pasif yapmamak.** Satır soluklaşır ve atlanır, ama kontrol kendi durumunu korur.

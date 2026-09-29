@@ -6,7 +6,12 @@
 - `.on_dismiss(msg)` — Esc'te ve çapa ile katmanın dışına basılınca gönderilir.
 - `.placement(Placement)` — `Below` (varsayılan), `Above`, `Right` ya da `Left`; yer yoksa karşı tarafa geçer.
 - `.focus_inside(bool)` — açılınca odak katmana girer, kapanınca geri döner. Varsayılan: `false`.
+- `.match_anchor_width(bool)` — katman, içeriği kadar geniş yerine ekrana sığacak kadar kesilmiş hâlde tam olarak çapası kadar geniş açılır; içerik o genişlikte ölçülür. Varsayılan: `false`.
 - `.show(ui)` — ekler ve düğümü döndürür; böylece `.id(…)` ve boyutlar çapaya uygulanır.
+
+## Genişlik
+
+- Varsayılan olarak katman içeriği kadar geniştir. `.match_anchor_width(true)` ile genişliği ekrana sığacak kadar kesilmiş çapanınki olur ve içerik o genişlikte ölçülür: çapadan uzun bir satır katmanı genişletmek yerine orada kesilir. Çapa, `.show(ui)`'nin döndürdüğü düğümün alanıdır; yani çapayı, seçenekle katmanı, o düğümdeki `.width(Length::Cells(n))` belirler.
 
 ## Placement
 

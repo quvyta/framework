@@ -10,7 +10,7 @@
 //! check, a window's last tab. A cache can be deleted at any time and rebuilt. Each has its own
 //! XDG folder on Linux and other Unix systems, so a user can back up one and clear the other.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Where application `app` keeps its settings.
 ///
@@ -82,6 +82,41 @@ pub fn cache_dir(app: &str) -> Option<PathBuf> {
     cache_root(env_lookup).map(|root| root.join(app))
 }
 
+/// `path` as a person reads it, with their home folder written `~`: the home folder itself is
+/// `~`, a path under it `~/rest`, and every other path is written as it is. Reads `HOME`; see
+/// [`display_home_with`] to give the home folder.
+///
+/// For showing where something is kept, never for opening it: `~` means nothing to the system.
+#[must_use]
+pub fn display_home(path: &Path) -> String {
+    display_home_with(path, env_lookup("HOME").as_deref())
+}
+
+/// [`display_home`] with `home` as the home folder. An empty or missing home leaves every path as
+/// it is, and a folder that only starts with the same letters, such as `/home/alice` for the home
+/// `/home/ali`, is not under it.
+///
+/// ```
+/// use std::path::Path;
+/// use qframe::storage::display_home_with;
+///
+/// let home = Some(Path::new("/home/ali"));
+/// assert_eq!(display_home_with(Path::new("/home/ali/.config/quvyta"), home), "~/.config/quvyta");
+/// assert_eq!(display_home_with(Path::new("/home/ali"), home), "~");
+/// assert_eq!(display_home_with(Path::new("/home/alice/notes"), home), "/home/alice/notes");
+/// ```
+#[must_use]
+pub fn display_home_with(path: &Path, home: Option<&Path>) -> String {
+    // Components, not text: a trailing `/` on the home folder and a longer name that starts the
+    // same way are then told apart for free.
+    let rest = home.filter(|home| !home.as_os_str().is_empty()).and_then(|home| path.strip_prefix(home).ok());
+    match rest {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
+        Some(rest) => format!("~/{}", rest.to_string_lossy()),
+        None => path.to_string_lossy().into_owned(),
+    }
+}
+
 /// Reads one environment variable as a path.
 pub(super) fn env_lookup(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).map(PathBuf::from)
@@ -100,7 +135,7 @@ pub(super) fn config_root(lookup: impl Fn(&str) -> Option<PathBuf>) -> Option<Pa
 }
 
 /// The folder data of every application lives under, from variables read through `lookup`.
-fn data_root(lookup: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+pub(super) fn data_root(lookup: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
     let non_empty = |name: &str| lookup(name).filter(|path| !path.as_os_str().is_empty());
     if cfg!(windows) {
         return non_empty("LOCALAPPDATA");
@@ -282,5 +317,27 @@ mod tests {
             assert_eq!(dir.file_name().and_then(|name| name.to_str()), Some("qfocus"), "{}", dir.display());
             assert!(dir.is_absolute(), "{}", dir.display());
         }
+    }
+
+    #[test]
+    fn the_home_folder_is_written_as_a_tilde() {
+        let home = Some(Path::new("/home/ali"));
+        assert_eq!(display_home_with(Path::new("/home/ali"), home), "~");
+        assert_eq!(display_home_with(Path::new("/home/ali/"), home), "~");
+        assert_eq!(
+            display_home_with(Path::new("/home/ali/.local/state/quvyta-tools"), home),
+            "~/.local/state/quvyta-tools"
+        );
+        assert_eq!(display_home_with(Path::new("/home/ali/Belgeler/Şiirler"), home), "~/Belgeler/Şiirler");
+        assert_eq!(display_home_with(Path::new("/home/ali/notes"), Some(Path::new("/home/ali/"))), "~/notes");
+    }
+
+    #[test]
+    fn only_what_is_under_the_home_folder_is_shortened() {
+        let home = Some(Path::new("/home/ali"));
+        assert_eq!(display_home_with(Path::new("/home/alice/notes"), home), "/home/alice/notes");
+        assert_eq!(display_home_with(Path::new("/etc/quvyta"), home), "/etc/quvyta");
+        assert_eq!(display_home_with(Path::new("/home/ali/notes"), None), "/home/ali/notes");
+        assert_eq!(display_home_with(Path::new("/home/ali/notes"), Some(Path::new(""))), "/home/ali/notes");
     }
 }

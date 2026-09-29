@@ -32,7 +32,8 @@ mod exec;
 mod keyfile;
 mod launch;
 mod mime;
-mod program;
+pub(crate) mod program;
+mod shell_words;
 
 #[cfg(test)]
 mod fixture;
@@ -47,6 +48,7 @@ use std::path::{Path, PathBuf};
 pub use apps::{Apps, DesktopApp};
 pub use launch::{LaunchError, Launched, graphical_session};
 pub use mime::MimeDb;
+pub use shell_words::shell_words;
 
 use crate::diagnostics::{Diagnostic, Location};
 

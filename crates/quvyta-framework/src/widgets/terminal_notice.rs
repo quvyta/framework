@@ -1,16 +1,18 @@
-//! What a program in a terminal says besides drawing: its title, its folder, the bell and its
-//! notifications, read from the byte stream by the screen's parser.
+//! What a program in a terminal says besides drawing: its title, its folder, the bell, its
+//! notifications and the text it wants copied, read from the byte stream by the screen's parser.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
+use super::terminal_answers::Answers;
+use super::terminal_focus::Focus;
 use super::terminal_keyboard::Keyboard;
 use super::terminal_session::TerminalChange;
 
 /// The longest OSC string handed to the parser, in bytes. The parser keeps a whole OSC string in
 /// memory until it ends, so a program that opens one and never closes it could make it grow
-/// without end; past this length the rest of the string is dropped. Titles, folders and
-/// notifications fit many times over.
+/// without end; past this length the rest of the string is dropped. Titles, folders,
+/// notifications and copied text fit many times over.
 const OSC_LIMIT: usize = 4096;
 
 /// Notifications kept until the application reads them; a flood keeps the newest.
@@ -18,19 +20,20 @@ const NOTIFY_LIMIT: usize = 8;
 
 /// Notices the parser has heard and the application has not read yet.
 ///
-/// A title and a folder replace the one before, the bell is one mark however often it rang, and
-/// notifications queue up to [`NOTIFY_LIMIT`], so nothing here grows with the stream.
+/// A title, a folder and a copied text replace the one before, the bell is one mark however often
+/// it rang, and notifications queue up to [`NOTIFY_LIMIT`], so nothing here grows with the stream.
 #[derive(Debug, Default)]
 pub(crate) struct Notices {
     title: Option<String>,
     folder: Option<PathBuf>,
+    copy: Option<String>,
     notes: VecDeque<(Option<String>, String)>,
     bell: bool,
 }
 
 impl Notices {
     pub(super) fn is_empty(&self) -> bool {
-        self.title.is_none() && self.folder.is_none() && self.notes.is_empty() && !self.bell
+        self.title.is_none() && self.folder.is_none() && self.copy.is_none() && self.notes.is_empty() && !self.bell
     }
 
     /// Adds what was heard after these notices.
@@ -41,20 +44,26 @@ impl Notices {
         if newer.folder.is_some() {
             self.folder = newer.folder;
         }
+        if newer.copy.is_some() {
+            self.copy = newer.copy;
+        }
         for (title, body) in newer.notes {
             self.notify(title, body);
         }
         self.bell |= newer.bell;
     }
 
-    /// The oldest kind of notice still unread: the title, then the folder, then notifications in
-    /// order, then the bell.
+    /// The oldest kind of notice still unread: the title, then the folder, then the text to copy,
+    /// then notifications in order, then the bell.
     pub(super) fn pop(&mut self) -> Option<TerminalChange> {
         if let Some(title) = self.title.take() {
             return Some(TerminalChange::Title(title));
         }
         if let Some(folder) = self.folder.take() {
             return Some(TerminalChange::WorkingFolder(folder));
+        }
+        if let Some(text) = self.copy.take() {
+            return Some(TerminalChange::Copied(text));
         }
         if let Some((title, body)) = self.notes.pop_front() {
             return Some(TerminalChange::Notify { title, body });
@@ -80,6 +89,17 @@ impl vt100::Callbacks for Notices {
         self.title = Some(text(title));
     }
 
+    // OSC 52 offering text to copy, `52;c;aGVsbG8=`. The parser leaves out an offer whose payload
+    // is not base64, so what arrives here decodes or names nothing to copy.
+    fn copy_to_clipboard(&mut self, _: &mut vt100::Screen, _: &[u8], data: &[u8]) {
+        if let Ok(encoded) = std::str::from_utf8(data)
+            && let Some(text) = crate::runtime::decode_base64(encoded)
+            && !text.is_empty()
+        {
+            self.copy = Some(text);
+        }
+    }
+
     fn unhandled_osc(&mut self, _: &mut vt100::Screen, params: &[&[u8]]) {
         match params {
             [b"0" | b"2", rest @ ..] if !rest.is_empty() => self.title = Some(joined(rest)),
@@ -100,11 +120,26 @@ impl vt100::Callbacks for Notices {
 }
 
 /// Everything the parser hears besides drawing: the notices, which are handed to the application
-/// and start over, and the keyboard the program asked for, which lasts as long as the session.
+/// and start over, the keyboard the program asked for, and the focus reports it asked for, which
+/// last as long as the session, and the answers owed to its questions.
 #[derive(Debug, Default)]
 pub(crate) struct Heard {
     pub(crate) notices: Notices,
     pub(crate) keyboard: Keyboard,
+    pub(crate) focus: Focus,
+    pub(crate) answers: Answers,
+    /// Answers owed to the program, in the order it asked, written back by the session's reading
+    /// thread. One queue for every kind, since a program reads the order: an editor asks for the
+    /// ground colour and then for the cursor, and takes the second answer arriving first as a
+    /// terminal that does not know the colour.
+    replies: Vec<u8>,
+}
+
+impl Heard {
+    /// The answers owed to the program since the last call.
+    pub(crate) fn take_replies(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.replies)
+    }
 }
 
 impl vt100::Callbacks for Heard {
@@ -116,19 +151,31 @@ impl vt100::Callbacks for Heard {
         self.notices.set_window_title(screen, title);
     }
 
+    fn copy_to_clipboard(&mut self, screen: &mut vt100::Screen, targets: &[u8], data: &[u8]) {
+        self.notices.copy_to_clipboard(screen, targets, data);
+    }
+
     fn unhandled_osc(&mut self, screen: &mut vt100::Screen, params: &[&[u8]]) {
-        self.notices.unhandled_osc(screen, params);
+        match self.answers.osc(params) {
+            Some(answer) => self.replies.extend_from_slice(&answer),
+            None => self.notices.unhandled_osc(screen, params),
+        }
     }
 
     fn unhandled_csi(
         &mut self,
         screen: &mut vt100::Screen,
         marker: Option<u8>,
-        _: Option<u8>,
+        second: Option<u8>,
         params: &[&[u16]],
         end: char,
     ) {
         self.keyboard.csi(screen.alternate_screen(), marker, params, end);
+        self.replies.append(&mut self.keyboard.take_replies());
+        self.focus.csi(marker, params, end);
+        if let Some(answer) = self.answers.csi(screen, self.focus.reporting(), (marker, second), params, end) {
+            self.replies.extend_from_slice(&answer);
+        }
     }
 }
 
@@ -282,6 +329,59 @@ mod tests {
         assert_eq!(changes, [TerminalChange::Notify { title: Some("T".into()), body: "B".into() }]);
         let (changes, screen) = heard(&[b"a\x07b\x07"]);
         assert_eq!((changes, screen.as_str()), (vec![TerminalChange::Bell], "ab"), "two rings, one mark");
+    }
+
+    #[test]
+    fn text_a_program_offers_to_copy_is_heard() {
+        let (changes, _) = heard(&[b"\x1b]52;c;aGVsbG8=\x07"]);
+        assert_eq!(changes, [TerminalChange::Copied("hello".into())]);
+        let (changes, _) = heard(&[b"\x1b]52;p;w6dheQ==\x1b\\"]);
+        assert_eq!(changes, [TerminalChange::Copied("çay".into())], "ST ends it and any target names it");
+        let (changes, _) = heard(&[b"\x1b]52;0;Zm9vYmFy\x07"]);
+        assert_eq!(changes, [TerminalChange::Copied("foobar".into())], "a cut buffer is an offer as well");
+    }
+
+    #[test]
+    fn a_read_request_and_text_that_names_nothing_are_dropped() {
+        for asked in [
+            &b"\x1b]52;c;?\x07"[..],
+            b"\x1b]52;p;?\x1b\\",
+            b"\x1b]52;c;\x07",
+            b"\x1b]52;c;//79\x07",
+            b"\x1b]52;c;not!base64\x07",
+            b"\x1b]52;c",
+        ] {
+            let (changes, _) = heard(&[asked]);
+            assert_eq!(changes, [], "{asked:?} names nothing to copy");
+        }
+    }
+
+    #[test]
+    fn only_the_newest_offer_waits_to_be_read() {
+        let stream: &[u8] = b"\x1b]52;c;Zmlyc3Q=\x07\x1b]52;c;c2Vjb25k\x07";
+        let (changes, _) = heard(&[stream]);
+        assert_eq!(changes, [TerminalChange::Copied("second".into())], "one clipboard holds one thing");
+    }
+
+    #[test]
+    fn a_copy_split_across_reads_is_heard_whole() {
+        let stream: &[u8] = b"\x1b]52;c;aGVsbG8=\x07";
+        for split in 1..stream.len() {
+            let (changes, _) = heard(&[&stream[..split], &stream[split..]]);
+            assert_eq!(changes, [TerminalChange::Copied("hello".into())], "split at {split}");
+        }
+    }
+
+    #[test]
+    fn a_copy_longer_than_an_osc_string_is_cut_with_the_rest() {
+        // `ZWVl` is "eee", so the offer is text from end to end and the part of it that is left
+        // is text as well.
+        let long = [b"\x1b]52;c;".as_slice(), "ZWVl".repeat(2500).as_bytes(), b"\x07after"].concat();
+        let (changes, screen) = heard(&[&long]);
+        let [TerminalChange::Copied(text)] = changes.as_slice() else { panic!("{changes:?}") };
+        assert_eq!(text.len(), (OSC_LIMIT - "52;c;".len()) * 3 / 4, "as much text as the limit leaves");
+        assert!(text.bytes().all(|byte| byte == b'e'), "{text:?}");
+        assert_eq!(screen, "after", "and the text after it still shows");
     }
 
     #[test]

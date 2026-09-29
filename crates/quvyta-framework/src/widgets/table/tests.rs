@@ -588,3 +588,76 @@ fn without_the_option_enter_and_a_click_open_the_row_even_with_a_menu() {
     assert_eq!(h.app().opened, vec![0, 3], "and so does a click");
     assert!(!h.screen().contains("Remove"), "no menu opened:\n{}", h.screen());
 }
+
+#[test]
+fn a_faint_cell_takes_the_selected_rows_colour_when_its_row_is_selected() {
+    let rows: Arc<[TableRow]> = (0..3)
+        .map(|i| TableRow::new([TableCell::new(format!("svc-{i}")), TableCell::new("idle").role("faint")]))
+        .collect();
+    let mut h = Harness::new(Demo { rows: Arc::clone(&rows), ..demo(0) }, 40, 6);
+    h.set_glyph_mode(GlyphMode::Unicode);
+    let colour = |h: &Harness<Demo>, row: i32| {
+        let (x, y) = h
+            .screen()
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.contains("idle"))
+            .map(|(y, line)| (line.find("idle").map_or(0, |b| text::width(&line[..b])), y))
+            .nth(usize::try_from(row).unwrap_or(0))
+            .expect("an idle cell");
+        h.fg(x, u16::try_from(y).unwrap_or(0))
+    };
+    let faint = h
+        .env()
+        .theme()
+        .typography("faint")
+        .and_then(|props| crate::style::WidgetStyle::new(props.clone(), 0.0).text().fg);
+    assert_eq!(colour(&h, 1), faint, "an unselected faint cell is in the faint colour");
+    let mut h = Harness::new(Demo { rows, selected: Some(1), ..demo(0) }, 40, 6);
+    h.set_glyph_mode(GlyphMode::Unicode);
+    let name = h.find("svc-1").expect("row");
+    let selected_text = h.fg(u16::try_from(name.0).unwrap_or(0), u16::try_from(name.1).unwrap_or(0));
+    assert_eq!(colour(&h, 1), selected_text, "on the selected row it reads like the row");
+    assert_ne!(colour(&h, 0), selected_text, "the other rows keep it faint");
+}
+
+struct Wrapping {
+    selected: Option<usize>,
+    wrap: bool,
+}
+
+impl App for Wrapping {
+    type Msg = usize;
+    fn update(&mut self, index: usize) -> Command<usize> {
+        self.selected = Some(index);
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, usize>) {
+        let rows: Arc<[TableRow]> = ["alpha", "beta", "gamma"].map(|name| TableRow::new([name])).to_vec().into();
+        ui.add(Table::new([Column::new("Name")], rows).selected(self.selected).wrap(self.wrap).on_select(|i| i)).fill();
+    }
+}
+
+/// The first cell of the row the pillar stands on.
+fn pillar_row(h: &Harness<Wrapping>) -> String {
+    let screen = h.screen();
+    let line = screen.lines().find(|line| line.starts_with('▌')).unwrap_or_default();
+    line.trim_start_matches('▌').trim().to_owned()
+}
+
+#[test]
+fn a_wrapping_table_goes_round_its_ends_and_stops_otherwise() {
+    let mut h = Harness::new(Wrapping { selected: None, wrap: true }, 20, 5);
+    h.set_reduced_motion(true);
+    h.press("tab").press("end").press("down");
+    assert_eq!(pillar_row(&h), "alpha", "down on the last row reaches the first");
+    h.press("up");
+    assert_eq!(pillar_row(&h), "gamma", "up on the first row reaches the last");
+    h.press("pgdn");
+    assert_eq!(pillar_row(&h), "gamma", "a page stops at the end");
+
+    let mut h = Harness::new(Wrapping { selected: None, wrap: false }, 20, 5);
+    h.set_reduced_motion(true);
+    h.press("tab").press("end").press("down");
+    assert_eq!(pillar_row(&h), "gamma");
+}

@@ -19,7 +19,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::dirs::{cache_root, config_root, env_lookup, state_root};
+use super::dirs::{cache_root, config_root, data_root, env_lookup, state_root};
 use super::migrate::{self, Migration};
 use super::user_dirs::documents_dir;
 
@@ -106,6 +106,20 @@ impl Ecosystem {
     #[must_use]
     pub fn app_dir(&self, app: &str) -> Option<PathBuf> {
         self.config_dir().map(|dir| dir.join(app))
+    }
+
+    /// Where application `app` of the ecosystem keeps the records the person makes with it and
+    /// would miss if they were gone, such as favourites or a history: `<data folder>/<ecosystem>/<app>`.
+    ///
+    /// - Linux and other Unix systems: `$XDG_DATA_HOME/<id>/<app>` when `XDG_DATA_HOME` is an
+    ///   absolute path, else `$HOME/.local/share/<id>/<app>`.
+    /// - macOS: `$HOME/Library/Application Support/<title>/<app>`.
+    /// - Windows: `%LOCALAPPDATA%\<title>\<app>`.
+    ///
+    /// `None` when there is no home folder, as for [`data_dir`](super::data_dir). Not created.
+    #[must_use]
+    pub fn data_dir(&self, app: &str) -> Option<PathBuf> {
+        self.member_under(data_root(env_lookup), app)
     }
 
     /// Where application `app` of the ecosystem keeps its state, such as the result of its last
@@ -240,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn a_member_keeps_its_state_and_cache_under_the_ecosystem_folder() {
+    fn a_member_keeps_its_data_state_and_cache_under_the_ecosystem_folder() {
         if !cfg!(all(unix, not(target_os = "macos"))) {
             return;
         }
@@ -263,6 +277,18 @@ mod tests {
             Some(PathBuf::from("/home/ada/.cache/quvyta/packages"))
         );
         assert_eq!(ecosystem.member_under(cache_root(env(&[])), "packages"), None);
+        assert_eq!(
+            ecosystem.member_under(data_root(&home), "explorer"),
+            Some(PathBuf::from("/home/ada/.local/share/quvyta/explorer"))
+        );
+        let data = env(&[("HOME", "/home/ada"), ("XDG_DATA_HOME", "/da")]);
+        assert_eq!(ecosystem.member_under(data_root(&data), "explorer"), Some(PathBuf::from("/da/quvyta/explorer")));
+        let relative_data = env(&[("HOME", "/home/ada"), ("XDG_DATA_HOME", "da")]);
+        assert_eq!(
+            ecosystem.member_under(data_root(&relative_data), "explorer"),
+            Some(PathBuf::from("/home/ada/.local/share/quvyta/explorer"))
+        );
+        assert_eq!(ecosystem.member_under(data_root(env(&[("HOME", "home/ada")])), "explorer"), None);
     }
 
     #[test]

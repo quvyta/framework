@@ -487,6 +487,9 @@ impl<A: App> Engine<A> {
             }
             _ => {}
         }
+        if !matches!(event, Event::Mouse(_)) {
+            self.interaction.clicks = 0;
+        }
         match event {
             Event::Key(key) => self.handle_key(key, now),
             Event::Mouse(mouse) => self.handle_mouse(mouse, now),

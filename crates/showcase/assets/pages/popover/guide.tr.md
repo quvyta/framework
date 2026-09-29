@@ -9,11 +9,13 @@ Tek bir kontrole ait, ekranı ele geçirmemesi gereken küçük ve isteğe bağl
 3. Çapadan, genellikle bir butondan aç kapa: `Button::new(t!("filters")).on_press(Msg::ToggleFilters)`.
 4. İstendiğinde kapat: `.on_dismiss(Msg::CloseFilters)` Esc'te ve dışarı tıklanınca gelir.
 5. İçerik bir formsa `.focus_inside(true)` ekle; klavye katmanın içinde başlasın.
+6. Katman bir alana aitse `.match_anchor_width(true)` ekle: o zaman alanla birebir aynı genişlikte açılır.
 
 ## Nasıl çalışır
 
 - **Bir katmandır.** İçerik her şeyin üstüne, çerçevesiz, katman yüzeyinde çizilir; kenarı ton farkıdır. Alttaki hiçbir şey kaymaz.
 - **Açıldığı yerden ayrışır.** Ekran zemininin üstünde katman kendi tonunu korur. Tonu neredeyse aynı olan bir panelin içinde açılırsa, kenarı yeniden görünene kadar temanın yazı rengine doğru küçük bir adım kayar (koyu temada açığa, açık temada koyuya). Adım temanın kendi renklerinden gelir; bu yüzden elle yazılmış tek bir renk olmadan her temada çalışır. Menüler, listeler, ipuçları, bildirimler ve pencereler de aynısını yapar; kendi bileşenin bunu `PaintCx::floating` ile alır.
+- **Çapası kadar geniş olabilir.** Varsayılan olarak katman içeriği kadar geniştir, yani uzun bir satır onu genişletir. `.match_anchor_width(true)` ile tam olarak çapası kadar geniş olur, ekrana sığacak kadar kesilir: sol ve sağ kenarı çapanınkilerin durduğu yerde durur, ondan uzun bir satır katmanı genişletmek yerine orada kesilir. İçerik o genişlikte ölçülür, yani kendini ona göre yerleştirir. Bir arama alanının altındaki öneri listesi bunu ister; Metin girişi sayfası da kendi başına aynısını, alanın kendi önerileriyle yapar.
 - **Yer bulur.** Varsayılan olarak çapanın altında ya da `.placement(…)` ile seçilen tarafta açılır. O tarafta yer yoksa karşı tarafa geçer ve her zaman ekranın içine geri itilir.
 - **Çapadan açılır**, temanın `motion.enter` süresince satır satır (yan yerleşimlerde sütun sütun). Hareket azaltılmışsa anında belirir.
 - **Kapatmak senin elinde.** Esc ve dışarı tıklama kapatma mesajını gönderir.

@@ -92,6 +92,17 @@ impl Step {
             (Self::PageDown, Some(i)) => (i + page).min(last),
         })
     }
+
+    /// Like [`apply`](Self::apply), but when `wrap` is on ↑ on the first row reaches the last and
+    /// ↓ on the last reaches the first. A page and the ends still stop at the edge.
+    pub(crate) fn apply_wrapping(self, current: Option<usize>, len: usize, page: usize, wrap: bool) -> Option<usize> {
+        let last = len.checked_sub(1)?;
+        match (self, current) {
+            (Self::Up, Some(0)) if wrap => Some(last),
+            (Self::Down, Some(i)) if wrap && i >= last => Some(0),
+            _ => self.apply(current, len, page),
+        }
+    }
 }
 
 /// States of one row: hovered when the pointer is on it, selected (and focused), pressed while

@@ -98,6 +98,23 @@ impl<Msg> EventCx<'_, Msg> {
         self.now
     }
 
+    /// How many presses in a row the pointer press or release being handled belongs to: 1 for a
+    /// single click, 2 for the second press of a double click, 3 for a triple click and on, up to
+    /// 255. A press counts as the next of a series when it is the same button on the same cell
+    /// within 400 ms of the press before it; anything else starts over at 1. A release has the
+    /// count of the press it ends. Every other event (keys, pastes, moves, drags, scrolling)
+    /// counts 0.
+    ///
+    /// The runtime counts once for every widget, so a widget tells a double click from two clicks
+    /// without keeping time itself: act on the press or the release whose count is 2, or on every
+    /// even count to let a fast third and fourth press make another double click. In a
+    /// [`Harness`](crate::runtime::Harness) two clicks on one cell with no time advanced between
+    /// them are a double click.
+    #[must_use]
+    pub fn clicks(&self) -> u8 {
+        self.interaction.clicks
+    }
+
     /// Sends a message to the application.
     pub fn emit(&mut self, message: Msg) {
         self.messages.push(message);
@@ -122,7 +139,12 @@ impl<Msg> EventCx<'_, Msg> {
     /// Moves keyboard focus to the next widget in focus order, as Tab does. Forms use it to go
     /// to the next field on Enter.
     pub fn focus_next(&mut self) {
-        self.effects.focus_step = Some(1);
+        self.focus_step(1);
+    }
+
+    /// Moves keyboard focus by `step` places in focus order, as a directional control asks.
+    pub(crate) fn focus_step(&mut self, step: isize) {
+        self.effects.focus_step = Some(step);
     }
 
     /// Offers `event` to a child `node` painted in `rect`, as if the child had received it: the

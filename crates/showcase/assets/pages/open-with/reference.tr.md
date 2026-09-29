@@ -17,6 +17,7 @@
 ## Programlar
 
 - `Apps::load(&XdgDirs, dil, path_var) -> Apps` — her `applications` klasörünün altındaki masaüstü girdileri ve her `mimeapps.list`; adlar `dil`'de (`tr_TR.UTF-8`); `TryExec` `path_var`'da (bir `PATH` değeri) aranır.
+- `shell_words(satır) -> Option<Vec<String>>` — `$EDITOR` gibi bir komut satırı, POSIX kabuğunun böldüğü gibi bölünmüş; tırnaklara ve ters bölülere uyulur, hiçbir şey genişletilmez; kapanmamış tırnakta `None`. Tırnak içinde boşluklu bir yol tek sözcük kalır.
 - `apps.for_mime(&db, mime) -> Vec<&DesktopApp>` — tür için, sonra onun çeşidi olduğu her tür için: her dosyanın varsayılanı, eklenen programlar, sonra o türü sayan programlar. Çıkarılanlar ve gizliler asla.
 - `apps.default_for(&db, mime) -> Option<&DesktopApp>` — en yakın türün varsayılanı, yoksa `for_mime`'ın ilk programı.
 - `apps.all()`, `apps.get(kimlik)`, `apps.diagnostics()`.

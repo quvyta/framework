@@ -134,6 +134,15 @@ empty     = "没有正在运行的任务"
 [quvyta.handoff]
 pause = "按任意键返回"
 
+# Installing a missing program's package (install::Install); {package} is the package,
+# {manager} the package manager's program, such as pacman.
+[quvyta.install]
+title   = "安装 {package}？"
+runs    = "它将在此终端中运行，就在你面前："
+asks    = "{manager} 可能会在那里询问你的密码和它自己的问题。"
+confirm = "安装"
+notice  = "正在使用 {manager} 安装 {package}…"
+
 [quvyta.number]
 # What this language writes between a number's whole part and its decimals.
 decimal = "."

@@ -7,6 +7,7 @@
 - `.show(ui, |form| …)` — adds the form; `form.field(field, |ui| …)` adds a field with its control, `form.ui()` adds anything else.
 - `Field::new(label)` — a label, the control added inside, nothing else.
 - `.hint(text)` — faint help under the control while there is no error.
+- `.value(text)` — a value to read in place of a control, lined up with the controls, its label faint.
 - `.error(Option<text>)` — the error under the control in place of the hint.
 - `.required(bool)` — the faint required word after the label.
 - `.disabled(bool)` — a greyed label; disable the control too.

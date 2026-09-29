@@ -44,10 +44,12 @@ flate2 = { version = "1.1.10", optional = true }
 # a hung-up terminal leaves on standard input.
 # crossterm already brings this exact version in, so naming it here adds no crate.
 rustix = { version = "1.1.4", default-features = false, features = ["std", "time", "fs", "pty", "termios", "process", "system", "event", "stdio"] }
-# The one thing neither `std` nor `rustix` offers safely: blocking a signal on the calling thread.
-# A handoff needs it to take the terminal back from the program's process group, which the
-# system otherwise answers with SIGTTOU. The `pty` feature already locks this version in.
-nix = { version = "0.28.0", default-features = false, features = ["signal"] }
+# The two things neither `std` nor `rustix` offers safely: blocking a signal on the calling thread,
+# which a handoff needs to take the terminal back from the program's process group (the system
+# otherwise answers with SIGTTOU), and the status flags of a descriptor given as a number, which
+# `rustix` only takes through a borrowed one that cannot be built here without `unsafe`. The `pty`
+# feature already locks this version in.
+nix = { version = "0.28.0", default-features = false, features = ["signal", "fs"] }
 # Catches SIGTERM, SIGINT and SIGHUP without `unsafe`, so a run can end gracefully. crossterm
 # already uses this version with these features to hear resizes, so it adds no crate.
 signal-hook = { version = "0.3.18", default-features = false, features = ["iterator"] }

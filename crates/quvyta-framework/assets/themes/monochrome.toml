@@ -47,6 +47,8 @@ title     = { fg = "$text", bold = true }
 body      = { fg = "$text" }
 secondary = { fg = "$dim" }
 faint     = { fg = "$muted" }
+# A group heading above rows, the same as a settings list's own headings (`settings-heading`).
+heading   = { fg = "$muted" }
 
 # ---- Panels and the application shell --------------------------------------------------------
 # A panel is a surface one step above the canvas; selection raises it further and adds the pillar.
@@ -172,6 +174,15 @@ bold = true
 [style.key-hint-label]
 fg = "$muted"
 
+# A quiet screen's bar: the keys keep a trace of their surface, the labels step back further.
+[style."key-hint-key.faint"]
+bg   = "mix($raised, $surface, 50%)"
+fg   = "$muted"
+bold = false
+
+[style."key-hint-label.faint"]
+fg = "mix($muted, $surface, 70%)"
+
 # ---- Buttons ---------------------------------------------------------------------------------
 # The shape is the surface colour. Focus breathes, a press flashes.
 
@@ -281,6 +292,19 @@ fg = "$text"
 bg = "mix($accent, $active, 34%)"
 fg = "$text"
 
+# A selected icon button is on: its glyph is the accent in every state, over the same tones.
+[style."icon-button:selected"]
+fg = "$accent"
+
+# Keyboard focus is tinted with the accent itself, so over it the glyph takes the light accent tone
+# and stays readable; the brief press flash is the strongest tint and flashes the text colour, as an
+# unselected button does.
+[style."icon-button:focus:selected"]
+fg = "$accent-2"
+
+[style."icon-button:pressed:selected"]
+fg = "$text"
+
 [style."icon-button:disabled"]
 fg = "$muted"
 
@@ -349,6 +373,9 @@ fg = "$muted"
 [style."checkbox:checked:disabled"]
 bg = "$active"
 fg = "$dim"
+
+[style.checkbox-description]
+fg = "$muted"
 
 [style.checkbox-label]
 fg = "$dim"
@@ -735,6 +762,9 @@ bg = "mix($accent, $active, 30%)"
 [style."copy-value:disabled"]
 fg = "$muted"
 
+[style.copy-value-label]
+fg = "$muted"
+
 [style.copy-value-marker]
 fg = "$muted"
 
@@ -826,6 +856,11 @@ fg = "$accent"
 
 [style.field-label]
 fg = "$dim"
+
+# A value to read, not a control to fill: the label steps back.
+[style."field-label.value"]
+fg   = "$muted"
+bold = false
 
 [style."field-label:focus"]
 fg   = "$text"

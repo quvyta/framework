@@ -7,6 +7,8 @@
 - `Command::cancel_task(id)` — durmasını ister; iş bittiyse bir şey yapmaz.
 - `TaskCx::progress(oran)`, `TaskCx::note(metin)` — bildirir; `TaskCx::send(msg)` — başka her mesaj.
 - `TaskCx::sleep(süre) -> bool` — bekler; iptal edilirse erken uyanır ve `false` döndürür.
+- `TaskCx::recv(&alıcı) -> Option<T>` — başka bir iş parçacığının beslediği bir kanalın sıradaki öğesini bekler; iş iptal edilince ya da bütün gönderenler gidince `None`. İptal beklemeyi 50 ms içinde bitirir.
+- `TaskCx::recv_timeout(&alıcı, süre) -> Result<T, RecvWait>` — aynısı, `süre` dolunca vazgeçer; öğenin neden gelmediğini `RecvWait::Timeout`, `Cancelled` ya da `Closed` söyler.
 - `TaskCx::is_cancelled()`, `TaskCx::id()`.
 - `Tasks::new()`, `.apply(&olay)`, `.entries()`, `.get(id)`, `.running()`, `.clear_finished()`.
 - `TaskEntry` — `id`, `label`, `fraction`, `note`, `outcome` (çalışırken `None`).
@@ -19,7 +21,7 @@
 - İptal edilen bir iş, işi `Ok` döndürse bile her zaman `Cancelled` ile biter.
 - İşin içindeki panik `Failed("the task `etiket` panicked")` olur.
 - `TaskList` satırları: spinner ya da durum ikonu, etiket, not ya da sonuç kelimesi, oran bildirildiyse 22 hücrelik ilerleme çubuğu ve `on_cancel` verildiyse iptal butonu. Biten satırlarda sütunlar hizalı kalır.
-- `Harness` içinde `cx.sleep` sahte saati izler ve her çizim işler uyuyana ya da bitene kadar bekler; on saniye boyunca uyumadan çalışan bir iş testi açık bir mesajla düşürür.
+- `Harness` içinde `cx.sleep` sahte saati izler ve her çizim işler uyuyana ya da bitene kadar bekler; on saniye boyunca uyumadan çalışan bir iş testi açık bir mesajla düşürür. `cx.recv` içinde bekleyen bir iş uyuyan gibi dinlenir, hiçbir çizim onu beklemez; testin gönderdiği öğe ona kendi iş parçacığında ulaşır, işin ardından gönderdikleri sonraki bir adımda uygulanır. `recv_timeout` süresini sahte saatle sayar.
 
 ## Tema ve ikonlar
 
@@ -35,10 +37,14 @@
 - `Process::new(program)` — borularla ve uygulamanın kendi ortamıyla çalışan bir alt süreç.
 - `.arg(arg)`, `.args(args)`, `.dir(yol)` — komut satırı ve çalışma klasörü.
 - `.env(anahtar, değer)` — çocuk için bir değişken; ortamın kalanı devralınır.
+- `.clear_env()` — çocuk, `.env(..)` ile verilenler dışında ortamın hiçbirini almaz; `PATH` ve `HOME` da dahil.
 - `.pty(sütun, satır)` — çocuğu boru yerine o boyutta bir sözde terminalde çalıştırır.
 - `.no_stdin()` — çocuk terminal yerine boş bir girdi (`/dev/null`) okur ve Unix'te kendi süreç grubunda çalışır.
 - `.run(&cancel, &mut on_line) -> io::Result<ProcessOutcome>` — çalıştırır ve her satırı teslim eder; çocuk başlatılamazsa ya da sözde terminal açılamazsa hata döner.
 - `.run_with_overwritten(&cancel, &mut on_line, &mut on_overwritten) -> io::Result<ProcessOutcome>` — `run` gibi çalıştırır, ayrıca bir `\r`'nin ezdiği her kareyi akışının etiketini taşıyan bir `Line` olarak `on_overwritten`'a verir.
+- `.collect(keep, &cancel) -> io::Result<Collected>` — çalıştırır, yazdığının yalnızca sonunu tutar ve tek bir metin olarak geri verir.
+- `Keep::bytes(n)` — son `n` baytı tutar; `.lines(n)` ayrıca son `n` satırı tutar, yazılmakta olan satır bir sayılır; `.limit(süre)` süre dolunca çocuğu bitirir.
+- `Collected` — `text`, `outcome`, `trimmed`, `timed_out`, `cancelled`.
 - `Line::Out(metin)`, `Line::Err(metin)` — standart çıktı ve standart hata; boru kipinde ayrı tutulur.
 - `ProcessOutcome::Finished { code }` — çocuğu bir sinyal bitirdiyse `code` değeri `None` olur; `ProcessOutcome::Cancelled`.
 
@@ -50,4 +56,6 @@
 - Boru kipinde iki akış ayrı okunur ve birleştirilmez; sözde terminalde ikisi de aynı satıra düştüğü için yalnız `Line::Out` görünür.
 - `cancel` satırlar arasında sorulur. Doğru döndüğünde çocuk öldürülür, bekleyen çıktı atılır ve sonuç `Cancelled` olur. Unix'te `no_stdin` ile çocuğun bütün süreç grubu öldürülür; başlattığı programlar da biter, kendi grubuna ya da oturumuna geçenler hariç. Onsuz yalnızca çocuğun kendisi öldürülür, çünkü terminali okuyan bir çocuk kendi grubunda yaşayamaz (sistem onu ilk okumasında durdurur).
 - UTF-8 olmayan baytlar kaybolmaz, değiştirme karakterine çevrilir.
+- `collect` ile iki akış tek bir boruya düşer ve metin çocuğun yazdığı sırayla olur; sözde terminalde her zaman öyle olduğu gibi terminale düşer. Tutulan baytlar en fazla `Keep`'in istediği kadar artı tek bir okumadır: çocuk yazarken en eskiler düşer, bunun olduğunu `trimmed` söyler ve kesme karakter sınırlarının arasında olur, yani metinde yarım karakter kalmaz. `Keep::lines` yazılmakta olan satırı bir sayar, böylece yeni satırla bitmeyen çıktı yazılanı korur. `cancel` ile `Keep::limit` ikisi de çocuğu ve Unix'te `no_stdin` ile kendi süreç grubunu bitirir, ikisi de o ana dek tutulan çıktıyı sınırlı sürede geri verir: hangisinin olduğunu `cancelled` ve `timed_out` söyler ve limitin bitirdiği bir çocuk kendini `Finished { code: None }` ile bildirir.
+- `clear_env`, `.env(..)` ile verilen değişkenler konmadan önce çocuğun ortamını boşaltır, ona yalnızca onlar ulaşır.
 - Standart girdi, `no_stdin` istenmedikçe uygulamanın kendi girdisi kalır ve çocuk hiçbir zaman kendi oturumuna konmaz (süreç grubu oturum değildir); kontrol eden terminali korur ve sıcak `sudo` biletini paylaşır. Sözde terminal `rustix` ile, `unsafe` olmadan açılır ve bir Unix sistemi gerektirir.

@@ -6,6 +6,7 @@
 - `.selected(Option<&str>)` — the key of the current item.
 - `.on_select(|key| msg)` — sent when an item other than the current one is opened.
 - `.collapsible(|group, open| msg)` — titled groups fold; `.collapsed(keys)` lists the closed ones.
+- `.wrap(bool)` — `down` on the last row goes on to the first and `up` on the first to the last; `home` `end` still stop at the ends. Default: `false`.
 
 ## Behaviour
 

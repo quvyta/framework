@@ -24,6 +24,7 @@ use super::engine::{Engine, HandOver, TaskMode};
 use super::follow::{Member, Start};
 use super::graphics_probe::LateAnswer;
 use super::handoff::{self, HandoffOutcome, HandoffScreen};
+use super::harness::Harness;
 use super::present::{Screen, pointer_shapes_supported};
 use super::signals::Signals;
 use super::terminal_clipboard::TerminalClipboard;
@@ -245,6 +246,54 @@ impl<A: App> Runtime<A> {
     pub fn member_in(mut self, ecosystem: Ecosystem, config_dir: impl Into<PathBuf>, app: &str) -> Self {
         self.member = Some(Member::new(ecosystem, app, Some(config_dir.into())));
         self
+    }
+
+    /// A [`Harness`](super::Harness) started exactly as [`run`](Self::run) starts the
+    /// application, without a terminal: the theme, icon, locale and keymap files and sources,
+    /// the settings, the preferences and the membership given to this runtime all apply, so a
+    /// test of an application's own `Runtime` setup fails when a line of it is lost. The
+    /// member's ecosystem folder is `config_dir` instead of the platform's, so a test never reads
+    /// or writes the person's files; a runtime that is no member ignores it. Nothing is read from
+    /// the machine either, as [`Env::load_with`] with nothing set: its language, region and
+    /// terminal would otherwise make a test pass on one machine and fail on the next. Files are
+    /// not watched: after writing one,
+    /// [`Harness::poll_preferences`](super::Harness::poll_preferences) reads them again as the
+    /// runtime's watch would.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    /// use qframe::storage::Ecosystem;
+    ///
+    /// struct Notes;
+    /// impl App for Notes {
+    ///     type Msg = ();
+    ///     fn update(&mut self, (): ()) -> Command<()> { Command::none() }
+    ///     fn view(&self, ui: &mut View<'_, ()>) { ui.add(Text::new(ui.env().i18n().translate("notes.title", &[]))); }
+    /// }
+    ///
+    /// // The application builds its runtime in one place; `run` calls `.run()` on it.
+    /// fn runtime(app: Notes) -> Runtime<Notes> {
+    ///     Runtime::new(app)
+    ///         .locale_source("en.toml", "[meta]\nname = \"English\"\ncode = \"en\"\n[notes]\ntitle = \"My notes\"\n")
+    ///         .member(Ecosystem::QUVYTA, "notes")
+    /// }
+    ///
+    /// let folder = std::env::temp_dir().join(format!("notes-doc-{}", std::process::id()));
+    /// let app = runtime(Notes).harness_in(&folder, 30, 2)?;
+    /// assert!(app.screen().contains("My notes"));
+    /// # std::fs::remove_dir_all(&folder).ok();
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns I/O errors from loading asset directories, as [`run`](Self::run) does.
+    pub fn harness_in(self, config_dir: impl Into<PathBuf>, width: u16, height: u16) -> io::Result<Harness<A>> {
+        let mut env = Env::load_with(&self.dirs, |_| None)?;
+        let start = Start { theme: self.theme.as_deref(), settings: self.settings, preferences: self.preferences };
+        let member = self.member.map(|member| member.in_folder(config_dir.into()));
+        let follow = start.apply(&mut env, member, false);
+        Ok(Harness::started(self.app, env, follow, width, height))
     }
 
     /// Takes over the terminal and runs until the application quits. The terminal is restored

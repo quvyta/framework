@@ -46,6 +46,7 @@ impl<A: App> Engine<A> {
         }
         self.pointer_repeat = Some(PointerRepeat { next: now + repeat.interval, ..repeat });
         let (x, y) = self.pointer.unwrap_or_default();
+        self.interaction.clicks = 0;
         let event = Event::Mouse(MouseEvent { kind: MouseKind::Drag(repeat.button), x, y, mods: Modifiers::default() });
         self.dispatch(&[repeat.owner], &event, now);
         self.dirty = true;
@@ -60,6 +61,7 @@ impl<A: App> Engine<A> {
             self.interaction.hovered = hit;
             self.dirty = true;
         }
+        self.count_clicks(mouse, now);
         let event = Event::Mouse(mouse);
         match mouse.kind {
             // Only widgets that asked hear plain moves: most widgets read any mouse event under
@@ -118,6 +120,23 @@ impl<A: App> Engine<A> {
                 self.dirty = true;
             }
         }
+    }
+
+    /// Counts presses in a row once for every widget: a press of the same button on the same cell
+    /// within [`MULTI_PRESS`](crate::runtime::MULTI_PRESS) of the one before is the next of its
+    /// series, and its release belongs to it. Moves, drags and scrolling count 0.
+    fn count_clicks(&mut self, mouse: MouseEvent, now: Duration) {
+        self.interaction.clicks = match mouse.kind {
+            MouseKind::Down(button) => {
+                let press = Press::next(self.last_press, button, (mouse.x, mouse.y), now);
+                self.last_press = Some(press);
+                press.count()
+            }
+            // A release whose press the runtime never saw, such as one that began before the
+            // application started, ends a single press.
+            MouseKind::Up(button) => self.last_press.filter(|press| press.button() == button).map_or(1, Press::count),
+            _ => 0,
+        };
     }
 
     /// A press on a toast, which is above everything else.
@@ -188,9 +207,10 @@ impl<A: App> Engine<A> {
             }
             used = self.press_target.is_some();
         }
-        if !used && button == MouseButton::Left {
-            let press = Press::next(self.last_press, (mouse.x, mouse.y), now);
-            self.last_press = Some(press);
+        if !used
+            && button == MouseButton::Left
+            && let Some(press) = self.last_press
+        {
             self.selection = Selection::begin(&self.frame, press, hit);
             self.dirty = true;
         }

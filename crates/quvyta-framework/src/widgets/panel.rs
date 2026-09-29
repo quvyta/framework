@@ -307,6 +307,22 @@ mod tests {
     }
 
     #[test]
+    fn the_breathing_pillar_rests_on_a_screen_nobody_touches_and_breathes_again_at_the_next_key() {
+        let mut h = harness(Demo::default());
+        h.press("tab");
+        let period = h.env().theme().motion().pulse_period;
+        h.advance(Duration::from_secs(30));
+        assert_eq!(h.next_frame(), None, "a screen left alone asks for no frame");
+        let resting = h.fg(0, 1);
+        h.advance(period / 2);
+        assert_eq!(h.fg(0, 1), resting, "the pillar rests");
+        h.press("x");
+        assert!(h.next_frame().is_some(), "the next key wakes it");
+        h.advance(period / 2);
+        assert_ne!(h.fg(0, 1), resting, "and it breathes again");
+    }
+
+    #[test]
     fn pointer_focus_stays_calm_once_the_pointer_leaves() {
         let mut h = harness(Demo::default());
         h.mouse(MouseKind::Down(MouseButton::Left), 10, 3);

@@ -2,7 +2,7 @@
 
 - `Tooltip::new(text)` — wraps the widgets added with `ui.add_with(…)` and explains them with `text`.
 - `.placement(Placement)` — `Below` (default), `Above`, `Right` or `Left`; flips when there is no room.
-- `.on_focus(bool)` — also shows, at once, while keyboard focus is inside. Default: `false`.
+- `.on_focus(bool)` — also shows, at once, while keyboard focus is inside, including inside the keyboard's row of a settings list, whose control borrows the list's focus. Default: `false`.
 
 ## Behaviour
 

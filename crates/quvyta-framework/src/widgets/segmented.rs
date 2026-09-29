@@ -15,8 +15,8 @@ use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
 /// short, mutually exclusive choices such as a view mode, where the choice should read at a
 /// glance.
 ///
-/// The control takes focus as one: Left and Right choose the neighbouring segment, Home and End
-/// the first and last, and a click chooses the segment under the pointer. The application owns
+/// The control takes focus as one: Left and Right choose the neighbouring segment (going round
+/// the ends with [`wrap`](Self::wrap)), Home and End the first and last, and a click chooses the segment under the pointer. The application owns
 /// the choice.
 ///
 /// Style keys: `segment` (`bg`, `fg`, `bold`, `padding`, `pillar`) with states `hover`, `focus`,
@@ -26,6 +26,7 @@ pub struct Segmented<Msg> {
     options: Vec<String>,
     selected: usize,
     disabled: bool,
+    wrap: bool,
     on_select: Option<IndexMessage<Msg>>,
 }
 
@@ -33,7 +34,13 @@ impl<Msg> Segmented<Msg> {
     /// Segments for `options` with the first chosen.
     #[must_use]
     pub fn new(options: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        Self { options: options.into_iter().map(Into::into).collect(), selected: 0, disabled: false, on_select: None }
+        Self {
+            options: options.into_iter().map(Into::into).collect(),
+            selected: 0,
+            disabled: false,
+            wrap: false,
+            on_select: None,
+        }
     }
 
     /// The chosen segment.
@@ -47,6 +54,14 @@ impl<Msg> Segmented<Msg> {
     #[must_use]
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Lets Right on the last segment choose the first and Left on the first choose the last.
+    /// Home and End still stop at the ends. Off by default.
+    #[must_use]
+    pub fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
         self
     }
 
@@ -144,9 +159,9 @@ impl<Msg: 'static> Widget<Msg> for Segmented<Msg> {
         if let Event::Key(key) = event {
             let last = self.options.len() - 1;
             let target = if key.is_plain(Key::Left) {
-                Some(self.selected.saturating_sub(1))
+                Some(if self.wrap && self.selected == 0 { last } else { self.selected.saturating_sub(1) })
             } else if key.is_plain(Key::Right) {
-                Some(self.selected + 1)
+                Some(if self.wrap && self.selected >= last { 0 } else { self.selected + 1 })
             } else if key.is_plain(Key::Home) {
                 Some(0)
             } else if key.is_plain(Key::End) {
@@ -217,6 +232,38 @@ mod tests {
         assert_eq!(h.app().chosen, 2);
         h.click_text("List");
         assert_eq!(h.app().chosen, 0);
+    }
+
+    #[test]
+    fn a_wrapping_control_goes_round_its_ends_and_stops_otherwise() {
+        struct Wrapping {
+            chosen: usize,
+            wrap: bool,
+        }
+        impl App for Wrapping {
+            type Msg = usize;
+            fn update(&mut self, index: usize) -> Command<usize> {
+                self.chosen = index;
+                Command::none()
+            }
+            fn view(&self, ui: &mut View<'_, usize>) {
+                ui.add(Segmented::new(["List", "Grid", "Tree"]).selected(self.chosen).wrap(self.wrap).on_select(|i| i));
+            }
+        }
+        let mut h = Harness::new(Wrapping { chosen: 2, wrap: true }, 30, 1);
+        let raised = h.env().theme().color("raised");
+        h.press("tab").press("right");
+        // The filled segment is where the choice went: List, at the far left.
+        assert_ne!(h.bg(2, 0), raised, "right on the last segment chooses the first");
+        assert_eq!(h.bg(18, 0), raised);
+        h.press("left");
+        assert_eq!(h.app().chosen, 2, "left on the first segment chooses the last");
+        h.press("end").press("right").press("home").press("home");
+        assert_eq!(h.app().chosen, 0, "home stops at the start");
+
+        let mut h = Harness::new(Wrapping { chosen: 2, wrap: false }, 30, 1);
+        h.press("tab").press("right");
+        assert_eq!(h.app().chosen, 2);
     }
 
     #[test]

@@ -8,7 +8,7 @@ Use a settings list for preferences that apply one by one, at once: a theme, ani
 2. Build the list: `SettingsList::show(ui, |list| { … })`.
 3. Group rows under headings: `list.heading(t!("appearance"))`.
 4. Add a row per setting with exactly one control: `list.row(SettingRow::new(t!("animations")), |ui| { ui.add(Switch::new(state.animations).on_toggle(Msg::Animations)); })`.
-5. Add capabilities where they help: `.description(…)` for a faint second line, `.disabled(true)` for a locked setting (disable its control too), `.on_activate(msg)` for a row that opens something, such as a value row showing `2.4 GB`.
+5. Add capabilities where they help: `.description(…)` for a faint second line, `.hint(…)` for an explanation a person reads only when unsure, which shows on the keyboard's row and under a resting pointer and takes no room, `list.wrap(true)` so ↓ on the last row goes on to the first, `.disabled(true)` for a locked setting (disable its control too), `.on_activate(msg)` for a row that opens something, such as a value row showing `2.4 GB`.
 
 ## How it works
 
@@ -25,4 +25,5 @@ Use a settings list for preferences that apply one by one, at once: a theme, ani
 - **Settings that wait for Save.** A settings list applies at once; for several values saved together, use a form.
 - **Two controls in one row.** Keys reach one control; split the setting instead.
 - **Descriptions as documentation.** One short line; longer help belongs in a guide.
+- **A hint in a tooltip around the control.** `SettingRow::hint` shows for the keyboard and the pointer alike and wraps beside the controls; a `Tooltip` shows under its control only, and only with `.on_focus(true)` for the keyboard.
 - **Forgetting to disable the control of a disabled row.** The row greys out and is skipped, but the control keeps its own state.

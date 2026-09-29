@@ -5,6 +5,7 @@
 - `.horizontal(bool)` — one row with four cells between options.
 - `.style(RadioStyle)` — `Square` (default): a small centred square for every option; the chosen one takes the chosen colour. `Mark`: the same square, grown into a full two-cell box when chosen. `Box`: the checkbox's two-cell colour box. `Dot`: a dot and a ring.
 - `.disabled(bool)` — cannot be focused or changed.
+- `.wrap(bool)` — the next-option arrow on the last option chooses the first and the previous-option arrow on the first chooses the last; `home` `end` still stop at the ends. Default: `false`.
 - `.on_select(|index| msg)` — message for a newly chosen option.
 
 ## Behaviour

@@ -12,11 +12,33 @@ use super::cells;
 ///
 /// Keys sit on a raised surface and labels are faint; nothing is bracketed. When the bar is
 /// too narrow, hints are dropped from the end of the left group first; the right group stays.
-/// Style keys: `key-hints` (`bg`, `padding`), `key-hint-key`, `key-hint-label`.
+/// Style keys: `key-hints` (`bg`, `padding`), `key-hint-key`, `key-hint-label`, and
+/// `key-hint-key.faint`, `key-hint-label.faint` for a [faint](Self::faint) bar.
 #[derive(Debug, Clone, Default)]
 pub struct KeyHints {
     left: Vec<Hint>,
-    actions: Vec<(Scope, String, bool)>,
+    actions: Vec<Action>,
+    faint: bool,
+}
+
+/// A keymap action on the bar: where it goes and, when the application names it, its label.
+#[derive(Debug, Clone)]
+struct Action {
+    scope: Scope,
+    name: String,
+    place: Place,
+    label: Option<String>,
+}
+
+/// Where an action's hint sits on the bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Place {
+    /// Before the plain hints, the last to drop.
+    First,
+    /// After the plain hints.
+    Left,
+    /// In the right group.
+    Right,
 }
 
 impl KeyHints {
@@ -36,35 +58,67 @@ impl KeyHints {
     /// Adds a keymap action on the left; its keys and translated label come from the keymap
     /// and the locale.
     #[must_use]
-    pub fn action(mut self, scope: Scope, action: impl Into<String>) -> Self {
-        self.actions.push((scope, action.into(), false));
-        self
+    pub fn action(self, scope: Scope, action: impl Into<String>) -> Self {
+        self.with_action(scope, action.into(), Place::Left, None)
+    }
+
+    /// Adds a keymap action before every plain [`hint`](Self::hint), resolved like
+    /// [`action`](Self::action). When the bar is too narrow it is the last of the left group to
+    /// drop, for the one key a screen cannot do without, such as the key that brings a closed
+    /// panel back.
+    #[must_use]
+    pub fn action_first(self, scope: Scope, action: impl Into<String>) -> Self {
+        self.with_action(scope, action.into(), Place::First, None)
+    }
+
+    /// Adds a keymap action on the left with the application's own `label`: the key comes from
+    /// the keymap, so it follows the person's bindings, and the words from the application, for
+    /// a key whose meaning changes with the screen, such as `enter` saying "install" or "open".
+    /// Like [`action`](Self::action), an action without a chord draws nothing.
+    #[must_use]
+    pub fn action_labelled(self, scope: Scope, action: impl Into<String>, label: impl Into<String>) -> Self {
+        self.with_action(scope, action.into(), Place::Left, Some(label.into()))
     }
 
     /// Adds a keymap action on the right.
     #[must_use]
-    pub fn action_right(mut self, scope: Scope, action: impl Into<String>) -> Self {
-        self.actions.push((scope, action.into(), true));
+    pub fn action_right(self, scope: Scope, action: impl Into<String>) -> Self {
+        self.with_action(scope, action.into(), Place::Right, None)
+    }
+
+    /// Draws the whole bar in the faint tone, keys and labels alike, for a screen that has gone
+    /// quiet, as [`Breadcrumb::faint`](super::Breadcrumb::faint) does for a path.
+    #[must_use]
+    pub fn faint(mut self, faint: bool) -> Self {
+        self.faint = faint;
+        self
+    }
+
+    fn with_action(mut self, scope: Scope, name: String, place: Place, label: Option<String>) -> Self {
+        self.actions.push(Action { scope, name, place, label });
         self
     }
 
     fn resolved(&self, cx: &PaintCx<'_>) -> (Vec<Hint>, Vec<Hint>) {
+        let mut first = Vec::new();
         let mut left = self.left.clone();
         let mut right = Vec::new();
-        for (scope, action, on_right) in &self.actions {
-            let chords = cx.env().keymap().chords_for(*scope, action);
-            let Some(chord) = chords.first() else {
+        for action in &self.actions {
+            let Some(key) = cx.env().keymap().label_for(action.scope, &action.name) else {
                 continue;
             };
-            let label = cx.env().i18n().translate(&scope.label_key(action), &[]);
-            let hint = (chord.label(), label);
-            if *on_right {
-                right.push(hint);
-            } else {
-                left.push(hint);
+            let label = action
+                .label
+                .clone()
+                .unwrap_or_else(|| cx.env().i18n().translate(&action.scope.label_key(&action.name), &[]));
+            match action.place {
+                Place::First => first.push((key, label)),
+                Place::Left => left.push((key, label)),
+                Place::Right => right.push((key, label)),
             }
         }
-        (left, right)
+        first.append(&mut left);
+        (first, right)
     }
 }
 
@@ -89,8 +143,9 @@ impl<Msg: 'static> Widget<Msg> for KeyHints {
         let background = bar.text().bg.unwrap_or_else(|| cx.color("surface"));
         cx.clear(area, background);
         let inner = area.inset(bar.padding());
-        let key_style = cx.style("key-hint-key", None, &[]).text();
-        let label_style = cx.style("key-hint-label", None, &[]).text();
+        let variant = self.faint.then_some("faint");
+        let key_style = cx.style("key-hint-key", variant, &[]).text();
+        let label_style = cx.style("key-hint-label", variant, &[]).text();
         let (mut left, right) = self.resolved(cx);
 
         let group_width = |hints: &[Hint]| -> u16 {
@@ -146,6 +201,55 @@ mod tests {
         assert_eq!(wide.screen(), "   ↑↓  move    tab  next            ctrl q  quit\n");
         let narrow = Harness::new(Demo, 30, 1);
         assert_eq!(narrow.screen(), "   ↑↓  move     ctrl q  quit\n");
+    }
+
+    /// A bar with a plain hint, an action that must stay and an action named by the application.
+    struct Ordered {
+        faint: bool,
+    }
+
+    impl App for Ordered {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(
+                KeyHints::new()
+                    .hint("↑↓", "move")
+                    .action_labelled(Scope::Global, "focus-next", "install")
+                    .action_first(Scope::Global, "quit")
+                    .faint(self.faint),
+            )
+            .fill_width();
+        }
+    }
+
+    #[test]
+    fn a_first_action_comes_before_the_plain_hints_and_is_the_last_to_drop() {
+        let wide = Harness::new(Ordered { faint: false }, 60, 1);
+        assert_eq!(wide.screen(), "   ctrl q  quit    ↑↓  move    tab  install\n");
+        let narrow = Harness::new(Ordered { faint: false }, 20, 1);
+        assert_eq!(narrow.screen(), "   ctrl q  quit\n", "the others drop first");
+    }
+
+    #[test]
+    fn a_labelled_and_a_first_action_follow_the_persons_keymap() {
+        let mut env = crate::env::Env::builtin();
+        env.keymap_mut().bind(Scope::Global, "quit", &["ctrl+x".parse().expect("chord")]);
+        env.keymap_mut().bind(Scope::Global, "focus-next", &["f6".parse().expect("chord")]);
+        let h = Harness::with_env(Ordered { faint: false }, env, 60, 1);
+        assert_eq!(h.screen(), "   ctrl x  quit    ↑↓  move    f6  install\n");
+    }
+
+    #[test]
+    fn a_faint_bar_draws_its_keys_and_labels_quieter() {
+        let loud = Harness::new(Ordered { faint: false }, 60, 1);
+        let quiet = Harness::new(Ordered { faint: true }, 60, 1);
+        assert_eq!(loud.screen(), quiet.screen(), "the same hints");
+        assert_ne!(loud.fg(4, 0), quiet.fg(4, 0), "the key steps back");
+        assert_ne!(loud.bg(4, 0), quiet.bg(4, 0));
+        assert_ne!(loud.fg(11, 0), quiet.fg(11, 0), "and so does its label");
     }
 
     #[test]

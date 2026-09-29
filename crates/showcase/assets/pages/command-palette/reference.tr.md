@@ -7,6 +7,7 @@
 - `.on_run(|kimlik| mesaj)` — çalışan her komuttan sonra gönderilir.
 - `.placeholder(metin)` — boş süzgeçteki silik metin. Varsayılan: `quvyta.palette.placeholder`.
 - `.width(hücre)` — iç boşluk dahil genişlik. Varsayılan: 72.
+- `.max_rows(n)` — liste kaymadan önce en fazla `n` komut; verilmezse ekranın yarısına kadar, hiçbir zaman ondan az değil.
 - `PaletteCommand::new(kimlik, etiket, mesaj)` — bir komut.
 - `.chord(etiket)` — sağda gösterilen tuş, örneğin `"ctrl r"`.
 
@@ -25,6 +26,7 @@
 ## Davranış
 
 - Süzgeç doluyken girdiler eşleşme kalitesine göre sıralanır (eşitler sırasını korur), başlık olmadan.
+- Eşleştirme `qframe::text::fuzzy(sorgu, metin)`; herkese açıktır, böylece bir uygulamanın kendi araması paletin bulduğunu bulur: sorgunun her harfi sırayla, büyük küçük harf ve sorgudaki boşluklar yok sayılır, kelime başları ve art arda gelenler daha yüksek puan alır; `score()` ve `positions()` (karakter sırası) eşleşmeyi anlatır.
 - Çalıştırmak önce `kapatma_mesajı`nı, sonra komutun mesajını ya da kısayol eylemini, en son `on_run` mesajını gönderir.
 - Kaydırmadan önce en çok 10 satır; yeniden açılınca süzgeç, vurgu ve kaydırma sıfırlanır.
 - İpucu satırı `esc kapat` (palet kapatılabilirken), `↑↓ gez`, `⏎ çalıştır` ve eşleşen komut sayısını gösterir.

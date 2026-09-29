@@ -42,6 +42,7 @@ pub mod help_layer;
 pub mod hold_to_confirm;
 pub mod icon_button;
 pub mod image;
+pub mod install;
 pub mod key_hints;
 pub mod layout;
 pub mod list;
@@ -225,6 +226,7 @@ pub const PAGES: &[PageContent] = &[
     page!("clipboard", "clipboard"),
     page!("async-tasks", "async_tasks"),
     page!("handoff", "handoff"),
+    page!("install", "install"),
     page!("nerd-font", "nerd_font"),
     page!("storage", "storage"),
     page!("shared-preferences", "shared_preferences"),
@@ -322,6 +324,7 @@ pub struct Pages {
     pub clipboard: clipboard::State,
     pub async_tasks: async_tasks::State,
     pub handoff: handoff::State,
+    pub install: install::State,
     pub nerd_font: nerd_font::State,
     pub storage: storage::State,
     pub folder_watch: folder_watch::State,
@@ -413,6 +416,7 @@ pub enum PageMsg {
     Clipboard(clipboard::Msg),
     AsyncTasks(async_tasks::Msg),
     Handoff(handoff::Msg),
+    Install(install::Msg),
     NerdFont(nerd_font::Msg),
     Storage(storage::Msg),
     FolderWatch(folder_watch::Msg),
@@ -510,6 +514,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::Clipboard(m) => clipboard::update(&mut pages.clipboard, m, log),
         PageMsg::AsyncTasks(m) => async_tasks::update(&mut pages.async_tasks, m, log),
         PageMsg::Handoff(m) => handoff::update(&mut pages.handoff, m, log),
+        PageMsg::Install(m) => install::update(&mut pages.install, m, log),
         PageMsg::NerdFont(m) => nerd_font::update(&mut pages.nerd_font, m, log),
         PageMsg::Storage(m) => storage::update(&mut pages.storage, m, log),
         PageMsg::FolderWatch(m) => folder_watch::update(&mut pages.folder_watch, m, log),
@@ -607,6 +612,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "clipboard" => clipboard::view(&pages.clipboard, ui),
         "async-tasks" => async_tasks::view(&pages.async_tasks, ui),
         "handoff" => handoff::view(&pages.handoff, ui),
+        "install" => install::view(&pages.install, ui),
         "nerd-font" => nerd_font::view(&pages.nerd_font, ui),
         "storage" => storage::view(&pages.storage, ui),
         "folder-watch" => folder_watch::view(&pages.folder_watch, ui),

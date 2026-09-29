@@ -145,9 +145,12 @@ impl<Msg: 'static> Table<Msg> {
         row_style: CellStyle,
         selected: bool,
     ) {
-        let style = match &cell.color {
-            Some(token) => CellStyle { fg: Some(cx.color(token)), ..row_style },
-            None => row_style,
+        let style = match (&cell.color, &cell.role) {
+            (Some(token), _) => CellStyle { fg: Some(cx.color(token)), ..row_style },
+            (None, Some(role)) if !selected => {
+                CellStyle { fg: super::super::text::typography(cx, role).fg, ..row_style }
+            }
+            (None, _) => row_style,
         };
         let icon = cell.icon.as_ref().map(|glyph| {
             let glyph = glyph.resolve(cx.env().icons()).into_owned();

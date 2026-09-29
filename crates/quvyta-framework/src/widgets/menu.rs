@@ -96,8 +96,8 @@ struct MenuMemory {
 /// pillar, a hovered item rises softly, and the icon and label of both slide one cell while
 /// badges stay anchored. It is usually the content of an [`AppShell`](super::AppShell) sidebar.
 ///
-/// Keys while focused move a cursor, drawn like hover, without leaving the current page: ↑/↓,
-/// Home/End, and typing a letter jumps to the next item starting with it. Enter or Space opens
+/// Keys while focused move a cursor, drawn like hover, without leaving the current page: ↑/↓
+/// (round the ends with [`wrap`](Self::wrap)), Home/End, and typing a letter jumps to the next item starting with it. Enter or Space opens
 /// the item under the cursor; a click opens at once. The application owns the selection. There
 /// is only ever one such highlight: moving the pointer onto a row moves the cursor there, and
 /// the keyboard continues from it.
@@ -114,6 +114,7 @@ pub struct Menu<Msg> {
     collapsed: Vec<String>,
     on_select: Option<KeyMessage<Msg>>,
     on_toggle: Option<GroupMessage<Msg>>,
+    wrap: bool,
 }
 
 impl<Msg: 'static> Menu<Msg> {
@@ -126,7 +127,16 @@ impl<Msg: 'static> Menu<Msg> {
             collapsed: Vec::new(),
             on_select: None,
             on_toggle: None,
+            wrap: false,
         }
+    }
+
+    /// Lets ↓ on the last row go on to the first and ↑ on the first go to the last. Home and End
+    /// still stop at the ends. Off by default.
+    #[must_use]
+    pub fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
+        self
     }
 
     /// The key of the current item.
@@ -231,6 +241,20 @@ impl<Msg: 'static> Menu<Msg> {
         {
             cx.emit(message(&self.groups[group].key, open));
         }
+    }
+
+    /// The row one step from `from`, going round the ends when the menu wraps.
+    fn neighbour(&self, rows: &[Row], from: usize, forward: bool) -> usize {
+        let next = self.step(rows, from, forward);
+        if !self.wrap || next != from {
+            return next;
+        }
+        let edge = if forward {
+            rows.iter().position(|r| self.navigable(*r))
+        } else {
+            rows.iter().rposition(|r| self.navigable(*r))
+        };
+        edge.unwrap_or(from)
     }
 
     fn step(&self, rows: &[Row], from: usize, forward: bool) -> usize {
@@ -393,9 +417,9 @@ impl<Msg: 'static> Widget<Msg> for Menu<Msg> {
                 };
                 let row = rows[cursor];
                 let target = if key.is_plain(Key::Up) {
-                    self.step(&rows, cursor, false)
+                    self.neighbour(&rows, cursor, false)
                 } else if key.is_plain(Key::Down) {
-                    self.step(&rows, cursor, true)
+                    self.neighbour(&rows, cursor, true)
                 } else if key.is_plain(Key::Home) {
                     rows.iter().position(|r| self.navigable(*r)).unwrap_or(cursor)
                 } else if key.is_plain(Key::End) {
@@ -474,6 +498,7 @@ mod tests {
         page: String,
         closed: Vec<String>,
         collapsible: bool,
+        wrap: bool,
     }
 
     #[derive(Debug, Clone)]
@@ -512,7 +537,8 @@ mod tests {
                 )
                 .title("INFRASTRUCTURE"),
             ];
-            let mut menu = Menu::new(groups).selected(Some(&self.page)).on_select(|key| Msg::Go(key.to_owned()));
+            let mut menu =
+                Menu::new(groups).selected(Some(&self.page)).wrap(self.wrap).on_select(|key| Msg::Go(key.to_owned()));
             if self.collapsible {
                 menu =
                     menu.collapsible(|group, open| Msg::Group(group.to_owned(), open)).collapsed(self.closed.clone());
@@ -522,7 +548,19 @@ mod tests {
     }
 
     fn sidebar(collapsible: bool) -> Sidebar {
-        Sidebar { page: "overview".into(), closed: Vec::new(), collapsible }
+        Sidebar { page: "overview".into(), closed: Vec::new(), collapsible, wrap: false }
+    }
+
+    #[test]
+    fn a_wrapping_menu_goes_round_its_ends_and_stops_otherwise() {
+        let mut h = Harness::new(Sidebar { wrap: true, ..sidebar(false) }, 30, 8);
+        h.press("tab").press("end").press("down").press("enter");
+        assert_eq!(h.app().page, "overview", "down on the last item reaches the first");
+        h.press("home").press("up").press("enter");
+        assert_eq!(h.app().page, "volumes", "up on the first item reaches the last");
+        let mut h = Harness::new(sidebar(false), 30, 8);
+        h.press("tab").press("end").press("down").press("enter");
+        assert_eq!(h.app().page, "volumes");
     }
 
     #[test]

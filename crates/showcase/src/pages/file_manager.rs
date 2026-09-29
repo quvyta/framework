@@ -385,9 +385,12 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         }
         if state.marked {
             // What an entry means to the application the manager cannot know: here a backup leaves
-            // every text file out, which the row says with a warning sign and a faint name.
+            // every text file out, which the row says with a warning sign and a faint name. The
+            // root takes the shape of the place work is kept, in its own colour: it says nothing.
             manager = manager.row_mark(|key| {
-                if key.ends_with(".txt") {
+                if key == FileManagerState::ROOT {
+                    RowMark::new().plain_sign("workspace")
+                } else if key.ends_with(".txt") {
                     RowMark::new().sign("warning", "warning").faint(true)
                 } else {
                     RowMark::new()
@@ -561,6 +564,7 @@ mod tests {
         let screen = h.screen();
         assert!(screen.contains('\u{25b2}'), "the text file carries the warning sign:\n{screen}");
         assert!(screen.contains("README.md"), "and the other rows are as they were:\n{screen}");
+        assert!(screen.contains('◰'), "the root takes the workspace shape:\n{screen}");
     }
 
     #[test]

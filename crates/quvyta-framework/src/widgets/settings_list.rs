@@ -1,5 +1,7 @@
 //! Settings lists: rows of a label on the left and a control anchored on the right.
 
+use std::time::Duration;
+
 use crate::event::{Event, MouseButton, MouseKind};
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::keymap::Key;
@@ -9,7 +11,9 @@ use crate::theme::State;
 use crate::widget::{Axis, EventCx, Flex, MeasureCx, Node, NodeMut, PaintCx, View, Widget};
 
 use super::cells;
+use super::placement::Placement;
 use super::row::LEAD;
+use super::tooltip;
 
 /// Cells between the label column and the control, and after the control.
 const CONTROL_GAP: u16 = 2;
@@ -22,6 +26,7 @@ const NEST: u16 = 2;
 pub struct SettingRow<Msg> {
     label: String,
     description: Option<String>,
+    hint: Option<String>,
     disabled: bool,
     nested: bool,
     on_activate: Option<Msg>,
@@ -31,13 +36,24 @@ impl<Msg> SettingRow<Msg> {
     /// A row labelled `label`.
     #[must_use]
     pub fn new(label: impl Into<String>) -> Self {
-        Self { label: label.into(), description: None, disabled: false, nested: false, on_activate: None }
+        Self { label: label.into(), description: None, hint: None, disabled: false, nested: false, on_activate: None }
     }
 
     /// A faint note under the label, wrapped over as many lines as it needs.
     #[must_use]
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
+        self
+    }
+
+    /// An explanation that takes no room of its own: it shows under the row, over the rows
+    /// below, while the row is the keyboard's row or while the pointer rests on it for the
+    /// theme's `motion.hover-delay`. It wraps within the label column, so it never covers a
+    /// control, and the row's control keeps every key. For what a person reads only when unsure,
+    /// where a [`description`](Self::description) would be always there.
+    #[must_use]
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
         self
     }
 
@@ -143,6 +159,7 @@ enum Entry<Msg> {
 /// Adds headings and rows to a [`SettingsList`] inside [`SettingsList::show`].
 pub struct SettingsRows<'a, Msg> {
     entries: Vec<Entry<Msg>>,
+    wrap: bool,
     controls: Vec<Node<Msg>>,
     env: &'a crate::env::Env,
     size: crate::geometry::Size,
@@ -155,6 +172,12 @@ impl<Msg: 'static> SettingsRows<'_, Msg> {
     #[must_use]
     pub fn env(&self) -> &crate::env::Env {
         self.env
+    }
+
+    /// Lets ↓ on the last enabled row go on to the first and ↑ on the first go to the last, as a
+    /// menu does. Home and End still stop at the ends. Off by default.
+    pub fn wrap(&mut self, wrap: bool) {
+        self.wrap = wrap;
     }
 
     /// Adds a group heading.
@@ -188,7 +211,8 @@ impl<Msg: 'static> SettingsRows<'_, Msg> {
 /// while the control moves to the line under it. So does a control that needs more than half the
 /// row, which then has the whole row. A row reports the height it wraps to.
 ///
-/// The list takes focus as one control. ↑/↓ (and Home/End) move between enabled rows; every
+/// The list takes focus as one control. ↑/↓ (and Home/End) move between enabled rows, going
+/// round the ends with [`SettingsRows::wrap`]; every
 /// other key goes to the selected row's control, so Enter or Space toggles a switch or opens a
 /// select and ←/→ change a segmented control. Keys the control does not use activate the row
 /// when it has [`SettingRow::on_activate`]. The pointer works on controls directly; clicking a
@@ -199,12 +223,27 @@ impl<Msg: 'static> SettingsRows<'_, Msg> {
 /// moving with the keys scrolls just enough to show the new row, and a click never scrolls, so
 /// the row stays under the pointer.
 ///
+/// A row's [`hint`](SettingRow::hint) shows under it at once while it is the keyboard's row, and
+/// after the hover delay while the pointer rests on it.
+///
 /// Style keys: `setting-row` (`bg`, `pillar`) with `hover`, `selected`, `focus`, `disabled`;
 /// `setting-label` (`fg`, `bold`) and `setting-description` (`fg`) with the same states;
-/// `settings-heading` (`fg`, `bold`).
+/// `settings-heading` (`fg`, `bold`); `tooltip` for hints.
 pub struct SettingsList<Msg> {
     entries: Vec<Entry<Msg>>,
     controls: Vec<Node<Msg>>,
+    wrap: bool,
+}
+
+/// The hint on screen: whose it is, where it goes and since when it shows.
+#[derive(Debug, Clone, Copy)]
+struct ShownHint {
+    row: usize,
+    /// The row's label column, which the hint hangs from.
+    anchor: Rect,
+    /// Cells the hint may take before it would reach a control.
+    width: u16,
+    since: Duration,
 }
 
 #[derive(Debug, Default)]
@@ -220,23 +259,30 @@ struct SettingsMemory {
     /// taller than itself shows the new row. A click or the pointer never scrolls: the row is
     /// already under it.
     reveal: bool,
+    /// The keys moved the keyboard's row since the pointer last did, so its hint shows at once
+    /// even in a list that was clicked into.
+    keyed: bool,
+    /// The row the pointer rests on and since when.
+    rested: Option<(usize, Duration)>,
+    hint: Option<ShownHint>,
 }
 
 impl<Msg: Clone + 'static> SettingsList<Msg> {
     /// Adds a settings list with the headings and rows `build` adds to `ui`.
     pub fn show<'v>(ui: &'v mut View<'_, Msg>, build: impl FnOnce(&mut SettingsRows<'_, Msg>)) -> NodeMut<'v, Msg> {
-        let (entries, controls) = {
+        let (entries, controls, wrap) = {
             let mut rows = SettingsRows {
                 entries: Vec::new(),
+                wrap: false,
                 controls: Vec::new(),
                 env: ui.env(),
                 size: ui.size(),
                 idle: ui.idle_scope(),
             };
             build(&mut rows);
-            (rows.entries, rows.controls)
+            (rows.entries, rows.controls, rows.wrap)
         };
-        ui.add(Self { entries, controls }).fill_width()
+        ui.add(Self { entries, controls, wrap }).fill_width()
     }
 
     fn row(&self, index: usize) -> Option<&SettingRow<Msg>> {
@@ -272,6 +318,50 @@ impl<Msg: Clone + 'static> SettingsList<Msg> {
             None => false,
         }
     }
+
+    /// Decides which row's hint shows, if any, from the rows and controls just painted: the row
+    /// the pointer has rested on for the hover delay, else the keyboard's row while the keyboard
+    /// is what moved there.
+    fn place_hint(&self, cx: &mut PaintCx<'_>, area: Rect, rows: &[Rect], controls: &[Rect], selected: Option<usize>) {
+        let now = cx.now();
+        let delay = cx.env().theme().motion().hover_delay;
+        let visible = cx.is_focus_visible();
+        let pointer = cx.pointer_within();
+        let has_hint = |index: &usize| self.row(*index).is_some_and(|row| row.hint.is_some() && !row.disabled);
+        let under = pointer.and_then(|(px, py)| rows.iter().position(|rect| rect.contains(px, py))).filter(has_hint);
+        let memory = cx.memory::<SettingsMemory>();
+        memory.rested = under.map(|row| match memory.rested {
+            Some((rested, since)) if rested == row => (row, since),
+            _ => (row, now),
+        });
+        let due = memory.rested.map(|(_, since)| since + delay);
+        let pointed = memory.rested.filter(|_| due.is_some_and(|due| now >= due)).map(|(row, _)| row);
+        let keyboard = selected.filter(has_hint).filter(|_| visible || memory.keyed);
+        let Some(row) = pointed.or(keyboard) else {
+            memory.hint = None;
+            if let Some(due) = due {
+                cx.request_frame_in(due.saturating_sub(now));
+            }
+            return;
+        };
+        let since = memory.hint.filter(|hint| hint.row == row).map_or(now, |hint| hint.since);
+        let rect = rows[row];
+        let indent = self.row(row).map_or(0, SettingRow::indent);
+        let x = rect.x + i32::from(LEAD + indent);
+        // Hanging under the label column, the hint stops short of every control on screen.
+        let reach = controls.iter().filter(|control| !control.is_empty()).map(|control| control.x).min();
+        let end = reach.map_or(area.right(), |reach| reach - i32::from(CONTROL_GAP)).max(x + 1);
+        let width = u16::try_from(end - x).unwrap_or(u16::MAX);
+        let anchor = Rect::new(x, rect.y, width, rect.height);
+        memory.hint = Some(ShownHint { row, anchor, width, since });
+        cx.request_overlay(anchor);
+    }
+}
+
+/// Offers `event` to `node` the way focus would reach it: the innermost widget first, then each
+/// wrapper around it. True when one of them used it.
+fn offer<Msg: 'static>(cx: &mut EventCx<'_, Msg>, node: &Node<Msg>, rect: Rect, event: &Event) -> bool {
+    node.widget.children().iter().any(|child| offer(cx, child, rect, event)) || cx.forward(node, rect, event)
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
@@ -314,6 +404,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                 let under = pointer.and_then(|(px, py)| memory.rows.iter().position(|rect| rect.contains(px, py)));
                 if let Some(index) = under.filter(|index| enabled.contains(index)) {
                     memory.selected = Some(index);
+                    memory.keyed = false;
                 }
             }
             let current = self.current(memory.selected);
@@ -393,13 +484,17 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                 }
             }
         }
+        self.place_hint(cx, area, &rows, &controls, selected);
         let memory = cx.memory::<SettingsMemory>();
-        let reveal = std::mem::take(&mut memory.reveal)
-            .then(|| memory.selected.and_then(|index| rows.get(index)))
-            .flatten()
-            .copied();
+        let keyboard_row = memory.selected.and_then(|index| rows.get(index)).copied();
+        let reveal = std::mem::take(&mut memory.reveal).then_some(keyboard_row).flatten();
         memory.controls = controls;
         memory.rows = rows;
+        if let Some(row) = keyboard_row {
+            // A long list taking the focus in a scroll view shows the row the keyboard is on, not
+            // its own top.
+            cx.focus_spot(row);
+        }
         if let Some(row) = reveal {
             cx.reveal(row);
         }
@@ -414,10 +509,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
         match event {
             Event::Key(key) => {
                 let position = current.and_then(|index| enabled.iter().position(|i| *i == index)).unwrap_or(0);
+                let last = enabled.len() - 1;
                 let target = if key.is_plain(Key::Up) {
-                    Some(position.saturating_sub(1))
+                    Some(if self.wrap && position == 0 { last } else { position.saturating_sub(1) })
                 } else if key.is_plain(Key::Down) {
-                    Some((position + 1).min(enabled.len() - 1))
+                    Some(if self.wrap && position >= last { 0 } else { (position + 1).min(last) })
                 } else {
                     None
                 };
@@ -425,15 +521,16 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                     let memory = cx.memory::<SettingsMemory>();
                     memory.selected = Some(enabled[target]);
                     memory.reveal = true;
+                    memory.keyed = true;
                     return true;
                 }
                 let Some(index) = current else {
                     return false;
                 };
                 let rect = cx.memory::<SettingsMemory>().controls.get(index).copied().unwrap_or_default();
-                // The row holds one control inside its layout node; that control gets the key.
-                let used =
-                    self.controls[index].widget.children().iter().any(|control| cx.forward(control, rect, event));
+                // The row holds one control inside its layout node; that control gets the key, even
+                // when it sits inside a wrapper such as a tooltip.
+                let used = self.controls[index].widget.children().iter().any(|control| offer(cx, control, rect, event));
                 if used {
                     return true;
                 }
@@ -445,6 +542,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                     let memory = cx.memory::<SettingsMemory>();
                     memory.selected = Some(target);
                     memory.reveal = true;
+                    memory.keyed = true;
                     return true;
                 }
                 false
@@ -463,6 +561,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for SettingsList<Msg> {
                 true
             }
             _ => false,
+        }
+    }
+
+    fn paint_overlay(&self, cx: &mut PaintCx<'_>, _anchor: Rect) {
+        let Some(shown) = cx.memory::<SettingsMemory>().hint else { return };
+        if let Some(hint) = self.row(shown.row).and_then(|row| row.hint.as_deref()) {
+            tooltip::paint_wrapped_tip(cx, shown.anchor, hint, shown.width, Placement::Below, shown.since);
         }
     }
 
@@ -628,6 +733,99 @@ mod tests {
         assert_eq!(row_of(&h, 25), Some(last), "going back up inside the view does not scroll: {}", h.screen());
     }
 
+    /// A warning with a button above thirty rows, a field below them, all in a scroll view shorter
+    /// than the page; the list takes the focus when the screen opens.
+    #[derive(Default)]
+    struct Warned {
+        places: Vec<(usize, usize)>,
+        lines: String,
+    }
+
+    #[derive(Clone)]
+    enum WarnedMsg {
+        Place(usize, usize),
+        Lines(String),
+        Understood,
+    }
+
+    impl App for Warned {
+        type Msg = WarnedMsg;
+        fn init(&mut self) -> Command<WarnedMsg> {
+            Command::focus("list")
+        }
+        fn update(&mut self, message: WarnedMsg) -> Command<WarnedMsg> {
+            match message {
+                WarnedMsg::Place(row, index) => self.places.push((row, index)),
+                WarnedMsg::Lines(text) => self.lines = text,
+                WarnedMsg::Understood => {}
+            }
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, WarnedMsg>) {
+            ui.add_with(crate::widgets::ScrollView::new(), |ui| {
+                ui.add(crate::widgets::Text::new("The settings file could not be read"));
+                ui.add(crate::widgets::Button::new("Understood").on_press(WarnedMsg::Understood));
+                SettingsList::show(ui, |list| {
+                    for n in 1..=30 {
+                        list.row(SettingRow::new(format!("Place {n}")), |ui| {
+                            ui.add(
+                                Segmented::new(["Top", "Bottom"]).on_select(move |index| WarnedMsg::Place(n, index)),
+                            );
+                        });
+                    }
+                })
+                .fill_width()
+                .id("list");
+                ui.add(crate::widgets::TextInput::new(&self.lines).placeholder("Lines").on_change(WarnedMsg::Lines));
+            })
+            .fill();
+        }
+    }
+
+    #[test]
+    fn a_long_list_taking_the_focus_shows_its_keyboard_row_and_keeps_what_is_above_it() {
+        let mut h = Harness::new(Warned::default(), 60, 20);
+        h.set_reduced_motion(true);
+        let screen = h.screen();
+        assert!(screen.contains("The settings file could not be read"), "the warning stays in view: {screen}");
+        assert!(screen.contains("Understood"), "and so does its button: {screen}");
+        h.press("down");
+        assert!(h.screen().contains("The settings file"), "moving inside the view does not scroll: {}", h.screen());
+    }
+
+    #[test]
+    fn clicking_back_into_a_long_list_from_a_field_does_not_scroll_and_chooses() {
+        let mut h = Harness::new(Warned::default(), 60, 20);
+        h.set_reduced_motion(true);
+        for _ in 0..40 {
+            h.mouse(crate::event::MouseKind::ScrollDown, 30, 10);
+        }
+        let (x, y) = h.find("Lines").unwrap_or_else(|| panic!("the field is at the end: {}", h.screen()));
+        h.click(x, y).type_text("12");
+        let before = h.screen();
+        let (x, y) = h.find("Place 25").unwrap_or_else(|| panic!("{before}"));
+        let _ = x;
+        let line = h.screen().lines().nth(usize::try_from(y).unwrap_or(0)).unwrap_or_default().to_owned();
+        let byte = line.rfind("Bottom").unwrap_or_else(|| panic!("{before}"));
+        let column = i32::try_from(line[..byte].chars().count()).unwrap_or(0);
+        h.click(column + 1, y);
+        assert_eq!(h.find("Place 25").map(|(_, row)| row), Some(y), "the page did not move: {}", h.screen());
+        assert_eq!(h.app().places.last(), Some(&(25, 1)), "and the click chose Bottom on that row");
+    }
+
+    #[test]
+    fn a_heading_text_outside_a_list_looks_like_the_lists_own_headings() {
+        for theme in ["monochrome", "nordic", "amber", "iris"] {
+            let mut h = Harness::new(Prefs::default(), 40, 10);
+            h.set_theme(theme);
+            let list = h.env().theme().style("settings-heading", None, &[]);
+            let text = h.env().theme().typography("heading").expect("the heading role");
+            let list = crate::style::WidgetStyle::new(list, 0.0).text();
+            let text = crate::style::WidgetStyle::new(text.clone(), 0.0).text();
+            assert_eq!((text.fg, text.bold), (list.fg, list.bold), "{theme}");
+        }
+    }
+
     #[test]
     fn labels_left_controls_anchored_right_with_headings() {
         let h = Harness::new(Prefs::default(), 40, 10);
@@ -753,6 +951,113 @@ mod tests {
         assert_eq!(narrow.height(), 5, "two label lines, the control, two description lines");
         let squeezed = SettingRow::<()>::new("Density").lines(9, true, 40);
         assert_eq!((squeezed.control_row(), squeezed.height()), (1, 2), "a squeezed control goes under its label");
+    }
+
+    #[derive(Default)]
+    struct Hinted {
+        index: bool,
+        chromium: bool,
+        theme: bool,
+        wrap: bool,
+    }
+
+    #[derive(Clone)]
+    enum HintedMsg {
+        Index(bool),
+        Chromium(bool),
+        Theme(bool),
+    }
+
+    impl App for Hinted {
+        type Msg = HintedMsg;
+        fn update(&mut self, msg: HintedMsg) -> Command<HintedMsg> {
+            match msg {
+                HintedMsg::Index(on) => self.index = on,
+                HintedMsg::Chromium(on) => self.chromium = on,
+                HintedMsg::Theme(on) => self.theme = on,
+            }
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, HintedMsg>) {
+            SettingsList::show(ui, |list| {
+                list.wrap(self.wrap);
+                list.row(
+                    SettingRow::new("Index")
+                        .hint("Maps the code so questions find it fast, without reading every file again"),
+                    |ui| {
+                        ui.add(Switch::new(self.index).on_toggle(HintedMsg::Index));
+                    },
+                );
+                list.row(SettingRow::new("Chromium"), |ui| {
+                    ui.add_with(crate::widgets::Tooltip::new("Not installed here").on_focus(true), |ui| {
+                        ui.add(Switch::new(self.chromium).on_toggle(HintedMsg::Chromium));
+                    });
+                });
+                list.row(SettingRow::new("Theme"), |ui| {
+                    ui.add(Switch::new(self.theme).on_toggle(HintedMsg::Theme));
+                });
+            });
+        }
+    }
+
+    fn hinted(wrap: bool) -> Harness<Hinted> {
+        let mut h = Harness::new(Hinted { wrap, ..Hinted::default() }, 50, 8);
+        h.set_reduced_motion(true);
+        h
+    }
+
+    #[test]
+    fn the_keyboards_row_shows_its_hint_and_its_control_keeps_the_keys() {
+        let mut h = hinted(false);
+        assert!(!h.screen().contains("Maps the code"), "no hint before anything reaches the row");
+        h.press("tab");
+        assert!(
+            h.screen().lines().nth(1).is_some_and(|line| line.contains("Maps the code")),
+            "the hint hangs under the keyboard's row"
+        );
+        h.press("space");
+        assert!(h.app().index, "space still reaches the switch of a row with a hint");
+        h.press("down");
+        assert!(!h.screen().contains("Maps the code"), "the hint leaves with the keyboard's row");
+        assert!(h.screen().contains("Not installed here"), "a tooltip on focus shows on the keyboard's row");
+        h.press("space");
+        assert!(h.app().chromium, "space reaches a switch inside a tooltip");
+        h.press("down");
+        assert!(!h.screen().contains("Not installed here"));
+        h.press("enter");
+        assert!(h.app().theme);
+    }
+
+    #[test]
+    fn a_resting_pointer_shows_the_hint_without_covering_a_control() {
+        let mut h = hinted(false);
+        let before: Vec<_> = (0..50).map(|x| (h.bg(x, 1), h.fg(x, 1))).collect();
+        h.hover(4, 0);
+        assert!(!h.screen().contains("Maps the code"), "the pointer waits for the hover delay");
+        h.advance(Duration::from_secs(1));
+        assert!(h.screen().lines().nth(1).is_some_and(|line| line.contains("Maps the")));
+        let covered: Vec<u16> = (0..50).filter(|x| (h.bg(*x, 1), h.fg(*x, 1)) != before[usize::from(*x)]).collect();
+        // The switch of the row below is the one part of that line drawn on a tone of its own.
+        let switch = (0..50u16).find(|x| before[usize::from(*x)].0 != before[0].0).unwrap_or(50);
+        assert!(switch < 50 && !covered.is_empty());
+        assert!(
+            covered.iter().all(|x| *x < switch),
+            "the hint {covered:?} stays clear of the switch below, which starts at {switch}"
+        );
+        h.hover(4, 6).advance(Duration::from_secs(1));
+        assert!(!h.screen().contains("Maps the code"));
+    }
+
+    #[test]
+    fn a_wrapping_list_goes_round_its_rows_and_stops_otherwise() {
+        let mut h = hinted(true);
+        h.press("tab").press("up").press("space");
+        assert!(h.app().theme, "up on the first row reaches the last");
+        h.press("down");
+        assert!(h.screen().contains("Maps the code"), "down on the last row reaches the first");
+        let mut h = hinted(false);
+        h.press("tab").press("up").press("space");
+        assert!(h.app().index && !h.app().theme);
     }
 
     #[test]

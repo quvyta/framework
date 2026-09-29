@@ -3,8 +3,10 @@
 - `SettingsList::show(ui, |list| …)` — adds the list, filling the width.
 - `list.heading(title)` — a faint group heading; every heading after the first has an empty row above it.
 - `list.row(row, |ui| …)` — a row with the one control the closure adds.
+- `list.wrap(bool)` — ↓ on the last enabled row goes on to the first and ↑ on the first to the last, as in a menu; Home and End still stop at the ends. Default: `false`.
 - `SettingRow::new(label)` — a one-line row.
 - `.description(text)` — a faint second line under the label.
+- `.hint(text)` — an explanation that takes no room: it shows under the row, over the rows below, at once while the row is the keyboard's row and after `motion.hover-delay` while the pointer rests on it. It wraps inside the label column, so it never covers a control, and the control keeps every key.
 - `.disabled(bool)` — greyed out and skipped by the keyboard.
 - `.nested(bool)` — a row that belongs to the row above, such as a choice that qualifies it: its text starts two cells further in; the pillar and the control stay in place.
 - `.on_activate(msg)` — sent on Enter or Space the control does not use, or on a click on the label.
@@ -25,5 +27,6 @@
 - `setting-label` — `fg`, `bold`; the same states.
 - `setting-description` — `fg`; the same states.
 - `settings-heading` — `fg`, `bold`.
+- `tooltip` — `bg`, `fg`, `padding` of a hint.
 - `[motion]` — `slide`, `pulse-period`.
 - `[icons]` — `pillar`.

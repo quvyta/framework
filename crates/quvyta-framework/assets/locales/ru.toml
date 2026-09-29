@@ -134,6 +134,15 @@ empty     = "Нет запущенных задач"
 [quvyta.handoff]
 pause = "Нажмите любую клавишу, чтобы вернуться"
 
+# Installing a missing program's package (install::Install); {package} is the package,
+# {manager} the package manager's program, such as pacman.
+[quvyta.install]
+title   = "Установить {package}?"
+runs    = "Это будет выполнено в терминале, у вас на глазах:"
+asks    = "{manager} может запросить там ваш пароль и задать свои вопросы."
+confirm = "Установить"
+notice  = "Установка {package} через {manager}…"
+
 [quvyta.number]
 # What this language writes between a number's whole part and its decimals.
 decimal = ","

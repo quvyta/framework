@@ -245,7 +245,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
     /// The menu of a flat row, which is the menu of the entry it stands for.
     fn flat_menu(&self, rows: &[FlatRow]) -> impl Fn(usize) -> Vec<ContextItem<Msg>> + 'static {
         let keys: Vec<String> = rows.iter().map(|row| row.key.clone()).collect();
-        let items = self.menu_for();
+        let items = self.row_menu();
         // The way out of the folder is on the folder's own row, where the way in was.
         let leave = (self.state.folder() != ROOT).then(|| (self.wrap)(FileManagerMsg::Leave));
         move |index| {

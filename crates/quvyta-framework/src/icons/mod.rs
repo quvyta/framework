@@ -95,6 +95,18 @@ impl IconMode {
         }
     }
 
+    /// How the Appearance box names this icon mode to a person, in the language of `i18n`, so an
+    /// application listing the same choice uses the same words.
+    #[must_use]
+    pub fn label(self, i18n: &crate::i18n::I18n) -> String {
+        i18n.translate(&self.label_key(), &[])
+    }
+
+    /// The locale key of [`label`](Self::label).
+    pub(crate) fn label_key(self) -> String {
+        format!("quvyta.appearance.icons-{}", self.name())
+    }
+
     /// Looks a mode up by name, ignoring letter case.
     #[must_use]
     pub fn from_name(name: &str) -> Option<Self> {
@@ -207,6 +219,18 @@ impl PillarStyle {
             Self::Thick => "thick",
             Self::Thin => "thin",
         }
+    }
+
+    /// How the Appearance box names this pillar style to a person, in the language of `i18n`, so an
+    /// application listing the same choice uses the same words.
+    #[must_use]
+    pub fn label(self, i18n: &crate::i18n::I18n) -> String {
+        i18n.translate(&self.label_key(), &[])
+    }
+
+    /// The locale key of [`label`](Self::label).
+    pub(crate) fn label_key(self) -> String {
+        format!("quvyta.appearance.pillar-{}", self.name())
     }
 
     /// Looks a style up by name, ignoring letter case.

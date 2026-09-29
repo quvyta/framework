@@ -2,7 +2,7 @@
 
 - `Tooltip::new(metin)` — `ui.add_with(…)` ile eklenen bileşenleri sarar ve `metin` ile açıklar.
 - `.placement(Placement)` — `Below` (varsayılan), `Above`, `Right` ya da `Left`; yer yoksa öbür tarafa geçer.
-- `.on_focus(bool)` — klavye odağı içerideyken de hemen gösterir. Varsayılan: `false`.
+- `.on_focus(bool)` — klavye odağı içerideyken de hemen gösterir; odağını listeden ödünç alan bir ayar listesi satırının kontrolü de buna dahildir. Varsayılan: `false`.
 
 ## Davranış
 

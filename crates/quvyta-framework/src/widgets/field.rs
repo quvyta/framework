@@ -30,7 +30,8 @@ const UNBOUNDED: u16 = 4096;
 /// long placeholder) puts its label above as well and takes the whole row instead of being cut.
 /// The column is at least as wide as the required word of the active language.
 ///
-/// Style keys: `field-label` (`fg`, `bold`) with states `focus` and `disabled`;
+/// Style keys: `field-label` (`fg`, `bold`) with states `focus` and `disabled`, and variant
+/// `value` for a [value](Field::value) field;
 /// `field-required`, `field-hint` and `field-error` (`fg`). The required word is
 /// `quvyta.form.required`; the error marker is the `error` icon.
 pub struct Field<Msg> {
@@ -39,6 +40,7 @@ pub struct Field<Msg> {
     error: Option<String>,
     required: bool,
     disabled: bool,
+    value: bool,
     pub(super) label_width: Option<u16>,
     body: Vec<Node<Msg>>,
 }
@@ -54,9 +56,20 @@ impl<Msg: 'static> Field<Msg> {
             error: None,
             required: false,
             disabled: false,
+            value: false,
             label_width: None,
             body: vec![Node::new(Flex::new(Axis::Column, Vec::new()), 0)],
         }
+    }
+
+    /// Shows `text` where the control would be: a value to read, not to change, such as the
+    /// folder a program installs into, lined up with the fields around it. The label is faint,
+    /// since there is nothing to fill in, and anything added inside is replaced by the value.
+    #[must_use]
+    pub fn value(mut self, text: impl Into<String>) -> Self {
+        self.value = true;
+        self.body = vec![Node::new(Flex::new(Axis::Column, vec![Node::new(super::Text::new(text), 0)]), 0)];
+        self
     }
 
     /// Faint help under the control, shown while there is no error.
@@ -127,6 +140,10 @@ impl<Msg: 'static> Field<Msg> {
 
 impl<Msg: 'static> Container<Msg> for Field<Msg> {
     fn set_children(&mut self, children: Vec<Node<Msg>>) {
+        // A value field shows its value; a control added to it has no place.
+        if self.value {
+            return;
+        }
         let mut column = Node::new(Flex::new(Axis::Column, children), 0);
         column.layout.width = Length::Fill(1);
         self.body = vec![column];
@@ -228,7 +245,7 @@ impl<Msg: 'static> Widget<Msg> for Field<Msg> {
         if self.disabled {
             states.push(State::Disabled);
         }
-        let label_style = cx.style("field-label", None, &states).text();
+        let label_style = cx.style("field-label", self.value.then_some("value"), &states).text();
         let label = text::truncate(&self.label, parts.label.width).into_owned();
         cx.text(parts.label.x, parts.label.y, &label, label_style, parts.label.width);
         if let Some(rect) = parts.required {

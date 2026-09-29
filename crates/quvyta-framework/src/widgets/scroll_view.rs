@@ -200,6 +200,27 @@ impl<Msg: 'static> ScrollView<Msg> {
         memory.offset
     }
 
+    /// The offset that shows `focused`, whose area is `rect`, having just taken the focus. A
+    /// widget clicked into is where the person already looks, so a click never scrolls. A widget
+    /// that names where the keyboard is inside it ([`PaintCx::focus_spot`]) is shown there; one
+    /// taller than the view that is already partly on screen stays where it is, rather than the
+    /// view jumping to its top and hiding what is above it.
+    fn focus_offset(cx: &PaintCx<'_>, focused: WidgetId, rect: Rect, content: Rect, area: Rect, offset: u16) -> u16 {
+        let clicked =
+            cx.interaction.focus_by_pointer && cx.interaction.pointer.is_some_and(|(x, y)| rect.contains(x, y));
+        if clicked {
+            return offset;
+        }
+        let spot = cx.frame.focus_spots.get(&focused).copied();
+        let target = spot.unwrap_or(rect);
+        let visible = target.y < area.bottom() && target.bottom() > area.y;
+        if spot.is_none() && target.height > area.height && visible {
+            return offset;
+        }
+        let top = target.y - content.y;
+        offset_showing(top, top + i32::from(target.height), offset, area.height)
+    }
+
     /// Takes the last area a widget inside asked to reveal this frame and scrolls to it.
     fn take_reveal(cx: &mut PaintCx<'_>, content: Rect, area: Rect, offset: u16) {
         let id = cx.id();
@@ -284,10 +305,9 @@ impl<Msg: 'static> Widget<Msg> for ScrollView<Msg> {
             && let Some(rect) = cx.frame.rects.get(&focused).copied()
             && cx.memory::<ScrollMemory>().revealed != Some(focused)
         {
+            cx.memory::<ScrollMemory>().revealed = Some(focused);
+            let new_offset = Self::focus_offset(cx, focused, rect, content_rect, area, offset);
             let memory = cx.memory::<ScrollMemory>();
-            memory.revealed = Some(focused);
-            let top = rect.y - content_rect.y;
-            let new_offset = offset_showing(top, top + i32::from(rect.height), offset, area.height);
             if new_offset != offset {
                 memory.moved(offset, new_offset, max);
                 memory.offset = new_offset;

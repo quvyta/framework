@@ -3,8 +3,10 @@
 - `SettingsList::show(ui, |list| …)` — listeyi genişliği doldurarak ekler.
 - `list.heading(başlık)` — silik bir grup başlığı; ilkinden sonraki her başlığın üstünde boş bir satır olur.
 - `list.row(satır, |ui| …)` — kapanışın eklediği tek kontrolle bir satır.
+- `list.wrap(bool)` — son etkin satırda ↓ ilk satıra, ilkinde ↑ son satıra geçer, menüdeki gibi; Home ve End yine uçta durur. Varsayılan: `false`.
 - `SettingRow::new(etiket)` — tek satırlık ayar.
 - `.description(metin)` — etiketin altında silik ikinci satır.
+- `.hint(metin)` — yer kaplamayan bir açıklama: satırın altında, alttaki satırların üstünde görünür; satır klavyenin satırıyken hemen, fare üzerinde `motion.hover-delay` kadar durunca. Etiket sütununun içinde satır kırar, bu yüzden hiçbir kontrolü örtmez; kontrol bütün tuşları almaya devam eder.
 - `.disabled(bool)` — soluk görünür, klavye atlar.
 - `.nested(bool)` — üstteki satıra ait bir satır, örneğin onu niteleyen bir seçim: metni iki hücre içeriden başlar; çubuk ve kontrol yerinde kalır.
 - Klavye satırının denetimi odaklı çizilir ve tuşları alır; saat ya da süre alanı yazılan bölümü tutar: `12` on iki olur, ← → dakikaya ulaşır.
@@ -25,5 +27,6 @@
 - `setting-label` — `fg`, `bold`; aynı durumlar.
 - `setting-description` — `fg`; aynı durumlar.
 - `settings-heading` — `fg`, `bold`.
+- `tooltip` — ipucunun `bg`, `fg`, `padding` değerleri.
 - `[motion]` — `slide`, `pulse-period`.
 - `[icons]` — `pillar`.

@@ -3,7 +3,7 @@
 use std::sync::LazyLock;
 
 use qframe::env::{AssetDirs, Env};
-use qframe::i18n::I18n;
+use qframe::i18n::{I18n, check};
 use qframe::icons::{IconMode, PillarStyle};
 use qframe::keymap::Scope;
 use qframe::prelude::*;
@@ -129,6 +129,40 @@ fn key_check(ui: &mut View<'_, AppMsg>) {
     }
     ui.spacer().height(Length::Cells(1));
     ui.add(Text::new(t!("theme-icons-language.has-hint")).role("faint"));
+}
+
+/// The same two texts through the checks an application runs on its own locale files in a test.
+///
+/// Nothing here asserts: the pair here is the one `key_check` above draws, where Turkish has no
+/// `app.files`, so the first check has a problem to show and names it at the line of the English
+/// key a translator starts from. A test is the place that asserts; the page is the place that
+/// shows what the checks say.
+fn locale_check(ui: &mut View<'_, AppMsg>) {
+    // region: check
+    let files = [("app-en.toml", APP_EN), ("app-tr.toml", APP_TR)];
+    let shape = check::locales(&files);
+    let words = check::own_words(&files, 0.8);
+    // endregion
+
+    for (label, found) in
+        [(t!("theme-icons-language.check-shape"), shape), (t!("theme-icons-language.check-words"), words)]
+    {
+        // A status colour always comes with its mark, and a problem is a word for a developer
+        // rather than a sentence of the interface, so the message is never translated.
+        let (marker, color) = if found.is_empty() { ("success", "success") } else { ("warning", "warning") };
+        let glyph = ui.env().icons().glyph(marker).into_owned();
+        let said = if found.is_empty() {
+            t!("theme-icons-language.check-clean")
+        } else {
+            found.iter().map(ToString::to_string).collect::<Vec<_>>().join("   ")
+        };
+        ui.row(|ui| {
+            ui.add(Text::new(label).role("secondary").no_wrap()).width(Length::Cells(20));
+            ui.add(Text::new(format!("{glyph} {said}")).color(color));
+        });
+    }
+    ui.spacer().height(Length::Cells(1));
+    ui.add(Text::new(t!("theme-icons-language.check-hint")).role("faint"));
 }
 
 /// The display name of `id` in a list of `(id, name)`, empty when the list does not have it.
@@ -290,6 +324,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     .fill_width();
 
     ui.add_with(Panel::new().title(t!("theme-icons-language.sources")), sources).fill_width();
+
+    // After the sources, since these are the checks run on the files shown there.
+    ui.add_with(Panel::new().title(t!("theme-icons-language.checks")), locale_check).fill_width();
 }
 
 /// Choices that change how every screen feels: the pillar, the selection slide and motion. They
@@ -440,6 +477,29 @@ mod tests {
         assert!(files.contains("✓ en"), "{files:?}");
         assert!(!files.contains("✓ tr") && files.contains(" tr"), "Turkish lacks it: {files:?}");
         assert!(files.contains("2 files"), "the screen falls back to English: {files:?}");
+    }
+
+    #[test]
+    fn the_locale_checks_name_the_missing_key_and_keep_the_words_of_their_own() {
+        let mut h = showcase_tall(Showcase::new(), PAGE, 130);
+        let screen = h.screen();
+        let row = |label: &str| screen.lines().find(|line| line.contains(label)).unwrap_or_default().to_owned();
+        // The first check reads the shape of the two files, and Turkish has no app.files. The
+        // problem stands on the English key, since that is where the key to translate is written.
+        let shape = row("locales(..)");
+        assert!(shape.contains("app-en.toml:7:1:"), "the file, line and column: {shape:?}");
+        assert!(shape.contains("`app.files` is missing from `app-tr.toml`"), "{shape:?}");
+        // The second reads the words, and what Turkish has is its own. A status colour comes with
+        // its mark in every glyph mode, as it does everywhere else.
+        let words = "own_words(.., 0.8)";
+        let own = row(words);
+        assert!(own.contains("no problems"), "Turkish wrote a word of its own: {own:?}");
+        let mark = |line: &str| line.split(words).nth(1).and_then(|after| after.trim_start().chars().next());
+        assert!(mark(&own).is_some_and(|mark| !mark.is_ascii()), "the mark is drawn: {own:?}");
+        h.set_glyph_mode(GlyphMode::Ascii);
+        let ascii = h.screen();
+        let line = ascii.lines().find(|line| line.contains(words)).unwrap_or_default();
+        assert!(mark(line).is_some_and(|mark| mark.is_ascii()), "the mark has an ASCII form: {line:?}");
     }
 
     #[test]

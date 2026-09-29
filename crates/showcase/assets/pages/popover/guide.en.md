@@ -9,11 +9,13 @@ Use a popover for a small, optional panel that belongs to one control and should
 3. Toggle it from the anchor, usually a button: `Button::new(t!("filters")).on_press(Msg::ToggleFilters)`.
 4. Close it when asked: `.on_dismiss(Msg::CloseFilters)` arrives on Esc and on a click outside.
 5. If the content is a form, add `.focus_inside(true)` so the keyboard starts in the layer.
+6. When the layer belongs to a field, add `.match_anchor_width(true)`: it then opens exactly as wide as the field.
 
 ## How it works
 
 - **It is a layer.** The content is drawn over everything else on the overlay surface, with no frame; the tone difference is its edge. Nothing below moves.
 - **It stands apart from what it opens over.** Over the screen ground the layer keeps the overlay tone. Opened inside a panel whose tone is nearly the same, it moves one small step towards the theme's text colour (lighter on a dark theme, darker on a light one) until the edge shows again. The step comes from the theme's own colours, so it works in every theme without a colour written by hand. Menus, lists, tooltips, toasts and dialogs do the same; a widget of your own gets it with `PaintCx::floating`.
+- **It can be as wide as its anchor.** By default the layer is as wide as its content, so a long line widens it. With `.match_anchor_width(true)` it is exactly as wide as the anchor, cut to the screen: its left and right edges stand where the anchor's do, and a line longer than that is cut there instead of pushing the layer wider. The content is measured at that width, so it lays itself out to fit. This is what a list of suggestions under a search field wants; the Text input page does the same thing on its own, with a field's own suggestions.
 - **It finds room.** Below the anchor by default, or the side chosen with `.placement(…)`. When that side has no room it flips to the opposite one, and it is always slid back onto the screen.
 - **It unfolds from the anchor** over the theme's `motion.enter`, row by row (column by column for side placements). With reduced motion it appears at once.
 - **Dismissing is yours.** Esc and a click outside send the dismiss message.

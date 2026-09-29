@@ -135,6 +135,15 @@ empty     = "Aucune tâche en cours"
 [quvyta.handoff]
 pause = "Appuyez sur une touche pour revenir"
 
+# Installing a missing program's package (install::Install); {package} is the package,
+# {manager} the package manager's program, such as pacman.
+[quvyta.install]
+title   = "Installer {package} ?"
+runs    = "Ceci s’exécute dans le terminal, devant vous :"
+asks    = "{manager} peut y demander votre mot de passe et poser ses propres questions."
+confirm = "Installer"
+notice  = "Installation de {package} avec {manager}…"
+
 [quvyta.number]
 # What this language writes between a number's whole part and its decimals.
 decimal = ","

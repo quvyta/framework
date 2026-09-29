@@ -24,8 +24,11 @@ use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
 /// after the pointer rests on it for the theme's hover delay, and at once when it is reached with
 /// the keyboard.
 ///
-/// Style keys: `icon-button` (`fg`, `bg`, `bold`) with states `hover`, `focus`, `pressed` and
-/// `disabled`; `tooltip` for its words.
+/// A [`selected`](Self::selected) icon button draws its glyph in the accent colour, for a
+/// control that is on, such as a bookmark star for the page shown or the chosen view of a few.
+///
+/// Style keys: `icon-button` (`fg`, `bg`, `bold`) with states `hover`, `focus`, `pressed`,
+/// `selected` and `disabled`; `tooltip` for its words.
 ///
 /// ```
 /// use qframe::prelude::*;
@@ -55,6 +58,7 @@ pub struct IconButton<Msg> {
     icon: String,
     tooltip: Option<String>,
     disabled: bool,
+    selected: bool,
     on_press: Option<Msg>,
 }
 
@@ -72,7 +76,7 @@ impl<Msg> IconButton<Msg> {
     /// A button showing the icon `key` of the icon set, such as `"settings"` or `"close"`.
     #[must_use]
     pub fn new(key: impl Into<String>) -> Self {
-        Self { icon: key.into(), tooltip: None, disabled: false, on_press: None }
+        Self { icon: key.into(), tooltip: None, disabled: false, selected: false, on_press: None }
     }
 
     /// The message sent when the button is pressed.
@@ -97,6 +101,17 @@ impl<Msg> IconButton<Msg> {
         self
     }
 
+    /// Shows the button on: its glyph takes the accent colour (the light accent over the
+    /// accent-tinted keyboard focus tone, where the accent itself would not read), and hover,
+    /// focus and presses still light its cells as usual. A theme without an
+    /// `icon-button:selected` style still shows the accent. It stays pressable; the application flips the state in its
+    /// message. Default: `false`.
+    #[must_use]
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
     fn active(&self) -> bool {
         !self.disabled && self.on_press.is_some()
     }
@@ -114,7 +129,21 @@ impl<Msg: Clone + 'static> Widget<Msg> for IconButton<Msg> {
         if self.disabled {
             states.push(State::Disabled);
         }
-        let style = cx.style("icon-button", None, &states).text();
+        if self.selected {
+            states.push(State::Selected);
+        }
+
+        let mut style = cx.style("icon-button", None, &states).text();
+        // A theme that says nothing about the selected state, so that a selected button at rest
+        // looks like any other, still shows it: the glyph takes the accent, unless the button is
+        // disabled, which reads as faint whatever it is.
+        if self.selected && !self.disabled {
+            let quiet =
+                cx.style("icon-button", None, &[State::Selected]).text() == cx.style("icon-button", None, &[]).text();
+            if quiet {
+                style.fg = Some(cx.color("accent"));
+            }
+        }
         // At rest the theme gives no ground, so the button keeps whatever it stands on.
         if let Some(bg) = style.bg {
             cx.fill(area, bg);

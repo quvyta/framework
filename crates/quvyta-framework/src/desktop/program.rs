@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 /// would mean a different program in every folder the application happened to start in. `probe`
 /// says whether a path is a program that can run; [`is_executable`] is the real one.
 #[must_use]
-pub(super) fn find_program(program: &str, path: Option<&OsStr>, probe: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+pub(crate) fn find_program(program: &str, path: Option<&OsStr>, probe: impl Fn(&Path) -> bool) -> Option<PathBuf> {
     if program.is_empty() {
         return None;
     }
@@ -27,7 +27,7 @@ pub(super) fn find_program(program: &str, path: Option<&OsStr>, probe: impl Fn(&
 /// Whether `path` is a file this user may run: a regular file (or a link to one) with an
 /// execute bit set.
 #[must_use]
-pub(super) fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     let Ok(metadata) = std::fs::metadata(path) else {
         return false;
     };

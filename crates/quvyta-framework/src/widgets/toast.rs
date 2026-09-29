@@ -52,7 +52,7 @@ impl ToastKind {
         }
     }
 
-    fn icon(self) -> &'static str {
+    pub(crate) fn icon(self) -> &'static str {
         match self {
             Self::Danger => "error",
             other => other.name(),

@@ -1,7 +1,7 @@
 //! Empty state: an icon, a title, an explanation and a way out, adapting to small areas.
 
 use qframe::prelude::*;
-use qframe::widgets::EmptyState;
+use qframe::widgets::{EmptyState, ToastKind};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -17,11 +17,13 @@ pub struct State {
     action: bool,
     small: bool,
     created: u32,
+    installed: u32,
+    shown: u32,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { icon: true, message: true, action: true, small: false, created: 0 }
+        Self { icon: true, message: true, action: true, small: false, created: 0, installed: 0, shown: 0 }
     }
 }
 
@@ -29,6 +31,8 @@ impl Default for State {
 #[derive(Debug, Clone, Copy)]
 pub enum Msg {
     Create,
+    Install,
+    Show,
     Icon(bool),
     Message(bool),
     Action(bool),
@@ -44,7 +48,15 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
     let (source, text) = match message {
         Msg::Create => {
             state.created += 1;
-            ("Button#run", "pressed".to_owned())
+            ("Button#run", t!("empty-state.run-log"))
+        }
+        Msg::Install => {
+            state.installed += 1;
+            ("Button#install", t!("empty-state.install-log"))
+        }
+        Msg::Show => {
+            state.shown += 1;
+            ("Button#show-command", t!("empty-state.command-log"))
         }
         Msg::Icon(on) => {
             state.icon = on;
@@ -125,12 +137,39 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         });
     })
     .fill_width();
+
+    ui.add_with(Panel::new().title(t!("empty-state.missing-program")).gap(0), |ui| {
+        // region: multiple-actions
+        ui.add(
+            EmptyState::new(t!("empty-state.missing-title"))
+                .message(t!("empty-state.missing-message"))
+                .action(Button::new(t!("empty-state.install")).variant("primary").on_press(send(Msg::Install)))
+                .action(Button::new(t!("empty-state.show-command")).on_press(send(Msg::Show))),
+        )
+        .fill_width()
+        .height(Length::Cells(8));
+        // endregion
+    })
+    .fill_width();
+
+    ui.add_with(Panel::new().title(t!("empty-state.danger")).gap(0), |ui| {
+        // region: tone
+        ui.add(
+            EmptyState::new(t!("empty-state.danger-title"))
+                .message(t!("empty-state.danger-message"))
+                .tone(ToastKind::Danger),
+        )
+        .fill_width()
+        .height(Length::Cells(7));
+        // endregion
+    })
+    .fill_width();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::showcase_on;
+    use crate::tests::{showcase_on, showcase_tall};
 
     #[test]
     fn action_runs_and_small_areas_keep_the_title() {
@@ -140,5 +179,16 @@ mod tests {
         assert_eq!(h.app().pages.empty_state.created, 1);
         h.send(send(Msg::Small(true)));
         assert!(h.screen().matches("No containers yet").count() >= 2);
+    }
+
+    #[test]
+    fn two_actions_and_a_danger_tone_are_visible_and_answer() {
+        let mut h = showcase_tall(crate::app::Showcase::new(), PAGE, 80);
+        let install = h.find("Install here").unwrap_or_else(|| panic!("{}", h.screen()));
+        h.click(install.0, install.1);
+        let command = h.find("Show the command").unwrap_or_else(|| panic!("{}", h.screen()));
+        h.click(command.0, command.1);
+        assert_eq!((h.app().pages.empty_state.installed, h.app().pages.empty_state.shown), (1, 1));
+        assert!(h.screen().contains("The index could not be read"), "{}", h.screen());
     }
 }

@@ -1,6 +1,7 @@
 ## Metotlar
 
 - `CopyValue::new(değer)` — kendini kopyalayan, yükseltilmiş zeminde bir değer.
+- `.labelled(etiket)` — değerin üstünde silik bir etiket; kutusuna sığmayan değer ayrıca üstünde bütün olarak, sarılarak yazılır (gizli değer asla).
 - `.masked(bool)` — maske noktaları çizer ama gerçek değeri kopyalar. Varsayılan: `false`.
 - `.disabled(bool)` — soluk, odaklanamaz, kopyalamaz. Varsayılan: `false`.
 - `.on_copy(msg)` — her kopyadan sonra gönderilir.

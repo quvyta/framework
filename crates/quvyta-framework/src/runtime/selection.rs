@@ -29,6 +29,7 @@ use std::time::Duration;
 
 use ratatui_core::buffer::{Buffer, Cell};
 
+use crate::event::MouseButton;
 use crate::geometry::{Rect, clamp_u16};
 use crate::theme::State;
 use crate::widget::{Frame, PaintCx, WidgetId};
@@ -53,22 +54,38 @@ pub(crate) enum CopyKind {
     Raw,
 }
 
-/// A press remembered to recognise double and triple presses.
+/// A press remembered to count presses in a row: the one count every widget reads through
+/// [`EventCx::clicks`](crate::widget::EventCx::clicks) and a text selection turns into cells,
+/// words or lines.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Press {
+    button: MouseButton,
     at: (i32, i32),
     time: Duration,
     count: u8,
 }
 
 impl Press {
-    /// The press at `at`, counting it as the next of a series when it follows `last` closely.
-    pub(crate) fn next(last: Option<Self>, at: (i32, i32), time: Duration) -> Self {
+    /// The press of `button` at `at`, counting it as the next of a series when it follows `last`
+    /// closely with the same button on the same cell.
+    pub(crate) fn next(last: Option<Self>, button: MouseButton, at: (i32, i32), time: Duration) -> Self {
         let count = match last {
-            Some(last) if last.at == at && time.saturating_sub(last.time) < MULTI_PRESS => last.count % 3 + 1,
+            Some(last) if last.button == button && last.at == at && time.saturating_sub(last.time) < MULTI_PRESS => {
+                last.count.saturating_add(1)
+            }
             _ => 1,
         };
-        Self { at, time, count }
+        Self { button, at, time, count }
+    }
+
+    /// How many presses in a row this one is, from 1.
+    pub(crate) fn count(self) -> u8 {
+        self.count
+    }
+
+    /// The button pressed.
+    pub(crate) fn button(self) -> MouseButton {
+        self.button
     }
 }
 
@@ -130,9 +147,10 @@ impl Selection {
             .filter(|(id, rect)| rect.contains(x, y) && frame.is_within(**id, owner))
             .min_by_key(|(_, rect)| u32::from(rect.width) * u32::from(rect.height))
             .map(|(id, rect)| (*id, *rect));
-        let unit = match press.count {
-            1 => Unit::Cell,
-            2 => Unit::Word,
+        // A fourth press starts over with a cell, so pressing on keeps cycling.
+        let unit = match press.count.saturating_sub(1) % 3 {
+            0 => Unit::Cell,
+            1 => Unit::Word,
             _ => Unit::Line,
         };
         Some(Self {

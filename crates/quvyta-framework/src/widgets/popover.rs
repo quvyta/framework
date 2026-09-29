@@ -21,6 +21,10 @@ type Part<'a, Msg> = Box<dyn FnOnce(&mut View<'_, Msg>) + 'a>;
 /// on another button closes the popover and presses that button. A press on the widget that
 /// opened the popover only dismisses it, even when that widget is outside the anchor.
 ///
+/// The layer is as wide as its content, and [`match_anchor_width`](Popover::match_anchor_width)
+/// makes it as wide as the anchor instead: a list under a text field then opens from the field's
+/// left edge to its right one.
+///
 /// Style keys: `popover` (`bg`, `padding`).
 ///
 /// ```
@@ -61,6 +65,7 @@ pub struct Popover<'a, Msg> {
     open: bool,
     placement: Placement,
     focus_inside: bool,
+    match_anchor_width: bool,
     on_dismiss: Option<Msg>,
     anchor: Option<Part<'a, Msg>>,
     content: Option<Part<'a, Msg>>,
@@ -70,7 +75,15 @@ impl<'a, Msg: Clone + 'static> Popover<'a, Msg> {
     /// A popover that shows its content while `open`.
     #[must_use]
     pub fn new(open: bool) -> Self {
-        Self { open, placement: Placement::Below, focus_inside: false, on_dismiss: None, anchor: None, content: None }
+        Self {
+            open,
+            placement: Placement::Below,
+            focus_inside: false,
+            match_anchor_width: false,
+            on_dismiss: None,
+            anchor: None,
+            content: None,
+        }
     }
 
     /// The widgets the layer belongs to, usually a button that toggles it.
@@ -102,6 +115,16 @@ impl<'a, Msg: Clone + 'static> Popover<'a, Msg> {
         self
     }
 
+    /// Opens the content exactly as wide as the anchor instead of as wide as the content, cut to
+    /// the screen: a list under a text field then opens from the field's left edge to its right
+    /// one, and a line longer than the field is cut there rather than widening the layer. The
+    /// content is measured at that width, so it lays itself out to fit.
+    #[must_use]
+    pub fn match_anchor_width(mut self, match_anchor_width: bool) -> Self {
+        self.match_anchor_width = match_anchor_width;
+        self
+    }
+
     /// Message sent on Esc or a press outside; the application usually closes the popover.
     #[must_use]
     pub fn on_dismiss(mut self, message: Msg) -> Self {
@@ -127,6 +150,7 @@ impl<'a, Msg: Clone + 'static> Popover<'a, Msg> {
             open: self.open,
             placement: self.placement,
             focus_inside: self.focus_inside,
+            match_anchor_width: self.match_anchor_width,
             on_dismiss: self.on_dismiss,
         })
     }
@@ -140,6 +164,7 @@ struct Layer<Msg> {
     open: bool,
     placement: Placement,
     focus_inside: bool,
+    match_anchor_width: bool,
     on_dismiss: Option<Msg>,
 }
 
@@ -191,9 +216,16 @@ impl<Msg: Clone + 'static> Widget<Msg> for Layer<Msg> {
             screen.width.saturating_sub(padding.horizontal()),
             screen.height.saturating_sub(padding.vertical()),
         );
-        let content = cx.measure_child(&self.parts[CONTENT], available);
+        let matched = self.match_anchor_width.then(|| placement::anchor_width(anchor, screen));
+        // A layer as wide as its anchor measures its content at that width, so the content lays
+        // itself out to fit; one as wide as its content measures it with the whole screen.
+        let inner = match matched {
+            Some(width) => Size::new(width.saturating_sub(padding.horizontal()), available.height),
+            None => available,
+        };
+        let content = cx.measure_child(&self.parts[CONTENT], inner);
         let size = Size::new(
-            content.width.saturating_add(padding.horizontal()),
+            matched.unwrap_or_else(|| content.width.saturating_add(padding.horizontal())),
             content.height.saturating_add(padding.vertical()),
         );
         let (full, side) = placement::place(anchor, size, screen, self.placement);
@@ -411,5 +443,59 @@ mod tests {
         let screen = h.screen();
         assert!(screen.lines().nth(1).is_some_and(|line| line.starts_with("content und  Status")), "{screen}");
         assert_eq!(h.bg(11, 0), h.env().theme().color("overlay"));
+    }
+
+    /// A layer over an anchor `width` cells wide, whose content wants to be wider than that.
+    struct Anchored {
+        width: u16,
+        matched: bool,
+    }
+
+    impl App for Anchored {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            Popover::new(true)
+                .match_anchor_width(self.matched)
+                .anchor(|ui| {
+                    ui.add(Text::new("anchor"));
+                })
+                .content(|ui| {
+                    ui.add(Text::new("a line far wider than its anchor"));
+                })
+                .show(ui)
+                .width(Length::Cells(self.width));
+        }
+    }
+
+    /// The first and last column of row `y` the layer covers, read from the grounds: the layer
+    /// paints on the overlay tone and the screen around it is the canvas.
+    fn span(h: &Harness<Anchored>, y: u16) -> Option<(u16, u16)> {
+        let canvas = h.env().theme().color("canvas");
+        let columns: Vec<u16> = (0..40u16).filter(|x| h.bg(*x, y) != canvas).collect();
+        columns.first().zip(columns.last()).map(|(first, last)| (*first, *last))
+    }
+
+    #[test]
+    fn the_layer_is_as_wide_as_its_anchor_whatever_the_content_wants() {
+        for width in [14, 30] {
+            let mut h = Harness::new(Anchored { width, matched: true }, 40, 8);
+            h.set_reduced_motion(true);
+            let screen = h.screen();
+            assert_eq!(span(&h, 1), Some((0, width - 1)), "from the anchor's left edge to its right one:\n{screen}");
+
+            let mut h = Harness::new(Anchored { width, matched: false }, 40, 8);
+            h.set_reduced_motion(true);
+            let screen = h.screen();
+            assert!(
+                span(&h, 1).is_some_and(|(_, last)| last > width - 1),
+                "without the option the content decides:\n{screen}"
+            );
+        }
+        let mut h = Harness::new(Anchored { width: 50, matched: true }, 40, 8);
+        h.set_reduced_motion(true);
+        assert_eq!(span(&h, 1), Some((0, 39)), "an anchor wider than the screen is cut to it:\n{}", h.screen());
     }
 }

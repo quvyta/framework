@@ -249,6 +249,40 @@ mod tests {
         }
     }
 
+    /// A field to fill and a value to read, labels beside them.
+    struct Install;
+
+    impl App for Install {
+        type Msg = String;
+        fn update(&mut self, _: String) -> Command<String> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, String>) {
+            Form::new().label_width(10).show(ui, |form| {
+                form.field(Field::new("Name"), |ui| {
+                    ui.add(TextInput::new("notes").on_change(|text| text)).width(Length::Cells(20));
+                });
+                form.field(Field::new("Folder").value("~/.local/share/notes"), |_| {});
+            });
+        }
+    }
+
+    #[test]
+    fn a_value_field_lines_up_with_the_controls_and_its_label_steps_back() {
+        let h = Harness::new(Install, 50, 6);
+        let (value_x, value_y) = h.find("~/.local").unwrap_or_else(|| panic!("{}", h.screen()));
+        let (_, name_y) = h.find("Name").expect("label");
+        assert!(value_y > name_y);
+        assert_eq!(value_x, 12, "the value starts in the controls' column, ten for labels and a gap:\n{}", h.screen());
+        let (label_x, label_y) = h.find("Folder").expect("label");
+        let muted = h.env().theme().color("muted");
+        let at = |x: i32, y: i32| (u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0));
+        let (x, y) = at(label_x, label_y);
+        assert_eq!(h.fg(x, y), muted, "the value's label is faint");
+        let (x, y) = at(h.find("Name").expect("label").0, name_y);
+        assert_ne!(h.fg(x, y), muted, "a control's label is not");
+    }
+
     #[test]
     fn labels_above_with_required_word_hint_and_error() {
         let mut h = Harness::new(Signup::default(), 40, 8);

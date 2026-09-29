@@ -45,6 +45,25 @@ Bir kareden uzun süren her iş için `Task` kullan: imaj derlemek, migration ç
 
 İlerleme çubuğunun yalnızca nerede bittiğini değil ne dediğini de istiyorsan (`cargo`'nun `Building [=>  ] 12/46` satırı, `pacman` ya da `curl` indirmesinin yüzdesi), `.run(..)` yerine `.run_with_overwritten(&cancel, &mut on_line, &mut on_frame)` ile çalıştır. Bir `\r`'nin ezmek üzere olduğu her kare `on_frame`'e gelir; satır gibi `Line::Out` ya da `Line::Err` etiketini taşır ve çocuğun yazdığı sırayla gelir. `on_line` ise `run`'ın vereceği satırların aynısını alır. Renk kodları ve `ESC [K` metinde kalır; ayrıştırmadan önce temizle.
 
+## Çıktının yalnızca sonunu tutmak
+
+Bazı çıktılar hiç satır satır okunmaz: bir derlemenin bütün günlüğü, bir `systemctl status`, tek bir soru sorduğunuz programın cevabı, akan bir ilerleme. Satır satır okumak, hepsini bellekte tutmak demektir. `collect` çocuğu aynı biçimde çalıştırır ve yazdığının yalnızca sonunu tutar.
+
+1. Bir boyut iste: `Keep::bytes(64 * 1024)`; istediğin son bir satır sayısıysa `.lines(40)` ile daralt, programın süresiz çalışmaması gerekiyorsa `.limit(Duration::from_secs(30))` ile.
+2. Bir işin içinde çalıştır: `process.collect(keep, &|| cx.is_cancelled())`. Çağrı yalnızca kendi iş parçacığını bekletir, ekranı asla.
+3. `collected.text` değerini tek bir metin olarak göster ve koşunun ne olduğunu da söyle: `collected.trimmed` (eski çıktı düştü), `collected.timed_out` (süre sonlandırdı) ve `collected.cancelled` (kullanıcı yaptı).
+
+Çocuğun iki akışı tek bir boruya düşer, böylece metin programın yazdığı sırayla olur ve hata diğer çıktının arasında kalır; `.pty(..)` ile ikisi de terminale düşer, her zaman öyle oldukları gibi. Boyutun istediğin kadarına ve tek bir okumanın üzerine hiçbir şey tutulmaz, dolayısıyla bir saat boyunca yazan bir program, kısa bir programla aynı maliyette biter. Kesme karakter sınırlarının arasında olur, yani metinde hiçbir karakter yarım kalmaz. Limitin ve iptalin çocuğun başlattığı programlara da ulaşmasını sağlayan şey `run`'da olduğu gibi `.no_stdin()`'dir.
+
+`.clear_env()` ile çocuğa daha küçük bir dünya ver: o zaman yalnızca `.env(..)` ile verdiğin değişkenleri alır, kendi kabuğunun ortamının hiçbirini değil; `PATH`, `HOME` ve `LANG` de dahil. Başka bir `LANG` altında başka davranan bir program, `CC` ya da `CFLAGS` okuyan bir derleme, kullanıcının evini görmemesi gereken bir denetim: bunun için vardır. İhtiyacı olan değişkenleri ver, önce `PATH`'ı, çünkü diğer programları o arar:
+
+```rust
+let path = std::env::var("PATH")?;
+let keep = Keep::bytes(64 * 1024).lines(40).limit(Duration::from_secs(30));
+let collected = Process::new("sh").arg("-c").arg(script).clear_env().env("PATH", path)
+    .collect(keep, &|| cx.is_cancelled())?;
+```
+
 ## Sık yapılan hatalar
 
 - **İki akışı `2>&1` ile birleştirmek.** Tanı böylece kaybolur: birçok program bir şey ters gitmedikçe standart hatayı boş bırakır.
@@ -53,3 +72,7 @@ Bir kareden uzun süren her iş için `Task` kullan: imaj derlemek, migration ç
 - **Çocuğu öldürüp çocuklarının da gideceğini sanmak.** Yalnızca `.no_stdin()` ile başlatılan bir çocuk kendi çocuklarını da götürür; onsuz yalnızca çocuğun kendisi öldürülür ve kendi çocuklarını başlatan bir program onları çalışır bırakabilir.
 - **Çocuğun terminal girdisini paylaşması.** `.no_stdin()` olmadan soru soran bir çocuk uygulamana gelen tuşları okur; iptal edildiğinde de kendi çocukları çalışmaya devam eder.
 - **Girdisiz bir çocuğa `sudo` parolası sordurmak.** Onun grubu terminalin sahibi değildir; parolayı okumaya çalıştığında sistem onu durdurur ve iptal edilene kadar bekler. Bileti önce bir `sudo -v` devriyle ısıt ya da `sudo -n` kullan.
+- **Bütün çıktıyı toplayıp sonra kırpmak.** `Keep`, program çalışırken tutulan belleğin sınırıdır, sonradan metne uygulanan bir kesme değil; bir gigabayt yazan programın okuyucunun tuttuğu yerde bitmesi demektir, yani boyut baştan orada olmalıdır.
+- **Uzun çıktının sonunu göstermek için satır satır okumak.** Her satır bir mesajdır, her mesaj kareler arasında uygulanır. `collect` sonu tek bir metin olarak verir.
+- **Kesilen bir denetimin çıkış kodunu beklemek.** Limit çocuğu bir sinyalle bitirir, bu yüzden `outcome` `Finished { code: None }` olur ve nedeni `timed_out` söyler; kodu değil bayrağı oku.
+- **Ortamı temizleyip yolu unutmak.** O zaman çocuk adını yol ile verdiğin program dışında hiçbir programı bulamaz ve `sleep: not found` diyen bir kabuk çalıştırır.

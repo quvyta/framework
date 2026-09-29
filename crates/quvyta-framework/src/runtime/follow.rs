@@ -27,6 +27,12 @@ pub(crate) struct Member {
 }
 
 impl Member {
+    /// The same member with `folder` as the ecosystem's folder, for a test that starts an
+    /// application's own runtime away from the person's files.
+    pub(crate) fn in_folder(self, folder: PathBuf) -> Self {
+        Self { folder: Some(folder), ..self }
+    }
+
     pub(crate) fn new(ecosystem: Ecosystem, app: &str, folder: Option<PathBuf>) -> Self {
         Self { ecosystem, app: app.to_owned(), folder }
     }

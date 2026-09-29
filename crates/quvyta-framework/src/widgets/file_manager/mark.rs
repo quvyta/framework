@@ -11,6 +11,7 @@
 ///
 /// A tone never comes on its own: [`sign`](Self::sign) takes the icon and the colour together, so
 /// a marked row is still told apart where colours are off or cannot be told apart.
+/// [`plain_sign`](Self::plain_sign) changes only the shape and leaves the colour to the row.
 ///
 /// ```
 /// use qframe::widgets::RowMark;
@@ -48,6 +49,16 @@ impl RowMark {
     pub fn sign(mut self, icon: impl Into<String>, tone: impl Into<String>) -> Self {
         self.icon = Some(icon.into());
         self.tone = Some(tone.into());
+        self
+    }
+
+    /// The row's icon becomes `icon` in the row's own colour, so it rests, rises and takes the
+    /// selection with the name beside it: a different shape for a row that is not saying anything
+    /// in colour, such as the root of a workspace.
+    #[must_use]
+    pub fn plain_sign(mut self, icon: impl Into<String>) -> Self {
+        self.icon = Some(icon.into());
+        self.tone = None;
         self
     }
 

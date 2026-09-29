@@ -4,6 +4,7 @@
 - `.on_press(msg)` — basıldığında gönderilen mesaj. Etkileşimli olması için gerekli.
 - `.tooltip(metin)` — temanın `motion.hover-delay` süresinden sonra, klavye odağındayken de hemen altında görünen sözler. Varsayılan: yok.
 - `.disabled(bool)` — soluk; odak almaz, girdiyi yok sayar. Varsayılan: `false`.
+- `.selected(bool)` — butonu açık gösterir: glif her durumda vurgu renginde olur, üzerine gelme, odak ve basış hücreleri her zamanki gibi aydınlatır. Basılabilir kalır; durumu uygulama kendi mesajında çevirir. Varsayılan: `false`.
 
 ## Mesajlar
 
@@ -21,7 +22,7 @@
 
 ## Tema anahtarları
 
-- `hover`, `focus`, `pressed`, `disabled` durumlarıyla `icon-button` — `bg`, `fg`, `bold`. `focus` yalnızca odak klavyeyle geldiyse uygulanır. Hazır temalar dururken `bg` vermez.
+- `hover`, `focus`, `pressed`, `selected`, `disabled` durumlarıyla `icon-button` — `bg`, `fg`, `bold`. `focus` yalnızca odak klavyeyle geldiyse uygulanır. Hazır temalar dururken `bg` vermez. `selected` `fg = "$accent"`, `focus:selected` `fg = "$accent-2"` (vurgu rengi, vurguyla tonlanmış odak zemininde okunmazdı), `pressed:selected` parlama için `fg = "$text"` verir; `selected` için kendine ait bir şey vermeyen bir tema da seçili glifi kendi vurgu renginde çizer.
 - `tooltip` — sözlerin `bg`, `fg` ve `padding` değeri.
 
 ## İkonlar ve metin

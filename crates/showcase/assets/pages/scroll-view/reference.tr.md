@@ -16,7 +16,7 @@
 
 ## Davranış
 
-- İçinde yeni odaklanan bir bileşeni göstermek için kayar.
+- İçinde yeni odaklanan bir bileşeni göstermek için kayar; tıklanarak odaklanan bir bileşen için asla kaymaz. Görünümden uzun olup klavyenin içinde nerede durduğunu `PaintCx::focus_spot` ile söyleyen bir bileşen (`SettingsList` klavye satırını söyler) orada gösterilir; hiçbir şey söylemeyen ve zaten kısmen ekranda olan bir bileşen olduğu yerde kalır, böylece üstündekiler kayıp gitmez.
 - Konumunu kimliğine göre korur; `ui.page` içinde sayfa gizliyken de korunur.
 - `follow_end` açıkken: sonunda açılır; içerik büyüyünce temanın `page` süresiyle yeni sona kayar, hareketi azalt açıksa atlar. Yukarı kaydırmak (tekerlek, tuşlar, çubuk) izlemeyi durdurur ve aşağıdaki satırları sayan notu gösterir; yeniden en alta inmek izlemeyi başlatır. Odaklanan bir bileşeni ya da gösterilmesi istenen bir alanı göstermek için yapılan hareket sondan ayrılırsa izlemeyi durdurur, sonda biterse sürdürür. Alana sığan içerik her zaman sonda sayılır.
 

@@ -241,7 +241,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for HelpLayer<Msg> {
                 hints.push(layer::hint(cx, "esc", "close"));
             }
             if metrics.overflows() {
-                hints.push(layer::hint(cx, "↑↓", "scroll"));
+                hints.push(layer::hint(cx, &layer::arrows(cx), "scroll"));
             }
             layer::paint_hints(cx, inner.x, inner.bottom() - 1, inner.width, &hints);
         });

@@ -4,6 +4,8 @@
 mod app;
 #[cfg(test)]
 mod burst_rules;
+#[cfg(test)]
+mod click_count_rules;
 mod clipboard;
 #[cfg(test)]
 mod clipboard_claim_rules;
@@ -83,11 +85,15 @@ pub use handoff::{Handoff, HandoffOutcome, HandoffRequest};
 pub use harness::{Harness, html_page};
 pub use live_child::{ChildLine, LiveChild, TestChild};
 pub use open::{Open, OpenOutcome, OpenRequest};
-pub use process::{Line, Process, ProcessOutcome};
-pub use task::{Task, TaskCx, TaskEntry, TaskEvent, TaskId, TaskOutcome, Tasks};
+pub use process::{Collected, Keep, Line, Process, ProcessOutcome};
+pub use task::{RecvWait, Task, TaskCx, TaskEntry, TaskEvent, TaskId, TaskOutcome, Tasks};
 pub use terminal::Runtime;
 pub use termination::Termination;
 #[cfg(feature = "updates")]
 pub use update_check::{Update, UpdateCheck, UpdateCheckRequest};
 
+// A clipboard answer and a program's own copy offer are the same base64, so the terminal's
+// notices read this decoder instead of keeping a second one.
+#[cfg(feature = "pty")]
+pub(crate) use clipboard::decode_base64;
 pub(crate) use selection::{CopyKind, MULTI_PRESS};

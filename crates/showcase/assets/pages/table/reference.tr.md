@@ -13,8 +13,9 @@
 - `.box_select(bool)` — `multi_select` ile, satırların altındaki boş yerden sürüklemek `text-selection` tonunda bir alan çizer, kapladığı satırlar seçim olur ya da basarken Ctrl basılıysa seçime eklenir; orada tıklamak seçimi bırakır.
 - `.droppable(|bırakma| mesaj, |sıra| kabul)` — basılan satır ya da içinde olduğu seçim, `kabul`ün evet dediği bir satırın üstüne sürüklenir; o satır `tree-drop` tonunu alır. `bırakma` bir `RowDrop { rows, into }`'dur. Başka bir yerde bırakmak hiçbir şey yapmaz. `Click::Single` ile satır bu durumda bırakırken etkinleşir, böylece sürüklemeye dönen basış hiçbir şeyi etkinleştirmez.
 - `.on_copy_drop(|bırakma| mesaj)` — Ctrl basılıyken yapılan bırakma, taşıma yerine bununla kopyalama ister.
+- `.wrap(bool)` — son satırda `down` (ya da `j`) ilk satıra, ilk satırda `up` (ya da `k`) son satıra geçer, menüdeki gibi; `pgup` `pgdn` `home` `end` yine uçta durur; Shift'li ok bir aralığı asla başa sarmaz. Varsayılan: `false`.
 - `Column::new(başlık)`, `.width(ColumnWidth::Fixed(n) | Fit | Fill(ağırlık))`, `.min(hücre)`, `.align(Align)`, `.sortable(bool)`.
-- `TableRow::new(hücreler)`, `.faint(bool)`; `TableCell::new(metin)`, `.icon(glif, renk)`, `.color(token)`; metinler hücreye dönüşür. `glif` bir ikon anahtarı (`"dot"`, `Glyph::key(..)`) ya da `Glyph::literal(..)` olur; glif, bir boşluk ve metin olarak çizilir. `Some(token)` ile o renkte, `None` ile `muted` çizilir ve satır seçiliyken satırın metin rengini alır. Kesme yalnızca metne uygulanır.
+- `TableRow::new(hücreler)`, `.faint(bool)`; `TableCell::new(metin)`, `.icon(glif, renk)`, `.color(token)`, `.role(rol)` (`faint` gibi bir tipografi rolü; satır seçiliyken satırın metin rengini alır); metinler hücreye dönüşür. `glif` bir ikon anahtarı (`"dot"`, `Glyph::key(..)`) ya da `Glyph::literal(..)` olur; glif, bir boşluk ve metin olarak çizilir. `Some(token)` ile o renkte, `None` ile `muted` çizilir ve satır seçiliyken satırın metin rengini alır. Kesme yalnızca metne uygulanır.
 - `SortDirection::Ascending | Descending`, `.reversed()`.
 
 ## Davranış

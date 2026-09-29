@@ -5,6 +5,7 @@
 - `.horizontal(bool)` — seçenekler arasında dört hücre olan tek satır.
 - `.style(RadioStyle)` — `Square` (varsayılan): her seçenekte ortada küçük bir kare; seçili olan seçili renge bürünür. `Mark`: aynı kare, seçilince iki hücrelik dolu kutuya büyür. `Box`: onay kutusununkiyle aynı iki hücrelik renk kutusu. `Dot`: nokta ve halka.
 - `.disabled(bool)` — odak alamaz, değiştirilemez.
+- `.wrap(bool)` — son seçenekte sonraki ok ilk seçeneği, ilk seçenekte önceki ok son seçeneği seçer; `home` `end` yine uçta durur. Varsayılan: `false`.
 - `.on_select(|index| mesaj)` — yeni seçilen seçenek için mesaj.
 
 ## Davranış

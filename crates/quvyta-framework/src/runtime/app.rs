@@ -218,9 +218,10 @@ pub trait App: 'static {
     /// A file written again with what it already said is not reported, so an application that
     /// saves its own change hears at most what it saved, once, and never loops. An application
     /// started without [`Runtime::member`](super::Runtime::member) is never told.
-    /// [`Harness::member_in`](super::Harness::member_in) starts a test the same way, and
-    /// [`Harness::poll_preferences`](super::Harness::poll_preferences) reads the files again as
-    /// the runtime does when they change.
+    /// [`Harness::member_in`](super::Harness::member_in) and
+    /// [`Harness::member_in_with_env`](super::Harness::member_in_with_env) start a test the same
+    /// way, and [`Harness::poll_preferences`](super::Harness::poll_preferences) reads the files
+    /// again as the runtime does when they change.
     ///
     /// ```
     /// use qframe::prelude::*;

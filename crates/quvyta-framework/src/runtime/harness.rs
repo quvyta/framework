@@ -9,7 +9,7 @@ use ratatui_core::style::{Color, Modifier};
 use super::app::App;
 use super::detached::DetachedOutcome;
 use super::engine::{Engine, TaskMode};
-use super::follow::{Member, Start};
+use super::follow::{Follow, Member, Start};
 use super::handoff::{HandoffOutcome, HandoffRequest};
 use super::open::{OpenOutcome, OpenRequest};
 use super::termination::Termination;
@@ -62,7 +62,9 @@ impl<A: App> Harness<A> {
     /// ecosystem's folder: the application's own settings and the shared preferences are read
     /// from there and applied before the first frame, and
     /// [`App::preferences`](super::App::preferences) hears them before [`App::init`]. A missing
-    /// shared file is written with the detected values, as it is on a first start.
+    /// shared file is written with the detected values, as it is on a first start. The built-in
+    /// environment is used; use [`member_in_with_env`](Self::member_in_with_env) to provide the
+    /// application's own environment.
     ///
     /// The folder is not watched: after writing a file, as another application would,
     /// [`poll_preferences`](Self::poll_preferences) reads the files again the way the runtime
@@ -75,9 +77,37 @@ impl<A: App> Harness<A> {
         width: u16,
         height: u16,
     ) -> Self {
-        let mut env = Env::builtin();
+        Self::member_in_with_env(app, Env::builtin(), ecosystem, config_dir, name, width, height)
+    }
+
+    /// A harness for `app` started as member `name` of `ecosystem` with `env`, the way
+    /// [`Runtime::member_in`](super::Runtime::member_in) starts it, with `config_dir` as the
+    /// ecosystem's folder. The supplied environment keeps the application's own locale files and
+    /// keymap, while its settings and the shared preferences are applied before the first frame;
+    /// [`App::preferences`](super::App::preferences) hears the preferences before [`App::init`].
+    /// A missing shared file is written with the detected values, as it is on a first start.
+    ///
+    /// The folder is not watched: after writing a file, as another application would,
+    /// [`poll_preferences`](Self::poll_preferences) reads the files again the way the runtime
+    /// does when its watch hears them change. Use [`member_in`](Self::member_in) for the same
+    /// start with [`Env::builtin`].
+    pub fn member_in_with_env(
+        app: A,
+        mut env: Env,
+        ecosystem: crate::storage::Ecosystem,
+        config_dir: &std::path::Path,
+        name: &str,
+        width: u16,
+        height: u16,
+    ) -> Self {
         let start = Start { theme: None, settings: None, preferences: None };
         let follow = start.apply(&mut env, Some(Member::new(ecosystem, name, Some(config_dir.to_path_buf()))), false);
+        Self::started(app, env, follow, width, height)
+    }
+
+    /// A harness for `app` in `env` already started, following the member's files when `follow`
+    /// is given, rendered once.
+    pub(crate) fn started(app: A, env: Env, follow: Option<Follow>, width: u16, height: u16) -> Self {
         let mut engine = Engine::new(app, env, TaskMode::Inline);
         if let Some(follow) = follow {
             engine.follow(follow);
@@ -92,7 +122,8 @@ impl<A: App> Harness<A> {
     /// its watch hears the ecosystem's shared file or the application's own file change; see
     /// [`Runtime::member`](super::Runtime::member). A frame is drawn only when something changed:
     /// a file written again with what it already said changes nothing and reaches no hook. A
-    /// harness not made with [`member_in`](Self::member_in) has nothing to read.
+    /// harness not made with [`member_in`](Self::member_in) or
+    /// [`member_in_with_env`](Self::member_in_with_env) has nothing to read.
     pub fn poll_preferences(&mut self) -> &mut Self {
         self.engine.check_preferences();
         if self.engine.dirty {

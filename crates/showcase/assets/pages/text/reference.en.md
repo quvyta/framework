@@ -2,7 +2,7 @@
 
 - `Text::new(text)` — body text.
 - `Text::rich([spans])` — text made of spans.
-- `.role(name)` — typography role: `title`, `body` (default), `secondary`, `faint`.
+- `.role(name)` — typography role: `title`, `body` (default), `secondary`, `faint`, `heading` (a heading above something that is not a settings list, the same as a settings list's own headings).
 - `.color(token)` — colour token for every span without its own colour.
 - `.bold()` — every span bold.
 - `.no_wrap()` — one line per source line, cut with `…`. Default: wraps.

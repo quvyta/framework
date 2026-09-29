@@ -17,6 +17,8 @@ Use a list for a column of items the user moves through and opens: containers, f
 - **Only the icon and the label slide.** A hovered or selected row moves its icon and label one cell right. The pillar, the check mark of a multiple selection, the detail column and the scrollbar stay exactly where they were, so a mark is always where you click it. The label always keeps one spare cell, so it is cut with `…` at the same place whether its row rests or slides.
 - **The mouse does what the keys do.** A click opens a row; in a multiple selection a click on the mark (or the cell after it) checks the row without opening it.
 - **The selection stays in view.** Moving with the keyboard scrolls the list; the wheel scrolls without changing the selection.
+- **Wrapping is a choice.** With `.wrap(true)` Down on the last row goes on to the first and Up on the first to the last, past headers and gaps, as in a menu; a page and Home/End still stop at the ends. Short lists people walk round, such as a main menu, want it; long lists usually do not. Table, Tree, Menu, RadioGroup, Segmented and SettingsList take the same option, and open dropdowns always go round.
+- **Choose which part gives way.** By default the detail keeps its width, for rows whose detail is the point, such as an address or a measurement. With `.label_first(true)` the detail is cut first and left out when too little would remain, for rows chosen by their label, such as a menu of commands.
 - **Scrollbar only when needed.** A scrollbar column appears on the right when rows overflow, in the style the theme picks; drag it or click it.
 - **Faint rows are still rows.** `.faint(true)` draws items that exist but are not ready, like planned components in this menu.
 

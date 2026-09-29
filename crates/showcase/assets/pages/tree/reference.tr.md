@@ -11,8 +11,9 @@
 - `.on_copy_drop(|bırakma| mesaj)` — Ctrl basılıyken yapılan bırakma, taşıma yerine bununla kopyalama ister; Ctrl'yi fare olayında bildirmeyen terminal her zaman taşır.
 - `.activate_on(Click::Single | Click::Double)` — varsayılanı `Single`: tık seçer ve Enter'ın yaptığını yapar. `Double` ile tık yalnızca seçer, aynı satıra `Click::INTERVAL` (400 ms) içinde ikinci basış onu açar, kapatır ya da etkinleştirir; ok işareti, ← ve → yine tek tıkla açıp kapatır.
 - `.box_select(bool)` — `multi_select` ile, satırların altındaki boş yerden sürüklemek `text-selection` tonunda bir alan çizer, kapladığı satırlar seçim olur ya da basarken Ctrl basılıysa seçime eklenir; orada tıklamak seçimi bırakır.
+- `.wrap(bool)` — son satırda `down` (ya da `j`) ilk satıra, ilk satırda `up` (ya da `k`) son satıra geçer, menüdeki gibi; `pgup` `pgdn` `home` `end` yine uçta durur; yalnızca görünen satırlar sayılır ve Shift'li ok bir aralığı asla başa sarmaz. Varsayılan: `false`.
 - `TreeNode::new(anahtar, etiket)`, `.children(düğümler)`, `.expanded(bool)`, `.expandable(bool)`, `.loading(bool)`.
-- `.icon(anahtar, Some(token))`, `.detail(metin)`, `.faint(bool)`.
+- `.icon(anahtar, Some(token))`, `.detail(metin)`, `.faint(bool)`, `.meter(oran, ton)` (ayrıntının solunda altı hücrelik bir blok ölçer; ad kesilmeden önce düşer).
 
 ## Davranış
 

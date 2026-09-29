@@ -7,6 +7,10 @@ use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+mod fuzzy;
+
+pub use fuzzy::{FuzzyMatch, fuzzy};
+
 /// The ellipsis drawn where text is cut.
 ///
 /// [`truncate`] and [`truncate_middle`] always write this mark: they measure text and know

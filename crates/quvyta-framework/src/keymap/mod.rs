@@ -138,6 +138,15 @@ impl Keymap {
         self.bindings.get(&(scope, action.to_owned())).map_or(&[], Vec::as_slice)
     }
 
+    /// How the first chord bound to `action` is written for a person, such as `ctrl z`, to name
+    /// the key in a sentence ("press ctrl z to undo"); `None` when the action has no chord, and
+    /// the sentence should then not name one. Follows the person's own keymap, as
+    /// [`KeyHints::action`](crate::widgets::KeyHints::action) does.
+    #[must_use]
+    pub fn label_for(&self, scope: Scope, action: &str) -> Option<String> {
+        self.chords_for(scope, action).first().map(KeyChord::label)
+    }
+
     /// Every binding, sorted by scope and action.
     pub fn iter(&self) -> impl Iterator<Item = (Scope, &str, &[KeyChord])> {
         self.bindings.iter().map(|((scope, action), chords)| (*scope, action.as_str(), chords.as_slice()))
@@ -278,5 +287,16 @@ mod tests {
         let conflicts = keymap.conflicts();
         assert_eq!(conflicts.len(), 1);
         assert!(conflicts[0].message.contains("save, search"));
+    }
+
+    #[test]
+    fn the_label_of_an_action_follows_its_first_chord() {
+        let mut keymap = Keymap::default();
+        assert_eq!(keymap.label_for(Scope::App, "undo"), None, "an action without a chord names none");
+        keymap.bind(Scope::App, "undo", &["ctrl+z".parse().expect("chord"), "u".parse().expect("chord")]);
+        assert_eq!(keymap.label_for(Scope::App, "undo").as_deref(), Some("ctrl z"));
+        keymap.bind(Scope::App, "undo", &["alt+backspace".parse().expect("chord")]);
+        let chord: KeyChord = "alt+backspace".parse().expect("chord");
+        assert_eq!(keymap.label_for(Scope::App, "undo"), Some(chord.label()), "a rebinding moves it");
     }
 }

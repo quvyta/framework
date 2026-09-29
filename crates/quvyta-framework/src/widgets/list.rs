@@ -98,7 +98,8 @@ impl ListItem {
 /// detail column never move, so a mark is always where the pointer left it.
 ///
 /// Keys while focused: ↑/↓ or k/j move, Home/End and PgUp/PgDn jump, Enter activates, Space
-/// toggles in multi-select lists and activates otherwise. A click on a row selects and activates
+/// toggles in multi-select lists and activates otherwise. With [`wrap`](Self::wrap) ↓ on the last
+/// row goes on to the first and ↑ on the first to the last. A click on a row selects and activates
 /// it, or with [`activate_on(Click::Double)`](Self::activate_on) only selects it and a double
 /// click activates; in a multi-select list a click on the check mark (or the cell after it) only
 /// toggles.
@@ -114,6 +115,30 @@ pub struct List<Msg> {
     on_toggle: Option<IndexMessage<Msg>>,
     scrollbar: Option<ScrollbarStyle>,
     activate_on: Click,
+    wrap: bool,
+    label_first: bool,
+}
+
+/// Cells between a row's label and its detail.
+const DETAIL_GAP: u16 = 2;
+
+/// The fewest cells a cut detail keeps: fewer say nothing and are left out.
+const DETAIL_MIN: u16 = 4;
+
+/// The detail a row shows beside `label` when the label and the detail have `room` cells between
+/// them: all of it when both fit, cut with `…` when the label would otherwise be cut, and nothing
+/// when too little would be left of it. The label is what a person chooses by, so it gives way
+/// last.
+fn fit_detail(detail: &str, label: &str, room: u16) -> Option<String> {
+    let left = room.saturating_sub(text::width(label)).saturating_sub(DETAIL_GAP);
+    let whole = text::width(detail);
+    if whole <= left {
+        Some(detail.to_owned())
+    } else if left >= DETAIL_MIN.min(whole) {
+        Some(text::truncate(detail, left).into_owned())
+    } else {
+        None
+    }
 }
 
 /// The last press on a row, to tell a double click in a list that activates on two.
@@ -162,6 +187,8 @@ impl<Msg: 'static> List<Msg> {
             on_toggle: None,
             scrollbar: None,
             activate_on: Click::Single,
+            wrap: false,
+            label_first: false,
         }
     }
 
@@ -225,6 +252,36 @@ impl<Msg: 'static> List<Msg> {
     pub fn on_toggle(mut self, message: impl Fn(usize) -> Msg + 'static) -> Self {
         self.on_toggle = Some(Box::new(message));
         self
+    }
+
+    /// Lets ↓ (or j) on the last selectable row go on to the first and ↑ (or k) on the first go
+    /// to the last, as a menu does; headers and gaps are skipped. PgUp/PgDn and Home/End still
+    /// stop at the ends. Off by default: the keys stop at either end.
+    #[must_use]
+    pub fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
+        self
+    }
+
+    /// When a row is too narrow for its label and its detail, cuts the detail first, with `…`, and
+    /// leaves it out when fewer than four cells of it would remain, so the label stays whole as
+    /// long as it fits on its own. For rows chosen by their label, where the detail only explains.
+    /// Off by default: the detail keeps its width and the label is cut, for rows whose detail is
+    /// what they are about, such as a measurement or an address.
+    #[must_use]
+    pub fn label_first(mut self, label_first: bool) -> Self {
+        self.label_first = label_first;
+        self
+    }
+
+    /// The next selectable row one step from the selection, wrapping round the ends when the
+    /// list wraps.
+    fn neighbour(&self, step: isize) -> Option<usize> {
+        let next = self.next_selectable(self.selected, step);
+        if self.wrap && self.selected.is_some() && next == self.selected {
+            return self.next_selectable(None, step);
+        }
+        next
     }
 
     fn next_selectable(&self, from: Option<usize>, step: isize) -> Option<usize> {
@@ -328,7 +385,6 @@ impl<Msg: 'static> Widget<Msg> for List<Msg> {
             let variant = (item.kind == ItemKind::Faint).then_some("faint");
             let style = cx.style("list-item", variant, &states);
             let text_style = style.text();
-            let detail_width = item.detail.as_deref().map_or(0, |d| text::width(d).saturating_add(2));
             let fixed: Vec<row::Mark> = self
                 .checked
                 .as_ref()
@@ -337,11 +393,18 @@ impl<Msg: 'static> Widget<Msg> for List<Msg> {
                 .collect();
             let icon: Vec<row::Mark> =
                 item.icon.iter().map(|key| row::icon(cx, key, item.icon_color.as_deref(), text_style.fg)).collect();
+            let marks = fixed.iter().chain(&icon).map(|(glyph, _)| text::width(glyph).saturating_add(1));
+            let label_room = content_width.saturating_sub(cells::sum(marks.chain([row::LEAD, 1, 1])));
+            let detail = match item.detail.as_deref() {
+                Some(detail) if self.label_first => fit_detail(detail, &item.label, label_room),
+                detail => detail.map(str::to_owned),
+            };
+            let detail_width = detail.as_deref().map_or(0, |d| text::width(d).saturating_add(DETAIL_GAP));
             let parts =
                 row::Parts { fixed: &fixed, sliding: &icon, label: &item.label, trailing: detail_width, indent: 0 };
             row::paint_parts(cx, row_rect, &style, rows::slide(cx, &states) > 0, &parts);
 
-            if let Some(detail) = &item.detail {
+            if let Some(detail) = &detail {
                 let detail_style = cx.style("list-detail", None, &states).text();
                 row::paint_trailing(cx, row_rect, detail, detail_style);
             }
@@ -355,9 +418,9 @@ impl<Msg: 'static> Widget<Msg> for List<Msg> {
         match event {
             Event::Key(key) => {
                 let target = if key.is_plain(Key::Up) || key.is_plain(Key::Char('k')) {
-                    self.next_selectable(self.selected, -1)
+                    self.neighbour(-1)
                 } else if key.is_plain(Key::Down) || key.is_plain(Key::Char('j')) {
-                    self.next_selectable(self.selected, 1)
+                    self.neighbour(1)
                 } else if key.is_plain(Key::Home) {
                     self.next_selectable(None, 1)
                 } else if key.is_plain(Key::End) {
@@ -502,6 +565,145 @@ mod tests {
         assert_eq!(h.app().selected, Some(1));
         h.press("enter");
         assert_eq!(h.app().opened, vec![1]);
+    }
+
+    struct Wrapping {
+        selected: Option<usize>,
+        wrap: bool,
+        selections: usize,
+    }
+
+    impl App for Wrapping {
+        type Msg = usize;
+        fn update(&mut self, index: usize) -> Command<usize> {
+            self.selected = Some(index);
+            self.selections += 1;
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, usize>) {
+            let items = [
+                ListItem::header("PROFILES"),
+                ListItem::new("alpha"),
+                ListItem::new("beta"),
+                ListItem::new("gamma"),
+                ListItem::gap(),
+            ];
+            ui.add(List::new(items).selected(self.selected).wrap(self.wrap).on_select(|i| i)).fill().id("list");
+        }
+    }
+
+    /// The label of the row the pillar stands on.
+    fn pillar_row(h: &Harness<Wrapping>) -> String {
+        let screen = h.screen();
+        let line = screen.lines().find(|line| line.starts_with('▌')).unwrap_or_default();
+        line.trim_start_matches('▌').trim().to_owned()
+    }
+
+    #[test]
+    fn a_wrapping_list_goes_round_its_ends_past_headers_and_gaps() {
+        let mut h = Harness::new(Wrapping { selected: None, wrap: true, selections: 0 }, 20, 5);
+        h.set_reduced_motion(true);
+        h.press("tab").press("end");
+        assert_eq!(pillar_row(&h), "gamma");
+        h.press("down");
+        assert_eq!(pillar_row(&h), "alpha", "down on the last row reaches the first, past the gap and the header");
+        h.press("k");
+        assert_eq!(pillar_row(&h), "gamma", "k on the first row reaches the last");
+        h.press("j");
+        assert_eq!(pillar_row(&h), "alpha");
+        assert_eq!(h.app().selections, 4, "every step reports its row once");
+        h.press("pgup");
+        assert_eq!(pillar_row(&h), "alpha", "a page stops at the end");
+        h.press("home");
+        assert_eq!(pillar_row(&h), "alpha");
+    }
+
+    #[test]
+    fn a_list_stops_at_its_ends_unless_it_wraps() {
+        let mut h = Harness::new(Wrapping { selected: None, wrap: false, selections: 0 }, 20, 5);
+        h.set_reduced_motion(true);
+        h.press("tab").press("end").press("down");
+        assert_eq!(pillar_row(&h), "gamma");
+        h.press("home").press("up");
+        assert_eq!(pillar_row(&h), "alpha");
+    }
+
+    #[test]
+    fn a_wrapping_list_of_one_row_keeps_it_and_uses_the_key() {
+        use crate::widgets::Button;
+        struct One(usize);
+        impl App for One {
+            type Msg = usize;
+            fn update(&mut self, _: usize) -> Command<usize> {
+                self.0 += 1;
+                Command::none()
+            }
+            fn view(&self, ui: &mut View<'_, usize>) {
+                ui.add(List::new([ListItem::new("only")]).selected(Some(0)).wrap(true).on_select(|i| i)).fill();
+                ui.add(Button::new("after").on_press(99)).id("after");
+            }
+        }
+        let mut h = Harness::new(One(0), 20, 3);
+        h.press("tab").press("down").press("up");
+        assert_eq!(h.app().0, 0);
+        assert!(!h.is_focused("after"));
+    }
+
+    /// A list of one row, `label` with `detail`, drawn `width` cells wide.
+    fn detailed(label: &'static str, detail: &'static str, width: u16) -> String {
+        struct Detailed(&'static str, &'static str);
+        impl App for Detailed {
+            type Msg = ();
+            fn update(&mut self, (): ()) -> Command<()> {
+                Command::none()
+            }
+            fn view(&self, ui: &mut View<'_, ()>) {
+                let item = ListItem::new(self.0).icon("dot", None).detail(self.1);
+                ui.add(List::new([item]).label_first(true)).fill();
+            }
+        }
+        Harness::new(Detailed(label, detail), width, 1).screen().lines().next().unwrap_or_default().to_owned()
+    }
+
+    #[test]
+    fn a_detail_too_long_for_the_row_is_cut_and_the_label_stays_whole() {
+        let detail = "in the workspace's own container, started on demand";
+        let line = detailed("Shell", detail, 40);
+        assert!(line.contains("Shell"), "the label is whole: {line:?}");
+        assert!(line.contains("in the") && line.trim_end().ends_with('…'), "the detail is cut: {line:?}");
+        assert!(text::width(&line) <= 40);
+    }
+
+    #[test]
+    fn a_detail_with_no_room_left_is_left_out() {
+        let line = detailed("A rather long conversation title", "in the workspace", 40);
+        assert!(line.contains("A rather long conversation title"), "{line:?}");
+        assert!(!line.contains("in the") && !line.contains('…'), "no scrap of the detail: {line:?}");
+    }
+
+    #[test]
+    fn without_label_first_the_detail_keeps_its_width() {
+        struct Plain;
+        impl App for Plain {
+            type Msg = ();
+            fn update(&mut self, (): ()) -> Command<()> {
+                Command::none()
+            }
+            fn view(&self, ui: &mut View<'_, ()>) {
+                let item = ListItem::new("flathub").detail("https://dl.flathub.org/repo/flathub.flatpakrepo");
+                ui.add(List::new([item])).fill();
+            }
+        }
+        let line = Harness::new(Plain, 56, 1).screen().lines().next().unwrap_or_default().to_owned();
+        // Fifty-six cells hold the address but not the name beside it: the name is cut.
+        assert!(line.contains("https://dl.flathub.org/repo/flathub.flatpakrepo"), "{line:?}");
+        assert!(!line.contains("flathub "), "{line:?}");
+    }
+
+    #[test]
+    fn a_wide_row_shows_label_and_detail_whole() {
+        let line = detailed("Shell", "in the workspace's own container", 80);
+        assert!(line.contains("Shell") && line.trim_end().ends_with("in the workspace's own container"), "{line:?}");
     }
 
     #[test]

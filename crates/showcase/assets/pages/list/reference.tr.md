@@ -9,12 +9,14 @@
 - `.checked(Vec<bool>)` ve `.on_toggle(|sıra| msg)` — çoklu seçim.
 - `.empty_text(metin)` — öğe yokken gösterilir.
 - `.scrollbar(ScrollbarStyle)` — temanın yerine sabit bir kaydırma çubuğu stili kullanır.
+- `.wrap(bool)` — son satırda `down` (ya da `j`) ilk satıra, ilk satırda `up` (ya da `k`) son satıra geçer, menüdeki gibi; `pgup` `pgdn` `home` `end` yine uçta durur; başlıklar ve boşluklar atlanır. Varsayılan: `false`.
 
 ## ListItem
 
 - `ListItem::new(etiket)`, `ListItem::header(başlık)`, `ListItem::gap()`.
 - `.icon(anahtar, Some(değişken))` — etiketten önce, istenirse renkli ikon.
-- `.detail(metin)` — sağa hizalı silik metin.
+- `.detail(metin)` — sağa hizalı silik metin; ikisi sığmayınca genişliğini korur, etiket kısalır.
+- `.label_first(bool)` — bunun yerine önce ayrıntı çekilir: `…` ile kısalır, dört hücreden azı kalacaksa hiç gösterilmez; etiket tek başına sığdığı sürece bütün kalır. Etiketine bakılarak seçilen satırlar için. Varsayılan: `false`.
 - `.faint(bool)` — silik ama seçilebilir.
 
 ## Tuşlar

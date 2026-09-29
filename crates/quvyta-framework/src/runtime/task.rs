@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -36,6 +36,18 @@ pub enum TaskOutcome {
     /// [`Command::cancel_task`](crate::runtime::Command::cancel_task) asked it to stop; its
     /// result was dropped.
     Cancelled,
+}
+
+/// Why [`TaskCx::recv_timeout`] returned without an item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RecvWait {
+    /// The time ran out before an item came.
+    Timeout,
+    /// The task was asked to stop.
+    Cancelled,
+    /// Every sender is gone and nothing is left to receive.
+    Closed,
 }
 
 /// What happened to a task, delivered through [`Task::on_event`].
@@ -198,6 +210,11 @@ struct ClockState {
     task_time: HashMap<TaskId, Duration>,
 }
 
+/// How long a task waiting for a channel item listens before it looks again whether it was
+/// cancelled. A channel of the standard library cannot be woken by anything but its own senders,
+/// so a cancel reaches a waiting task within this.
+const RECV_SLICE: Duration = Duration::from_millis(50);
+
 /// How long the harness waits for tasks to reach a sleep before it gives up.
 const SETTLE_LIMIT: Duration = Duration::from_secs(10);
 
@@ -298,6 +315,92 @@ impl TaskClock {
     }
 }
 
+impl TaskClock {
+    /// Waits for task `id`'s next item from `rx`, for at most `timeout` when one is given.
+    ///
+    /// On the fake clock a waiting task rests like a sleeper, so the harness does not wait for
+    /// it: `timeout` runs on the fake clock, and a cancel or the clock passing the deadline wakes
+    /// it and counts it as busy, as they do a sleeper. An item wakes it too, counting it as busy
+    /// itself unless the clock or a cancel already did.
+    fn receive<T>(&self, id: TaskId, rx: &Receiver<T>, timeout: Option<Duration>) -> Result<T, RecvWait> {
+        if self.is_cancelled(id) {
+            return Err(RecvWait::Cancelled);
+        }
+        match rx.try_recv() {
+            Ok(item) => return Ok(item),
+            Err(TryRecvError::Disconnected) => return Err(RecvWait::Closed),
+            Err(TryRecvError::Empty) => {}
+        }
+        if timeout.is_some_and(|timeout| timeout.is_zero()) {
+            return Err(RecvWait::Timeout);
+        }
+        if self.fake { self.receive_fake(id, rx, timeout) } else { self.receive_real(id, rx, timeout) }
+    }
+
+    fn receive_real<T>(&self, id: TaskId, rx: &Receiver<T>, timeout: Option<Duration>) -> Result<T, RecvWait> {
+        let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
+        loop {
+            if self.is_cancelled(id) {
+                return Err(RecvWait::Cancelled);
+            }
+            let left = deadline.map_or(RECV_SLICE, |deadline| deadline.saturating_duration_since(Instant::now()));
+            if left.is_zero() {
+                return Err(RecvWait::Timeout);
+            }
+            match rx.recv_timeout(left.min(RECV_SLICE)) {
+                Ok(item) => return Ok(item),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => return Err(RecvWait::Closed),
+            }
+        }
+    }
+
+    fn receive_fake<T>(&self, id: TaskId, rx: &Receiver<T>, timeout: Option<Duration>) -> Result<T, RecvWait> {
+        let mut state = self.lock();
+        // A cancel that came since the first look found no sleeper to wake, so nothing would wake
+        // this one.
+        if state.cancelled.contains(&id) {
+            return Err(RecvWait::Cancelled);
+        }
+        // A wait without a deadline rests until an item, a cancel or a closed channel.
+        let until = match timeout {
+            Some(timeout) => state.task_time.get(&id).copied().unwrap_or(state.now).saturating_add(timeout),
+            None => Duration::MAX,
+        };
+        // A task behind the clock has already waited the time out, as a sleep would have.
+        if until <= state.now {
+            state.task_time.insert(id, until);
+            return Err(RecvWait::Timeout);
+        }
+        state.sleeping.insert(id, until);
+        state.busy = state.busy.saturating_sub(1);
+        drop(state);
+        self.changed.notify_all();
+        loop {
+            let heard = rx.recv_timeout(RECV_SLICE);
+            let mut state = self.lock();
+            let woken = !state.sleeping.contains_key(&id);
+            match heard {
+                Err(RecvTimeoutError::Timeout) if !woken => continue,
+                // Nobody woke the task, so it counts itself busy again, from the present moment.
+                Ok(_) | Err(RecvTimeoutError::Disconnected) if !woken => {
+                    state.sleeping.remove(&id);
+                    state.busy += 1;
+                    let now = state.now;
+                    state.task_time.insert(id, now);
+                }
+                _ => {}
+            }
+            return match heard {
+                _ if state.cancelled.contains(&id) => Err(RecvWait::Cancelled),
+                Ok(item) => Ok(item),
+                Err(RecvTimeoutError::Disconnected) => Err(RecvWait::Closed),
+                Err(RecvTimeoutError::Timeout) => Err(RecvWait::Timeout),
+            };
+        }
+    }
+}
+
 /// What running work can do: report progress, send messages, notice cancellation and sleep.
 pub struct TaskCx<Msg> {
     id: TaskId,
@@ -341,6 +444,34 @@ impl<Msg: Send + 'static> TaskCx<Msg> {
     #[must_use]
     pub fn sleep(&self, duration: Duration) -> bool {
         self.clock.sleep(self.id, duration)
+    }
+
+    /// Waits for the next item from `rx`, the receiving end of a channel another thread feeds,
+    /// such as a connection handing over what it read. Returns `None` when the task is cancelled
+    /// (which wins over an item already waiting) or when every sender is gone and nothing is
+    /// left. A cancel reaches a waiting task within 50 ms: a standard channel wakes only for its
+    /// senders, so the wait looks at the cancel in slices.
+    ///
+    /// In a [`Harness`](crate::runtime::Harness) a task waiting here rests like one asleep, so no
+    /// step of the harness waits for it. An item sent from the test wakes it on its own thread;
+    /// the harness applies what the task then sends at a later step, such as
+    /// [`advance`](crate::runtime::Harness::advance).
+    #[must_use]
+    pub fn recv<T>(&self, rx: &Receiver<T>) -> Option<T> {
+        self.clock.receive(self.id, rx, None).ok()
+    }
+
+    /// Like [`TaskCx::recv`], giving up after `timeout`, and telling why no item came. In a
+    /// [`Harness`](crate::runtime::Harness) the timeout runs on the fake clock, like
+    /// [`TaskCx::sleep`].
+    ///
+    /// # Errors
+    ///
+    /// [`RecvWait::Timeout`] when `timeout` passed without an item, [`RecvWait::Cancelled`]
+    /// when the task was cancelled and [`RecvWait::Closed`] when every sender is gone and
+    /// nothing is left to receive.
+    pub fn recv_timeout<T>(&self, rx: &Receiver<T>, timeout: Duration) -> Result<T, RecvWait> {
+        self.clock.receive(self.id, rx, Some(timeout))
     }
 
     fn event(&self, event: TaskEvent) {
@@ -659,5 +790,160 @@ mod tests {
         let mut tasks = h.app().tasks.clone();
         tasks.clear_finished();
         assert!(tasks.entries().is_empty());
+    }
+
+    /// Listens to a channel in a task and hands every line it hears to the application.
+    #[derive(Default)]
+    struct Listener {
+        rx: Option<std::sync::mpsc::Receiver<String>>,
+        tasks: Tasks,
+        heard: Vec<String>,
+        ended: Option<String>,
+        listening: Option<TaskId>,
+    }
+
+    enum Heard {
+        /// Listens until the channel closes or the task is cancelled.
+        Listen,
+        /// Waits for one line at most this long and tells why none came.
+        Wait(Duration),
+        Cancel,
+        Task(TaskEvent),
+        Line(String),
+        Ended(String),
+    }
+
+    impl App for Listener {
+        type Msg = Heard;
+        fn update(&mut self, msg: Heard) -> Command<Heard> {
+            match msg {
+                Heard::Listen => {
+                    let rx = self.rx.take().expect("one channel per test");
+                    let task = Task::new("Listen", move |cx| {
+                        while let Some(line) = cx.recv(&rx) {
+                            cx.send(Heard::Line(line));
+                        }
+                        Ok(Heard::Ended("closed".into()))
+                    })
+                    .on_event(Heard::Task);
+                    self.listening = Some(task.id());
+                    return Command::task(task);
+                }
+                Heard::Wait(timeout) => {
+                    let rx = self.rx.take().expect("one channel per test");
+                    let task = Task::new("Wait", move |cx| {
+                        let why = match cx.recv_timeout(&rx, timeout) {
+                            Ok(line) => line,
+                            Err(why) => format!("{why:?}"),
+                        };
+                        Ok(Heard::Ended(why))
+                    })
+                    .on_event(Heard::Task);
+                    self.listening = Some(task.id());
+                    return Command::task(task);
+                }
+                Heard::Cancel => return self.listening.map_or_else(Command::none, Command::cancel_task),
+                Heard::Task(event) => self.tasks.apply(&event),
+                Heard::Line(line) => self.heard.push(line),
+                Heard::Ended(why) => self.ended = Some(why),
+            }
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, Heard>) {
+            ui.add(Text::new(format!("heard {}", self.heard.len())));
+        }
+    }
+
+    /// A listener on real threads with the sending end of its channel.
+    fn listening_engine() -> (Engine<Listener>, std::sync::mpsc::Sender<String>) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let app = Listener { rx: Some(rx), ..Listener::default() };
+        (Engine::new(app, crate::env::Env::builtin(), TaskMode::Threads), tx)
+    }
+
+    /// Polls `engine` until `done` holds, failing after a generous bound.
+    fn poll_until(engine: &mut Engine<Listener>, what: &str, done: impl Fn(&Listener) -> bool) {
+        let started = Instant::now();
+        while !done(&engine.app) {
+            assert!(started.elapsed() < Duration::from_secs(20), "{what} never happened");
+            engine.poll_tasks();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn a_task_receives_what_another_thread_sends_and_ends_when_the_channel_closes() {
+        let (mut engine, tx) = listening_engine();
+        engine.update(Heard::Listen);
+        let sender = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            tx.send("GET /index.html 200".into()).expect("the task listens");
+            tx.send("GET /style.css 304".into()).expect("the task listens");
+        });
+        poll_until(&mut engine, "the lines", |app| app.heard.len() == 2);
+        assert_eq!(engine.app.heard, ["GET /index.html 200", "GET /style.css 304"]);
+        sender.join().expect("the sender ends");
+        poll_until(&mut engine, "the end", |app| app.ended.is_some());
+        assert_eq!(engine.app.ended.as_deref(), Some("closed"), "the dropped sender ended the wait");
+        assert_eq!(engine.app.tasks.entries()[0].outcome, Some(TaskOutcome::Done));
+    }
+
+    #[test]
+    fn cancelling_ends_a_wait_for_the_channel_promptly() {
+        let (mut engine, tx) = listening_engine();
+        engine.update(Heard::Listen);
+        std::thread::sleep(Duration::from_millis(100));
+        let asked = Instant::now();
+        engine.update(Heard::Cancel);
+        poll_until(&mut engine, "the cancel", |app| app.tasks.running() == 0);
+        assert!(asked.elapsed() < Duration::from_secs(5), "the cancel took {:?}", asked.elapsed());
+        assert_eq!(engine.app.tasks.entries()[0].outcome, Some(TaskOutcome::Cancelled));
+        assert!(tx.send("late".into()).is_err(), "the task and its receiver are gone");
+    }
+
+    #[test]
+    fn a_wait_with_a_timeout_says_why_no_item_came() {
+        let (mut engine, tx) = listening_engine();
+        engine.update(Heard::Wait(Duration::from_millis(40)));
+        poll_until(&mut engine, "the timeout", |app| app.ended.is_some());
+        assert_eq!(engine.app.ended.as_deref(), Some("Timeout"));
+        drop(tx);
+
+        let (mut engine, tx) = listening_engine();
+        drop(tx);
+        engine.update(Heard::Wait(Duration::from_secs(30)));
+        poll_until(&mut engine, "the closed channel", |app| app.ended.is_some());
+        assert_eq!(engine.app.ended.as_deref(), Some("Closed"));
+    }
+
+    #[test]
+    fn in_the_harness_a_waiting_task_rests_and_still_hears_and_cancels() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let started = Instant::now();
+        let mut h = Harness::new(Listener { rx: Some(rx), ..Listener::default() }, 20, 1);
+        h.send(Heard::Listen);
+        assert_eq!(h.app().tasks.running(), 1, "the harness did not wait for the listening task");
+        tx.send("GET /health 200".into()).expect("the task listens");
+        while h.app().heard.is_empty() {
+            assert!(started.elapsed() < Duration::from_secs(20), "the line never arrived");
+            std::thread::sleep(Duration::from_millis(5));
+            h.advance(Duration::ZERO);
+        }
+        assert_eq!(h.screen(), "heard 1\n");
+        h.send(Heard::Cancel);
+        assert_eq!(h.app().tasks.entries()[0].outcome, Some(TaskOutcome::Cancelled));
+        assert!(started.elapsed() < Duration::from_secs(20), "the harness hung on the wait");
+    }
+
+    #[test]
+    fn in_the_harness_a_timeout_follows_the_fake_clock() {
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let mut h = Harness::new(Listener { rx: Some(rx), ..Listener::default() }, 20, 1);
+        h.send(Heard::Wait(Duration::from_secs(60)));
+        h.advance(Duration::from_secs(59));
+        assert_eq!(h.app().ended, None, "a minute has not passed on the fake clock");
+        h.advance(Duration::from_secs(1));
+        assert_eq!(h.app().ended.as_deref(), Some("Timeout"));
+        drop(tx);
     }
 }
