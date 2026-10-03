@@ -47,6 +47,7 @@ add              = { nerd = "\uf067", unicode = "+", ascii = "+" }
 line-added       = { nerd = "+", unicode = "+", ascii = "+" }   # the sign of a diff line in a code view
 line-removed     = { nerd = "−", unicode = "−", ascii = "-" }
 search           = { nerd = "\uf002", unicode = "⌕", ascii = "/" }
+refresh          = { nerd = "\uf021", unicode = "↻", ascii = "R" }   # read again: a page, a folder, a list; nf-fa-refresh
 
 # ---- Windows
 # The marks at the right end of a window's title, beside `close`. Restoring a maximized window
@@ -311,6 +312,31 @@ terminal         = { nerd = "\uf120", unicode = "▭", ascii = "$" }   # nf-fa-t
 session          = { nerd = "\uebc8", unicode = "◫", ascii = "&" }   # nf-cod-terminal_tmux
 network-down     = { nerd = "\U000f06f4", unicode = "▼", ascii = "v" }   # nf-md-download_network
 network-up       = { nerd = "\U000f06f6", unicode = "▲", ascii = "^" }   # nf-md-upload_network
+
+# ---- Media and music
+# What a media player's transport and a music library's columns are called, so every application
+# in the ecosystem draws the same signs for them. Nerd Font draws the thing itself. Unicode draws
+# the transport's own signs, each one cell in the embedded fonts and in a terminal: pause, stop,
+# the tracks either side, shuffle and repeat, and a note. Volume keeps `≡` and mute `∅`, since the
+# speaker signs are emoji two cells wide. A list of tracks is a list of texts, so it keeps `▤`, the
+# lined square the set already draws for them. ASCII borrows a character that reads as the thing,
+# or its first letter where none is left: play and pause are `>` and `=`, and the tracks either
+# side are `n` and `p`, since `>` is play and a bracket is no glyph.
+media-play        = { nerd = "\U000f040a", unicode = "▶", ascii = ">" }   # nf-md-play
+media-pause       = { nerd = "\U000f03e4", unicode = "⏸", ascii = "=" }   # nf-md-pause
+media-stop        = { nerd = "\U000f04db", unicode = "⏹", ascii = "#" }   # nf-md-stop
+media-next        = { nerd = "\U000f04ad", unicode = "⏭", ascii = "n" }   # nf-md-skip_next
+media-previous    = { nerd = "\U000f04ae", unicode = "⏮", ascii = "p" }   # nf-md-skip_previous
+media-shuffle     = { nerd = "\U000f049f", unicode = "⇄", ascii = "x" }   # nf-md-shuffle_variant
+media-repeat      = { nerd = "\U000f0456", unicode = "↻", ascii = "r" }   # nf-md-repeat
+media-repeat-once = { nerd = "\U000f0458", unicode = "1", ascii = "1" }   # nf-md-repeat_once
+media-volume      = { nerd = "\U000f057e", unicode = "≡", ascii = "v" }   # nf-md-volume_high
+media-muted       = { nerd = "\U000f0581", unicode = "∅", ascii = "-" }   # nf-md-volume_off
+music-note        = { nerd = "\U000f075a", unicode = "♪", ascii = "~" }   # nf-md-music
+music-album       = { nerd = "\U000f0025", unicode = "▣", ascii = "a" }   # nf-md-album
+music-artist      = { nerd = "\U000f0803", unicode = "◉", ascii = "@" }   # nf-md-account_music
+music-playlist    = { nerd = "\U000f0cb8", unicode = "▤", ascii = "l" }   # nf-md-playlist_music
+music-queue       = { nerd = "\U000f0411", unicode = "⋮", ascii = "q" }   # nf-md-playlist_play
 
 # ---- Animations
 # One-cell animations: every frame has a glyph per mode (a missing nerd glyph uses the unicode

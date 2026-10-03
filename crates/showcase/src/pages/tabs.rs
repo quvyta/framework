@@ -1,4 +1,4 @@
-//! Tabs: switching views, numbers, a count on a tab and overflow.
+//! Tabs: switching views, numbers, a count and a working mark on a tab, and overflow.
 
 use qframe::prelude::*;
 use qframe::widgets::Segmented;
@@ -29,6 +29,9 @@ const WIDTHS: [u16; 3] = [24, 48, 72];
 /// Counts the playground offers for the Activity tab: none, a few and more than a badge shows.
 const COUNTS: [u32; 3] = [0, 3, 120];
 
+/// Statuses the playground offers for the Settings tab: none, and two theme colours.
+const STATUSES: [Option<&str>; 3] = [None, Some("success"), Some("warning")];
+
 /// Open tabs and playground settings.
 #[derive(Debug)]
 pub struct State {
@@ -37,11 +40,13 @@ pub struct State {
     numbered: bool,
     width: usize,
     count: usize,
+    busy: bool,
+    status: usize,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { view: 0, file: 0, numbered: true, width: 1, count: 1 }
+        Self { view: 0, file: 0, numbered: true, width: 1, count: 1, busy: true, status: 0 }
     }
 }
 
@@ -53,6 +58,8 @@ pub enum Msg {
     Numbered(bool),
     Width(usize),
     Count(usize),
+    Busy(bool),
+    Status(usize),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -82,6 +89,14 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.count = index;
             log.push(PAGE, "Playground", format!("activity count = {}", COUNTS[index]));
         }
+        Msg::Busy(on) => {
+            state.busy = on;
+            log.push(PAGE, "Playground", format!("activity busy = {on}"));
+        }
+        Msg::Status(index) => {
+            state.status = index;
+            log.push(PAGE, "Playground", format!("settings status = {}", STATUSES[index].unwrap_or("none")));
+        }
     }
     Command::none()
 }
@@ -91,11 +106,15 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     ui.add_with(Panel::new().title(t!("demo.live")), |ui| {
         // region: basic
         let labels = [t!("tabs.overview"), t!("tabs.activity"), t!("tabs.settings")];
-        let tabs = Tabs::new(labels)
+        let mut tabs = Tabs::new(labels)
             .numbered(state.numbered)
             .badge(1, COUNTS[state.count])
+            .busy(1, state.busy)
             .active(state.view)
             .on_select(|i| send(Msg::View(i)));
+        if let Some(token) = STATUSES[state.status] {
+            tabs = tabs.status(2, token);
+        }
         ui.add(tabs).id("views");
         let body = [t!("tabs.overview-text"), t!("tabs.activity-text"), t!("tabs.settings-text")];
         ui.add(Text::new(body[state.view].clone()).role("secondary"));
@@ -125,6 +144,13 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("tabs.badge"), |ui| {
             let names = COUNTS.map(|count| count.to_string());
             ui.add(Segmented::new(names).selected(state.count).on_select(|i| send(Msg::Count(i)))).id("count");
+        });
+        setting(ui, t!("tabs.busy"), |ui| {
+            ui.add(toggle(state.busy, |on| send(Msg::Busy(on)))).id("busy");
+        });
+        setting(ui, t!("tabs.status"), |ui| {
+            let names = [t!("tabs.status-none"), t!("tabs.status-done"), t!("tabs.status-waiting")];
+            ui.add(Segmented::new(names).selected(state.status).on_select(|i| send(Msg::Status(i)))).id("status");
         });
     })
     .fill_width();
@@ -156,6 +182,24 @@ mod tests {
         let after = row.split("Activity").nth(1).unwrap_or_default().trim_start();
         assert!(after.starts_with("3 Settings"), "nothing between Activity and the next tab: {row}");
         assert!(screen.contains("activity count = 0"), "{screen}");
+    }
+
+    #[test]
+    fn the_playground_switches_the_working_mark_and_the_status_dot() {
+        let mut h = showcase_on(PAGE);
+        h.set_reduced_motion(true);
+        let row = |h: &qframe::runtime::Harness<crate::app::Showcase>| {
+            h.screen().lines().find(|line| line.contains("Activity")).unwrap_or_default().to_owned()
+        };
+        assert!(row(&h).contains("● 2 Activity"), "on at first: {}", row(&h));
+        // The switch stands after the setting's label column of 24 cells.
+        let (x, y) = h.find("Activity working").expect("the busy setting");
+        h.click(x + 25, y);
+        assert!(h.screen().contains("activity busy = false"), "{}", h.screen());
+        assert!(!row(&h).contains('●'), "{}", row(&h));
+        h.click_text("Done");
+        assert!(row(&h).contains("● 3 Settings"), "{}", row(&h));
+        assert!(h.screen().contains("settings status = success"), "{}", h.screen());
     }
 
     #[test]

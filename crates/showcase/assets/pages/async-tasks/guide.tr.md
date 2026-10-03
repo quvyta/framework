@@ -55,6 +55,16 @@ Bazı çıktılar hiç satır satır okunmaz: bir derlemenin bütün günlüğü
 
 Çocuğun iki akışı tek bir boruya düşer, böylece metin programın yazdığı sırayla olur ve hata diğer çıktının arasında kalır; `.pty(..)` ile ikisi de terminale düşer, her zaman öyle oldukları gibi. Boyutun istediğin kadarına ve tek bir okumanın üzerine hiçbir şey tutulmaz, dolayısıyla bir saat boyunca yazan bir program, kısa bir programla aynı maliyette biter. Kesme karakter sınırlarının arasında olur, yani metinde hiçbir karakter yarım kalmaz. Limitin ve iptalin çocuğun başlattığı programlara da ulaşmasını sağlayan şey `run`'da olduğu gibi `.no_stdin()`'dir.
 
+Çıktının hiç okunmaya değer olmadığı durumlarda — bir arşivin bir dosyaya açılması, bir eserin olması gerektiği yere yazılması — `.stdout_to(dosya)` ile doğrudan bir dosyaya gönder. Çocuk bu dosyaya kendisi yazar, böylece ne kadar büyük olursa olsun tek bir baytı bile belleğinden geçmez ve yalnızca hata akışı okunur: `collect` onun sonunu `Keep` kadar tutar, `run` her satırı `Line::Err` olarak verir, böylece hata hata olarak tanınır. Dosya olduğu gibi kullanılır, yani çocuk tanımlayıcının zaten bulunduğu konumdan yazar; iptal ya da `Keep::limit` süreç grubunu kendisiyle birlikte bitirdiği için çocuk gittikten sonra dosyaya hiçbir şey yazılmaz.
+
+```rust
+let file = File::create("acilan.sql")?;
+let keep = Keep::bytes(64 * 1024).limit(Duration::from_secs(30));
+let collected = Process::new("xz").args(["-dc", "dump.sql.xz"]).no_stdin()
+    .stdout_to(file)
+    .collect(keep, &|| cx.is_cancelled())?;
+```
+
 `.clear_env()` ile çocuğa daha küçük bir dünya ver: o zaman yalnızca `.env(..)` ile verdiğin değişkenleri alır, kendi kabuğunun ortamının hiçbirini değil; `PATH`, `HOME` ve `LANG` de dahil. Başka bir `LANG` altında başka davranan bir program, `CC` ya da `CFLAGS` okuyan bir derleme, kullanıcının evini görmemesi gereken bir denetim: bunun için vardır. İhtiyacı olan değişkenleri ver, önce `PATH`'ı, çünkü diğer programları o arar:
 
 ```rust

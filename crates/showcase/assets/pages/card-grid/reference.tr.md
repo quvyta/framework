@@ -18,6 +18,11 @@
 - `.context_menu(|index| Vec<ContextItem<Msg>>)` — her karta kendi menüsünü verir; menü, açıldığı kart için kurulur.
 - `.disabled(bool)` — hover, odak ve basma yok; kartlar solar, seçim görünmeye devam eder.
 - `.scrollbar(ScrollbarStyle)` — temanın yerine sabit bir kaydırma çubuğu stili kullanır.
+- `.bare_cards(bool)` — kartlar, ızgaranın verdiği zemin üzerinde kendi yüzeyleri olmadan durur:
+  onlar için zemin, dolgu ve çubuk çizilmez ve her biri kendi dikdörtgeninin tamamını alır; kartların
+  kendini çizdiği ızgaralar için, `IconTile` ızgarası gibi. Fare altındaki kart fareyi, tuşların
+  üstündeki kart odağı borç alır, böylece kendi tonunu çizen bir kart tek başındaymış gibi yanar ve
+  nefes alır. Izgaranın kendi girdisi değişmez: basılabilir yüzey hâlâ karttır.
 
 ## Tuşlar
 

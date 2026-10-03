@@ -13,14 +13,24 @@
 //!   person's language ([`MimeDb::comment`]: "Rust source code").
 //! - [`Apps`] lists the programs for a kind and the one to use; [`Openers::for_file`] answers both
 //!   for one file as [`Choices`].
+//! - [`EntryDetails`] is what a program's entry says besides the command that opens a file: the
+//!   words a launcher lists and searches it by, the menus it belongs to, and whether the program
+//!   it names is installed.
 //! - [`DesktopApp::command`] gives the command line, never handed to a shell;
 //!   [`DesktopApp::launch`] starts it the right way for its kind: a terminal program through a
 //!   [`Handoff`](crate::runtime::Handoff), a graphical one through
 //!   [`Open::program`](crate::runtime::Open::program).
+//! - [`set_default`] writes the line that makes a program the default program of a kind, into the
+//!   person's own `mimeapps.list` and nowhere else.
 //!
 //! Reading never panics: a missing file is normal, and a line or a file that cannot be used is
-//! skipped with a [`Diagnostic`] that says where it is. Nothing is ever written: the person's
-//! defaults are their desktop's setting.
+//! skipped with a [`Diagnostic`] that says where it is: the line, and the column of the key when
+//! the file has one to point at.
+//!
+//! Written: nothing but [`set_default`], and only the person's own `mimeapps.list`. A file under
+//! `$XDG_CONFIG_DIRS` belongs to the system, a `<desktop>-mimeapps.list` to the desktop that wrote
+//! it, and a `.desktop` entry says what a program opens rather than what the person chose; none of
+//! them is another application's to write, and none is written here.
 //!
 //! Not read, on purpose: the binary `magic` rules of shared-mime-info (a name no pattern knows is
 //! told apart only as text or bytes). Of its XML descriptions only the `<comment>` lines are
@@ -28,6 +38,7 @@
 
 mod apps;
 mod comment;
+mod defaults;
 mod exec;
 mod keyfile;
 mod launch;
@@ -45,7 +56,8 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-pub use apps::{Apps, DesktopApp};
+pub use apps::{Apps, DesktopApp, EntryDetails, Include};
+pub use defaults::{Change, SetDefaultError, set_default};
 pub use launch::{LaunchError, Launched, graphical_session};
 pub use mime::MimeDb;
 pub use shell_words::shell_words;
@@ -218,8 +230,16 @@ fn lines<'a>(bytes: &'a [u8], path: &Path, diagnostics: &mut Vec<Diagnostic>) ->
     out
 }
 
-/// Reports a problem on line `line` of `path`.
+/// Reports a problem on line `line` of `path`, at the line's first character: the whole line is
+/// at fault, as it is for a line that is not UTF-8 or makes no sense as a whole.
 fn warn(diagnostics: &mut Vec<Diagnostic>, path: &Path, line: usize, message: &str) {
-    let location = Location { file: path.display().to_string(), line, column: 1 };
+    warn_at(diagnostics, path, line, 1, message);
+}
+
+/// Reports a problem at `column` of `line` in `path`, for the key files whose keys are written
+/// where they can be pointed at: an indented key is named by its own place in the line, not by
+/// the line's start.
+fn warn_at(diagnostics: &mut Vec<Diagnostic>, path: &Path, line: usize, column: usize, message: &str) {
+    let location = Location { file: path.display().to_string(), line, column };
     diagnostics.push(Diagnostic::warning(Some(location), message));
 }

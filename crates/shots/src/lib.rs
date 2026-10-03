@@ -139,8 +139,8 @@ impl Shot {
     }
 
     /// Characters on the screen no embedded font has a glyph for, such as emoji, Korean or rare
-    /// ideographs outside GB 2312 and JIS X 0208. They are left out of the picture; a README test
-    /// can assert this is empty. What the fonts do cover is listed in `fonts/coverage.txt`.
+    /// ideographs outside GB 2312 and JIS X 0208. The picture draws each as `▯`, the box a terminal
+    /// shows in its place; a README test can assert this is empty. What the fonts do cover is listed in `fonts/coverage.txt`.
     #[must_use]
     pub fn missing(&self) -> Vec<char> {
         svg::draw(self).missing.into_iter().collect()

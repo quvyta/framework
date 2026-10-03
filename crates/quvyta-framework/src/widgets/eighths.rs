@@ -13,6 +13,20 @@ const LEFT: [&str; 7] = ["▏", "▎", "▍", "▌", "▋", "▊", "▉"];
 /// Blocks filled from the bottom, one to seven eighths.
 const LOWER: [&str; 7] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇"];
 
+/// Blocks filled from the top, one to seven eighths: the [`LOWER`] blocks the other way up, for
+/// the half of a mirrored column that hangs from the middle.
+const UPPER: [&str; 7] = ["▇", "▆", "▅", "▄", "▃", "▂", "▁"];
+
+/// The top eighth of a cell, the thinnest mark a column can carry: a cap that sits on the top of
+/// a cell.
+pub(crate) const CAP: &str = "▔";
+
+/// The bottom eighth of a cell: the [`CAP`] of a column that hangs from its top.
+pub(crate) const FLOOR: &str = "▁";
+
+/// A whole cell: eight eighths, the one level a bar has no partial block for.
+pub(crate) const FULL: &str = "█";
+
 /// `fraction` of `cells` in whole eighths, rounded.
 pub(crate) fn eighths(fraction: f32, cells: u16) -> u32 {
     // Cell counts are small, so the product fits f32 and the rounded result fits u32.
@@ -28,6 +42,16 @@ pub(crate) fn scaled(fraction: f32, steps: u32) -> u32 {
 /// The block `partial` eighths (1 to 7) filled from the left.
 pub(crate) fn left_block(partial: usize) -> &'static str {
     LEFT[partial.clamp(1, LEFT.len()) - 1]
+}
+
+/// The block `partial` eighths (1 to 7) filled from the bottom.
+pub(crate) fn lower_block(partial: usize) -> &'static str {
+    LOWER[partial.clamp(1, LOWER.len()) - 1]
+}
+
+/// The block `partial` eighths (1 to 7) filled from the top.
+pub(crate) fn upper_block(partial: usize) -> &'static str {
+    UPPER[partial.clamp(1, UPPER.len()) - 1]
 }
 
 /// `eighths` as drawn in the current glyph mode: ASCII has no partial glyphs, so it rounds to
@@ -61,7 +85,7 @@ pub(crate) fn vertical(cx: &mut PaintCx<'_>, column: Rect, eighths: u32, color: 
     if partial > 0 && full < column.height {
         let y = bottom - i32::from(full) - 1;
         for x in column.x..column.right() {
-            cx.text(x, y, LOWER[partial - 1], CellStyle::fg(color), 1);
+            cx.text(x, y, lower_block(partial), CellStyle::fg(color), 1);
         }
     }
 }

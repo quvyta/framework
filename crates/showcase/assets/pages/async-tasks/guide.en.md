@@ -55,6 +55,16 @@ Some output is not read line by line at all: a build's whole log, a `systemctl s
 
 Both of the child's streams land on one pipe, so the text is in the order the program wrote it and a failure stays among the rest of the output; with `.pty(..)` they land on the terminal, as they always do there. Nothing is held beyond the size you asked for plus one read, so a program that writes for an hour costs the same as a short one, and the cut falls between characters, so no character is half in the text. `.no_stdin()` is what lets the limit and the cancel reach the programs the child started, exactly as with `run`.
 
+When the output is not worth reading at all — an archive unpacked into a file, an artefact written where it belongs — send it straight to a file with `.stdout_to(file)`. The child writes into that file itself, so not one byte of it passes through your memory however large it is, and only its error stream is read: `collect` keeps the end of that within `Keep` and `run` hands every line as `Line::Err`, so a failure stays recognisable. The file is used as it is, so the child writes at the position the descriptor already has, and a cancel or a `Keep::limit` takes the process group with it, so nothing more reaches the file once the child is gone.
+
+```rust
+let file = File::create("unpacked.sql")?;
+let keep = Keep::bytes(64 * 1024).limit(Duration::from_secs(30));
+let collected = Process::new("xz").args(["-dc", "dump.sql.xz"]).no_stdin()
+    .stdout_to(file)
+    .collect(keep, &|| cx.is_cancelled())?;
+```
+
 Give the child a smaller world with `.clear_env()`: it then gets only the variables you set with `.env(..)`, and nothing of the environment your own shell had — `PATH`, `HOME` and `LANG` included. A build that reads `CC` or `CFLAGS`, a program that behaves differently under a different `LANG`, a test that must not see the user's home: that is what this is for. Give it the variables it needs, `PATH` first, since that is what it looks other programs up with:
 
 ```rust

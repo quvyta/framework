@@ -89,7 +89,7 @@ impl<Msg: 'static> Table<Msg> {
     }
 
     pub(super) fn paint_row(&self, cx: &mut PaintCx<'_>, rect: Rect, index: usize, placed: &[Placed], frame: RowPaint) {
-        let row = &self.rows[index];
+        let row = self.rows.get(index);
         let hovered = match frame.menu_row {
             Some(menu) => menu == index,
             None => cx.pointer().is_some_and(|(x, y)| rect.contains(x, y)),

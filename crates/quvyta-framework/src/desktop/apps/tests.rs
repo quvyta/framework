@@ -8,6 +8,24 @@ fn entry(name: &str, mime_types: &str) -> String {
     format!("[Desktop Entry]\nType=Application\nName={name}\nExec={} %f\nMimeType={mime_types}\n", name.to_lowercase())
 }
 
+/// A desktop entry with every key a launcher shows a program by, in English and in Turkish.
+const FULL: &str = "[Desktop Entry]
+Type=Application
+Name=Notes
+Name[tr]=Notlar
+Comment=Take notes in plain text
+Comment[tr]=Düz metinde not tut
+GenericName=Text Editor
+GenericName[tr]=Metin Düzenleyici
+Keywords=notes;text;editor;
+Keywords[tr]=notlar;metin;
+Categories=Utility;TextEditor;
+Path=/home/ada/notes
+NoDisplay=true
+TryExec=present
+Exec=notes %f
+";
+
 fn ids(apps: &[&DesktopApp]) -> Vec<String> {
     apps.iter().map(|app| app.id.clone()).collect()
 }
@@ -201,6 +219,157 @@ fn entries_in_subfolders_take_the_folder_into_their_id() {
 }
 
 #[test]
+fn an_entry_says_what_a_launcher_needs_about_a_program() {
+    let tree = Tree::new();
+    tree.program("bin/present");
+    tree.write("usr/applications/notes.desktop", FULL);
+    tree.write("usr/applications/other.desktop", entry("Other", "text/plain;"));
+    let path_var = OsString::from(format!("relative:{}", tree.root().join("bin").display()));
+    let read = |lang: &str| Apps::load(&tree.dirs(), lang, Some(&path_var));
+
+    let apps = read("C");
+    let english = apps.details("notes.desktop").expect("the program is read");
+    assert_eq!(english.comment.as_deref(), Some("Take notes in plain text"));
+    assert_eq!(english.generic_name.as_deref(), Some("Text Editor"));
+    assert_eq!(english.categories, ["Utility", "TextEditor"]);
+    assert_eq!(english.keywords, ["notes", "text", "editor"]);
+    assert_eq!(english.folder.as_deref(), Some(Path::new("/home/ada/notes")));
+    assert!(english.no_display);
+    assert!(english.installed);
+    assert_eq!(english.try_exec.as_deref(), Some("present"));
+    assert!(!english.hidden, "a plain read never keeps an entry the person deleted");
+
+    let apps = read("tr_TR.UTF-8");
+    assert_eq!(apps.get("notes.desktop").map(|app| app.name.as_str()), Some("Notlar"), "the name too");
+    let turkish = apps.details("notes.desktop").expect("the program is read");
+    assert_eq!(turkish.comment.as_deref(), Some("Düz metinde not tut"));
+    assert_eq!(turkish.generic_name.as_deref(), Some("Metin Düzenleyici"));
+    assert_eq!(
+        turkish.keywords,
+        ["notlar", "metin", "notes", "text", "editor"],
+        "the words in the person's language come first and the plain ones follow, each written once"
+    );
+
+    let other = apps.details("other.desktop").expect("every program has an entry of its own");
+    assert_eq!(other.comment, None, "a key the entry does not write says nothing");
+    assert!(other.keywords.is_empty() && other.categories.is_empty() && other.folder.is_none());
+    assert!(other.installed, "an entry with no TryExec is installed");
+    assert_eq!(other.try_exec, None);
+}
+
+#[test]
+fn a_launcher_starts_a_program_with_no_file_to_open() {
+    let tree = Tree::new();
+    tree.write("usr/applications/foo.desktop", "[Desktop Entry]\nType=Application\nName=Foo\nExec=foo %U --x %%\n");
+    tree.write("usr/applications/bar.desktop", "[Desktop Entry]\nType=Application\nName=Bar\nExec=bar %f\n");
+    let apps = load(&tree);
+    let foo = apps.get("foo.desktop").expect("read");
+    assert_eq!(
+        foo.launch_command(),
+        Some(["foo", "--x", "%"].map(OsString::from).to_vec()),
+        "the codes that take a file or a URL are gone and a doubled percent is a percent"
+    );
+    assert_eq!(
+        foo.command(Path::new("/tmp/a.txt")),
+        Some(["foo", "/tmp/a.txt", "--x", "%"].map(OsString::from).to_vec()),
+        "the same line opens a file"
+    );
+    assert_eq!(
+        apps.get("bar.desktop").and_then(DesktopApp::launch_command),
+        Some(["bar"].map(OsString::from).to_vec()),
+        "nothing is added where the file would have been"
+    );
+}
+
+#[test]
+fn the_launch_command_keeps_the_codes_that_are_not_about_a_file() {
+    let tree = Tree::new();
+    let path = tree.write(
+        "usr/applications/odd.desktop",
+        "[Desktop Entry]\nType=Application\nName=Odd One\nIcon=odd-icon\nExec=odd %i --class %c --desktop %k %f\n",
+    );
+    let apps = load(&tree);
+    let odd = apps.get("odd.desktop").expect("read");
+    let expected: Vec<OsString> = ["odd", "--icon", "odd-icon", "--class", "Odd One", "--desktop"]
+        .map(OsString::from)
+        .into_iter()
+        .chain([path.into_os_string()])
+        .collect();
+    assert_eq!(odd.launch_command(), Some(expected), "the name, the icon and the entry stay");
+}
+
+#[test]
+fn a_program_that_is_not_installed_is_dropped_unless_it_is_kept() {
+    let tree = Tree::new();
+    tree.write(
+        "usr/applications/gone.desktop",
+        "[Desktop Entry]\nType=Application\nName=Gone\nExec=gone %f\nTryExec=absent\n",
+    );
+    let apps = load(&tree);
+    assert!(apps.get("gone.desktop").is_none(), "a program that is not installed opens nothing");
+    assert!(apps.details("gone.desktop").is_none());
+
+    let apps = Apps::load_including(&tree.dirs(), "C", None, Include::MISSING);
+    assert_eq!(apps.get("gone.desktop").map(|app| app.name.as_str()), Some("Gone"), "a launcher lists it");
+    let kept = apps.details("gone.desktop").expect("with what its entry says");
+    assert_eq!(kept.try_exec.as_deref(), Some("absent"));
+    assert!(!kept.installed, "the program it names is nowhere on this machine");
+    let db = MimeDb::default();
+    assert!(apps.for_mime(&db, "text/plain").is_empty(), "and it is not a choice for a file either");
+}
+
+#[test]
+fn an_entry_the_person_deleted_is_kept_only_when_asked() {
+    let tree = Tree::new();
+    tree.write(
+        "home/data/applications/gone.desktop",
+        "[Desktop Entry]\nType=Application\nName=Gone\nExec=gone %f\nHidden=true\nMimeType=text/plain;\n",
+    );
+    tree.write("usr/applications/other.desktop", entry("Other", "text/plain;"));
+    let apps = load(&tree);
+    assert_eq!(
+        ids(&apps.all().iter().collect::<Vec<_>>()),
+        ["other.desktop"],
+        "a deleted entry takes its id and leaves nothing behind"
+    );
+    assert!(apps.details("gone.desktop").is_none());
+
+    let apps = Apps::load_including(&tree.dirs(), "C", None, Include::HIDDEN);
+    let deleted = apps.details("gone.desktop").expect("what the person removed is still there to be seen");
+    assert!(deleted.hidden);
+    assert!(deleted.installed, "its program is there; it is the entry that is hidden");
+    let db = MimeDb::default();
+    assert_eq!(
+        ids(&apps.for_mime(&db, "text/plain")),
+        ["other.desktop"],
+        "a deleted program opens nothing, whatever kinds it declared"
+    );
+    assert_eq!(apps.default_for(&db, "text/plain").map(|app| app.id.as_str()), Some("other.desktop"));
+}
+
+#[test]
+fn a_launcher_may_ask_for_both_kinds_of_entry_at_once() {
+    let tree = Tree::new();
+    tree.write(
+        "usr/applications/gone.desktop",
+        "[Desktop Entry]\nType=Application\nName=Gone\nExec=gone %f\nTryExec=absent\n",
+    );
+    tree.write(
+        "usr/applications/old.desktop",
+        "[Desktop Entry]\nType=Application\nName=Old\nExec=old %f\nHidden=true\n",
+    );
+    let kept = |keep| {
+        Apps::load_including(&tree.dirs(), "C", None, keep)
+            .all()
+            .iter()
+            .map(|app| app.id.clone())
+            .collect::<Vec<String>>()
+    };
+    assert_eq!(kept(Include::ALL), ["gone.desktop", "old.desktop"]);
+    assert_eq!(kept(Include::NONE), Vec::<String>::new(), "the same as a plain read");
+}
+
+#[test]
 fn a_program_whose_try_exec_is_missing_is_dropped() {
     let tree = Tree::new();
     let bin = tree.root().join("bin");
@@ -295,6 +464,20 @@ fn values_are_read_with_their_escapes() {
         odd.command(Path::new("/tmp/a b.txt")),
         Some(["/opt/Odd App/odd", "--title", "say \"hi\"", "/tmp/a b.txt"].map(OsString::from).to_vec())
     );
+}
+
+#[test]
+fn a_line_that_makes_no_sense_is_reported_where_it_stands() {
+    let tree = Tree::new();
+    tree.write(
+        "usr/applications/odd.desktop",
+        "Name=Odd\n  Exec=odd %f\n[Desktop Entry]\n  Type=Application\nName=Odd\n  Exec=odd \"unclosed %f\n",
+    );
+    let apps = load(&tree);
+    let at: Vec<(usize, usize)> =
+        apps.diagnostics().iter().filter_map(|one| one.location.as_ref().map(|at| (at.line, at.column))).collect();
+    assert_eq!(at, [(1, 1), (2, 3), (6, 3)], "a problem names its line, and a key the column it is written at");
+    assert!(apps.all().is_empty(), "an entry whose Exec line gives no command is no program");
 }
 
 #[test]

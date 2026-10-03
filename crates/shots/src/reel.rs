@@ -5,6 +5,7 @@ mod encode;
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeSet;
 use std::fmt::{self, Write as _};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -76,8 +77,10 @@ type Check = Box<dyn FnMut(&str)>;
 /// # Panics
 ///
 /// The recording steps (everything that draws a frame) panic, as a failed test assertion does,
-/// when a frame cannot be written to the folder, when a glyph on screen is missing from the
-/// embedded fonts (see [`Shot::missing`]), or when the [`Reel::check`] closure panics.
+/// when a frame cannot be written to the folder or when the [`Reel::check`] closure panics. A
+/// character on screen the embedded fonts have no glyph for does not stop the recording: it is
+/// drawn as the box a terminal shows for it and listed by [`Reel::missing`] and
+/// [`Recording::missing`], so a test can still insist that the frames are whole.
 pub struct Reel<A: App> {
     harness: Harness<A>,
     dir: PathBuf,
@@ -90,6 +93,8 @@ pub struct Reel<A: App> {
     last: String,
     /// Whether the frame folder was made, so it is made once, on the first frame.
     dir_ready: bool,
+    /// Characters drawn so far that no embedded font has, each once.
+    missing: BTreeSet<char>,
 }
 
 impl<A: App> fmt::Debug for Reel<A> {
@@ -130,6 +135,7 @@ impl<A: App> Reel<A> {
             frames: Vec::new(),
             last: String::new(),
             dir_ready: false,
+            missing: BTreeSet::new(),
         }
     }
 
@@ -192,8 +198,7 @@ impl<A: App> Reel<A> {
             // A pointer off the grid draws nothing, which a cell beyond `u16` also is.
             shot = shot.pointer(u16::try_from(x).unwrap_or(u16::MAX), u16::try_from(y).unwrap_or(u16::MAX));
         }
-        let missing = shot.missing();
-        assert!(missing.is_empty(), "the embedded fonts lack {missing:?}:\n{}", self.harness.screen());
+        self.missing.extend(shot.missing());
         let svg = shot.to_svg();
         if svg == self.last
             && let Some((_, held)) = self.frames.last_mut()
@@ -400,6 +405,13 @@ impl<A: App> Reel<A> {
         self.frames.len()
     }
 
+    /// Characters the frames so far drew as a box because no embedded font has them, sorted and
+    /// each once; empty when every frame is whole.
+    #[must_use]
+    pub fn missing(&self) -> Vec<char> {
+        self.missing.iter().copied().collect()
+    }
+
     /// How long the recording so far plays.
     #[must_use]
     pub fn total(&self) -> Duration {
@@ -426,7 +438,7 @@ impl<A: App> Reel<A> {
         std::fs::create_dir_all(&self.dir)?;
         let path = self.dir.join(LIST);
         std::fs::write(&path, list)?;
-        Ok(Recording { list: path, frames: self.frames.len(), total: self.total() })
+        Ok(Recording { list: path, frames: self.frames.len(), total: self.total(), missing: self.missing() })
     }
 
     /// Moves the pointer onto `cell` and tells the application.
@@ -453,6 +465,7 @@ pub struct Recording {
     list: PathBuf,
     frames: usize,
     total: Duration,
+    missing: Vec<char>,
 }
 
 impl Recording {
@@ -472,6 +485,13 @@ impl Recording {
     #[must_use]
     pub fn total(&self) -> Duration {
         self.total
+    }
+
+    /// Characters the frames drew as a box because no embedded font has them, sorted and each
+    /// once; see [`Reel::missing`].
+    #[must_use]
+    pub fn missing(&self) -> &[char] {
+        &self.missing
     }
 
     /// Encodes the recording as a looping GIF at `gif` and an H.264 MP4 at `mp4`, both `width`

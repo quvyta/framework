@@ -22,10 +22,11 @@ const MAX_ROWS: u16 = 18;
 /// Widest key column, in cells; longer chord lists are cut.
 const MAX_KEYS_WIDTH: u16 = 24;
 
-/// A layer listing every key binding: the hints of the current screen first, then the
-/// application's keymap actions, then the framework's. Labels come from the language files
-/// (`keys.<action>` and `quvyta.keys.<action>`), keys from the keymap, so rebinding a key or
-/// switching the language updates the list.
+/// A layer listing every key binding: the keys of the focused widget and the hints of the current
+/// screen first, then the application's keymap actions, then the framework's. Labels come from the
+/// language files (`keys.<action>`, `quvyta.keys.<action>` and the widget's own
+/// `quvyta.widget.<label>`), keys from the keymap, so rebinding a key or switching the language
+/// updates the list.
 ///
 /// Typing filters the list with fuzzy matching (matched characters take the match colour);
 /// ↑/↓, PgUp/PgDn and the wheel scroll it. It is dismissable by default: Esc and the close mark
@@ -34,10 +35,16 @@ const MAX_KEYS_WIDTH: u16 = 24;
 /// [`Modal`](super::Modal)), with the same pillar down its left edge. Applications usually open it
 /// from the global `help` action, bound to `?`.
 ///
+/// A widget that takes keys of its own declares them with [`Widget::keys`], so a screen needs no
+/// hint for them and the list cannot fall behind the widget; [`hint`](Self::hint) stays for the
+/// keys of a screen that are not a widget's, such as the `r` of an application that restarts the
+/// selected row. The focused widget is the one whose keys are listed, which is why the widget
+/// under the layer is asked and not the layer itself.
+///
 /// Style keys: `modal`, `modal-title`, `close-mark`, `layer-backdrop`, `layer-filter`, `layer-filter-mark`,
 /// `layer-filter-placeholder`, `layer-filter-cursor`, `layer-match`, `help-group`, `help-key`,
 /// `help-label`, `layer-hint-key`, `layer-hint-label`. Text: `quvyta.help.*`,
-/// `quvyta.layer.*`.
+/// `quvyta.layer.*`, `quvyta.widget.*`.
 pub struct HelpLayer<Msg> {
     hints: Vec<(String, String)>,
     width: u16,
@@ -81,8 +88,9 @@ impl<Msg: Clone + 'static> HelpLayer<Msg> {
         self
     }
 
-    /// Adds a key of the current screen that is not in the keymap, e.g. `("↑↓", "move")`. These
-    /// come first, under "This screen".
+    /// Adds a key of the current screen that no widget declares, e.g. `("↑↓", "move")` for the keys
+    /// an application reads itself. These come under "This screen", after the keys of the focused
+    /// widget.
     #[must_use]
     pub fn hint(mut self, key: impl Into<String>, label: impl Into<String>) -> Self {
         self.hints.push((key.into(), label.into()));
@@ -101,10 +109,14 @@ impl<Msg: Clone + 'static> HelpLayer<Msg> {
         let env = cx.env();
         let i18n = env.i18n();
         let mut groups: Vec<(String, Vec<Binding>)> = Vec::new();
-        groups.push((
-            i18n.translate("quvyta.help.screen", &[]),
-            self.hints.iter().map(|(key, label)| (vec![key.clone()], label.clone())).collect(),
-        ));
+        // The widget the keyboard is with knows its own keys; hints are for the rest of the screen.
+        let screen: Vec<Binding> = cx
+            .declared_keys()
+            .iter()
+            .map(|key| (vec![key.keys.clone()], key.label.clone()))
+            .chain(self.hints.iter().map(|(key, label)| (vec![key.clone()], label.clone())))
+            .collect();
+        groups.push((i18n.translate("quvyta.help.screen", &[]), screen));
         for (scope, group) in [(Scope::App, "quvyta.help.app"), (Scope::Global, "quvyta.help.global")] {
             let bindings = env
                 .keymap()
@@ -317,9 +329,10 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::icons::GlyphMode;
     use crate::runtime::{App, Command, Harness};
     use crate::widget::View;
-    use crate::widgets::{Button, Text};
+    use crate::widgets::{Button, Column, Table, TableRow, Text};
 
     #[derive(Default)]
     struct Demo {
@@ -485,5 +498,140 @@ mod tests {
         let (_, title_y) = h.find("Keyboard shortcuts").expect("title");
         let (mark_x, _) = h.find("×").expect("close mark");
         (mark_x - 2, title_y + 4)
+    }
+
+    /// A screen whose keys belong to a table, with one key of its own that no widget takes.
+    #[derive(Debug)]
+    struct Rows {
+        open: bool,
+        /// Whether a row can be opened, which is what puts `enter` in the help.
+        activates: bool,
+        selected: Option<usize>,
+        opened: Vec<usize>,
+    }
+
+    impl Default for Rows {
+        fn default() -> Self {
+            Self { open: false, activates: false, selected: Some(0), opened: Vec::new() }
+        }
+    }
+
+    #[derive(Clone)]
+    enum RowMsg {
+        Help,
+        Close,
+        Select(usize),
+        Open(usize),
+    }
+
+    impl App for Rows {
+        type Msg = RowMsg;
+        fn update(&mut self, msg: RowMsg) -> Command<RowMsg> {
+            match msg {
+                RowMsg::Help => self.open = true,
+                RowMsg::Close => self.open = false,
+                RowMsg::Select(row) => self.selected = Some(row),
+                RowMsg::Open(row) => self.opened.push(row),
+            }
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, RowMsg>) {
+            let rows = ["web", "api"].map(|name| TableRow::new([name]));
+            let table = Table::new([Column::new("Deploy")], rows).selected(self.selected).on_select(RowMsg::Select);
+            let table = if self.activates { table.on_activate(RowMsg::Open) } else { table };
+            ui.column(|ui| {
+                ui.add(table).id("rows");
+                ui.add(Button::new("Save").on_press(RowMsg::Close)).id("save");
+                if self.open {
+                    ui.add(HelpLayer::new(RowMsg::Close).hint("r", "restart the deploy"));
+                }
+            });
+        }
+        fn action(&self, name: &str) -> Option<RowMsg> {
+            (name == "help").then_some(RowMsg::Help)
+        }
+    }
+
+    /// The lines of the "This screen" group, from its title to the next group.
+    fn screen_group(h: &Harness<Rows>) -> String {
+        let screen = h.screen();
+        let lines: Vec<&str> = screen.lines().collect();
+        let Some(start) = lines.iter().position(|line| line.contains("This screen")) else {
+            return String::new();
+        };
+        let end = lines[start + 1..]
+            .iter()
+            .position(|line| line.contains("Application") || line.contains("General"))
+            .map_or(lines.len(), |next| start + 1 + next);
+        lines[start..end].join("\n")
+    }
+
+    /// A harness with the help open over the table, which Tab has focused.
+    fn rows_with_help(activates: bool) -> Harness<Rows> {
+        let mut h = Harness::new(Rows { activates, ..Rows::default() }, 70, 26);
+        h.press("tab");
+        assert!(h.is_focused("rows"), "Tab reaches the table");
+        h.press("?").advance(Duration::from_millis(200));
+        h
+    }
+
+    #[test]
+    fn the_focused_widget_lists_its_own_keys_first() {
+        let h = rows_with_help(true);
+        assert!(h.app().open, "the global help action reaches the application");
+        let group = screen_group(&h);
+        for expected in ["↑↓", "move", "pgup pgdn", "scroll", "enter", "open"] {
+            assert!(group.contains(expected), "{expected} missing from the focused widget's keys:\n{group}");
+        }
+        // The application wrote a hint for its own key only; the table's keys are there without one.
+        assert!(group.contains("restart the deploy"), "the hint the application wrote is listed too:\n{group}");
+        assert!(group.find("↑↓") < group.find("restart the deploy"), "the widget's keys come first:\n{group}");
+    }
+
+    #[test]
+    fn a_table_that_cannot_open_a_row_has_no_enter_line() {
+        let h = rows_with_help(false);
+        let group = screen_group(&h);
+        assert!(group.contains("↑↓"), "{group}");
+        assert!(!group.contains("enter"), "a table with nothing to open says nothing about Enter:\n{group}");
+    }
+
+    #[test]
+    fn the_keys_of_the_widget_under_the_layer_stay_while_it_is_open() {
+        let mut h = rows_with_help(true);
+        // Focus moves into the layer once it is painted; the keys of the table under it are what
+        // the person opened the help to read, so the filter narrows those and not the layer's own.
+        h.press("pgdn").type_text("sc");
+        let group = screen_group(&h);
+        assert!(group.contains("scroll"), "{group}");
+        assert!(!group.contains("move"), "the filter narrows the table's own keys too:\n{group}");
+    }
+
+    #[test]
+    fn a_screen_with_the_focus_elsewhere_lists_no_widget_keys() {
+        let mut h = Harness::new(Rows::default(), 70, 26);
+        h.click_text("Save");
+        assert!(h.is_focused("save"), "the button has the focus, not the table");
+        h.press("?").advance(Duration::from_millis(200));
+        let group = screen_group(&h);
+        assert!(group.contains("restart the deploy"), "the hint the application wrote is listed:\n{group}");
+        assert!(!group.contains("↑↓") && !group.contains("enter"), "a button takes no keys of its own:\n{group}");
+    }
+
+    #[test]
+    fn the_keys_the_help_lists_are_the_keys_the_table_takes() {
+        let mut h = Harness::new(Rows { activates: true, ..Rows::default() }, 70, 10);
+        h.press("tab").press("down").press("enter");
+        assert_eq!(h.app().selected, Some(1), "the row the help says `↑↓ move` reaches");
+        assert_eq!(h.app().opened, [1], "the row the help says `enter open` opens");
+    }
+
+    #[test]
+    fn a_terminal_that_shows_no_arrows_is_told_in_carets() {
+        let mut h = rows_with_help(true);
+        h.set_glyph_mode(GlyphMode::Ascii);
+        let group = screen_group(&h);
+        assert!(group.contains("^v") && group.contains("move"), "the arrows of the icon set in use:\n{group}");
+        assert!(!group.contains('↑'), "a terminal that cannot draw an arrow is not shown one:\n{group}");
     }
 }

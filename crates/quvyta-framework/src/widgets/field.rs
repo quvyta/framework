@@ -1,11 +1,13 @@
 //! Form fields: a label, a control, and a hint or an error.
 
+use crate::env::Env;
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::text;
 use crate::theme::State;
 use crate::widget::{Axis, Container, Flex, Length, MeasureCx, Node, PaintCx, Widget};
 
 use super::cells;
+use super::toast::ToastKind;
 
 /// Cells between the label column and the control when labels sit beside controls.
 const LABEL_GAP: u16 = 2;
@@ -18,10 +20,12 @@ const MIN_CONTROL: u16 = 16;
 const UNBOUNDED: u16 = 4096;
 
 /// A labelled control: the label, the control the application adds inside, and under it a
-/// faint hint or, when there is one, the error in the danger colour with a marker.
+/// faint hint or, when there is one, a warning or an error with its sign in the tone of its kind.
 ///
 /// The field only lays things out. The application owns the value and its error, and marks the
-/// control itself as invalid (`TextInput::invalid`). The label brightens while the control has
+/// control itself as invalid (`TextInput::invalid`). A warning is the application's own sentence,
+/// drawn where the error is drawn and kept out of [`FormErrors`](super::FormErrors), so a form
+/// whose only problem is a warning still submits. The label brightens while the control has
 /// focus. Required fields show a faint word after the label; nothing is starred.
 ///
 /// Labels sit above the control by default. With [`Field::label_width`] they take a column of
@@ -32,11 +36,13 @@ const UNBOUNDED: u16 = 4096;
 ///
 /// Style keys: `field-label` (`fg`, `bold`) with states `focus` and `disabled`, and variant
 /// `value` for a [value](Field::value) field;
-/// `field-required`, `field-hint` and `field-error` (`fg`). The required word is
-/// `quvyta.form.required`; the error marker is the `error` icon.
+/// `field-required`, `field-hint`, `field-warning` and `field-error` (`fg`). The required word is
+/// `quvyta.form.required`; the error marker is the `error` icon and the warning marker the
+/// `warning` icon, the two signs the toasts of those kinds carry.
 pub struct Field<Msg> {
     label: String,
     hint: Option<String>,
+    warning: Option<String>,
     error: Option<String>,
     required: bool,
     disabled: bool,
@@ -53,6 +59,7 @@ impl<Msg: 'static> Field<Msg> {
         Self {
             label: label.into(),
             hint: None,
+            warning: None,
             error: None,
             required: false,
             disabled: false,
@@ -72,18 +79,66 @@ impl<Msg: 'static> Field<Msg> {
         self
     }
 
-    /// Faint help under the control, shown while there is no error.
+    /// Faint help under the control, shown while there is neither a warning nor an error.
     #[must_use]
     pub fn hint(mut self, hint: impl Into<String>) -> Self {
         self.hint = Some(hint.into());
         self
     }
 
-    /// The error under the control; `None` shows the hint instead. Pass
+    /// The error under the control; `None` leaves the place to the warning or the hint. Pass
     /// [`FormErrors::get`](super::FormErrors::get) straight in.
     #[must_use]
     pub fn error<S: Into<String>>(mut self, error: Option<S>) -> Self {
         self.error = error.map(Into::into);
+        self
+    }
+
+    /// The warning under the control, in the warning tone with its sign, where the error would be
+    /// drawn; an error beside it wins the place.
+    ///
+    /// A warning says what the value is about to cost, not what is wrong with it, so it never
+    /// enters [`FormErrors`](super::FormErrors) and a form whose fields carry only warnings still
+    /// submits.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    /// use qframe::widgets::{Field, Form, TextInput};
+    ///
+    /// #[derive(Clone)]
+    /// enum Msg {
+    ///     Image(String),
+    /// }
+    ///
+    /// struct Image {
+    ///     value: String,
+    /// }
+    ///
+    /// impl App for Image {
+    ///     type Msg = Msg;
+    ///     fn update(&mut self, msg: Msg) -> Command<Msg> {
+    ///         match msg {
+    ///             Msg::Image(value) => self.value = value,
+    ///         }
+    ///         Command::none()
+    ///     }
+    ///     fn view(&self, ui: &mut View<'_, Msg>) {
+    ///         // A warning is the application's own sentence, so it is built from the value beside it.
+    ///         let warning = (!self.value.ends_with(":latest")).then(|| "Not pinned to a version");
+    ///         Form::new().show(ui, |form| {
+    ///             form.field(Field::new("Image").warning(warning), |ui| {
+    ///                 ui.add(TextInput::new(&self.value).on_change(Msg::Image)).id("image");
+    ///             });
+    ///         });
+    ///     }
+    /// }
+    ///
+    /// let mut app = Harness::new(Image { value: String::from("nginx:1.27") }, 40, 4);
+    /// assert!(app.screen().contains("Not pinned to a version"));
+    /// ```
+    #[must_use]
+    pub fn warning<S: Into<String>>(mut self, warning: Option<S>) -> Self {
+        self.warning = warning.map(Into::into);
         self
     }
 
@@ -128,14 +183,53 @@ impl<Msg: 'static> Field<Msg> {
         self.required && text::width(word) > column
     }
 
-    /// The hint or error lines at `width`, and whether they are an error.
-    fn message_lines(&self, width: u16, marker_width: u16) -> (Vec<String>, bool) {
-        match (&self.error, &self.hint) {
-            (Some(error), _) => (text::wrap(error, width.saturating_sub(marker_width + 1)), true),
-            (None, Some(hint)) => (text::wrap(hint, width), false),
-            (None, None) => (Vec::new(), false),
+    /// The message under the control, and the status it reports. The error takes the place from
+    /// the warning and the warning from the hint, so a control never says two things where one
+    /// fits.
+    fn message(&self) -> Option<Message<'_>> {
+        if let Some(error) = &self.error {
+            return Some(Message { text: error, kind: Some(ToastKind::Danger), style: "field-error" });
         }
+        if let Some(warning) = &self.warning {
+            return Some(Message { text: warning, kind: Some(ToastKind::Warning), style: "field-warning" });
+        }
+        self.hint.as_deref().map(|hint| Message { text: hint, kind: None, style: "field-hint" })
     }
+}
+
+/// The one sentence a field shows under its control.
+#[derive(Clone, Copy)]
+struct Message<'a> {
+    /// The sentence as the application wrote it.
+    text: &'a str,
+    /// The status the sentence reports, which gives it its sign and its colour; `None` for the
+    /// hint, which is neither a status nor a colour.
+    kind: Option<ToastKind>,
+    /// The style key the sign and the sentence take together.
+    style: &'static str,
+}
+
+impl Message<'_> {
+    /// The glyph that signs the sentence in this glyph mode; nothing for the hint.
+    fn sign(&self, env: &Env) -> Option<String> {
+        self.kind.map(|kind| env.icons().glyph(kind.icon()).into_owned())
+    }
+
+    /// The cells the sign and the gap after it take in front of the sentence, which is where the
+    /// hint starts when it has no sign.
+    fn indent(&self, sign_width: u16) -> u16 {
+        self.kind.map_or(0, |_| sign_width.saturating_add(1))
+    }
+
+    /// The lines the sentence takes in `width` cells, once the sign has had its part.
+    fn lines(&self, width: u16, sign_width: u16) -> Vec<String> {
+        text::wrap(self.text, width.saturating_sub(self.indent(sign_width)))
+    }
+}
+
+/// The width of the sign of `message` in the active glyph mode; nothing for the hint.
+fn sign_width(env: &Env, message: Option<&Message<'_>>) -> u16 {
+    message.map_or(0, |message| text::width(&message.sign(env).unwrap_or_default()))
 }
 
 impl<Msg: 'static> Container<Msg> for Field<Msg> {
@@ -165,7 +259,8 @@ fn required_word() -> String {
 
 impl<Msg: 'static> Widget<Msg> for Field<Msg> {
     fn measure(&self, cx: &mut MeasureCx<'_>, available: Size) -> Size {
-        let marker = text::width(&cx.env().icons().glyph("error"));
+        let message = self.message();
+        let sign_width = sign_width(cx.env(), message.as_ref());
         let label_width = text::width(&self.label);
         let required = if self.required { text::width(&required_word()) } else { 0 };
         let Some(body) = self.body.first() else {
@@ -175,7 +270,7 @@ impl<Msg: 'static> Widget<Msg> for Field<Msg> {
         if let Some(column) = self.beside(available.width, natural) {
             let control_width = available.width - column - LABEL_GAP;
             let control = cx.measure_child(body, Size::new(control_width, available.height));
-            let (lines, _) = self.message_lines(control_width, marker);
+            let lines = message.map(|message| message.lines(control_width, sign_width)).unwrap_or_default();
             let below = self.required_under_control(column, &required_word());
             let label_rows = 1 + u16::from(self.required && !below);
             let messages = clamp_u16(i32::try_from(lines.len()).unwrap_or(i32::MAX)).saturating_add(u16::from(below));
@@ -183,12 +278,13 @@ impl<Msg: 'static> Widget<Msg> for Field<Msg> {
             return Size::new(available.width, label_rows.max(right)).min(available);
         }
         let control = cx.measure_child(body, Size::new(available.width, available.height.saturating_sub(1)));
-        let (lines, error) = self.message_lines(available.width, marker);
-        let widest_line = lines.iter().map(|line| text::width(line)).max().unwrap_or(0).saturating_add(if error {
-            marker.saturating_add(1)
-        } else {
-            0
-        });
+        let lines = message.map(|message| message.lines(available.width, sign_width)).unwrap_or_default();
+        let widest_line = lines
+            .iter()
+            .map(|line| text::width(line))
+            .max()
+            .unwrap_or(0)
+            .saturating_add(message.map_or(0, |message| message.indent(sign_width)));
         let label_line = label_width.saturating_add(if self.required { required.saturating_add(2) } else { 0 });
         let height = cells::sum([1, control.height, clamp_u16(i32::try_from(lines.len()).unwrap_or(i32::MAX))]);
         Size::new(label_line.max(control.width).max(widest_line), height).min(available)
@@ -198,8 +294,9 @@ impl<Msg: 'static> Widget<Msg> for Field<Msg> {
         let Some(body) = self.body.first() else {
             return;
         };
-        let marker = cx.env().icons().glyph("error").into_owned();
-        let marker_width = text::width(&marker);
+        let message = self.message();
+        let sign = message.as_ref().and_then(|message| message.sign(cx.env()));
+        let sign_width = sign_width(cx.env(), message.as_ref());
         let required = required_word();
         let natural = cx.measure_child(body, Size::new(UNBOUNDED, area.height)).width;
         let parts = match self.beside(area.width, natural) {
@@ -254,19 +351,22 @@ impl<Msg: 'static> Widget<Msg> for Field<Msg> {
             cx.text(rect.x, rect.y, &word, style, rect.width);
         }
 
-        let (lines, error) = self.message_lines(parts.message_width, marker_width);
-        // The hint starts under the required word when the word sits under the control.
+        // The message starts under the required word when the word sits under the control.
         let top = match parts.required {
             Some(rect) if rect.x == parts.control.x && rect.y >= parts.control.bottom() => rect.bottom(),
             _ => parts.control.bottom(),
         };
-        let indent = if error { i32::from(marker_width) + 1 } else { 0 };
-        let style = cx.style(if error { "field-error" } else { "field-hint" }, None, &states).text();
-        if error {
-            cx.text(parts.message_x, top, &marker, style, marker_width);
+        let Some(message) = message else { return };
+        let indent = i32::from(message.indent(sign_width));
+        let mut style = cx.style(message.style, None, &states).text();
+        // A theme that gives the message no colour of its own still gets the tone of the status it
+        // reports, so a warning never reads as the hint it stands in for.
+        style.fg = style.fg.or(message.kind.map(|kind| cx.color(kind.name())));
+        if let Some(sign) = &sign {
+            cx.text(parts.message_x, top, sign, style, sign_width);
         }
         let width = clamp_u16(i32::from(parts.message_width) - indent);
-        for (y, line) in (top..).zip(lines) {
+        for (y, line) in (top..).zip(message.lines(parts.message_width, sign_width)) {
             cx.text(parts.message_x + indent, y, &line, style, width);
         }
     }

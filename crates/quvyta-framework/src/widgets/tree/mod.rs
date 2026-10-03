@@ -1,12 +1,13 @@
 //! Trees: nested rows that open and close, flattened to what is visible and virtualised.
 
+use crate::env::Env;
 use crate::event::{Event, MouseButton, MouseKind};
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::keymap::Key;
 use crate::style::{CellStyle, WidgetStyle};
 use crate::text;
 use crate::theme::State;
-use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
+use crate::widget::{EventCx, MeasureCx, PaintCx, Widget, WidgetKey};
 
 use super::click::Click;
 use super::delayed::DelayedIndicator;
@@ -139,6 +140,11 @@ impl TreeNode {
     }
 }
 
+/// Whether a node has children to open, or may have them when they are loaded.
+fn expandable(node: &TreeNode) -> bool {
+    node.expandable || node.children.iter().any(expandable)
+}
+
 /// A visible row of the flattened tree.
 struct Flat<'a> {
     node: &'a TreeNode,
@@ -204,8 +210,9 @@ type MenuItems<Msg> = Box<dyn Fn(&str) -> Vec<ContextItem<Msg>>>;
 /// Keys while focused: ↑/↓ or k/j, PgUp/PgDn, Home/End move (↑/↓ round the ends with
 /// [`wrap`](Self::wrap)); → opens a node or moves to its
 /// first child; ← closes it or moves to its parent; Enter opens or closes a node with children
-/// and activates a leaf; Space activates. A click selects a row and opens, closes or activates
-/// it like Enter; a click on the chevron only opens or closes. With
+/// and activates a leaf; Space activates. These are the keys a [`HelpLayer`](super::HelpLayer)
+/// lists for a tree with the focus, so a screen needs no hint for them. A click selects a row and
+/// opens, closes or activates it like Enter; a click on the chevron only opens or closes. With
 /// [`activate_on(Click::Double)`](Self::activate_on) a click only selects and a double click does
 /// what Enter does, while the chevron still opens and closes with one click.
 ///
@@ -835,5 +842,21 @@ impl<Msg: 'static> Widget<Msg> for Tree<Msg> {
 
     fn focusable(&self) -> bool {
         !self.roots.is_empty()
+    }
+
+    fn keys(&self, env: &Env) -> Vec<WidgetKey> {
+        let i18n = env.i18n();
+        let mut keys = rows::declared_keys(env);
+        // Only a tree told what to do with a node's children opens and closes them at all.
+        let folds = self.on_expand.is_some() && self.roots.iter().any(expandable);
+        if folds {
+            keys.push(WidgetKey::new(rows::left_right(env), i18n.translate("quvyta.widget.fold", &[])));
+        }
+        // Enter opens a node with children and activates a leaf, so it means something as soon as
+        // the tree can do either.
+        if folds || self.on_activate.is_some() {
+            keys.push(WidgetKey::new("enter", i18n.translate("quvyta.widget.open", &[])));
+        }
+        keys
     }
 }

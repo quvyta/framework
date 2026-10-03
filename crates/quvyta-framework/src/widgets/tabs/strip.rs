@@ -73,6 +73,11 @@ impl<Msg: 'static> Tabs<Msg> {
         self.badge_text(index).map_or(0, |text| text::width(&text).saturating_add(1))
     }
 
+    /// Whether tab `index` shows a mark before its name: busy, or with a status.
+    pub(super) fn marked(&self, index: usize) -> bool {
+        self.busy.get(index).copied().unwrap_or(false) || self.statuses.get(index).is_some_and(Option::is_some)
+    }
+
     pub(super) fn close_width(&self, index: usize) -> u16 {
         if self.model.closable(index) { CLOSE } else { 0 }
     }
@@ -91,8 +96,17 @@ impl<Msg: 'static> Tabs<Msg> {
         ])
     }
 
+    /// The narrowest a tab can be: its number, one cell of name, its count and close mark. A mark
+    /// takes the cell its name would slide into, which a tab this narrow does not have.
     fn min_width(&self, index: usize) -> u16 {
-        cells::sum([self.number_width(index), 1, self.badge_width(index), PAD * 2, self.close_width(index)])
+        cells::sum([
+            self.number_width(index),
+            1,
+            self.badge_width(index),
+            PAD * 2,
+            self.close_width(index),
+            u16::from(self.marked(index)),
+        ])
     }
 
     /// The room every tab needs to show at all, cut short.
@@ -114,7 +128,11 @@ impl<Msg: 'static> Tabs<Msg> {
                     .map(|i| {
                         let bonus = u16::from(u16::try_from(i).unwrap_or(u16::MAX) < extra);
                         let floor = self.fit_width(i).min(FILL_MIN).max(self.min_width(i));
-                        (share + bonus).max(floor)
+                        // A tab is never narrower than the room it needs to show at all, so a cap
+                        // under that is ignored rather than cutting a number, a count or a close
+                        // mark in half.
+                        let ceiling = self.max_width.unwrap_or(u16::MAX).max(floor);
+                        (share + bonus).max(floor).min(ceiling)
                     })
                     .collect()
             }

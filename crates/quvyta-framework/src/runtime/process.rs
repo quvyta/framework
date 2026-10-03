@@ -14,10 +14,13 @@
 //!
 //! Output nobody reads line by line is the other kind: a build's whole log, a program's answer,
 //! a flood of progress. [`Process::collect`] runs the child the same way but keeps only the end
-//! of what it wrote, within [`Keep`], and gives it back as one piece of text.
+//! of what it wrote, within [`Keep`], and gives it back as one piece of text. Output nobody reads
+//! at all is the last kind: [`Process::stdout_to`] hands the child's standard output to a file of
+//! the application, so an archive unpacked into one costs nothing of the application's memory.
 
 use std::collections::VecDeque;
 use std::ffi::OsString;
+use std::fs::File;
 use std::io::{self, Read};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -54,7 +57,8 @@ const QUEUE: usize = 1024;
 /// # Ok::<(), std::io::Error>(())
 /// ```
 ///
-/// For output that is not read line by line, [`Process::collect`] keeps only the end of it.
+/// For output that is not read line by line, [`Process::collect`] keeps only the end of it, and
+/// [`Process::stdout_to`] writes it into a file of the application's without reading it at all.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Process {
     program: OsString,
@@ -63,9 +67,26 @@ pub struct Process {
     env: Vec<(OsString, OsString)>,
     pty: Option<(u16, u16)>,
     no_stdin: bool,
+    /// The file the child's standard output is written to, when one was named.
+    out: Option<Out>,
     /// The child gets nothing of the environment but what was named with `env`.
     cleared: bool,
 }
+
+/// The file a child's standard output is written to, shared so that a [`Process`] stays `Clone`.
+///
+/// A `File` is neither `Clone` nor comparable, and two of these are equal when they are the same
+/// file, which is as far as a builder that names one needs to go.
+#[derive(Debug, Clone)]
+struct Out(Arc<File>);
+
+impl PartialEq for Out {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for Out {}
 
 /// Where a line came from. With a pseudo-terminal both streams share one line, so only
 /// [`Line::Out`] appears.
@@ -102,6 +123,7 @@ pub struct Keep {
     bytes: usize,
     lines: Option<usize>,
     limit: Option<Duration>,
+    after_exit: Option<Duration>,
 }
 
 impl Keep {
@@ -111,7 +133,7 @@ impl Keep {
     /// bytes is a way of asking for the outcome alone.
     #[must_use]
     pub fn bytes(bytes: usize) -> Self {
-        Self { bytes, lines: None, limit: None }
+        Self { bytes, lines: None, limit: None, after_exit: None }
     }
 
     /// Keeps at most `lines` lines as well, the last of them. The line a program is still writing
@@ -130,7 +152,28 @@ impl Keep {
         self.limit = Some(limit);
         self
     }
+
+    /// Stops waiting for the output `wait` after the child itself has ended, for a command that
+    /// leaves something running behind it, such as `npm run dev &` or `(sleep 4; …) &`, which
+    /// keeps the output open long after the command is done. Once the child has ended and its
+    /// output is still open after `wait`, its process group is ended (with [`Process::no_stdin`]
+    /// on Unix) and what was kept comes back with the child's own exit code; it is not a time
+    /// limit, so [`Collected::timed_out`] stays `false`.
+    ///
+    /// It is also the grace a stop gives: a cancel or [`Keep::limit`] first asks the child (and
+    /// its group) to end with `TERM`, so a build or a test run can clean up after itself, and
+    /// only ends it with `KILL` when it is still there after `wait`. Without it the grace is two
+    /// seconds.
+    #[must_use]
+    pub fn after_exit(mut self, wait: Duration) -> Self {
+        self.after_exit = Some(wait);
+        self
+    }
 }
+
+/// How long a stopped child is given to end by itself after `TERM` before it is killed, unless
+/// [`Keep::after_exit`] says otherwise.
+const GRACE: Duration = Duration::from_secs(2);
 
 /// What a child wrote, kept to what [`Keep`] asked for, and how it ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,6 +205,7 @@ impl Process {
             env: Vec::new(),
             pty: None,
             no_stdin: false,
+            out: None,
             cleared: false,
         }
     }
@@ -255,6 +299,40 @@ impl Process {
         self
     }
 
+    /// Sends the child's standard output straight to `file`, so a program that writes a lot of it
+    /// costs the application nothing: a `gzip -dc` unpacking an archive, a `tar` writing an
+    /// artefact, a program's answer written where it belongs. The child writes into the file
+    /// itself and not one byte of it passes through the application's memory, however big it is.
+    ///
+    /// Only the error stream is read, so a failure stays recognisable as a failure: with
+    /// [`Process::collect`] the text is the end of what the child wrote there, within [`Keep`], and
+    /// with [`Process::run`] every line of it arrives as [`Line::Err`]. The file is used as it is,
+    /// so the child writes at the position the descriptor already has, and nothing of the file is
+    /// trimmed, read or finished by us: what it holds when the child ends is what the program
+    /// wrote. Ending the child ends it the way it always is, so a cancel and a [`Keep::limit`]
+    /// take the process group with it and nothing more reaches the file.
+    ///
+    /// [`Process::pty`] takes the child's standard output instead, since on a pseudo-terminal that
+    /// stream is the terminal itself.
+    ///
+    /// ```no_run
+    /// use std::fs::File;
+    /// use std::time::Duration;
+    /// use qframe::runtime::{Keep, Process};
+    ///
+    /// let file = File::create("unpacked.sql")?;
+    /// let keep = Keep::bytes(4096).limit(Duration::from_secs(30));
+    /// let collected = Process::new("xz").args(["-dc", "dump.sql.xz"]).no_stdin()
+    ///     .stdout_to(file)
+    ///     .collect(keep, &|| false)?;
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    #[must_use]
+    pub fn stdout_to(mut self, file: File) -> Self {
+        self.out = Some(Out(Arc::new(file)));
+        self
+    }
+
     /// Runs the child, handing every line to `on_line`, and returns how it ended.
     ///
     /// Lines arrive one by one, without their newline. A `\r` overwrites the line being built
@@ -345,7 +423,7 @@ impl Process {
         let (sender, receiver) = mpsc::sync_channel(QUEUE);
         let mut child = match self.pty {
             Some(size) => spawn_on_pty(command, size, &sender, frames, group)?,
-            None => spawn_on_pipes(command, &sender, frames, group)?,
+            None => spawn_on_pipes(command, self.out.as_ref(), &sender, frames, group)?,
         };
         // The readers hold the only remaining senders, so the channel ends when they do.
         drop(sender);
@@ -387,6 +465,8 @@ impl Process {
     /// the terminal itself, as they always do there. Nothing is delivered line by line: the point
     /// is to hold the end of the output, so a program that prints megabytes, a build's whole log,
     /// a flood of progress, costs no more memory than [`Keep`] asks for however long it writes.
+    /// A file named for the output with [`Process::stdout_to`] is the exception: the file gets the
+    /// standard output as it is and only the error stream is read and kept.
     ///
     /// [`Keep::limit`] ends the child the way `cancel` does, its process group too where
     /// [`Process::no_stdin`] asked for one, and both give back the output kept so far in bounded
@@ -412,35 +492,108 @@ impl Process {
     ///
     /// The same as [`Process::run`].
     pub fn collect(self, keep: Keep, cancel: &dyn Fn() -> bool) -> io::Result<Collected> {
-        let Keep { bytes, lines, limit } = keep;
+        self.collect_inner(keep, cancel, None)
+    }
+
+    /// [`collect`](Self::collect), handing the end of the output kept so far to `on_tail` while
+    /// the child runs, so a person sees a build or a test run go by rather than a turning wheel:
+    /// once new output has come, and at most every 100 ms. The text is what [`Keep`] holds at
+    /// that moment, cut as it cuts, so a call never sees more lines than it keeps. A child that
+    /// writes nothing is never called about. `on_tail` runs on the calling thread, inside the
+    /// task, so send what it is given on from there.
+    ///
+    /// ```no_run
+    /// use qframe::runtime::{Keep, Process};
+    ///
+    /// let collected = Process::new("cargo").args(["test"]).no_stdin()
+    ///     .collect_watching(Keep::bytes(8192).lines(3), &|| false, |tail| eprintln!("{tail}"))?;
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Process::run`].
+    pub fn collect_watching(
+        self,
+        keep: Keep,
+        cancel: &dyn Fn() -> bool,
+        mut on_tail: impl FnMut(&str),
+    ) -> io::Result<Collected> {
+        self.collect_inner(keep, cancel, Some(&mut on_tail))
+    }
+
+    fn collect_inner(
+        self,
+        keep: Keep,
+        cancel: &dyn Fn() -> bool,
+        mut on_tail: Option<&mut dyn FnMut(&str)>,
+    ) -> io::Result<Collected> {
+        let Keep { bytes, lines, limit, after_exit } = keep;
+        let grace = after_exit.unwrap_or(GRACE);
         let group = self.no_stdin && cfg!(unix);
         let command = self.command(group);
-        let merged = Arc::new(Mutex::new(Merged { tail: Tail::new(bytes, lines), open: true }));
+        let merged = Arc::new(Mutex::new(Merged { tail: Tail::new(bytes, lines), open: true, fed: 0 }));
+        // The amount of output a watcher was last told about, and when.
+        let (mut told, mut told_at) = (0u64, Instant::now() - WATCH_EVERY);
         let mut child = match self.pty {
             Some(size) => spawn_merged_on_pty(command, size, group, &merged)?,
-            None => spawn_merged(command, group, &merged)?,
+            None => spawn_merged(command, self.out.as_ref(), group, &merged)?,
         };
         let deadline = limit.map(|limit| Instant::now() + limit);
         // The stream ending is not the child ending: it may have closed its output and kept
         // running. The loop waits in short steps and asks both again in each of them, so nothing
         // waits for a child that will not answer.
+        // When the child itself ended while something it started still holds the output open.
+        let mut ended: Option<(Instant, Option<i32>)> = None;
         let (outcome, timed_out, cancelled) = loop {
             if cancel() {
-                kill(&mut child, group);
+                stop(&mut child, group, grace, &merged);
                 break (ProcessOutcome::Cancelled, false, true);
             }
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                kill(&mut child, group);
+                stop(&mut child, group, grace, &merged);
                 break (ProcessOutcome::Finished { code: None }, true, false);
             }
-            if !lock(&merged).open
+            let open = lock(&merged).open;
+            if let Some(on_tail) = on_tail.as_mut()
+                && told_at.elapsed() >= WATCH_EVERY
+            {
+                let fresh = {
+                    let mut merged = lock(&merged);
+                    (merged.fed != told).then(|| (merged.fed, merged.tail.text()))
+                };
+                if let Some((fed, text)) = fresh {
+                    on_tail(&text);
+                    (told, told_at) = (fed, Instant::now());
+                }
+            }
+            if ended.is_none()
                 && let Some(status) = child.try_wait()?
             {
-                break (ProcessOutcome::Finished { code: status.code() }, false, false);
+                ended = Some((Instant::now(), status.code()));
+            }
+            if let Some((at, code)) = ended {
+                if !open {
+                    break (ProcessOutcome::Finished { code }, false, false);
+                }
+                // What the child left behind keeps the output open; past the wait it goes, and
+                // the command is reported as the command ended.
+                if let Some(wait) = after_exit
+                    && at.elapsed() >= wait
+                {
+                    kill(&mut child, group);
+                    break (ProcessOutcome::Finished { code }, false, false);
+                }
             }
             std::thread::sleep(POLL);
         };
         let mut merged = lock(&merged);
+        // The last of the output may have come after the watcher was last told; it hears the end.
+        if let Some(on_tail) = on_tail
+            && merged.fed != told
+        {
+            on_tail(&merged.tail.text());
+        }
         Ok(Collected { text: merged.tail.text(), trimmed: merged.tail.trimmed, outcome, timed_out, cancelled })
     }
 
@@ -481,6 +634,31 @@ enum Sent {
     Overwritten(Line),
 }
 
+/// Asks the child, and with `group` its whole process group, to end with `TERM`, gives it `grace`
+/// to do so and to say its last words, then kills what is left. A build or a test run that is
+/// stopped can clean up after itself this way; one that does not listen is ended all the same.
+fn stop(child: &mut Child, group: bool, grace: Duration, merged: &Mutex<Merged>) {
+    #[cfg(unix)]
+    {
+        let pid = rustix::process::Pid::from_child(child);
+        // Fails only when nothing is left to ask; the kill below ends what is there in any case.
+        let _ = if group {
+            rustix::process::kill_process_group(pid, rustix::process::Signal::TERM)
+        } else {
+            rustix::process::kill_process(pid, rustix::process::Signal::TERM)
+        };
+        let end = Instant::now() + grace;
+        // The child ending is not all of it: what it wrote on its way out is still in the pipe,
+        // so the wait goes on until the output closes too, or the grace is over.
+        while Instant::now() < end && (child.try_wait().ok().flatten().is_none() || lock(merged).open) {
+            std::thread::sleep(POLL);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (grace, merged);
+    kill(child, group);
+}
+
 /// Kills the child, and with `group` every process still in its process group, and waits for the
 /// child so it leaves nothing behind.
 fn kill(child: &mut Child, group: bool) {
@@ -501,16 +679,35 @@ fn kill(child: &mut Child, group: bool) {
 }
 
 /// Starts the child with a pipe per stream and a reading thread for each, so a failure stays
-/// recognisable as one.
-fn spawn_on_pipes(mut command: Command, sender: &SyncSender<Sent>, frames: bool, group: bool) -> io::Result<Child> {
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+/// recognisable as one. A file named for the output is that stream as it is: its descriptor is
+/// cloned for the child and only the error stream has a reader, so a failure is all that reaches
+/// the application.
+fn spawn_on_pipes(
+    mut command: Command,
+    out: Option<&Out>,
+    sender: &SyncSender<Sent>,
+    frames: bool,
+    group: bool,
+) -> io::Result<Child> {
+    match out {
+        // The child's own descriptor for the file, so it writes at the position this one has and
+        // the application keeps its end where it was.
+        Some(file) => command.stdout(Stdio::from(file.0.try_clone()?)),
+        None => command.stdout(Stdio::piped()),
+    };
+    command.stderr(Stdio::piped());
     let mut child = command.spawn()?;
     drop(command);
-    let taken = child.stdout.take().zip(child.stderr.take());
-    let started = match taken {
-        Some((out, err)) => spawn_reader("out", out, Line::Out, frames, sender.clone())
-            .and_then(|()| spawn_reader("err", err, Line::Err, frames, sender.clone())),
-        None => Err(io::Error::other("the child was started without its pipes")),
+    let started = match out {
+        Some(_) => match child.stderr.take() {
+            Some(err) => spawn_reader("err", err, Line::Err, frames, sender.clone()),
+            None => Err(io::Error::other("the child was started without its pipes")),
+        },
+        None => match child.stdout.take().zip(child.stderr.take()) {
+            Some((out, err)) => spawn_reader("out", out, Line::Out, frames, sender.clone())
+                .and_then(|()| spawn_reader("err", err, Line::Err, frames, sender.clone())),
+            None => Err(io::Error::other("the child was started without its pipes")),
+        },
     };
     match started {
         Ok(()) => Ok(child),
@@ -559,10 +756,15 @@ fn spawn_on_pty(
 }
 
 /// Starts the child with one pipe carrying both of its streams, so what it writes is read in the
-/// order it wrote it, and a thread that keeps only the end of it.
-fn spawn_merged(mut command: Command, group: bool, merged: &Shared) -> io::Result<Child> {
+/// order it wrote it, and a thread that keeps only the end of it. A file named for the output is
+/// that stream as it is, so the pipe carries the error stream alone and the file gets the rest.
+fn spawn_merged(mut command: Command, out: Option<&Out>, group: bool, merged: &Shared) -> io::Result<Child> {
     let (reader, writer) = io::pipe()?;
-    command.stdout(writer.try_clone()?).stderr(writer);
+    command.stdout(match out {
+        Some(file) => Stdio::from(file.0.try_clone()?),
+        None => Stdio::from(writer.try_clone()?),
+    });
+    command.stderr(writer);
     let mut child = command.spawn()?;
     // The command holds the write end of the pipe until it is dropped, and while it is open the
     // reading end never reaches its end of file.
@@ -604,7 +806,6 @@ fn spawn_merged_on_pty(mut command: Command, size: (u16, u16), _group: bool, _me
 /// it and hands back the one stream they land on.
 #[cfg(unix)]
 fn open_pty(command: &mut Command, (cols, rows): (u16, u16)) -> io::Result<std::fs::File> {
-    use std::fs::File;
     use std::os::fd::OwnedFd;
 
     use rustix::fs::{Mode, OFlags};
@@ -700,7 +901,12 @@ fn spawn_collector(source: impl Read + Send + 'static, merged: Shared) -> io::Re
 struct Merged {
     tail: Tail,
     open: bool,
+    /// Counts the reads fed to the tail, so a watcher is told only about output it has not seen.
+    fed: u64,
 }
+
+/// The shortest time between two calls of a [`Process::collect_watching`] watcher.
+const WATCH_EVERY: Duration = Duration::from_millis(100);
 
 /// The one stream, shared by the thread that reads it and the caller that waits for it.
 type Shared = Arc<Mutex<Merged>>;
@@ -716,7 +922,11 @@ fn read_tail(mut source: impl Read, merged: &Shared) {
     loop {
         match source.read(&mut chunk) {
             Ok(0) => break,
-            Ok(count) => lock(merged).tail.feed(&chunk[..count]),
+            Ok(count) => {
+                let mut merged = lock(merged);
+                merged.tail.feed(&chunk[..count]);
+                merged.fed += 1;
+            }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             // A pseudo-terminal answers with an I/O error once the child's side is gone, and a
             // broken pipe says the same thing; both are the end of the stream.
@@ -919,6 +1129,8 @@ impl Lines {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -939,6 +1151,15 @@ mod tests {
     /// Runs `process` to its end and keeps only the end of what it wrote, never cancelling.
     fn collect(process: Process, keep: Keep) -> Collected {
         process.collect(keep, &|| false).expect("the shell starts")
+    }
+
+    /// A folder of its own for a test, empty at the start, so nothing is written to the folders of
+    /// the person the tests run as.
+    fn folder(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("quvyta-process-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("test folder");
+        dir
     }
 
     #[test]
@@ -1206,9 +1427,7 @@ mod tests {
 
     #[test]
     fn a_flood_of_output_waits_for_the_reader_instead_of_piling_up() {
-        let dir = std::env::temp_dir().join(format!("quvyta-process-flood-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("test directory");
+        let dir = folder("flood");
         let marker = dir.join("done");
         let script = format!("yes | head -n 200000; touch '{}'", marker.display());
         let mut first = true;
@@ -1442,6 +1661,132 @@ mod tests {
         assert_eq!(collected.text, "");
         assert_eq!(collected.outcome, ProcessOutcome::Finished { code: Some(0) });
         assert!(collected.trimmed);
+    }
+
+    #[test]
+    fn the_standard_output_can_go_straight_to_a_file_and_only_the_error_stream_is_kept() {
+        let dir = folder("into-file");
+        let path = dir.join("unpacked.bin");
+        // Eight megabytes of output and three hundred lines of failure, written one after the
+        // other, so what the file holds and what is kept cannot be each other's.
+        let script = "head -c 8388608 /dev/zero; \
+                      n=0; while [ \"$n\" -lt 300 ]; do printf 'satir %s\\n' \"$n\" >&2; n=$((n+1)); done";
+        let file = File::create(&path).expect("the file is created");
+        let collected = collect(Process::new("sh").args(["-c", script]).stdout_to(file), Keep::bytes(64));
+        assert_eq!(collected.outcome, ProcessOutcome::Finished { code: Some(0) });
+        assert_eq!(
+            std::fs::metadata(&path).expect("the file is there").len(),
+            8_388_608,
+            "every byte of it is in the file"
+        );
+        // Only the error stream was read, and only the end of it: the flood never passed through.
+        assert_eq!(collected.text.len(), 64, "{}", collected.text);
+        assert!(collected.text.ends_with("satir 299\n"), "the newest line is kept: {}", collected.text);
+        assert!(!collected.text.contains("satir 1"), "the older lines fell out: {}", collected.text);
+        assert!(collected.trimmed);
+        std::fs::remove_dir_all(&dir).expect("clean");
+    }
+
+    #[test]
+    fn a_file_named_for_the_output_leaves_the_error_stream_the_only_one_to_read() {
+        let dir = folder("into-file-lines");
+        let path = dir.join("out.txt");
+        let file = File::create(&path).expect("the file is created");
+        let (lines, outcome) = run(Process::new("sh").args(["-c", "printf cikti; printf hata >&2"]).stdout_to(file));
+        assert_eq!(lines, vec![Line::Err("hata".to_owned())], "the output went to the file: {lines:?}");
+        assert_eq!(std::fs::read_to_string(&path).expect("the file is there"), "cikti");
+        assert_eq!(outcome, ProcessOutcome::Finished { code: Some(0) });
+        std::fs::remove_dir_all(&dir).expect("clean");
+    }
+
+    #[test]
+    fn a_cancelled_child_writes_nothing_more_to_the_file() {
+        let dir = folder("into-file-cancel");
+        let path = dir.join("flood.bin");
+        let file = File::create(&path).expect("the file is created");
+        let script = "while :; do printf '0123456789012345678901234567890123456789'; done";
+        let started = std::time::Instant::now();
+        let process = Process::new("sh").args(["-c", script]).no_stdin().stdout_to(file);
+        let collected = process
+            .collect(Keep::bytes(1024), &|| started.elapsed() > Duration::from_millis(500))
+            .expect("the shell starts");
+        assert!(collected.cancelled && !collected.timed_out, "{collected:?}");
+        let size = || std::fs::metadata(&path).expect("the file is there").len();
+        let stopped = size();
+        assert!(stopped > 0, "the child wrote into the file before it was cancelled");
+        // The process group went with the cancel, so the file cannot grow again. Generous, and
+        // still finite: a child that is really gone writes nothing at all.
+        for _ in 0..10 {
+            std::thread::sleep(Duration::from_millis(200));
+            assert_eq!(size(), stopped, "the file grew after the child was cancelled");
+        }
+        std::fs::remove_dir_all(&dir).expect("clean");
+    }
+
+    #[test]
+    fn a_command_that_leaves_something_behind_is_done_once_it_has_ended() {
+        let dir = folder("after-exit");
+        let started = std::time::Instant::now();
+        let collected = Process::new("sh")
+            .args(["-c", "(sleep 4; printf late > late.txt) & printf done"])
+            .dir(&dir)
+            .no_stdin()
+            .collect(Keep::bytes(1024).after_exit(Duration::from_secs(2)), &|| false)
+            .expect("the shell starts");
+        assert!(started.elapsed() < Duration::from_secs(15), "it did not wait for what it left behind");
+        assert_eq!(collected.text, "done");
+        assert_eq!(collected.outcome, ProcessOutcome::Finished { code: Some(0) });
+        assert!(!collected.timed_out && !collected.cancelled, "{collected:?}");
+        // What it left behind went with its group, so it never writes its file.
+        std::thread::sleep(Duration::from_secs(6));
+        assert!(!dir.join("late.txt").exists(), "the program left behind was ended");
+        std::fs::remove_dir_all(&dir).expect("clean");
+    }
+
+    #[test]
+    fn a_stopped_child_is_asked_first_and_has_its_last_words_kept() {
+        let started = std::time::Instant::now();
+        let collected = Process::new("sh")
+            .args(["-c", "trap 'printf bye; exit 0' TERM; sleep 30 & wait"])
+            .no_stdin()
+            .collect(Keep::bytes(1024), &|| started.elapsed() > Duration::from_secs(1))
+            .expect("the shell starts");
+        assert!(collected.cancelled, "{collected:?}");
+        assert!(collected.text.contains("bye"), "TERM came first and what it said is kept: {collected:?}");
+        assert!(started.elapsed() < Duration::from_secs(15), "and the stop is bounded");
+    }
+
+    #[test]
+    fn a_watcher_sees_the_output_go_by_while_the_child_runs() {
+        let mut seen = Vec::new();
+        let collected = Process::new("sh")
+            .args(["-c", "printf a; sleep 1; printf b; sleep 1; printf c"])
+            .no_stdin()
+            .collect_watching(Keep::bytes(1024), &|| false, |tail| seen.push(tail.to_owned()))
+            .expect("the shell starts");
+        assert_eq!(collected.text, "abc");
+        assert!(seen.len() >= 2, "told more than once while it ran: {seen:?}");
+        assert!(seen.iter().any(|tail| tail.contains('a') && !tail.contains('c')), "before the end: {seen:?}");
+        assert_eq!(seen.last().map(String::as_str), Some("abc"), "and the last call has it all: {seen:?}");
+    }
+
+    #[test]
+    fn a_watcher_sees_no_more_lines_than_are_kept_and_nothing_of_a_silent_child() {
+        let mut seen = Vec::new();
+        Process::new("sh")
+            .args(["-c", "printf '1\\n2\\n'; sleep 0.3; printf '3\\n4\\n'"])
+            .no_stdin()
+            .collect_watching(Keep::bytes(1024).lines(2), &|| false, |tail| seen.push(tail.to_owned()))
+            .expect("the shell starts");
+        assert!(!seen.is_empty());
+        assert!(seen.iter().all(|tail| tail.lines().count() <= 2), "{seen:?}");
+        let mut silent = 0;
+        Process::new("sleep")
+            .args(["1"])
+            .no_stdin()
+            .collect_watching(Keep::bytes(1024), &|| false, |_| silent += 1)
+            .expect("sleep starts");
+        assert_eq!(silent, 0, "nothing written, nothing told");
     }
 
     #[test]

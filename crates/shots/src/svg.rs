@@ -56,6 +56,10 @@ impl Fills {
     }
 }
 
+/// What a character no embedded face has is drawn as: the white vertical rectangle, the box a
+/// terminal shows in its place.
+const MISSING: char = '\u{25AF}';
+
 /// Glyph outlines, defined once each, and where they are placed, grouped by colour.
 #[derive(Default)]
 struct Glyphs {
@@ -75,12 +79,16 @@ struct Slot {
 
 impl Glyphs {
     /// Places character `c` centred in `slot`. A glyph narrower than its cells, such as a CJK
-    /// glyph in two, sits in their middle as a terminal draws it.
+    /// glyph in two, sits in their middle as a terminal draws it. A character no face has is
+    /// noted as missing and drawn as [`MISSING`], the box a terminal shows for it, so the cell
+    /// still says that something stands there.
     fn place(&mut self, c: char, bold: bool, italic: bool, color: Rgb, slot: Slot) {
         // Writing into a `String` cannot fail, so there is no error here to carry anywhere; the
         // results are dropped for that reason and no other.
-        let Some((key, advance)) = font::glyph(c, bold) else {
+        let Some((key, advance)) = font::glyph(c, bold).or_else(|| {
             self.missing.insert(c);
+            font::glyph(MISSING, bold)
+        }) else {
             return;
         };
         let key = GlyphKey { italic, ..key };

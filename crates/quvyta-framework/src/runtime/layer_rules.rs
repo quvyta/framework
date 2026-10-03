@@ -419,3 +419,81 @@ mod batches {
         assert!(h.app().chosen.is_empty(), "the press landed where the closed submenu was drawn");
     }
 }
+
+// A dialog closing in the same update that asks for focus elsewhere: the command wins over the
+// focus the dialog would hand back, whether or not its target was already on screen.
+mod focus_command_on_close {
+    use crate::runtime::{App, Command, Harness};
+    use crate::widget::View;
+    use crate::widgets::{Button, List, ListItem, Modal};
+
+    #[derive(Default)]
+    struct Providers {
+        names: Vec<&'static str>,
+        dialog: bool,
+        focus_list: bool,
+    }
+
+    #[derive(Clone)]
+    enum Msg {
+        Open,
+        Add,
+        Close,
+    }
+
+    impl App for Providers {
+        type Msg = Msg;
+        fn update(&mut self, msg: Msg) -> Command<Msg> {
+            match msg {
+                Msg::Open => self.dialog = true,
+                Msg::Close => self.dialog = false,
+                Msg::Add => {
+                    self.dialog = false;
+                    self.names.push(if self.names.is_empty() { "first" } else { "second" });
+                    if self.focus_list {
+                        return Command::focus("list");
+                    }
+                }
+            }
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, Msg>) {
+            ui.column(|ui| {
+                ui.add(Button::new("Add provider").on_press(Msg::Open)).id("add");
+                if !self.names.is_empty() {
+                    let items = self.names.iter().map(|name| ListItem::new(*name));
+                    ui.add(List::new(items).selected(Some(self.names.len() - 1))).id("list");
+                }
+                if self.dialog {
+                    ui.add_with(Modal::new().title("New provider").on_close(Msg::Close), |ui| {
+                        ui.add(Button::new("Save").on_press(Msg::Add)).id("save");
+                    });
+                }
+            });
+        }
+    }
+
+    fn add_one(h: &mut Harness<Providers>) {
+        h.click_text("Add provider");
+        assert!(h.screen().contains("New provider"), "{}", h.screen());
+        h.click_text("Save");
+        assert!(!h.screen().contains("New provider"), "{}", h.screen());
+    }
+
+    #[test]
+    fn focus_asked_by_the_update_that_closes_a_dialog_stays_where_it_was_asked() {
+        let mut h = Harness::new(Providers { focus_list: true, ..Providers::default() }, 40, 12);
+        add_one(&mut h);
+        assert!(h.is_focused("list"), "the list appeared with the update");
+        add_one(&mut h);
+        assert!(h.is_focused("list"), "the list was already on screen when the dialog closed");
+    }
+
+    #[test]
+    fn without_a_focus_command_a_closing_dialog_hands_focus_back_to_its_opener() {
+        let mut h = Harness::new(Providers::default(), 40, 12);
+        add_one(&mut h);
+        add_one(&mut h);
+        assert!(h.is_focused("add"));
+    }
+}

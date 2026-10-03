@@ -1,11 +1,14 @@
 //! Drawing a [`Tabs`] strip: the tabs, the dragged ghost, the scroll arrows and the menu control.
 
+use std::time::Duration;
+
 use crate::geometry::{Rect, clamp_u16};
 use crate::style::CellStyle;
 use crate::text;
 use crate::theme::State;
 use crate::widget::PaintCx;
 
+use super::super::SpinnerStyle;
 use super::super::tab_model::{self, Drag};
 use super::strip::Strip;
 use super::{Arrow, PAD, PopupMenu, Tabs, TabsMemory, close_mark};
@@ -27,7 +30,8 @@ impl<Msg: 'static> Tabs<Msg> {
         }
         let number_style = if self.numbered { cx.style("tab-index", None, states).text() } else { style };
         let badge_style = cx.style("tab-badge", None, states).text();
-        let label = LabelStyles { number: number_style, name: style, badge: CellStyle { bg: None, ..badge_style } };
+        let label =
+            LabelStyles { number: number_style, name: style, badge: CellStyle { bg: None, ..badge_style }, mark: None };
         self.paint_label(cx, rect, index, position, rest, label);
         if self.model.closable(index) {
             close_mark::paint(cx, Self::close_x(rect), rect.y, !states.is_empty());
@@ -51,13 +55,16 @@ impl<Msg: 'static> Tabs<Msg> {
         let rect = Rect::new(x, area.y, width, 1);
         let position = order.iter().position(|i| *i == drag.index).unwrap_or(drag.index);
         let ghost = tab_model::paint_ghost_surface(cx, rect);
-        self.paint_label(cx, rect, drag.index, position, 0, LabelStyles { number: ghost, name: ghost, badge: ghost });
+        let styles = LabelStyles { number: ghost, name: ghost, badge: ghost, mark: Some(ghost) };
+        self.paint_label(cx, rect, drag.index, position, 0, styles);
     }
 
-    /// Paints the number (when numbered), the label and the count of tab `index` at `position` in
-    /// `rect`. The number and the label sit `rest` cells left of their natural place; the count
-    /// keeps its place one cell after the label as it sits raised, so it does not slide. The label
-    /// is cut first, so the count and the close mark always keep their cells.
+    /// Paints the mark (when busy or with a status), the number (when numbered), the label and the
+    /// count of tab `index` at `position` in `rect`. The mark takes the padding cell before the
+    /// name and the name moves one cell on into the spare cell every tab keeps, so the mark costs
+    /// no width. The mark, the number and the label sit `rest` cells left of their natural place;
+    /// the count keeps its place one cell after the label as it sits raised, so it does not slide.
+    /// The label is cut first, so the mark, the count and the close mark always keep their cells.
     fn paint_label(
         &self,
         cx: &mut PaintCx<'_>,
@@ -69,6 +76,10 @@ impl<Msg: 'static> Tabs<Msg> {
     ) {
         let end = rect.right() - i32::from(PAD + self.close_width(index));
         let mut x = rect.x + i32::from(PAD);
+        if self.marked(index) {
+            self.paint_mark(cx, rect.x + 1 - rest, rect.y, index, styles.mark);
+            x += 1;
+        }
         if self.numbered {
             let number = (position + 1).to_string();
             x += i32::from(cx.text(x - rest, rect.y, &number, styles.number, 2)) + 1;
@@ -80,6 +91,22 @@ impl<Msg: 'static> Tabs<Msg> {
         if let Some(badge) = badge {
             let at = x + i32::from(drawn) + 1;
             cx.text(at, rect.y, &badge, styles.badge, clamp_u16(end - at));
+        }
+    }
+
+    /// Paints the mark of tab `index` at `(x, y)`: the turning spinner of a busy tab, or one dot
+    /// standing still with reduced motion, else the dot of its status. It is in the status's colour
+    /// or the accent, or in `style` when given, as on the dragged ghost.
+    fn paint_mark(&self, cx: &mut PaintCx<'_>, x: i32, y: i32, index: usize, style: Option<CellStyle>) {
+        let token = self.statuses.get(index).and_then(Option::as_deref).unwrap_or("accent");
+        let style = style.unwrap_or_else(|| CellStyle::fg(cx.color(token)));
+        let busy = self.busy.get(index).copied().unwrap_or(false);
+        if busy && !cx.reduced_motion() {
+            let cell = cx.animation(SpinnerStyle::Dots.animation(), style, Some(Duration::ZERO));
+            cx.text(x, y, &cell.glyph, CellStyle { bg: None, ..cell.style }, 1);
+        } else {
+            let dot = cx.env().icons().glyph("dot").into_owned();
+            cx.text(x, y, &dot, CellStyle { bg: None, ..style }, 1);
         }
     }
 
@@ -154,6 +181,8 @@ struct LabelStyles {
     number: CellStyle,
     name: CellStyle,
     badge: CellStyle,
+    /// The mark's style when it is not its own colour, as on the dragged ghost.
+    mark: Option<CellStyle>,
 }
 
 /// Paints a small strip control: its surface from style `key` in `states`, the pillar the style

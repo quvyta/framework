@@ -367,3 +367,28 @@ fn duration_of(path: &std::path::Path) -> Duration {
     let frames: u32 = text.trim().trim_end_matches(',').parse().unwrap_or_else(|error| panic!("{text:?}: {error}"));
     Duration::from_millis(50) * frames
 }
+
+/// A screen with a character no embedded font has, as a terminal tab can show at any moment.
+struct Crab;
+
+impl App for Crab {
+    type Msg = ();
+    fn update(&mut self, (): ()) -> Command<()> {
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, ()>) {
+        ui.add(Text::new("ok 🦀 ⏺ done"));
+    }
+}
+
+#[test]
+fn a_character_no_font_has_is_drawn_as_a_box_and_the_recording_goes_on() {
+    let dir = frame_dir("missing");
+    let mut reel = Reel::new(Harness::new(Crab, 20, 2), &dir);
+    reel.hold(Duration::from_millis(100));
+    assert_eq!(reel.frames(), 1, "the frame is written");
+    assert_eq!(reel.missing(), ['🦀'], "and the character it boxed is named, the coding tool's mark is not");
+    let recording = reel.finish().expect("the list is written");
+    assert_eq!(recording.missing(), ['🦀']);
+    let _ = std::fs::remove_dir_all(dir);
+}

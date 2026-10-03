@@ -9,12 +9,15 @@ mod paint;
 #[cfg(test)]
 mod tests;
 
+use std::borrow::Cow;
+use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::env::Env;
 use crate::event::{Event, MouseButton, MouseKind};
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::keymap::{Key, KeyChord, Modifiers};
-use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
+use crate::widget::{EventCx, MeasureCx, PaintCx, Widget, WidgetKey};
 
 use super::click::Click;
 use super::row::LEAD;
@@ -51,6 +54,8 @@ type SortMessage<Msg> = Box<dyn Fn(usize, SortDirection) -> Msg>;
 /// [`wrap`](Self::wrap)); Enter activates; Space toggles in
 /// multi-select tables and activates otherwise; ←/→ scroll columns that overflow; with
 /// [`Table::on_sort`], `s` sorts by the next sortable column and `shift+s` reverses the order.
+/// These are the keys a [`HelpLayer`](super::HelpLayer) lists for a table with the focus, so a
+/// screen needs no hint for them.
 ///
 /// The mouse does the same: a click on a row selects and activates it, a click on its check mark
 /// (or the cell after it) only toggles, a click on a sortable title sorts by it and a second
@@ -76,7 +81,7 @@ type SortMessage<Msg> = Box<dyn Fn(usize, SortDirection) -> Msg>;
 /// box; `scrollbar`.
 pub struct Table<Msg> {
     columns: Vec<Column>,
-    rows: Arc<[TableRow]>,
+    rows: Rows,
     selected: Option<usize>,
     checked: Option<Vec<bool>>,
     sort: Option<(usize, SortDirection)>,
@@ -89,6 +94,37 @@ pub struct Table<Msg> {
     menu_on_activate: bool,
     picking: Picking<Msg>,
     wrap: bool,
+}
+
+/// The rows a table shows: built in full, or asked for one at a time as they come on screen.
+enum Rows {
+    Built(Arc<[TableRow]>),
+    /// [`Table::lazy`]: how many there are and how to build row `index`.
+    Lazy {
+        count: usize,
+        row: Rc<dyn Fn(usize) -> TableRow>,
+    },
+}
+
+impl Rows {
+    fn len(&self) -> usize {
+        match self {
+            Self::Built(rows) => rows.len(),
+            Self::Lazy { count, .. } => *count,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Row `index`, built now for a lazy table.
+    fn get(&self, index: usize) -> Cow<'_, TableRow> {
+        match self {
+            Self::Built(rows) => Cow::Borrowed(&rows[index]),
+            Self::Lazy { row, .. } => Cow::Owned(row(index)),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -110,7 +146,7 @@ impl<Msg: 'static> Table<Msg> {
     pub fn new(columns: impl IntoIterator<Item = Column>, rows: impl Into<Arc<[TableRow]>>) -> Self {
         Self {
             columns: columns.into_iter().collect(),
-            rows: rows.into(),
+            rows: Rows::Built(rows.into()),
             selected: None,
             checked: None,
             sort: None,
@@ -124,6 +160,26 @@ impl<Msg: 'static> Table<Msg> {
             picking: Picking::default(),
             wrap: false,
         }
+    }
+
+    /// A table with `columns` and `count` rows that are built only when they are drawn: `row`
+    /// gives row `index` and is called for the rows on screen in each frame, so a frame costs as
+    /// much as the rows it shows, whatever the table holds. For a folder of a hundred thousand
+    /// entries, a log or a query's results, where building every row for every frame is what makes
+    /// a key slow.
+    ///
+    /// The rows are not all known, so a [`ColumnWidth::Fit`] column fits its title and its
+    /// [`min`](Column::min) instead of its widest cell; give a column whose cells are wider a
+    /// [`ColumnWidth::Fixed`] width. Everything else works as with [`new`](Self::new).
+    #[must_use]
+    pub fn lazy(
+        columns: impl IntoIterator<Item = Column>,
+        count: usize,
+        row: impl Fn(usize) -> TableRow + 'static,
+    ) -> Self {
+        let mut table = Self::new(columns, Vec::new());
+        table.rows = Rows::Lazy { count, row: Rc::new(row) };
+        table
     }
 
     /// Lets ↓ (or j) on the last row go on to the first and ↑ (or k) on the first go to the
@@ -345,6 +401,18 @@ impl<Msg: 'static> Table<Msg> {
     /// Whether Enter and a click open the row's menu rather than the row.
     fn activation_is_menu(&self) -> bool {
         self.menu_on_activate && self.menu.is_some()
+    }
+
+    /// Whether Enter opens something: a row of the application's or, with
+    /// [`menu_on_activate`](Self::menu_on_activate), the row's own menu.
+    fn activates(&self) -> bool {
+        self.on_activate.is_some() || self.activation_is_menu()
+    }
+
+    /// Whether Space checks a row instead of opening it: a multi-select table takes the cursor's
+    /// row in and out of the selection, and check marks are toggled when the table has both.
+    fn checks(&self) -> bool {
+        self.picking.is_multi() || (self.checked.is_some() && self.on_toggle.is_some())
     }
 
     fn lead(&self) -> u16 {
@@ -601,6 +669,23 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
 
     fn focusable(&self) -> bool {
         !self.rows.is_empty()
+    }
+
+    fn keys(&self, env: &Env) -> Vec<WidgetKey> {
+        let i18n = env.i18n();
+        let mut keys = rows::declared_keys(env);
+        if self.activates() {
+            keys.push(WidgetKey::new("enter", i18n.translate("quvyta.widget.open", &[])));
+        }
+        // Space is Enter's twin unless it checks a row, which only a table that shows check marks
+        // or takes a whole selection does.
+        if self.checks() {
+            keys.push(WidgetKey::new("space", i18n.translate("quvyta.widget.check", &[])));
+        }
+        if self.on_sort.is_some() {
+            keys.push(WidgetKey::new("s", i18n.translate("quvyta.widget.sort", &[])));
+        }
+        keys
     }
 }
 

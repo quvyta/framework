@@ -504,6 +504,7 @@ impl App for Showcase {
             "help" => Some(Msg::Layers(crate::layers::Msg::Help(true))),
             "palette" => Some(Msg::Layers(crate::layers::Msg::Palette(true))),
             "window-cycle" if self.router.current() == "windows" => pages::windows::action(name),
+            "screen-keys" if self.router.current() == "help-layer" => pages::help_layer::action(name),
             "terminal-focus" if self.router.current() == "terminal" => {
                 pages::terminal::action(&self.pages.terminal, name)
             }

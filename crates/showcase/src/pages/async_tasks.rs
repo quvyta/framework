@@ -2,6 +2,7 @@
 //! task list, and a child process whose output is streamed into a log view or kept, at the end of
 //! it only.
 
+use std::fs::File;
 use std::time::Duration;
 
 use qframe::prelude::*;
@@ -37,6 +38,11 @@ echo 'installed 3 packages'";
 /// child finds in its own environment, then a step that never comes, since the limit ends it.
 const CHECK: &str = "for step in 1 2 3 4 5 6 7 8 9 10; do echo \"checked $step\"; done; \
 echo 'the clock is 4 seconds fast' >&2; printf 'home: %s\\n' \"${HOME-unset}\"; sleep 30";
+
+/// What the same check writes when its output is asked to go into a file: a megabyte of it and a
+/// last line, so nothing of that reaches the application, and one warning that does.
+const CHECK_FILE: &str = "head -c 1048576 /dev/zero; printf 'the last line\\n'; \
+echo 'the clock is 4 seconds fast' >&2";
 
 /// Bytes of the check's output kept; the last of them.
 const TAIL_BYTES: usize = 512;
@@ -75,6 +81,10 @@ pub struct State {
     tail: LogBuffer,
     /// How much of it was kept and how the check ended.
     tail_note: Option<(String, String)>,
+    /// How much of the check's output went into its file, when one was asked for.
+    file_note: Option<usize>,
+    /// Whether the check writes its output into a file instead of the log.
+    into_file: bool,
     /// The check, while it runs.
     check: Option<TaskId>,
 }
@@ -92,6 +102,8 @@ impl Default for State {
             frames: false,
             tail: LogBuffer::new(TAIL_CAPACITY),
             tail_note: None,
+            file_note: None,
+            into_file: false,
             check: None,
         }
     }
@@ -120,7 +132,8 @@ pub enum Msg {
     Frames(bool),
     Check,
     StopCheck,
-    Checked(Collected),
+    Checked(Collected, Option<usize>),
+    IntoFile(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -217,13 +230,36 @@ fn run_process(process: Process, frames: bool, cx: &TaskCx<AppMsg>) -> std::io::
 /// costs the same as a short one. `cancel` is the task's own flag, so stopping the task ends the
 /// child the same way. The environment is cleared, so the child is given the one variable it
 /// cannot do without, the path it finds `sleep` with, and nothing of ours reaches it.
-fn check_output() -> Task<AppMsg> {
+///
+/// With `into_file` the megabyte it writes goes into a file of the showcase's own instead of
+/// through the application, and only the warning on its standard error is read and kept.
+fn check_output(into_file: bool) -> Task<AppMsg> {
     Task::new("Check the disk", move |cx| {
         let path = std::env::var("PATH").unwrap_or_default();
-        let process = Process::new("sh").arg("-c").arg(CHECK).clear_env().env("PATH", path).no_stdin();
+        let script = if into_file { CHECK_FILE } else { CHECK };
+        let process = Process::new("sh").arg("-c").arg(script).clear_env().env("PATH", path).no_stdin();
         let keep = Keep::bytes(TAIL_BYTES).lines(TAIL_LINES).limit(TAIL_LIMIT);
+        // A file named for the output takes the megabyte, so the child writes into a folder of its
+        // own under the system's temporary one and none of it passes through the application; the
+        // error stream is still read, and still kept within the same limits.
+        let (process, file) = match into_file {
+            false => (process, None),
+            true => {
+                let folder = std::env::temp_dir().join(format!("quvyta-showcase-check-{}", std::process::id()));
+                let _ = std::fs::create_dir_all(&folder);
+                let output = folder.join("checked.out");
+                let file = File::create(&output).map_err(|error| error.to_string())?;
+                (process.dir(folder).stdout_to(file), Some(output))
+            }
+        };
         let collected = process.collect(keep, &|| cx.is_cancelled()).map_err(|error| error.to_string())?;
-        Ok(send(Msg::Checked(collected)))
+        // What the file holds is what the application did not keep, and the folder the child wrote
+        // it in is the showcase's own, so it goes with the check.
+        let written = file.as_ref().map(|path| std::fs::metadata(path).map_or(0, |file| file.len() as usize));
+        if let Some(folder) = file.as_ref().and_then(|path| path.parent()) {
+            let _ = std::fs::remove_dir_all(folder);
+        }
+        Ok(send(Msg::Checked(collected, written)))
     })
     .on_event(|event| send(Msg::Event(event)))
 }
@@ -330,10 +366,11 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         }
         // region: process-collect-start
         Msg::Check => {
-            let task = check_output();
+            let task = check_output(state.into_file);
             state.check = Some(task.id());
             state.tail.clear();
             state.tail_note = None;
+            state.file_note = None;
             return Command::task(task);
         }
         Msg::StopCheck => {
@@ -341,11 +378,16 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
                 return Command::cancel_task(id);
             }
         }
-        Msg::Checked(collected) => {
+        Msg::Checked(collected, file) => {
             for line in collected.text.lines().filter(|line| !line.is_empty()) {
                 state.tail.push(LogLine::new(LogLevel::Info, line.to_owned()));
             }
             state.tail_note = Some(note(&collected));
+            state.file_note = file;
+        }
+        Msg::IntoFile(on) => {
+            log.push(PAGE, "Playground", format!("output into a file = {on}"));
+            state.into_file = on;
         } // endregion
     }
     Command::none()
@@ -436,6 +478,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             ui.add(Text::new(kept.clone()).role("secondary"));
             ui.add(Text::new(ended.clone()).role("faint"));
         }
+        if let Some(bytes) = state.file_note {
+            ui.add(Text::new(t!("async-tasks.tail-file", bytes = bytes)).role("faint"));
+        }
     })
     .fill_width();
 
@@ -445,6 +490,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         });
         setting(ui, t!("async-tasks.frames"), |ui| {
             ui.add(toggle(state.frames, |on| send(Msg::Frames(on)))).id("frames");
+        });
+        setting(ui, t!("async-tasks.into-file"), |ui| {
+            ui.add(toggle(state.into_file, |on| send(Msg::IntoFile(on)))).id("into-file");
         });
         setting(ui, t!("async-tasks.cancellable"), |ui| {
             ui.add(toggle(state.cancellable, |on| send(Msg::Cancellable(on)))).id("cancellable");
@@ -524,6 +572,20 @@ mod tests {
         assert!(!screen.contains("checked 8"), "the oldest lines fell out: {screen}");
         assert!(screen.contains("older output fell out"), "the size that was dropped is said: {screen}");
         assert!(screen.contains("the limit ended it"), "the check was cut, not finished: {screen}");
+        assert_eq!(h.app().pages.async_tasks.check, None, "the task is finished");
+    }
+
+    #[test]
+    fn the_check_can_write_its_output_into_a_file_of_its_own() {
+        let mut h = showcase_tall(Showcase::new(), PAGE, TALL);
+        h.send(send(Msg::IntoFile(true)));
+        h.click_text("Run the check");
+        // The task runs a real command, so the harness waits for it rather than for a clock.
+        h.advance(Duration::from_millis(0));
+        let screen = h.screen();
+        assert!(screen.contains("the clock is 4 seconds fast"), "the failure is still read: {screen}");
+        assert!(screen.contains("1048590 bytes of its output went into a file"), "{screen}");
+        assert!(!screen.contains("the last line"), "the output went to the file, not to the log: {screen}");
         assert_eq!(h.app().pages.async_tasks.check, None, "the task is finished");
     }
 

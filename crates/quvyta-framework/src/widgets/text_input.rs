@@ -5,18 +5,24 @@ use std::time::Duration;
 
 use unicode_segmentation::UnicodeSegmentation;
 
+use super::IndexMessage;
 use super::cells;
 use super::edit_menu::{self, EditAction, TextMenu};
 use super::editor::Editor;
+use super::suggestions::{Suggestion, SuggestionAction, SuggestionList};
+use crate::env::Env;
 use crate::event::{Event, KeyEvent, MouseButton, MouseKind};
 use crate::geometry::{Padding, Rect, Size, clamp_u16};
 use crate::keymap::{Key, Modifiers, Scope};
 use crate::style::CellStyle;
 use crate::text;
 use crate::theme::State;
-use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
+use crate::widget::{EventCx, MeasureCx, PaintCx, Widget, WidgetKey};
 
 type TextMessage<Msg> = Box<dyn Fn(String) -> Msg>;
+
+/// The rows a list holds before it cuts itself short.
+const MAX_SUGGESTIONS: usize = 8;
 
 /// What an event did to a field, before any message is sent.
 pub(crate) struct Edit {
@@ -49,9 +55,19 @@ pub(crate) struct Edit {
 /// clipboard, then the terminal's, then the text the application copied last. Entry names are
 /// `quvyta.edit.*`.
 ///
+/// With [`suggestions`](Self::suggestions) and the [`on_suggestion`](Self::on_suggestion) that says
+/// where a chosen row goes, the field offers what the person may want to type, an address bar's
+/// places or a package search's names, as a list under itself as wide as the field. The list opens
+/// once the person has typed, not when the field merely gains focus, and it is gone again when the
+/// text is empty of choices. ↑/↓ choose a row, Enter with a row chosen sends
+/// [`on_suggestion`](Self::on_suggestion) and Enter without one submits as it does everywhere
+/// else; a click on a row chooses it, Esc closes the list and keeps the text, and a press
+/// anywhere else closes it and reaches what it landed on. Typing again opens it.
+///
 /// Style keys: `text-input` (`bg`, `fg`, `padding`) with `hover`, `focus`, `invalid`,
 /// `disabled`; `text-input-prompt`, `text-input-placeholder`, `text-input-selection`,
-/// `text-input-cursor`.
+/// `text-input-cursor`; the suggestion list's own `context-menu` and `context-item` with `hover`,
+/// `context-item-detail`.
 pub struct TextInput<Msg> {
     value: String,
     placeholder: String,
@@ -61,8 +77,12 @@ pub struct TextInput<Msg> {
     max_length: Option<usize>,
     on_change: Option<TextMessage<Msg>>,
     on_submit: Option<TextMessage<Msg>>,
+    on_cancel: Option<Box<dyn Fn() -> Msg>>,
     accept: Option<Box<dyn Fn(char) -> bool>>,
     select_on_focus: Option<Range<usize>>,
+    suggestions: Vec<Suggestion>,
+    max_suggestions: usize,
+    on_suggestion: Option<IndexMessage<Msg>>,
 }
 
 #[derive(Debug, Default)]
@@ -75,6 +95,8 @@ struct InputMemory {
     /// Whether the field had focus when last seen, so the focus selection is applied only as it
     /// gains focus.
     focused: bool,
+    /// The list of suggestions the field offers under itself.
+    suggestions: SuggestionList,
 }
 
 impl<Msg: 'static> TextInput<Msg> {
@@ -90,8 +112,12 @@ impl<Msg: 'static> TextInput<Msg> {
             max_length: None,
             on_change: None,
             on_submit: None,
+            on_cancel: None,
             accept: None,
             select_on_focus: None,
+            suggestions: Vec::new(),
+            max_suggestions: MAX_SUGGESTIONS,
+            on_suggestion: None,
         }
     }
 
@@ -144,6 +170,18 @@ impl<Msg: 'static> TextInput<Msg> {
         self
     }
 
+    /// Message sent when Esc is pressed in the field, such as closing the filter a field types,
+    /// instead of letting the key go on. An open list of suggestions takes the first Esc, as it
+    /// does without this.
+    #[must_use]
+    pub fn on_cancel(mut self, message: Msg) -> Self
+    where
+        Msg: Clone,
+    {
+        self.on_cancel = Some(Box::new(move || message.clone()));
+        self
+    }
+
     /// Selects the characters in `range` each time the field gains focus, with the cursor at the
     /// range's end, e.g. `0..4` to select `main` in `main.rs`. The range counts characters, not
     /// bytes, and is cut to the text. From then on the selection is the user's: typing replaces
@@ -160,6 +198,37 @@ impl<Msg: 'static> TextInput<Msg> {
     #[must_use]
     pub fn select_all_on_focus(self) -> Self {
         self.select_on_focus(0..usize::MAX)
+    }
+
+    /// The [`Suggestion`]s the field offers under itself, such as the places a path bar has been or
+    /// the names a package search found. The list is the width of the field and holds
+    /// [`max_suggestions`](Self::max_suggestions) rows; pass the rows in the order they should be
+    /// read, already narrowed to what the person typed, and the list opens as soon as the text has
+    /// moved on from the text the field had when it gained focus.
+    ///
+    /// The list opens only together with [`on_suggestion`](Self::on_suggestion), which is where a
+    /// chosen row goes; a field without both behaves exactly as before.
+    #[must_use]
+    pub fn suggestions(mut self, suggestions: impl IntoIterator<Item = Suggestion>) -> Self {
+        self.suggestions = suggestions.into_iter().collect();
+        self
+    }
+
+    /// How many of the suggestions the list holds at once, eight by default. The first `n` are
+    /// shown, and a row's number is its place among the rows passed to
+    /// [`suggestions`](Self::suggestions), however many follow it.
+    #[must_use]
+    pub fn max_suggestions(mut self, max: usize) -> Self {
+        self.max_suggestions = max;
+        self
+    }
+
+    /// Message carrying the place of the chosen suggestion, counted from the first row passed to
+    /// [`suggestions`](Self::suggestions). Enter with a row chosen and a click on a row send it.
+    #[must_use]
+    pub fn on_suggestion(mut self, message: impl Fn(usize) -> Msg + 'static) -> Self {
+        self.on_suggestion = Some(Box::new(message));
+        self
     }
 
     /// Only characters for which `accept` is true can be typed or pasted.
@@ -183,10 +252,14 @@ impl<Msg: 'static> TextInput<Msg> {
         memory
     }
 
-    /// Notes whether the field has focus and, as it gains focus, selects the focus range.
+    /// Notes whether the field has focus and, as it gains focus, selects the focus range and
+    /// forgets that anything was typed.
     fn follow_focus(&self, memory: &mut InputMemory, focused: bool) {
         let gained = focused && !memory.focused;
         memory.focused = focused;
+        if gained {
+            memory.suggestions.gained_focus();
+        }
         let Some(range) = self.select_on_focus.clone().filter(|_| gained) else {
             return;
         };
@@ -197,6 +270,16 @@ impl<Msg: 'static> TextInput<Msg> {
         let (start, end) = (grapheme_at_char(text, start), grapheme_at_char(text, end.max(start)));
         editor.move_to_grapheme(start, false);
         editor.move_to_grapheme(end, true);
+    }
+
+    /// The rows the list holds: the first [`max_suggestions`](Self::max_suggestions) of what the
+    /// application offered, and nothing at all without a message to send a chosen row with, since
+    /// a list nothing can be taken from would only swallow the field's own Enter.
+    fn offered(&self) -> &[Suggestion] {
+        if self.on_suggestion.is_none() {
+            return &[];
+        }
+        &self.suggestions[..self.suggestions.len().min(self.max_suggestions)]
     }
 
     /// The glyphs drawn for the text: the text itself or a mask.
@@ -248,6 +331,20 @@ impl<Msg: 'static> Widget<Msg> for TextInput<Msg> {
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
         cx.takes_text();
+        let has_focus = cx.is_focused();
+        let mask = cx.env().icons().glyph("mask").into_owned();
+        // The field's own state is read before anything is drawn: whether it has gained focus
+        // decides whether the list of suggestions has anything to say this frame.
+        let (glyphs, cursor_index, selection, last_edit) = {
+            let memory = self.sync(cx.memory::<InputMemory>());
+            self.follow_focus(memory, has_focus);
+            let text = memory.editor.text();
+            let cursor_index = grapheme_index(text, memory.editor.cursor());
+            let selection =
+                memory.editor.selection().map(|r| grapheme_index(text, r.start)..grapheme_index(text, r.end));
+            (self.shown(text, &mask), cursor_index, selection, memory.last_edit)
+        };
+
         let mut states = if self.disabled { vec![State::Disabled] } else { cx.states() };
         if self.invalid {
             states.push(State::Invalid);
@@ -259,6 +356,10 @@ impl<Msg: 'static> Widget<Msg> for TextInput<Msg> {
         if !self.disabled {
             cx.register_hit(area);
             edit_menu::request_overlay(cx, area);
+        }
+        if cx.memory::<InputMemory>().suggestions.open(self.offered(), has_focus) {
+            cx.request_overlay(area);
+            cx.register_dismissable();
         }
         let padding = style.padding();
         // Hover and focus raise the pillar in the left padding; the text never slides, so typing
@@ -273,20 +374,8 @@ impl<Msg: 'static> Widget<Msg> for TextInput<Msg> {
         let prompt_width = cx.text(prompt_x, y, &prompt_glyph, prompt_style, area.width) + 1;
         let field = Self::text_row(prompt_width, area, padding);
 
-        let mask = cx.env().icons().glyph("mask").into_owned();
         let now = cx.now();
         let blink = cx.env().theme().motion().cursor_blink;
-        let has_focus = cx.is_focused();
-        let (glyphs, cursor_index, selection, last_edit) = {
-            let memory = self.sync(cx.memory::<InputMemory>());
-            self.follow_focus(memory, has_focus);
-            let text = memory.editor.text();
-            let cursor_index = grapheme_index(text, memory.editor.cursor());
-            let selection =
-                memory.editor.selection().map(|r| grapheme_index(text, r.start)..grapheme_index(text, r.end));
-            (self.shown(text, &mask), cursor_index, selection, memory.last_edit)
-        };
-
         if glyphs.is_empty() && !focused {
             let placeholder = cx.style("text-input-placeholder", None, &states).text();
             let shown = text::truncate(&self.placeholder, field.width).into_owned();
@@ -343,14 +432,45 @@ impl<Msg: 'static> Widget<Msg> for TextInput<Msg> {
     }
 
     fn paint_overlay(&self, cx: &mut PaintCx<'_>, anchor: Rect) {
+        let mut list = cx.memory::<InputMemory>().suggestions;
+        list.paint(cx, anchor, self.offered(), cx.is_focused());
+        cx.memory::<InputMemory>().suggestions = list;
         let selection = self.sync(cx.memory::<InputMemory>()).editor.selection().is_some();
         self.menu(cx.env(), selection, cx.can_paste()).paint_overlay(cx, anchor);
     }
 
     fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
+        let has_focus = cx.is_focused();
+        let (list, choice) = {
+            let list = cx.memory::<InputMemory>().suggestions;
+            list.event(event, self.offered(), has_focus)
+        };
+        cx.memory::<InputMemory>().suggestions = list;
+        match choice {
+            SuggestionAction::Other => {}
+            SuggestionAction::Used => return true,
+            SuggestionAction::Chosen(index) => {
+                // The list opens only where there is a message to send, so there is one here.
+                if let Some(message) = &self.on_suggestion {
+                    cx.emit(message(index));
+                }
+                return true;
+            }
+        }
+        if let (Some(message), Event::Key(key)) = (&self.on_cancel, event)
+            && key.is_plain(Key::Esc)
+            && has_focus
+        {
+            cx.emit(message());
+            return true;
+        }
         let edit = self.edit(cx, event);
-        if let (Some(value), Some(message)) = (edit.changed, &self.on_change) {
-            cx.emit(message(value));
+        // The text moving on is what the list waits for, and a chosen row goes with it.
+        if let Some(value) = &edit.changed {
+            cx.memory::<InputMemory>().suggestions.typed();
+            if let Some(message) = &self.on_change {
+                cx.emit(message(value.clone()));
+            }
         }
         if edit.submit
             && let Some(message) = &self.on_submit
@@ -363,6 +483,15 @@ impl<Msg: 'static> Widget<Msg> for TextInput<Msg> {
 
     fn focusable(&self) -> bool {
         !self.disabled
+    }
+
+    fn keys(&self, env: &Env) -> Vec<WidgetKey> {
+        // Everything else a field does is typing, which the help layer has no room for; only the
+        // key that hands the value to the application is worth a row.
+        if self.on_submit.is_some() {
+            return vec![WidgetKey::new("enter", env.i18n().translate("quvyta.widget.submit", &[]))];
+        }
+        Vec::new()
     }
 }
 
@@ -908,5 +1037,284 @@ mod tests {
         let mut h = Harness::new(Demo { value: "abcd".into(), ..Demo::default() }, 30, 1);
         h.click(5, 0).type_text("X");
         assert_eq!(h.app().value, "aXbcd");
+    }
+}
+
+/// A path bar that offers the places it has been, with a button below it as a page has.
+#[cfg(test)]
+mod suggestions_tests {
+    use super::*;
+    use crate::color::Rgb;
+    use crate::runtime::{App, Command, Harness};
+    use crate::widget::{Length, View};
+    use crate::widgets::Button;
+
+    /// The width of the field, and with it of the list under it.
+    const WIDTH: u16 = 26;
+
+    /// The places on offer, the longest first as a search would find them.
+    const PLACES: [&str; 3] = ["~/projects/framework", "~/projects/qcode", "~/notes/garden"];
+
+    #[derive(Default)]
+    struct Address {
+        value: String,
+        chosen: Option<usize>,
+        submitted: Option<String>,
+        pressed: u32,
+        suggestions: bool,
+        max: Option<usize>,
+    }
+
+    #[derive(Clone)]
+    enum AddressMsg {
+        Changed(String),
+        Chosen(usize),
+        Submitted(String),
+        Pressed,
+    }
+
+    impl App for Address {
+        type Msg = AddressMsg;
+        fn update(&mut self, msg: AddressMsg) -> Command<AddressMsg> {
+            match msg {
+                AddressMsg::Changed(value) => self.value = value,
+                AddressMsg::Chosen(index) => {
+                    self.chosen = Some(index);
+                    self.value = PLACES[index].to_owned();
+                }
+                AddressMsg::Submitted(value) => self.submitted = Some(value),
+                AddressMsg::Pressed => self.pressed += 1,
+            }
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, AddressMsg>) {
+            let mut field = TextInput::new(&self.value)
+                .placeholder("Where to")
+                .on_change(AddressMsg::Changed)
+                .on_submit(AddressMsg::Submitted);
+            if self.suggestions {
+                field =
+                    field.suggestions(PLACES.iter().copied().map(Suggestion::new)).on_suggestion(AddressMsg::Chosen);
+            }
+            if let Some(max) = self.max {
+                field = field.max_suggestions(max);
+            }
+            // The button stands clear of the three rows the list takes, so a press on it is a
+            // press outside the list.
+            ui.column(|ui| {
+                ui.add(field).width(Length::Cells(WIDTH)).id("place");
+                ui.add(Button::new("Open").on_press(AddressMsg::Pressed)).id("open");
+            })
+            .gap(3);
+        }
+    }
+
+    fn address() -> Harness<Address> {
+        Harness::new(Address { suggestions: true, ..Address::default() }, 40, 8)
+    }
+
+    /// A bar to type into and long enough for the list to finish unfolding.
+    fn typing(h: &mut Harness<Address>) {
+        h.press("tab").type_text("q");
+        h.advance(Duration::from_millis(300));
+    }
+
+    /// The background of the cell at `(x, y)` of any of these screens.
+    fn ground<A: App>(h: &Harness<A>, x: i32, y: i32) -> Rgb {
+        h.bg(column(x), row(y)).expect("a cell of the screen")
+    }
+
+    /// The first and the last column of row `y` in the tone of the cell at `x`, which is where a
+    /// surface the runtime cleared begins and ends.
+    fn span(h: &Harness<Address>, y: i32, x: i32) -> (i32, i32) {
+        let tone = ground(h, x, y);
+        let width = i32::from(h.buffer().area.width);
+        let at = |column: i32| ground(h, column, y);
+        let left = (0..x).rev().find(|column| at(*column) != tone).map_or(0, |column| column + 1);
+        let right = (x + 1..width).find(|column| at(*column) != tone).map_or(width - 1, |column| column - 1);
+        (left, right)
+    }
+
+    /// A column of the screen, which the tests only ever name inside it.
+    fn column(x: i32) -> u16 {
+        u16::try_from(x).expect("a column of the screen")
+    }
+
+    /// A row of the screen, which the tests only ever name inside it.
+    fn row(y: i32) -> u16 {
+        u16::try_from(y).expect("a row of the screen")
+    }
+
+    #[test]
+    fn typing_opens_the_list_and_focus_alone_does_not() {
+        let mut h = address();
+        h.press("tab").advance(Duration::from_millis(300));
+        assert!(!h.screen().contains("~/notes/garden"), "an empty field offers nothing:\n{}", h.screen());
+        h.type_text("q").advance(Duration::from_millis(300));
+        let screen = h.screen();
+        assert!(screen.contains("~/projects/qcode"), "typing opens the list:\n{screen}");
+        assert!(screen.contains("~/notes/garden"), "with every row the field was given:\n{screen}");
+
+        let mut h = Harness::new(Address { suggestions: true, value: "~/notes".into(), ..Address::default() }, 40, 8);
+        h.press("tab").advance(Duration::from_millis(300));
+        assert!(!h.screen().contains("~/notes/garden"), "nor does a field that already has text:\n{}", h.screen());
+    }
+
+    #[test]
+    fn the_arrows_choose_a_row_and_enter_takes_it() {
+        let mut h = address();
+        typing(&mut h);
+        h.press("down").press("down");
+        let (x, y) = h.find("~/projects/qcode").expect("the second row is drawn");
+        let screen = h.screen();
+        assert_ne!(ground(&h, x, y), ground(&h, x, 1), "the chosen row is raised in tone:\n{screen}");
+        assert!(
+            screen.lines().nth(usize::try_from(y).unwrap_or(0)).is_some_and(|line| line.trim_start().starts_with('▌')),
+            "and shows the pillar:\n{screen}"
+        );
+        h.press("enter");
+        assert_eq!(h.app().chosen, Some(1));
+        assert_eq!(h.app().value, "~/projects/qcode", "the row's own text is what the field takes");
+        assert!(h.app().submitted.is_none());
+        assert!(!h.screen().contains("~/notes/garden"), "and the list closes:\n{}", h.screen());
+    }
+
+    #[test]
+    fn the_arrows_wrap_around_the_list_and_the_typed_text_stands_again() {
+        let mut h = address();
+        typing(&mut h);
+        h.press("up");
+        let (x, y) = h.find("~/notes/garden").expect("the last row is drawn");
+        assert_ne!(ground(&h, x, y), ground(&h, x, 1), "↑ from nothing chooses the last row:\n{}", h.screen());
+        let nothing_raised = |h: &Harness<Address>| h.screen().lines().skip(1).take(3).all(|line| !line.contains('▌'));
+        h.press("down");
+        assert!(nothing_raised(&h), "↓ from the last row stands the text again, with no row raised:\n{}", h.screen());
+        h.press("down").press("up");
+        assert!(nothing_raised(&h), "and ↑ from the first row does the same:\n{}", h.screen());
+        h.press("enter");
+        assert!(h.app().chosen.is_none());
+        assert_eq!(h.app().submitted.as_deref(), Some("q"), "so Enter submits what was typed");
+    }
+
+    #[test]
+    fn enter_without_choosing_still_submits_the_typed_text() {
+        let mut h = address();
+        h.press("tab").type_text("qu").press("enter");
+        assert_eq!(h.app().submitted.as_deref(), Some("qu"));
+        assert!(h.app().chosen.is_none());
+    }
+
+    #[test]
+    fn typing_leaves_the_typed_text_standing_again() {
+        let mut h = address();
+        typing(&mut h);
+        h.press("down").press("down");
+        h.type_text("u");
+        h.advance(Duration::from_millis(300));
+        h.press("enter");
+        assert!(h.app().chosen.is_none(), "the chosen row went with the text that changed:\n{}", h.screen());
+        assert_eq!(h.app().submitted.as_deref(), Some("qu"));
+    }
+
+    #[test]
+    fn a_click_chooses_the_row_it_lands_on() {
+        let mut h = address();
+        typing(&mut h);
+        h.click_text("~/notes/garden");
+        assert_eq!(h.app().chosen, Some(2));
+        assert_eq!(h.app().value, "~/notes/garden");
+    }
+
+    #[test]
+    fn the_first_esc_closes_the_list_and_keeps_the_text_and_the_next_one_is_the_fields_own() {
+        let mut h = address();
+        typing(&mut h);
+        h.press("esc");
+        let screen = h.screen();
+        assert!(!screen.contains("~/projects/qcode"), "the list is gone:\n{screen}");
+        assert_eq!(h.app().value, "q", "and the text is still there");
+        assert!(h.is_focused("place"), "the field is still the one in hand");
+        h.press("esc").type_text("u");
+        h.advance(Duration::from_millis(300));
+        assert_eq!(h.app().value, "qu", "the second Esc is the field's own, as before");
+        assert!(h.screen().contains("~/projects/qcode"), "and typing opens the list again:\n{}", h.screen());
+    }
+
+    #[test]
+    fn a_press_outside_closes_the_list_and_still_reaches_what_it_landed_on() {
+        let mut h = address();
+        typing(&mut h);
+        h.click_text("Open");
+        assert_eq!(h.app().pressed, 1, "one press closes the list and presses the button");
+        assert!(h.app().chosen.is_none());
+        assert!(!h.screen().contains("~/projects/qcode"), "{}", h.screen());
+    }
+
+    #[test]
+    fn the_list_stands_exactly_where_the_field_stands() {
+        let mut h = address();
+        let (left, right) = span(&h, 0, 0);
+        assert_eq!((left, right), (0, i32::from(WIDTH) - 1), "the field's own cells:\n{}", h.screen());
+        typing(&mut h);
+        let field = ground(&h, 0, 0);
+        assert_ne!(ground(&h, 0, 1), field, "the list is a layer of its own tone:\n{}", h.screen());
+        assert_eq!(
+            span(&h, 1, 0),
+            (left, right),
+            "and it opens from the field's left edge to its right one:\n{}",
+            h.screen()
+        );
+    }
+
+    #[test]
+    fn a_field_without_suggestions_behaves_as_before() {
+        let mut h = Harness::new(Address::default(), 40, 8);
+        h.press("tab").type_text("q");
+        h.advance(Duration::from_millis(300));
+        assert!(!h.screen().contains("~/projects/qcode"), "nothing is offered:\n{}", h.screen());
+        h.press("enter");
+        assert_eq!(h.app().submitted.as_deref(), Some("q"));
+    }
+
+    #[test]
+    fn the_list_holds_as_many_rows_as_it_is_asked_to_and_a_note_sits_on_the_right() {
+        let mut h = Harness::new(Address { suggestions: true, max: Some(1), ..Address::default() }, 40, 8);
+        h.press("tab").type_text("q");
+        h.advance(Duration::from_millis(300));
+        let screen = h.screen();
+        assert!(screen.contains("~/projects/framework"), "{screen}");
+        assert!(!screen.contains("~/notes/garden"), "the list stops where it was told to:\n{screen}");
+
+        let mut h = Harness::new(Noted, 50, 8);
+        h.press("tab").type_text("q");
+        h.advance(Duration::from_millis(300));
+        let (x, y) = h.find("2 days ago").expect("the note is drawn");
+        let muted = h.env().theme().color("muted");
+        let overlay = h.env().theme().color("overlay").expect("a tone of the theme");
+        assert_eq!(ground(&h, x, y), overlay, "the note sits on the list's own surface: {}", h.screen());
+        assert_eq!(h.fg(column(x), row(y)), muted, "and it is plain quiet text: {}", h.screen());
+    }
+
+    /// A field whose rows carry a note and an icon, and the whole row to show them in.
+    struct Noted;
+
+    impl App for Noted {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(
+                TextInput::new("")
+                    .suggestions([
+                        Suggestion::new("~/projects/framework").detail("2 days ago"),
+                        Suggestion::new("~/projects/qcode").detail("opened today").icon("folder"),
+                    ])
+                    .on_change(|_| ())
+                    .on_suggestion(|_| ()),
+            )
+            .width(Length::Cells(44))
+            .id("place");
+        }
     }
 }

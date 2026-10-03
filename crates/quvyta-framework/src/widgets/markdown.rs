@@ -9,10 +9,9 @@ use pulldown_cmark::{CodeBlockKind, Event as MdEvent, HeadingLevel, Options, Par
 
 use super::cells;
 use super::code_view::{CodeRow, code_rows, gutter_width, padding_decoration, paint_rows};
-use super::highlight::Language;
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::style::CellStyle;
-use crate::text;
+use crate::text::{self, Language};
 use crate::widget::{MeasureCx, PaintCx, Widget};
 
 /// Inline formatting of a piece of text.

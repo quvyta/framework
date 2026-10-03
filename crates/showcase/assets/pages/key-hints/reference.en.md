@@ -6,6 +6,7 @@
 - `.action_right(scope, name)` — a keymap action on the right.
 - `.action_first(scope, name)` — a keymap action before every `.hint`; the last of the left group to drop.
 - `.action_labelled(scope, name, label)` — a keymap action on the left with the application's own label; the key follows the keymap, and an unbound action draws nothing.
+- `.action_labelled_first(scope, name, label)` — `.action_labelled` in `.action_first`'s place: read first and the last to drop, for the key that says what the screen's main action does now.
 - `.faint(bool)` — the whole bar a step quieter, for a screen that has gone still.
 - `Keymap::label_for(scope, name)` — the first chord of an action written for a sentence, or `None` when it has none.
 

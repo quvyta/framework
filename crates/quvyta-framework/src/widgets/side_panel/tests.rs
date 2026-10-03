@@ -487,3 +487,55 @@ fn hide_slides_the_strip_away_with_the_panel_unless_motion_is_reduced() {
     h.send(Msg::Toggle(true));
     assert_eq!(row(&h, 0), "    files       Run", "reduced motion: at once");
 }
+
+/// A field in the panel and a field in the body, neither of them named.
+#[derive(Default)]
+struct Fields {
+    panel: String,
+    body: String,
+}
+
+#[derive(Clone)]
+enum Field {
+    Panel(String),
+    Body(String),
+}
+
+impl App for Fields {
+    type Msg = Field;
+    fn update(&mut self, msg: Field) -> Command<Field> {
+        match msg {
+            Field::Panel(text) => self.panel = text,
+            Field::Body(text) => self.body = text,
+        }
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, Field>) {
+        SidePanel::new(16)
+            .panel(|ui| {
+                ui.add(crate::widgets::TextInput::new(self.panel.clone()).on_change(Field::Panel));
+            })
+            .body(|ui| {
+                ui.add(crate::widgets::TextInput::new(self.body.clone()).on_change(Field::Body));
+            })
+            .show(ui);
+    }
+}
+
+#[test]
+fn the_panel_and_the_body_are_two_places_even_unnamed() {
+    let mut h = Harness::new(Fields::default(), 60, 6);
+    // Each field starts with its prompt, the panel's first; a click beside one gives it the keys.
+    let prompts: Vec<i32> = (0..60)
+        .filter(|x| h.screen().lines().next().unwrap_or_default().chars().nth(*x as usize) == Some('❯'))
+        .collect();
+    let [panel, body] = prompts[..] else { panic!("two fields: {}", h.screen()) };
+    h.click(body + 2, 0);
+    h.type_text("body");
+    assert_eq!(h.app().body, "body", "{}", h.screen());
+    assert_eq!(h.app().panel, "", "what is typed in the body never reaches the panel's field");
+    h.click(panel + 2, 0);
+    h.type_text("panel");
+    assert_eq!(h.app().panel, "panel", "{}", h.screen());
+    assert_eq!(h.app().body, "body");
+}

@@ -255,7 +255,8 @@ impl<A: App> Runtime<A> {
     /// member's ecosystem folder is `config_dir` instead of the platform's, so a test never reads
     /// or writes the person's files; a runtime that is no member ignores it. Nothing is read from
     /// the machine either, as [`Env::load_with`] with nothing set: its language, region and
-    /// terminal would otherwise make a test pass on one machine and fail on the next. Files are
+    /// terminal would otherwise make a test pass on one machine and fail on the next. It draws in
+    /// true colour, as [`Harness::new`](super::Harness::new) does. Files are
     /// not watched: after writing one,
     /// [`Harness::poll_preferences`](super::Harness::poll_preferences) reads them again as the
     /// runtime's watch would.
@@ -290,6 +291,10 @@ impl<A: App> Runtime<A> {
     /// Returns I/O errors from loading asset directories, as [`run`](Self::run) does.
     pub fn harness_in(self, config_dir: impl Into<PathBuf>, width: u16, height: u16) -> io::Result<Harness<A>> {
         let mut env = Env::load_with(&self.dirs, |_| None)?;
+        // A terminal that says nothing about itself is read as 256 colours, which a test's cells
+        // would then carry as palette entries; the harness draws in true colour, as `Harness::new`
+        // does, and `Harness::set_depth` still chooses another depth.
+        env.set_depth(crate::color::ColorDepth::TrueColor);
         let start = Start { theme: self.theme.as_deref(), settings: self.settings, preferences: self.preferences };
         let member = self.member.map(|member| member.in_folder(config_dir.into()));
         let follow = start.apply(&mut env, member, false);

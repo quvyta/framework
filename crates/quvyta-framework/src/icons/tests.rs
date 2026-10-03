@@ -236,3 +236,44 @@ fn a_status_strip_finds_its_keys_in_every_mode() {
         }
     }
 }
+
+/// A media player's transport and a music library's columns, in the order a player shows them.
+const MEDIA: [&str; 15] = [
+    "media-play",
+    "media-pause",
+    "media-stop",
+    "media-next",
+    "media-previous",
+    "media-shuffle",
+    "media-repeat",
+    "media-repeat-once",
+    "media-volume",
+    "media-muted",
+    "music-note",
+    "music-album",
+    "music-artist",
+    "music-playlist",
+    "music-queue",
+];
+
+#[test]
+fn a_media_transport_and_a_library_find_their_keys_in_every_mode() {
+    let registry = IconSetRegistry::builtin();
+    assert!(registry.diagnostics().is_empty(), "{:?}", registry.diagnostics());
+    for mode in [GlyphMode::Nerd, GlyphMode::Unicode, GlyphMode::Ascii] {
+        let icons = registry.icons("default", &BTreeMap::new(), mode);
+        let glyphs: Vec<String> = MEDIA.iter().map(|key| icons.glyph(key).into_owned()).collect();
+        for (key, glyph) in MEDIA.iter().zip(&glyphs) {
+            assert!(icons.contains(key), "{key} is missing in {mode:?}");
+            assert_eq!(glyph.chars().count(), 1, "{key} in {mode:?} is {glyph:?}");
+            assert_eq!(crate::text::width(glyph), 1, "{key} in {mode:?} is {glyph:?}");
+            let private = glyph.chars().all(|c| matches!(u32::from(c), 0xE000..=0xF8FF | 0xF0000..=0xFFFFD));
+            assert_eq!(private, mode == GlyphMode::Nerd, "{key} in {mode:?} is {glyph:?}");
+        }
+        // They stand side by side in a player's transport, so no two of them may draw one sign:
+        // the frame tells them apart by shape alone, without a word beside each.
+        for (at, glyph) in glyphs.iter().enumerate() {
+            assert!(glyphs[at + 1..].iter().all(|other| other != glyph), "{glyph:?} is drawn twice in {mode:?}");
+        }
+    }
+}

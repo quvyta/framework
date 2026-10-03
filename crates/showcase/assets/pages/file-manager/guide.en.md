@@ -5,7 +5,7 @@ Use a file manager when a folder is part of what your application is about: a pr
 - **One state per manager on screen.** `FileManagerState` lives in your own state, like any other screen state, and you hand it every `FileManagerMsg`.
 - **Opening is yours.** The manager says "this path was asked to be opened" and nothing more. A tab, a window, a preview or an answer to a dialog are all your decision.
 - **Say what the folder is for.** `confined()` for a folder somebody must not leave; without it the manager shows whatever root it is given, the whole file system included.
-- **Choose the shape.** `view(FileView::Tree | List | Icons)`: folders inside folders, one folder as rows with size, date and permissions, or one folder as a grid of icons. The tree is what you get without asking.
+- **Choose the shape.** `view(FileView::Tree | List | Icons)`: folders inside folders, one folder as rows with size, date and permissions, or one folder as a grid of icons. The icons are a desktop's: each entry is an `IconTile`, its glyph over its name in a cell of ten columns by three rows, a name too long for it cut with `…`, the chosen ones raised with the pillar down their side. The tree is what you get without asking.
 - **Let the icon say what a file is.** `kind_icons(true)` draws each row's icon by the kind of its entry, so a person knows a Rust file, a picture or an archive before reading its name. `kind_tones(true)` colours them by family on top.
 
 ## Step by step

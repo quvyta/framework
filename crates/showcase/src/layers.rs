@@ -46,7 +46,9 @@ pub fn update(state: &mut State, message: Msg) {
 /// The open layer, if any, over the whole showcase.
 pub fn view(state: &State, catalog: &Catalog, ui: &mut View<'_, AppMsg>) {
     if state.help {
-        ui.add(HelpLayer::new(send(Msg::Help(false))).hint("↑↓", t!("hints.move")));
+        // No hint of the showcase's own: every widget with the focus says which keys it takes, and
+        // the layer's own scrolling keys are in the hint line under the list.
+        ui.add(HelpLayer::new(send(Msg::Help(false))));
     }
     if state.palette {
         let pages = FOUNDATIONS.iter().map(|page| (*page).to_owned()).chain(

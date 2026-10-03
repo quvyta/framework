@@ -3,6 +3,7 @@
 - `.closable(|index| msg)` — kapatma işaretleri, orta tık ve ctrl+w; mesaj `index` sekmesinin kapatılmasını ister.
 - `.pinned(indices)` — kapatılamayan, işaret göstermeyen sekmeler.
 - `.tab_width(TabWidth)` — `Fit` (varsayılan), `Fixed(hücre)` ya da `Fill`.
+- `.max_tab_width(hücre)` — bir `Fill` sekmesinin alabileceği en çok hücre sayısı; şeridin geri kalanı boş kalır. `Fit` ve `Fixed` için yok sayılır, bir sekmenin göstermek için zaten ihtiyaç duyduğunun altında da. Varsayılan: sınır yok.
 - `.overflow(Overflow)` — `Arrows` (varsayılan) ya da `Menu`.
 - `.reorderable(|from, to| msg)` — sürükleyerek ve klavyeyle sıralama; `to` sekmenin taşındıktan sonraki sırasıdır.
 - `.on_drag_scroll(|first| msg)` — sürüklenen sekme şeridi her kaydırdığında gönderilir; `first` artık görünen ilk sekmenin sırasıdır.
@@ -15,6 +16,7 @@
 
 - `apply` ile açık sekme kapanınca yerine geçen sekme, sondaysa yeni son sekme açılır.
 - `Fixed(n)` etikete bir hücreden az yer bırakacak kadar küçülmez; o hücrede uzun etiketten yalnızca `…` görünür; `Fill` 12 hücrede ya da etiketin kendi genişliğinde küçülmeyi bırakır.
+- `max_tab_width(n)` açıkken bir `Fill` sekmesi şeritten aldığı payı ya da n hücreyi, hangisi küçükse onu alır. Ekleme düğmesinin yeri paydan her zaman düşülür ve düğme şeridin sonunda değil, son sekmenin bir boşluk ardından durur.
 - `Arrows` ile şerit açık sekmeyi yalnızca o değiştiğinde izler; böylece oklarla serbestçe gezilebilir. Gösterecek sekmesi kalmayan ok zemine iner ve basışları yok sayar. Sekmeler kapanınca kalanlar sığdığı anda şerit geri kayar.
 - Denetimlerine yer kalmayacak kadar dar şerit açık sekmeyi kısaltır; hiçbir sekmeye yer kalmayan menülü şerit bütün sekmeleri listeler ve açık olanı işaretler.
 - `Menu` yalnızca gizli sekmeleri listeler; ↑ ↓ Home End gezer, harf yazmak atlar, Enter seçer, Esc ya da başka yere tık kapatır.

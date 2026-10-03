@@ -661,3 +661,50 @@ fn a_wrapping_table_goes_round_its_ends_and_stops_otherwise() {
     h.press("tab").press("end").press("down");
     assert_eq!(pillar_row(&h), "gamma");
 }
+
+/// A table of a million rows built only as they are drawn, counting how many were built.
+struct Lazy {
+    selected: Option<usize>,
+    built: std::rc::Rc<std::cell::Cell<usize>>,
+}
+
+impl App for Lazy {
+    type Msg = usize;
+    fn update(&mut self, row: usize) -> Command<usize> {
+        self.selected = Some(row);
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, usize>) {
+        let built = std::rc::Rc::clone(&self.built);
+        let columns = [Column::new("Line"), Column::new("Bytes").width(ColumnWidth::Fit)];
+        let table = Table::lazy(columns, 1_000_000, move |row| {
+            built.set(built.get() + 1);
+            TableRow::new([format!("line {row}"), "1234567890".to_owned()])
+        })
+        .selected(self.selected)
+        .on_select(|row| row);
+        ui.add(table).fill();
+    }
+}
+
+#[test]
+fn a_lazy_table_builds_only_the_rows_it_draws() {
+    let built = std::rc::Rc::new(std::cell::Cell::new(0));
+    let mut h = Harness::new(Lazy { selected: None, built: std::rc::Rc::clone(&built) }, 40, 8);
+    assert!(h.screen().contains("line 0"), "{}", h.screen());
+    assert!(built.get() <= 2 * 7, "the first frame built {} rows for seven on screen", built.get());
+    built.set(0);
+    h.press("tab").press("end");
+    assert_eq!(h.app().selected, Some(999_999));
+    assert!(h.screen().contains("line 999999"), "{}", h.screen());
+    assert!(built.get() <= 4 * 7, "two keys built {} rows of a million", built.get());
+}
+
+#[test]
+fn a_lazy_tables_fitted_column_fits_its_title() {
+    let h = Harness::new(Lazy { selected: None, built: std::rc::Rc::default() }, 40, 4);
+    let header = h.screen().lines().next().unwrap_or_default().to_owned();
+    // The rows are not all known, so the column is as wide as its title and its cells are cut.
+    assert!(header.contains("Bytes"), "{header}");
+    assert!(!h.screen().contains("1234567890"), "{}", h.screen());
+}

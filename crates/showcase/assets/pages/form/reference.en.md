@@ -6,9 +6,10 @@
 - `.summary(&errors)` — lists every message of `errors` above the fields; hidden while empty.
 - `.show(ui, |form| …)` — adds the form; `form.field(field, |ui| …)` adds a field with its control, `form.ui()` adds anything else.
 - `Field::new(label)` — a label, the control added inside, nothing else.
-- `.hint(text)` — faint help under the control while there is no error.
+- `.hint(text)` — faint help under the control while there is neither a warning nor an error.
 - `.value(text)` — a value to read in place of a control, lined up with the controls, its label faint.
-- `.error(Option<text>)` — the error under the control in place of the hint.
+- `.warning(Option<text>)` — the warning under the control in the warning colour with its sign, in the place the error would take. It never enters `FormErrors`, so a form whose fields carry only warnings still submits; an error beside it wins the place.
+- `.error(Option<text>)` — the error under the control in the danger colour with its sign, in place of the warning and the hint.
 - `.required(bool)` — the faint required word after the label.
 - `.disabled(bool)` — a greyed label; disable the control too.
 - `.label_width(cells)` — the label column of this field alone; the form's width applies otherwise.
@@ -20,15 +21,17 @@
 
 - Enter that the focused control does not use moves focus to the next focusable widget.
 - The label takes the `focus` state while focus is on its control or anything inside the field.
-- Beside controls, the required word sits under the label and the hint or error under the control.
-- Hints and errors wrap to the field width; the summary cuts long messages with `…`.
+- Beside controls, the required word sits under the label and the message under the control.
+- One message per field, in this order: the error, the warning, the hint. Whichever is first is the one drawn; the others are not shown.
+- Hints, warnings and errors wrap to the field width; the summary cuts long messages with `…`.
+- A warning is drawn and coloured like an error but is not one: it does not reach `FormErrors`, `Form::summary`, `TextInput::invalid` or `focus_first`, and the form submits.
 - `Command::focus(name)` for a widget that is not on screen yet applies after the next frame if it appears there.
 
 ## Theme keys
 
 - `field-label` — `fg`, `bold`; states `focus`, `disabled`.
-- `field-required`, `field-hint`, `field-error` — `fg`.
+- `field-required`, `field-hint`, `field-warning`, `field-error` — `fg`. A theme that gives `field-warning` no colour still gets the warning colour of the status the message reports.
 - `form-summary` — `bg`, `padding`.
 - `form-summary-title` — `fg`, `bold`; `form-summary-marker`, `form-summary-item` — `fg`.
-- `[icons]` — `error`.
+- `[icons]` — `error` for the error sign, `warning` for the warning sign, one cell each in every glyph mode.
 - Language — `quvyta.form.required`, `quvyta.form.summary` (plural, `n`).

@@ -1,8 +1,9 @@
-//! Text input: editing, validation, passwords, limits, submitting and a rename field that opens
-//! with the name selected.
+//! Text input: editing, validation, passwords, limits, suggestions, submitting and a rename field
+//! that opens with the name selected.
 
 use qframe::prelude::*;
-use qframe::widgets::TextInput;
+use qframe::text::fuzzy;
+use qframe::widgets::{Suggestion, TextInput};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -13,6 +14,14 @@ const PAGE: &str = "text-input";
 /// The most characters a project code may have.
 const CODE_LIMIT: usize = 8;
 
+/// The packages the search offers, with the icon before the name and the note on its right.
+const PACKAGES: [(&str, &str, &str); 4] = [
+    ("quvyta-config", "settings in one file", "folder-config"),
+    ("quvyta-tools", "shell helpers, 12 files", "folder-source"),
+    ("quvyta-themes", "colour schemes, 4 files", "folder-packages"),
+    ("quvyta-showcase", "the component gallery", "workspace"),
+];
+
 /// Field values and playground settings.
 #[derive(Debug)]
 pub struct State {
@@ -20,6 +29,7 @@ pub struct State {
     password: String,
     code: String,
     file: String,
+    package: String,
     disabled: bool,
     submitted: Option<String>,
 }
@@ -31,6 +41,7 @@ impl Default for State {
             password: String::new(),
             code: String::new(),
             file: "quarterly-report.md".to_owned(),
+            package: String::new(),
             disabled: false,
             submitted: None,
         }
@@ -44,6 +55,8 @@ pub enum Msg {
     Password(String),
     Code(String),
     File(String),
+    Package(String),
+    PackageChosen(usize),
     Submit(String),
     Disabled(bool),
 }
@@ -71,6 +84,23 @@ fn name_problem(name: &str) -> bool {
 }
 // endregion
 
+// region: suggestions
+/// The packages whose name holds what has been typed, the best match first, as a package search
+/// would rank them. The field draws the list and says which row was chosen; what belongs in the
+/// list, and how it is found, is the application's own work.
+fn packages_for(typed: &str) -> Vec<Suggestion> {
+    let mut found: Vec<(i32, Suggestion)> = PACKAGES
+        .iter()
+        .filter_map(|(name, note, icon)| {
+            let found = fuzzy(typed, name)?;
+            Some((-found.score(), Suggestion::new(*name).detail(*note).icon(*icon)))
+        })
+        .collect();
+    found.sort_by_key(|(rank, _)| *rank);
+    found.into_iter().map(|(_, row)| row).collect()
+}
+// endregion
+
 /// Applies a demo message.
 pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<AppMsg> {
     match message {
@@ -89,6 +119,18 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::File(value) => {
             log.push(PAGE, "TextInput#rename", format!("changed {value:?}"));
             state.file = value;
+        }
+        Msg::Package(value) => {
+            log.push(PAGE, "TextInput#package", format!("changed {value:?}"));
+            state.package = value;
+        }
+        Msg::PackageChosen(index) => {
+            let offered = packages_for(&state.package);
+            let Some(name) = offered.get(index).map(|row| row.label().to_owned()) else {
+                return Command::none();
+            };
+            log.push(PAGE, "TextInput#package", format!("chose {name}"));
+            state.package = name;
         }
         Msg::Submit(value) => {
             log.push(PAGE, "TextInput#name", format!("submitted {value:?}"));
@@ -160,6 +202,23 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         .width(Length::Cells(40))
         .id("rename");
         // endregion
+        ui.spacer().height(Length::Cells(1));
+        ui.add(Text::new(t!("text-input.package")).role("secondary"));
+        // region: suggestion-field
+        ui.add(
+            TextInput::new(&state.package)
+                .placeholder(t!("text-input.package-placeholder"))
+                .suggestions(packages_for(&state.package))
+                .disabled(state.disabled)
+                .on_change(|value| send(Msg::Package(value)))
+                .on_suggestion(|index| send(Msg::PackageChosen(index))),
+        )
+        .width(Length::Cells(40))
+        .id("package");
+        // endregion
+        // The list has a row for every package, and opens over what is under the field.
+        ui.spacer().height(Length::Cells(PACKAGES.len() as u16));
+        ui.add(Text::new(t!("text-input.suggestion-keys")).role("faint"));
         if let Some(submitted) = &state.submitted {
             ui.spacer().height(Length::Cells(1));
             ui.add(Text::new(t!("text-input.submitted", value = submitted.clone())).color("success"));
@@ -229,5 +288,41 @@ mod tests {
         assert_eq!(name_part("şğü.txt"), 0..3, "characters, not bytes");
         assert_eq!(name_part(".bashrc"), 0..7);
         assert_eq!(name_part("Makefile"), 0..8);
+    }
+
+    #[test]
+    fn the_package_search_offers_what_was_typed_and_takes_the_chosen_row() {
+        let mut h = showcase_on(PAGE);
+        h.set_reduced_motion(true);
+        h.click_text("a package name");
+        assert!(!h.screen().contains("quvyta-tools"), "the list waits for a keystroke:\n{}", h.screen());
+        h.type_text("t");
+        let screen = h.screen();
+        assert!(
+            screen.contains("quvyta-tools") && screen.contains("quvyta-themes"),
+            "every package with a t is on offer: {screen}"
+        );
+        // The search ranks what it found, so the second row is read off the screen.
+        let mut rows: Vec<(i32, &str)> =
+            PACKAGES.iter().filter_map(|(name, _, _)| h.find(name).map(|(_, y)| (y, *name))).collect();
+        rows.sort_unstable();
+        let second = rows.get(1).map(|(_, name)| *name).unwrap_or_else(|| panic!("two rows on offer: {screen}"));
+        h.press("down").press("down").press("enter");
+        assert_eq!(h.app().pages.text_input.package, second, "the second row of the list on offer");
+        let log = h.app().log.recent(PAGE, 10);
+        assert!(log.iter().any(|entry| entry.message == format!("chose {second}")), "{log:?}");
+    }
+
+    #[test]
+    fn esc_closes_the_package_list_and_keeps_what_was_typed() {
+        let mut h = showcase_on(PAGE);
+        h.set_reduced_motion(true);
+        h.click_text("a package name").type_text("t");
+        assert!(h.screen().contains("quvyta-tools"), "{}", h.screen());
+        h.press("esc");
+        assert!(!h.screen().contains("quvyta-tools"), "the list is closed:\n{}", h.screen());
+        assert_eq!(h.app().pages.text_input.package, "t", "and the text is still there");
+        h.type_text("h");
+        assert!(h.screen().contains("quvyta-themes"), "typing opens the list again:\n{}", h.screen());
     }
 }

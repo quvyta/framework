@@ -2,7 +2,7 @@
 
 - `HelpLayer::new(kapatma_mesajı)` — katman; Esc ve × işareti `kapatma_mesajı`nı gönderir.
 - `.dismissable(bool)` — Esc ve × işareti birlikte kapatır mı. Varsayılan: `true`. `false` işareti gizler; katmanı uygulama kapatır.
-- `.hint(tuş, etiket)` — o ekrana özgü bir tuş; "Bu ekran" altında ilk sırada listelenir.
+- `.hint(tuş, etiket)` — hiçbir bileşenin bildirmediği, o ekrana özgü bir tuş; "Bu ekran" altında, odaklı bileşenin kendi tuşlarından sonra listelenir.
 - `.width(hücre)` — iç boşluk dahil genişlik. Varsayılan: 64; dar ekranda küçülür.
 
 ## Tuşlar
@@ -20,11 +20,18 @@
 
 ## Davranış
 
-- Gruplar: ekran ipuçları, `[app]` eylemleri, `[global]` eylemleri; eşleşmesi olmayan gruplar gizlenir.
-- Etiketler: etkin dilde `keys.<eylem>` ve `quvyta.keys.<eylem>`; bir eylemin tüm tuş birleşimleri gösterilir.
+- Gruplar: odaklı bileşenin tuşları, ekran ipuçları, `[app]` eylemleri, `[global]` eylemleri; eşleşmesi olmayan gruplar gizlenir.
+- Etiketler: bağlantılar için etkin dilde `keys.<eylem>` ve `quvyta.keys.<eylem>`; bileşenin bildirdiği tuşlar için bileşenin kendi `quvyta.widget.<etiket>` girdisi; bir eylemin tüm tuş birleşimleri gösterilir.
 - Kaydırmadan önce en çok 18 satır, kısa ekranda daha az; yeniden açılınca süzgeç ve kaydırma sıfırlanır.
 - Modal bir katman: sol kenar boyunca çubuk, odak tuzağı, duraklatılmış uygulama kısayolları, kapanınca geri dönen odak.
 - İpucu satırı katman kapatılabilirken `esc kapat`, liste kayarken `↑↓ kaydır` gösterir.
+
+## Bileşen tuşları
+
+- `Widget::keys(&self, env: &Env) -> Vec<WidgetKey>` — odaktayken bileşenin aldığı tuşlar; varsayılan olarak hiçbiri. Çalışma motoru yalnızca tuşların bulunduğu bileşene, kare başına bir kez, onu çizerken sorar; katman cevabı "Bu ekran"ın başına koyar. Katman klavyeyi kendine alır; sorulan bileşen katman açıldığı anda odakta olan bileşendir: tablo odaktayken açılan katman tablodaki tuşları listeler, içindeki süzgecin değil.
+- `WidgetKey::new(tuşlar, etiket)` — bir satır: çizildiği hâliyle tuşlar, `"↑↓"` ya da `"pgup pgdn"`, ve etiket. `WidgetKey` `#[non_exhaustive]`, bu yüzden kurucuyla kurulur.
+- Framework'ün kendi bileşenleri bildirir: `Table` (gezinme, kaydırma, açma mesajı varsa `enter`, satır işaretliyorsa `space`, sıralıyorsa `s`), `List` (gezinme, kaydırma, `enter`, işaret kutusu varsa `space`), `Tree` (gezinme, kaydırma, açıp kapandığında `←→` ve `enter`), `TextInput` (gönderiyorsa `enter`) ve `TextArea` (gönderiyorsa `ctrl enter`).
+- Oklar simge setinden gelir: Unicode'de `↑↓`, ASCII'de `^v`.
 
 ## Tema anahtarları
 
@@ -33,4 +40,4 @@
 - `help-group`, `help-key` (`bg`, `fg`, `bold`), `help-label`.
 - `layer-hint-key`, `layer-hint-label`, `scrollbar`.
 - `[icons]` — `search`, `close`, `pillar`, `scroll-thumb`, `scroll-track`.
-- Dil — `quvyta.help.title`, `.screen`, `.app`, `.global`, `.empty`; `quvyta.layer.filter`, `.close`, `.scroll`.
+- Dil — `quvyta.help.title`, `.screen`, `.app`, `.global`, `.empty`; `quvyta.layer.filter`, `.close`, `.scroll`; `quvyta.widget.move`, `.scroll`, `.open`, `.check`, `.sort`, `.fold`, `.submit`.

@@ -41,6 +41,8 @@ unreadable = "This folder could not be read"
 empty                    = "empty"
 unreadable               = "This folder could not be read."
 unreadable-short         = "cannot be read"
+filter                   = "Type to narrow the folder"
+no-match                 = "nothing matches"
 new-file                 = "New file"
 new-folder               = "New folder"
 rename                   = "Rename"
@@ -227,6 +229,16 @@ move   = "move"
 run    = "run"
 filter = "Type to filter"
 
+# What the keys a widget declares do, listed by the help layer for the widget with the focus.
+[quvyta.widget]
+move   = "move"
+scroll = "scroll"
+open   = "open"
+check  = "check"
+sort   = "sort"
+fold   = "open or close"
+submit = "submit"
+
 [quvyta.help]
 title  = "Keyboard shortcuts"
 screen = "This screen"
@@ -247,6 +259,10 @@ type-word = "Type {word} to confirm"
 
 [quvyta.tabs]
 add = "New tab"
+
+# The control at the end of a row of buttons that some of them do not fit in; it opens their menu.
+[quvyta.button-row]
+more = "More"
 
 [quvyta.tab-rail]
 add = "New tab"

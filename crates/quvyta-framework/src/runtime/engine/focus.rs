@@ -51,8 +51,10 @@ impl<A: App> Engine<A> {
 
     /// Matches the open modal layers with the ones painted this frame. A new layer remembers
     /// the focus of the moment; when layers close, focus is requested back for the widget that
-    /// had it before the bottommost closed layer opened, unless a widget asked for focus itself.
+    /// had it before the bottommost closed layer opened, unless a widget asked for focus itself
+    /// or a `Command::focus` ran since the last frame.
     pub(super) fn settle_layers(&mut self, now: Duration) {
+        let commanded = std::mem::take(&mut self.focus_commanded);
         let painted: Vec<WidgetId> =
             self.frame.layers.iter().filter(|layer| layer.modal).map(|layer| layer.id).collect();
         let mut restore = None;
@@ -71,7 +73,7 @@ impl<A: App> Engine<A> {
                 self.dirty = true;
             }
         }
-        if let Some(previous) = restore {
+        if let Some(previous) = restore.filter(|_| !commanded) {
             let back_into_open_layer = self.frame.top_layer().is_some_and(|layer| {
                 self.frame.focus_request == Some(FocusRequest::Within(layer)) && self.frame.is_within(previous, layer)
             });

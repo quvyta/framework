@@ -9,6 +9,7 @@ mod context;
 mod flex;
 mod id;
 mod idle;
+mod keys;
 mod mapped;
 #[cfg(test)]
 mod mapped_rules;
@@ -28,6 +29,7 @@ use std::any::{Any, type_name};
 
 pub use context::{EventCx, MeasureCx, PaintCx};
 pub use id::WidgetId;
+pub use keys::WidgetKey;
 pub use pointer_shape::PointerShape;
 pub use view::{NodeMut, View};
 
@@ -40,6 +42,7 @@ pub(crate) use memory::Memory;
 
 use mapped::Mapped;
 
+use crate::env::Env;
 use crate::event::Event;
 use crate::geometry::{Padding, Rect, Size};
 use crate::keymap::Scope;
@@ -93,6 +96,19 @@ pub trait Widget<Msg>: 'static {
     /// Whether the widget can take keyboard focus.
     fn focusable(&self) -> bool {
         false
+    }
+
+    /// The keys this widget takes while it has keyboard focus, as the
+    /// [`HelpLayer`](crate::widgets::HelpLayer) lists them at the top of its "This screen" group.
+    /// Nothing by default: a widget with no keys of its own says nothing.
+    ///
+    /// `env` is here for the two things a key name is built from: the labels of the language
+    /// files (`env.i18n().translate("…", &[])`) and the glyphs of the icon set in use, so an arrow
+    /// is an arrow and a caret where the terminal can show nothing else. The runtime asks only the
+    /// widget the keys are with, once a frame, so a widget can answer without weighing anything
+    /// down.
+    fn keys(&self, _env: &Env) -> Vec<WidgetKey> {
+        Vec::new()
     }
 
     /// Child nodes, for widgets that contain other widgets.

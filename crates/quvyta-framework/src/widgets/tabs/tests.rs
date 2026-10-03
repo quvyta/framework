@@ -80,6 +80,8 @@ struct Editor {
     closable: bool,
     reorderable: bool,
     menu: bool,
+    /// The most cells a `TabWidth::Fill` tab may take, when the cap is under test.
+    max: Option<u16>,
     /// The first position in view after each step a dragged tab scrolled the strip.
     scrolled: Vec<usize>,
 }
@@ -115,6 +117,9 @@ impl App for Editor {
             .overflow(self.overflow)
             .pinned([0])
             .on_drag_scroll(Msg::Scrolled);
+        if let Some(cells) = self.max {
+            tabs = tabs.max_tab_width(cells);
+        }
         if self.closable {
             tabs = tabs.closable(|i| Msg::Edit(TabEdit::Close(i)));
         }
@@ -143,6 +148,7 @@ fn editor(width: u16) -> Editor {
         closable: false,
         reorderable: false,
         menu: false,
+        max: None,
         scrolled: Vec::new(),
     }
 }
@@ -187,6 +193,65 @@ fn fixed_and_fill_widths_truncate_and_share_space() {
     let h = Harness::new(app, 56, 1);
     assert_eq!(h.screen(), "▌ main.rs       app.rs        tabs.rs       theme.to…\n");
     assert_eq!(h.bg(9, 0), h.env().theme().color("active"));
+}
+
+/// How many cells the open tab covers, counted as the cells a `Fill` tab's surface covers.
+fn open_tab_cells(h: &Harness<Editor>) -> usize {
+    let active = h.env().theme().color("active");
+    (0..h.app().width).filter(|x| h.bg(*x, 0) == active).count()
+}
+
+/// A strip of `count` copies of the same file in `width` cells, with `max` capping each tab.
+fn filled(count: usize, width: u16, max: Option<u16>) -> Harness<Editor> {
+    let mut app = editor(width);
+    app.files = vec!["main.rs"; count];
+    app.tab_width = TabWidth::Fill;
+    app.max = max;
+    Harness::new(app, width, 1)
+}
+
+#[test]
+fn a_capped_fill_stops_one_tab_from_taking_the_whole_strip() {
+    let h = filled(1, 80, Some(24));
+    assert_eq!(open_tab_cells(&h), 24, "the cap is the width the one tab takes");
+    assert_eq!(h.screen(), "▌ main.rs\n", "and the rest of the eighty-cell strip is left empty");
+    assert_eq!(h.bg(23, 0), h.env().theme().color("active"), "the tab's last cell is the cap's");
+    assert_eq!(h.bg(24, 0), h.env().theme().color("canvas"), "the cell after it is the canvas, not the tab");
+}
+
+#[test]
+fn a_cap_under_the_share_changes_no_tab() {
+    // Five tabs in eighty cells share sixteen each, all under the cap, so the strip is laid out as
+    // if there were no cap at all.
+    let with = filled(5, 80, Some(24));
+    let without = filled(5, 80, None);
+    assert_eq!(with.screen(), without.screen(), "the cap is above every tab's share:\n{}", with.screen());
+    for name in ["app.rs", "tabs.rs", "theme.toml"] {
+        assert_eq!(with.find(name), without.find(name), "{name} keeps its column");
+    }
+    assert_eq!(with.find("main.rs").map(|(x, _)| x), Some(2), "and the open one fills the strip as before");
+    assert_eq!(open_tab_cells(&with), 16, "a tab takes its share of the eighty cells");
+}
+
+#[test]
+fn many_tabs_keep_the_readable_minimum_under_a_cap() {
+    let with = filled(12, 40, Some(24));
+    let without = filled(12, 40, None);
+    // Twelve tabs in forty cells have a share under the readable minimum, so the strip overflows
+    // and the cap has nothing to hold back.
+    assert!(without.screen().starts_with(" ◀ "), "the strip overflows: {}", without.screen());
+    assert_eq!(with.screen(), without.screen(), "a cap above the minimum changes nothing:\n{}", with.screen());
+    assert_eq!(open_tab_cells(&with), 12, "every tab is still the twelve cells it can be read in");
+}
+
+#[test]
+fn a_cap_under_what_a_tab_needs_is_ignored() {
+    // Four tabs in forty cells each take a share well over what their names need, so a cap of one
+    // has nothing to hold back: what a tab needs to show at all wins over it.
+    let with = filled(4, 40, Some(1));
+    let without = filled(4, 40, None);
+    assert_eq!(with.screen(), without.screen(), "no tab is cut below what it needs:\n{}", with.screen());
+    assert!(!with.screen().contains('…'), "every name is whole: {}", with.screen());
 }
 
 #[test]

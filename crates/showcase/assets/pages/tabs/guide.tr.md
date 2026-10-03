@@ -9,12 +9,14 @@ Aynı şeyin görünümleri arasında geçiş için sekme kullan: bir sayfanın 
 3. Geçişleri al: `.on_select(Msg::Tab)`.
 4. Numaralar işe yarıyorsa `.numbered(true)` ekle, bu showcase'teki Demo, Kod, Rehber, Referans sekmeleri gibi.
 5. Bir sekmeye `.badge(sıra, sayı)` ile sayı koy, örneğin bir Güncellemeler sekmesinin arkasında bekleyen güncellemeler. Sayıyı olduğu gibi ver: sıfır hiçbir şey göstermez.
+6. Bir sekmenin işinin sürdüğünü `.busy(sıra, true)` ile göster, örneğin yazan bir program ya da süren bir derleme; kişiyi bekleyen sekmeyi `.status(sıra, "success")` ile işaretle.
 
 ## Nasıl çalışır
 
 - **Açık sekme bir yüzeydir.** `active` tonunda, kalın yazı ve vurgu çubuğuyla durur; şerit klavyeyle odaklıyken çubuk nefes alır. Diğerleri sessiz metindir. Üstüne gelinen sekme `surface` tonuna yükselir ve soluk bir çubuk gösterir. Kutu yok, parantez yok, alt çizgi karakteri yok.
 - **Sayı okunur kalır.** Rozet adın bir boşluk sonrasında, addan bir ton sessiz durur; 99'un üstü bir `Badge` sayısı gibi `99+` okunur. Sekme darsa önce ad `…` ile kısalır, sayı hücrelerini korur; sayı adla birlikte kaymaz. Taşma menüsüne gizlenen bir sekme sayısını da yanında götürür.
 - **Kayma.** Kayma açıkken dururken etiket bir hücre solda bekler, sekmenin üstüne gelinince ya da sekme açılınca yerine kayar; sekme o hücreyi sağında tuttuğu için hiçbir sekmenin genişliği değişmez.
+- **Çalışan sekme döner.** Meşgul bir sekme adının önünde vurgu renginde ince bir dönen işaret gösterir; işaret framework'ün kendi saatiyle döner, sen yalnızca işin ne zaman başlayıp bittiğini söylersin. Hareket azaltılmışsa yerinde duran tek bir noktadır. Bir durum aynı hücreye kendi renginde bir nokta koyar; durumu olan meşgul sekme o renkte döner. İşaret sekmenin boşluğunda ve adın kaydığı yedek hücrede durur; bu yüzden gelip gidince başka hiçbir sekme kaymaz, dar bir sekme de adını kısaltıp işareti korur.
 - **Klavye.** Odaktayken ← ve → (ya da h ve l) komşu sekmeyi açar, 1–9 numaralı sekmeyi doğrudan açar.
 - **Taşınca oklar çıkar.** Sekmeler sığmazsa şeridin iki ucunda birer ok düğmesi durur. Düğme üç hücredir: boşluk, ok, boşluk; zemini bir ton yüksektir. İmleç üstüne gelince aydınlanır ve ilk hücresinde vurgu çubuğu belirir; basınca bir ton daha parlar ve şeridi hiçbir sekmeyi açmadan bir sekme kaydırır. Gösterecek sekmesi kalmayan ok zemine iner ve basışları yok sayar. Açılan sekme her zaman görünür hale gelir. Sıralanabilir bir şeritte (gelişmiş sekmeler sayfasına bak) sürükleyip okun üstünde tuttuğun sekme de şeridi birer sekme kaydırır.
 - **Fare.** Açmak için sekmeye, kaydırmak için oka tıkla ya da şeridin üstünde tekerleği çevir. Oklara yer kalmayacak kadar dar bir şerit açık sekmeyi kısaltır, tekerlekle kaymaya devam eder.

@@ -18,6 +18,14 @@
 
 - `Language::from_tag("rust" | "rs" | "toml" | "sh" | "bash" | "shell" | "zsh" | "pkgbuild" | diğer)` — kod bloğu etiketleri için.
 - `Language::from_file_name(ad)` — `PKGBUILD`, `.sh`, `.bash`, `.zsh`, `.install` kabuk; `.rs` Rust; `.toml` TOML; gerisi düz metin.
+- `TextArea::language(dil)` — aynı diller, düzenlenen metin alanını da aynı `code-token` stilleriyle renklendirir; kod görünümü bütün dosyaların görüntüleyicisi olarak kalır.
+
+## Kendi metnini renklendirmek
+
+- `qframe::text::highlight(kod, dil)` — kodun belirteçlerinin bayt aralıkları, sırayla, metnin tamamını kapsayarak: ilk aralık sıfırdan başlar, her aralık bir öncekinin bittiği yerden başlar, sonuncusu metnin uzunluğunda biter. `Language::Plain` metnin tamamını tek bir `Token::Plain` olarak verir.
+- `Token::style_variant()` — bir belirteci boyayan `code-token` stilin varyantı: `keyword`, `type`, `function`, `macro`, `string`, `number`, `comment`, `attribute`, `lifetime`, `punctuation`, `table`, `key`, `variable`, `plain`. Kodu kendi bileşeninde çizen bir uygulama temadan `code-token.<varyant>` ister ve her aralığı onunla boyar; bu bileşen de tam olarak böyle yapar.
+- `Token` `#[non_exhaustive]`: yeni bir belirteç türü eklenebilir, bu yüzden eşlemede her türü saymak yerine joker kullan.
+- `Language`, `qframe::widgets::Language` ile aynı türdür; `qframe::text::Language` adresinde de yeniden yayımlanır.
 
 ## Tema anahtarları
 

@@ -1,10 +1,13 @@
 //! Multi-line text entry.
 
+use std::ops::Range;
+use std::rc::Rc;
 use std::time::Duration;
 
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::cells;
+use super::code_view::token_style;
 use super::edit_menu::{self, EditAction, TextMenu};
 use super::editor::Editor;
 use super::rows::WHEEL_ROWS;
@@ -16,9 +19,9 @@ use crate::event::{Event, KeyEvent, MouseButton, MouseEvent, MouseKind};
 use crate::geometry::{Padding, Rect, Size, clamp_u16};
 use crate::keymap::{Key, Modifiers, Scope};
 use crate::style::CellStyle;
-use crate::text;
+use crate::text::{self, Language, Token, highlight};
 use crate::theme::State;
-use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
+use crate::widget::{EventCx, MeasureCx, PaintCx, Widget, WidgetKey};
 
 /// Rows a text area measures at least, so it reads as a place for several lines.
 const MIN_ROWS: usize = 3;
@@ -55,14 +58,19 @@ type TextMessage<Msg> = Box<dyn Fn(String) -> Msg>;
 /// [`TextArea::variant`] with `"plain"` draws the area like paper: no field surface of its own,
 /// only the tone of whatever it sits on, with focus shown by the pillar.
 ///
+/// [`TextArea::language`] paints the text in the `code-token` colours of a
+/// [`CodeView`](super::CodeView) while it is edited; nothing else about the area changes.
+///
 /// Style keys: `text-area` (`bg`, `fg`, `padding`, and the `see-through` flag that leaves the
 /// ground unpainted) with `hover`, `focus`, `invalid`, `disabled` and the `plain` variant; `text-area-line-number` (`fg`) with `selected` on the cursor's line;
-/// `text-area-counter` (`fg`); and the text input's `text-input-placeholder`,
+/// `text-area-counter` (`fg`); `code-token.<kind>` for the text of a language, where kind is
+/// what [`Token::style_variant`] names; and the text input's `text-input-placeholder`,
 /// `text-input-selection`, `text-input-cursor` and `scrollbar`.
 pub struct TextArea<Msg> {
     value: String,
     placeholder: String,
     variant: Option<String>,
+    language: Language,
     invalid: bool,
     disabled: bool,
     max_length: Option<usize>,
@@ -85,6 +93,19 @@ struct AreaMemory {
     last_edit: Duration,
     selecting: bool,
     dragging_bar: bool,
+    coloured: Coloured,
+}
+
+/// The tokens the text was last painted with, and what they were worked out from, so a frame
+/// whose text and language are both the ones already coloured takes them again instead of
+/// colouring the whole text again: typing a character into a file of thousands of lines then
+/// colours it once, not once a frame.
+#[derive(Debug, Default)]
+struct Coloured {
+    /// A hash of the text and the language below.
+    stamp: u64,
+    /// Behind a handle, because painting walks the tokens while the memory is lent out.
+    tokens: Rc<Vec<(Range<usize>, Token)>>,
 }
 
 /// Where the parts of a text area go inside its area.
@@ -128,6 +149,7 @@ impl<Msg: 'static> TextArea<Msg> {
             value: value.into(),
             placeholder: String::new(),
             variant: None,
+            language: Language::Plain,
             invalid: false,
             disabled: false,
             max_length: None,
@@ -151,6 +173,22 @@ impl<Msg: 'static> TextArea<Msg> {
     #[must_use]
     pub fn variant(mut self, variant: impl Into<String>) -> Self {
         self.variant = Some(variant.into());
+        self
+    }
+
+    /// Colours the text as `language` while it is edited, in the same `code-token` colours a
+    /// [`CodeView`](super::CodeView) gives a file of that language: a keyword, a string, a
+    /// comment and a number each take their own. Only the colour changes. The cursor, the
+    /// selection, the undo, the scrolling and the line numbers are the area's own, a selection
+    /// covers the colours under it, the placeholder stays uncoloured and a disabled area keeps
+    /// its muted text. The tokens are worked out when the text or the language changes rather
+    /// than on every frame, so typing in a long file stays as quick as typing in a field.
+    ///
+    /// [`Language::Plain`], the default, leaves the text in the area's own colour.
+    /// [`Language::from_file_name`] picks the language of the file being edited.
+    #[must_use]
+    pub fn language(mut self, language: Language) -> Self {
+        self.language = language;
         self
     }
 
@@ -212,6 +250,25 @@ impl<Msg: 'static> TextArea<Msg> {
             memory.synced = Some(self.value.clone());
         }
         memory
+    }
+
+    /// The tokens the text is painted with: those of the text as it was the last time it or the
+    /// language changed, taken again on a frame where neither did. A plain area has none of its
+    /// own, because it wants the colour the area gives the text rather than a token's.
+    fn tokens(&self, cx: &mut PaintCx<'_>, text: &str) -> Rc<Vec<(Range<usize>, Token)>> {
+        // Every text area is plain unless asked otherwise, and those must not pay for hashing
+        // their whole text on each frame.
+        if self.language == Language::Plain {
+            return Rc::default();
+        }
+        let memory = cx.memory::<AreaMemory>();
+        let stamp = stamp(text, self.language);
+        if memory.coloured.stamp == stamp {
+            return Rc::clone(&memory.coloured.tokens);
+        }
+        let tokens = Rc::new(highlight(text, self.language));
+        memory.coloured = Coloured { stamp, tokens: Rc::clone(&tokens) };
+        tokens
     }
 
     fn gutter(&self, text: &str) -> u16 {
@@ -422,6 +479,15 @@ fn padding(env: &Env, variant: Option<&str>) -> Padding {
     Padding::symmetric(vertical, horizontal)
 }
 
+/// A number that differs between two texts in two languages, as far as a hash tells: the pair is
+/// what the tokens were worked out from, and nothing else can go into them.
+fn stamp(text: &str, language: Language) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (text, language).hash(&mut hasher);
+    hasher.finish()
+}
+
 impl<Msg: 'static> Widget<Msg> for TextArea<Msg> {
     fn measure(&self, cx: &mut MeasureCx<'_>, available: Size) -> Size {
         let padding = padding(cx.env(), self.variant.as_deref());
@@ -497,6 +563,13 @@ impl<Msg: 'static> Widget<Msg> for TextArea<Msg> {
         }
         let selection_style = cx.style("text-input-selection", None, &states).text();
         let cursor_line = text[..cursor].matches('\n').count();
+        let tokens = self.tokens(cx, &text);
+        // A disabled area is the muted text the field gives it in every state, so its tokens are
+        // not read; an empty list says that in the one place the colours are chosen.
+        let tokens: &[(Range<usize>, Token)] = if self.disabled { &[] } else { &tokens };
+        // The tokens cover the text in order and the graphemes are walked in order too, so one
+        // index forward finds the token each grapheme falls in.
+        let mut at = 0;
         for (index, range) in layout.rows.iter().enumerate().skip(scroll).take(visible) {
             let y = layout.text.y + i32::try_from(index - scroll).unwrap_or(0);
             if self.line_numbers && text_rows::starts_line(&text, range) {
@@ -515,11 +588,18 @@ impl<Msg: 'static> Widget<Msg> for TextArea<Msg> {
                 if x + i32::from(width) > layout.text.right() {
                     break;
                 }
+                while tokens.get(at).is_some_and(|(token, _)| token.end <= start) {
+                    at += 1;
+                }
+                let token = tokens.get(at).filter(|(token, _)| token.start <= start).map(|(_, kind)| *kind);
                 let selected = selection.as_ref().is_some_and(|selection| selection.contains(&start));
                 let style = if selected {
                     CellStyle { fg: selection_style.fg.or(text_style.fg), bg: selection_style.bg, ..text_style }
                 } else {
-                    text_style
+                    match token {
+                        Some(token) => token_style(cx, token),
+                        None => text_style,
+                    }
                 };
                 cx.text(x, y, grapheme, style, width);
                 x += i32::from(width);
@@ -603,6 +683,14 @@ impl<Msg: 'static> Widget<Msg> for TextArea<Msg> {
 
     fn focusable(&self) -> bool {
         !self.disabled
+    }
+
+    fn keys(&self, env: &Env) -> Vec<WidgetKey> {
+        // A plain Enter is a line break here, so the key that submits is the one worth a row.
+        if self.on_submit.is_some() {
+            return vec![WidgetKey::new("ctrl enter", env.i18n().translate("quvyta.widget.submit", &[]))];
+        }
+        Vec::new()
     }
 }
 
@@ -895,5 +983,246 @@ mod tests {
         assert_eq!(h.app().value, "UalpRhaL\nbeta\ngamma", "a row up from the upper end");
         h.press("ctrl+home").press("down").press("shift+right").press("shift+right").press("down").type_text("D");
         assert_eq!(h.app().value, "UalpRhaL\nbeta\ngaDmma", "a row down from the lower end");
+    }
+
+    // Syntax colours, from the language the file being edited would give.
+
+    /// The line the playground of the text area colours.
+    const SNIPPET: &str = "fn main() { let s = \"x\"; }";
+
+    /// A text area holding code, in the language its file name would give.
+    struct Code {
+        value: String,
+        language: Language,
+        disabled: bool,
+    }
+
+    impl App for Code {
+        type Msg = String;
+        fn update(&mut self, value: String) -> Command<String> {
+            self.value = value;
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, String>) {
+            ui.add(
+                TextArea::new(self.value.as_str())
+                    .language(self.language)
+                    .disabled(self.disabled)
+                    .on_change(|value| value),
+            );
+        }
+    }
+
+    fn code(value: &str, language: Language) -> Harness<Code> {
+        let mut h = Harness::new(Code { value: value.into(), language, disabled: false }, 32, 4);
+        // Iris, whose accent is not its text colour as in the monochrome theme, so that a token's
+        // colour is told from the colour of the field's own text.
+        h.set_theme("iris").set_reduced_motion(true);
+        h
+    }
+
+    /// The column and row of `text` on the screen.
+    fn cell(h: &Harness<Code>, text: &str) -> (u16, u16) {
+        let (x, y) = h.find(text).unwrap_or_else(|| panic!("{text:?} is drawn:\n{}", h.screen()));
+        (u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0))
+    }
+
+    /// The colour the theme paints `widget.variant` with, as a cell takes it.
+    fn painted(h: &Harness<Code>, widget: &str, variant: Option<&str>) -> crate::color::Rgb {
+        h.env()
+            .theme()
+            .style(widget, variant, &[])
+            .paint("fg")
+            .map(|paint| paint.at(0.0))
+            .expect("a style the themes give")
+    }
+
+    /// The text colour of the cell at `at`, which a drawn letter always has.
+    fn fg(h: &Harness<Code>, at: (u16, u16)) -> crate::color::Rgb {
+        h.fg(at.0, at.1).expect("a drawn letter has a text colour")
+    }
+
+    /// The colour of the cell at `at` to stand on.
+    fn bg(h: &Harness<Code>, at: (u16, u16)) -> crate::color::Rgb {
+        h.bg(at.0, at.1).expect("a cell has a ground")
+    }
+
+    #[test]
+    fn a_language_paints_each_token_in_its_own_colour_and_plain_leaves_the_text_alone() {
+        let h = code(SNIPPET, Language::Rust);
+        let text = painted(&h, "text-area", None);
+        let keyword = painted(&h, "code-token", Some("keyword"));
+        assert_ne!(keyword, text, "a keyword is not the area's own text colour");
+        assert_eq!(fg(&h, cell(&h, "fn")), keyword, "fn takes the keyword colour:\n{}", h.screen());
+        assert_eq!(fg(&h, cell(&h, "\"x\"")), painted(&h, "code-token", Some("string")), "and the string its own");
+
+        let plain = code(SNIPPET, Language::Plain);
+        assert_eq!(
+            (fg(&plain, cell(&plain, "fn")), fg(&plain, cell(&plain, "\"x\""))),
+            (text, text),
+            "without a language the text is the field's own colour:\n{}",
+            plain.screen()
+        );
+    }
+
+    #[test]
+    fn typing_a_comment_recolours_the_line_and_undo_brings_the_keyword_back() {
+        let mut h = code(SNIPPET, Language::Rust);
+        // The cursor is moved off the word both times, because the cursor block paints over the
+        // cell it is on in the colours the theme gives it.
+        h.press("tab").press("ctrl+home").type_text("// ").press("ctrl+end");
+        assert_eq!(fg(&h, cell(&h, "fn")), painted(&h, "code-token", Some("comment")), "{}", h.screen());
+        // A word and the space that ends it are undone apart, so the comment goes in two steps.
+        h.press("ctrl+z").press("ctrl+z").press("ctrl+end");
+        assert_eq!(fg(&h, cell(&h, "fn")), painted(&h, "code-token", Some("keyword")), "{}", h.screen());
+    }
+
+    #[test]
+    fn a_selection_covers_the_colours_under_it() {
+        let mut h = code(SNIPPET, Language::Rust);
+        let keyword = painted(&h, "code-token", Some("keyword"));
+        let selection = h
+            .env()
+            .theme()
+            .style("text-input-selection", None, &[])
+            .paint("bg")
+            .map(|paint| paint.at(0.0))
+            .expect("the themes give a selection a ground");
+        // `main`, four letters on from the start of the line.
+        h.press("tab").press("ctrl+home");
+        for _ in 0..3 {
+            h.press("right");
+        }
+        for _ in 0..4 {
+            h.press("shift+right");
+        }
+        let main = cell(&h, "main");
+        assert_eq!(bg(&h, main), selection, "the selection has its own ground:\n{}", h.screen());
+        assert_ne!(bg(&h, (main.0 - 1, main.1)), selection, "only the selected letters take it");
+        // A keyword under the selection is a selected letter, not a keyword any more.
+        h.press("ctrl+home").press("shift+right").press("shift+right");
+        assert_ne!(fg(&h, cell(&h, "fn")), keyword, "a selected keyword loses its token colour:\n{}", h.screen());
+    }
+
+    #[test]
+    fn the_colours_stay_readable_in_ascii_glyphs_and_sixteen_colours() {
+        use crate::color::ColorDepth;
+        use crate::icons::GlyphMode;
+        use ratatui_core::style::Color;
+        let mut h = code(SNIPPET, Language::Rust);
+        h.set_glyph_mode(GlyphMode::Ascii);
+        let screen = h.screen();
+        assert!(screen.contains(SNIPPET), "ASCII glyphs draw the code as it is:\n{screen}");
+
+        // Sixteen colours are chosen against the ground of the frame, and text against the
+        // background of its own cell, so both are read before the frame is drawn in them.
+        let canvas = h.env().theme().color("canvas").expect("the themes name a canvas");
+        let (fn_at, string) = (cell(&h, "fn"), cell(&h, "\"x\""));
+        let behind = bg(&h, fn_at);
+        h.set_depth(ColorDepth::Ansi16);
+        let shown = |colour: crate::color::Rgb| Color::Indexed(colour.to_ansi16_text(behind, canvas));
+        let at = |cell: (u16, u16)| h.buffer()[(cell.0, cell.1)].fg;
+        assert_eq!(at(fn_at), shown(painted(&h, "code-token", Some("keyword"))), "{}", h.screen());
+        assert_eq!(at(string), shown(painted(&h, "code-token", Some("string"))), "{}", h.screen());
+        let ground = h.buffer()[(fn_at.0, fn_at.1)].bg;
+        assert_ne!(
+            (at(fn_at), at(string)),
+            (ground, ground),
+            "both tokens are told from the ground in sixteen colours"
+        );
+    }
+
+    #[test]
+    fn a_disabled_area_keeps_its_muted_text() {
+        let h = Harness::new(Code { value: SNIPPET.into(), language: Language::Rust, disabled: true }, 32, 4);
+        let muted = h.env().theme().color("muted").expect("the themes name a muted colour");
+        assert_eq!(fg(&h, cell(&h, "fn")), muted, "the field's own disabled text:\n{}", h.screen());
+    }
+
+    /// A file of thousands of lines of Rust in an area, coloured or not, as an editor holds it.
+    struct File {
+        code: String,
+        language: Language,
+    }
+
+    impl App for File {
+        type Msg = ();
+        fn update(&mut self, _: ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(TextArea::new(self.code.as_str()).language(self.language)).width(Length::Cells(100));
+        }
+    }
+
+    /// Five thousand lines of Rust, of the shape a real file has.
+    fn rust_file() -> String {
+        (0..5_000)
+            .map(|n| match n % 4 {
+                0 => format!("/// Answers the request numbered {n} of the batch.\n"),
+                1 => format!("pub fn answer_{n}(request: &Request) -> Result<Reply, Error> {{\n"),
+                2 => format!("    Ok(Reply::new(request.field(\"name-{n}\")?, {n}u32))\n"),
+                _ => "}\n".to_owned(),
+            })
+            .collect()
+    }
+
+    /// The fastest of a few tries at one frame after a key press, which changes the text.
+    fn frame_after_a_key(code: &str, language: Language) -> std::time::Duration {
+        let mut h = Harness::new(File { code: code.into(), language }, 110, 30);
+        h.press("tab");
+        (0..3)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                h.type_text("x");
+                started.elapsed()
+            })
+            .min()
+            .unwrap_or_default()
+    }
+
+    /// The fastest of a few tries at twenty steps that move the cursor and leave the text as it is.
+    fn steps_over_the_same_text(code: &str, language: Language) -> std::time::Duration {
+        let mut h = Harness::new(File { code: code.into(), language }, 110, 30);
+        h.press("tab");
+        (0..3)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                for step in 0..20 {
+                    h.press(if step % 2 == 0 { "down" } else { "up" });
+                }
+                started.elapsed()
+            })
+            .min()
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_file_of_thousands_of_lines_is_coloured_once_rather_than_once_a_frame() {
+        // A view is built anew every frame and an area wraps its whole text every frame, so a
+        // frame that coloured the whole text as well would pay for both on every key. Remembering
+        // the tokens means the colouring happens when the text or the language changes, and the
+        // frames after it take what they took before.
+        //
+        // So a frame after a key costs a couple of times what the same frame without a language
+        // costs, and steps that do not change the text cost the same again and again however long
+        // the file is. Both are compared rather than held to a clock: a machine busy building
+        // other programs slows the two sides alike. The fastest of a few tries is taken, because
+        // load only ever adds time.
+        let file = rust_file();
+        let (plain, coloured) = (frame_after_a_key(&file, Language::Plain), frame_after_a_key(&file, Language::Rust));
+        let ratio = coloured.as_secs_f64() / plain.as_secs_f64().max(1e-6);
+        assert!(
+            ratio < 4.0,
+            "a frame after a key with a language took {ratio:.1} times as long ({plain:?} against {coloured:?})"
+        );
+
+        let (plain, coloured) =
+            (steps_over_the_same_text(&file, Language::Plain), steps_over_the_same_text(&file, Language::Rust));
+        let ratio = coloured.as_secs_f64() / plain.as_secs_f64().max(1e-6);
+        assert!(
+            ratio < 2.0,
+            "steps over an unchanged text took {ratio:.1} times as long ({plain:?} against {coloured:?})"
+        );
     }
 }

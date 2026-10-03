@@ -62,7 +62,8 @@
 //! - [`i18n`] — locales, plural forms and the [`t!`](crate::t!) macro.
 //! - [`keymap`] — named actions bound to key chords; [`event`] — key, mouse and paste events.
 //! - [`env`](mod@env) — the loaded theme, icons, language and keymap an application runs with.
-//! - [`geometry`] and [`text`] — rectangles and padding in cells, and text measured in cells.
+//! - [`geometry`] and [`text`] — rectangles and padding in cells, text measured in cells, and the
+//!   tokens a language's syntax splits code into.
 //! - [`desktop`] — which program opens a file: the desktop's shared MIME database, the
 //!   installed programs' `.desktop` files and the person's defaults, read without drawing.
 //! - [`install`] — installing a missing program's package in front of the person: the package

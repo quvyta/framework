@@ -20,9 +20,9 @@ const PAGE: &str = "theme-icons-language";
 /// application's main menu needs, so every application in the ecosystem shows the same shapes for a
 /// project, who you are, the settings and the way out; the workspace that holds the work and the
 /// button that answers what the keys do; then the kinds of program a launcher groups its entries
-/// by, the mark of the ecosystem itself, the marks on a window's title, and what a status strip
-/// shows of the machine.
-const ICONS: [&str; 42] = [
+/// by, the mark of the ecosystem itself, the marks on a window's title, what a status strip
+/// shows of the machine and a media player's transport with a music library's columns.
+const ICONS: [&str; 58] = [
     "check",
     "close",
     "dot",
@@ -32,6 +32,7 @@ const ICONS: [&str; 42] = [
     "arrow-up",
     "arrow-down",
     "search",
+    "refresh",
     "folder",
     "file",
     "success",
@@ -65,6 +66,23 @@ const ICONS: [&str; 42] = [
     "session",
     "network-down",
     "network-up",
+    // region: media-icons
+    "media-play",
+    "media-pause",
+    "media-stop",
+    "media-next",
+    "media-previous",
+    "media-shuffle",
+    "media-repeat",
+    "media-repeat-once",
+    "media-volume",
+    "media-muted",
+    "music-note",
+    "music-album",
+    "music-artist",
+    "music-playlist",
+    "music-queue",
+    // endregion
 ];
 
 // region: sources

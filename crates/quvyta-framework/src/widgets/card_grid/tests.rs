@@ -7,7 +7,7 @@ use crate::color::Rgb;
 use crate::event::{MouseButton, MouseKind};
 use crate::icons::GlyphMode;
 use crate::runtime::{App, Command, Harness};
-use crate::widgets::{Button, ContextItem, Text};
+use crate::widgets::{Button, ContextItem, IconTile, Text};
 
 /// A store page: `count` apps in a grid that fills the screen.
 struct Store {
@@ -170,7 +170,7 @@ fn a_disabled_grid_opens_no_menu() {
     assert!(!h.screen().contains("Remove app"), "{}", h.screen());
 }
 
-fn color(h: &Harness<Store>, token: &str) -> Rgb {
+fn color<M: App>(h: &Harness<M>, token: &str) -> Rgb {
     h.env().theme().color(token).expect("token")
 }
 
@@ -411,4 +411,129 @@ fn a_press_flashes_the_card_one_tone_brighter() {
     assert!(pressed.contrast_ratio(hover) >= 1.15, "a press flashes brighter than hover");
     h.advance(Duration::from_millis(200));
     assert_eq!(h.bg(10, 1), Some(color(&h, "active").mix(color(&h, "text"), 0.08)), "selected and hovered");
+}
+
+/// A grid of icon tiles, as a file manager draws its entries: the cards stand on the ground the
+/// grid is given and each draws its own glyph, name and pillar.
+struct Tiles {
+    selected: Option<usize>,
+    opened: Vec<usize>,
+}
+
+const TILE_NAMES: [&str; 5] = ["Notes", "Photos", "Archive", "Readme", "Plan"];
+
+impl App for Tiles {
+    type Msg = Tiled;
+    fn update(&mut self, msg: Tiled) -> Command<Tiled> {
+        match msg {
+            Tiled::Select(index) => self.selected = Some(index),
+            Tiled::Open(index) => self.opened.push(index),
+        }
+        Command::none()
+    }
+    fn view(&self, ui: &mut View<'_, Tiled>) {
+        let chosen = self.selected;
+        let grid = CardGrid::new(TILE_NAMES.len())
+            .card_width(IconTile::WIDTH, IconTile::WIDTH)
+            .card_height(IconTile::HEIGHT)
+            .gap(1, 1)
+            .bare_cards(true)
+            .selected(chosen)
+            .on_select(Tiled::Select)
+            .on_activate(Tiled::Open)
+            .card(move |ui, index| {
+                let tile = IconTile::new("file", TILE_NAMES[index]).selected(chosen == Some(index));
+                ui.add(tile);
+            });
+        ui.add(grid).fill().id("grid");
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Tiled {
+    Select(usize),
+    Open(usize),
+}
+
+fn tiles() -> Harness<Tiles> {
+    let mut h = Harness::new(Tiles { selected: Some(0), opened: Vec::new() }, 44, 10);
+    h.set_glyph_mode(GlyphMode::Unicode).render();
+    h
+}
+
+/// The columns the tiles of a 44-column grid stand in: one cell of a gap between them, so four
+/// tiles fill a row and the fifth starts the next one.
+fn columns() -> [u16; 4] {
+    [0, IconTile::WIDTH + 1, 2 * (IconTile::WIDTH + 1), 3 * (IconTile::WIDTH + 1)]
+}
+
+#[test]
+fn a_bare_card_stands_on_the_ground_the_grid_is_given_and_takes_the_whole_of_its_cell() {
+    let h = tiles();
+    let columns = columns();
+    let ground = h.bg(columns[1] + 2, 2);
+    assert_eq!(ground, Some(color(&h, "canvas")), "no surface of a card of its own: {}", h.screen());
+    for column in columns.iter().skip(1) {
+        assert_eq!(h.bg(*column, 2), ground, "the gap between the columns keeps the ground");
+    }
+    // The chosen tile is the only one on a surface of its own, and it takes the whole of its cell.
+    let chosen = columns[0];
+    for offset in 0..IconTile::HEIGHT {
+        assert_eq!(h.bg(chosen + offset, offset), Some(color(&h, "active")), "the chosen cell is the selected surface");
+    }
+    // A tile is three rows: the next row of cells starts one free row lower.
+    let (_, row) = h.find("Photos").expect("the second tile is on screen");
+    assert_eq!(u16::try_from(row).unwrap_or(0), 1, "the name is under the glyph");
+    let (_, next_row) = h.find("Plan").expect("the fifth tile starts the second row");
+    assert_eq!(u16::try_from(next_row).unwrap_or(0), 1 + IconTile::HEIGHT + 1);
+}
+
+#[test]
+fn a_bare_card_lends_the_pointer_to_what_it_draws_so_it_lights_under_the_mouse() {
+    let mut h = tiles();
+    let (x, _) = h.find("Photos").expect("the second tile is on screen");
+    // The name's own cell: what a person sees is the ground the tile stands on.
+    let (column, row) = (u16::try_from(x).unwrap_or(0), 1);
+    let (ground, chosen) = (h.bg(column, row), h.bg(columns()[0], row));
+    h.hover(i32::from(column), i32::from(row));
+    assert_ne!(h.bg(column, row), ground, "the pointer lifts the ground of the tile it is on: {}", h.screen());
+    assert_eq!(h.bg(columns()[0], row), chosen, "and no other tile: {}", h.screen());
+    h.hover(0, 9);
+    assert_eq!(h.bg(column, row), ground, "the lift leaves with the pointer");
+}
+
+#[test]
+fn a_bare_card_lends_the_grid_its_keyboard_focus_so_its_pillar_breathes() {
+    let mut h = tiles();
+    let pillar = h.fg(0, 0);
+    h.press("tab");
+    assert!(h.is_focused("grid"));
+    h.advance(h.env().theme().motion().pulse_period / 2);
+    assert_ne!(h.fg(0, 0), pillar, "the card the keys are on breathes its own pillar");
+    let mut still = tiles();
+    still.set_reduced_motion(true);
+    still.press("tab");
+    let start = still.fg(0, 0);
+    still.advance(still.env().theme().motion().pulse_period / 2);
+    assert_eq!(still.fg(0, 0), start, "reduced motion holds the pillar still");
+}
+
+#[test]
+fn a_bare_card_is_still_the_grid_s_own_pressable_surface() {
+    let mut h = tiles();
+    let (x, y) = h.find("Photos").expect("the second tile is on screen");
+    h.click(x, y);
+    assert_eq!(h.app().selected, Some(1), "a click reaches the grid through the tile that draws itself");
+    assert_eq!(h.app().opened, [1], "and opens the card, as a card always does");
+    // The keys cross the gaps between the cells as they do a grid of cards.
+    h.press("left");
+    assert_eq!(h.app().selected, Some(0));
+    h.press("up");
+    assert_eq!(h.app().selected, Some(0), "the top of the grid stops there");
+    h.press("right");
+    assert_eq!(h.app().selected, Some(1));
+    h.press("down");
+    assert_eq!(h.app().selected, Some(4), "the second row's nearest tile");
+    h.press("right");
+    assert_eq!(h.app().selected, Some(4), "and the end of a short row stops");
 }

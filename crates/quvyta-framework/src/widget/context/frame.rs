@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::geometry::{Rect, Size};
 use crate::keymap::KeyChord;
-use crate::widget::{IdMap, PointerShape, WidgetId};
+use crate::widget::{IdMap, PointerShape, WidgetId, WidgetKey};
 
 /// What was painted in a frame; used to route the next events.
 #[derive(Debug, Default)]
@@ -22,6 +22,9 @@ pub(crate) struct Frame {
     pub(crate) listeners: Vec<(KeyChord, WidgetId)>,
     /// Widgets that take typed text, see [`PaintCx::takes_text`](super::PaintCx::takes_text).
     pub(crate) text_takers: Vec<WidgetId>,
+    /// The keys the widget the keys are with declared while it painted, for the help layer to
+    /// list; see [`Widget::keys`](crate::widget::Widget::keys).
+    pub(crate) keys: Vec<WidgetKey>,
     /// Areas where a mouse press never starts a text selection.
     pub(crate) unselectable: Vec<Rect>,
     /// Visible areas where a mouse drag selects text, with the widget each belongs to, in paint
@@ -111,6 +114,7 @@ impl Frame {
             next_frame,
             listeners,
             text_takers,
+            keys,
             unselectable,
             selectable,
             decorations,
@@ -139,6 +143,7 @@ impl Frame {
         *next_frame = None;
         listeners.clear();
         text_takers.clear();
+        keys.clear();
         unselectable.clear();
         selectable.clear();
         decorations.clear();
@@ -261,4 +266,17 @@ pub(crate) struct LayerRecord {
     pub(crate) previous_focus: Option<WidgetId>,
     /// When the layer first appeared.
     pub(crate) opened: Duration,
+}
+
+impl Interaction {
+    /// The widget the keyboard is with, whose keys the frame collects; see
+    /// [`Widget::keys`](crate::widget::Widget::keys).
+    ///
+    /// While a modal layer holds the keys this is the widget it took focus from, not the one
+    /// inside it: a layer stands over a screen rather than in place of it, so the help layer, for
+    /// one, lists the keys of the table it opened over rather than none at all.
+    pub(crate) fn keys_owner(&self) -> Option<WidgetId> {
+        let focused = self.focused?;
+        Some(self.layers.last().and_then(|layer| layer.previous_focus).unwrap_or(focused))
+    }
 }

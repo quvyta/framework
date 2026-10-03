@@ -1,6 +1,7 @@
 ## Methods
 
 - `Table::new(columns, rows)` — `rows` is a `Vec<TableRow>` or an `Arc<[TableRow]>`.
+- `Table::lazy(columns, count, |index| row)` — `count` rows built only as they are drawn, so a frame costs the rows on screen however many there are. A `Fit` column fits its title, since the rows are not all known; give a column whose cells are wider a fixed width.
 - `.selected(Option<usize>)`, `.on_select(|index| msg)`, `.on_activate(|index| msg)`.
 - `.checked(Vec<bool>)` and `.on_toggle(|index| msg)` — multiple selection.
 - `.sort(column, SortDirection)` — shows the sort arrow; the rows must already be in that order.

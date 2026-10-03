@@ -18,6 +18,14 @@
 
 - `Language::from_tag("rust" | "rs" | "toml" | "sh" | "bash" | "shell" | "zsh" | "pkgbuild" | other)` — for fenced code tags.
 - `Language::from_file_name(name)` — `PKGBUILD`, `.sh`, `.bash`, `.zsh`, `.install` are shell; `.rs` Rust; `.toml` TOML; others plain.
+- `TextArea::language(language)` — the same languages colour a text area while it is edited, in the same `code-token` styles; the code view stays the viewer for whole files.
+
+## Highlighting your own text
+
+- `qframe::text::highlight(code, language)` — the byte ranges of the code's tokens, in order, covering the whole text: the first range starts at zero, each one starts where the last ended, the last ends at the text's length. `Language::Plain` gives the whole text as one `Token::Plain`.
+- `Token::style_variant()` — the variant of the `code-token` style that paints a token: `keyword`, `type`, `function`, `macro`, `string`, `number`, `comment`, `attribute`, `lifetime`, `punctuation`, `table`, `key`, `variable`, `plain`. An application that draws code in a widget of its own asks the theme for `code-token.<variant>` and paints each range with it, which is exactly what this widget does.
+- `Token` is `#[non_exhaustive]`: a new kind of token may be added, so match with a wildcard rather than listing every kind.
+- `Language` is the same type as `qframe::widgets::Language`, re-exported at `qframe::text::Language`.
 
 ## Theme keys
 

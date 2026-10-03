@@ -42,6 +42,8 @@ unreadable = "Dieser Ordner konnte nicht gelesen werden"
 empty                    = "leer"
 unreadable               = "Dieser Ordner konnte nicht gelesen werden."
 unreadable-short         = "nicht lesbar"
+filter                   = "Tippe, um den Ordner einzugrenzen"
+no-match                 = "nichts passt"
 new-file                 = "Neue Datei"
 new-folder               = "Neuer Ordner"
 rename                   = "Umbenennen"
@@ -220,6 +222,16 @@ move   = "navigieren"
 run    = "ausführen"
 filter = "Zum Filtern tippen"
 
+# What the keys a widget declares do, listed by the help layer for the widget with the focus.
+[quvyta.widget]
+move   = "bewegen"
+scroll = "blättern"
+open   = "öffnen"
+check  = "markieren"
+sort   = "sortieren"
+fold   = "auf- oder zuklappen"
+submit = "absenden"
+
 [quvyta.help]
 title  = "Tastenkürzel"
 screen = "Dieser Bildschirm"
@@ -240,6 +252,10 @@ type-word = "Zum Bestätigen {word} eingeben"
 
 [quvyta.tabs]
 add = "Neuer Tab"
+
+# The control at the end of a row of buttons that some of them do not fit in; it opens their menu.
+[quvyta.button-row]
+more = "Mehr"
 
 [quvyta.tab-rail]
 add = "Neuer Tab"

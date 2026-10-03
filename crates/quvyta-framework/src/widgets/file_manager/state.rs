@@ -12,7 +12,9 @@ use crate::runtime::{Command, Confirm, Task, TaskEvent, TaskId, TaskOutcome};
 use crate::widgets::{Toast, TreeDrop};
 
 use super::details::{FileDetails, PAGE};
+use super::flat::FlatEntries;
 use super::ops::{self, FileChange, FileError, NameProblem, is_within, name_of, parent_key};
+use super::sort::Sort;
 use super::watch::Live;
 
 /// The key of the folder the manager is rooted at. Keys below it are paths relative to the root,
@@ -230,6 +232,14 @@ pub enum FileManagerMsg {
     Enter(String),
     /// A flat view stepped out of the folder it shows, into the one above it.
     Leave,
+    /// The list was asked to be put in this order, by a press on a column's title; what an order
+    /// by size or date needs is read in the background.
+    Sort(Sort),
+    /// The flat views were narrowed to the entries whose name holds this text, or shown whole
+    /// again with `None`; see [`FileManagerState::set_filter`].
+    Filter(Option<String>),
+    /// The first entry the filter left was chosen: the cursor goes to it and the filter stays.
+    FilterChosen,
 }
 
 /// A long operation the manager is running in the background right now.
@@ -352,8 +362,9 @@ pub struct FileManagerState {
     shown: String,
     children: BTreeMap<String, Vec<FolderEntry>>,
     /// What is known about an entry besides its name, for the entries it was asked for. Never a
-    /// whole folder: a folder of ten thousand entries must not become ten thousand calls.
-    details: BTreeMap<String, Option<FileDetails>>,
+    /// whole folder: a folder of ten thousand entries must not become ten thousand calls. Shared,
+    /// so a frame's rows read it as they are drawn without copying it.
+    details: Arc<BTreeMap<String, Option<FileDetails>>>,
     /// The keys whose details were asked for and have not come back yet, so one ask is not made
     /// twice.
     reading: BTreeSet<String>,
@@ -380,6 +391,20 @@ pub struct FileManagerState {
     details_wanted: bool,
     /// How long one wait for outside changes may last; `None` waits until something changes.
     pub(super) patience: Option<std::time::Duration>,
+    /// Counts the changes made to the state, so what a frame worked out from it is known to be
+    /// current without being worked out again.
+    revision: u64,
+    /// Counts the changes made to what is known about the entries, so an order that goes by their
+    /// size or date is made again when more of them are known.
+    details_revision: u64,
+    /// The order the flat views list a folder in.
+    sort: Sort,
+    /// The text the flat views narrow their folder to, with the folder it was typed in: stepping
+    /// into another folder lets it go.
+    filter: Option<(String, String)>,
+    /// The entries of the shown folder as the flat views list them, kept while the state does not
+    /// change: a frame of a folder of a hundred thousand entries reads them instead of making them.
+    flat: std::sync::Mutex<Option<Arc<FlatEntries>>>,
 }
 
 impl FileManagerState {
@@ -398,7 +423,7 @@ impl FileManagerState {
             following: false,
             shown: ROOT.to_owned(),
             children: BTreeMap::new(),
-            details: BTreeMap::new(),
+            details: Arc::default(),
             reading: BTreeSet::new(),
             open: BTreeSet::from([ROOT.to_owned()]),
             loading: BTreeSet::new(),
@@ -415,6 +440,11 @@ impl FileManagerState {
             runs: 0,
             details_wanted: false,
             patience: None,
+            revision: 0,
+            details_revision: 0,
+            sort: Sort::default(),
+            filter: None,
+            flat: std::sync::Mutex::new(None),
         }
     }
 
@@ -486,6 +516,43 @@ impl FileManagerState {
     /// Shows or hides the hidden entries; see [`showing_hidden`](Self::showing_hidden).
     pub fn set_showing_hidden(&mut self, showing: bool) {
         self.hidden = showing;
+    }
+
+    /// Lists the flat views' folder in the order `sort` from the start, such as the order the
+    /// person chose last time; see [`set_sort`](Self::set_sort).
+    #[must_use]
+    pub fn sorted_by(mut self, sort: Sort) -> Self {
+        self.sort = sort;
+        self
+    }
+
+    /// Lists the flat views' folder in the order `sort`. Folders always come first. An order by
+    /// size or by date needs what is known about every entry of the folder, so a view asks for it
+    /// with [`FileManagerMsg::Sort`], which reads what is missing in the background; an entry not
+    /// read yet stands after the read ones and takes its place when it comes. The cursor and the
+    /// selection stay on their entries, wherever those move. The tree keeps its order by name.
+    pub fn set_sort(&mut self, sort: Sort) {
+        self.sort = sort;
+    }
+
+    /// The order the flat views list a folder in.
+    #[must_use]
+    pub fn sort(&self) -> Sort {
+        self.sort
+    }
+
+    /// Narrows the flat views to the entries whose name holds `text` anywhere, whatever the case
+    /// (Turkish dotted and dotless i included), or shows them all again with `None`. It belongs to
+    /// the folder shown now: stepping into another lets it go. Hidden entries stay hidden while
+    /// they are not shown. A view shows the field it is typed in while it is set.
+    pub fn set_filter(&mut self, text: Option<String>) {
+        self.filter = text.map(|text| (self.shown.clone(), text));
+    }
+
+    /// The text the flat views are narrowed to, while it is set for the folder shown now.
+    #[must_use]
+    pub fn filter(&self) -> Option<&str> {
+        self.filter.as_ref().filter(|(folder, _)| *folder == self.shown).map(|(_, text)| text.as_str())
     }
 
     /// Whether the entries the platform hides are shown.
@@ -564,6 +631,31 @@ impl FileManagerState {
     #[must_use]
     pub fn details(&self, key: &str) -> Option<Option<&FileDetails>> {
         self.details.get(key).map(Option::as_ref)
+    }
+
+    /// What is known about the entries besides their names, shared, for rows drawn after the view
+    /// was built.
+    pub(super) fn details_shared(&self) -> Arc<BTreeMap<String, Option<FileDetails>>> {
+        Arc::clone(&self.details)
+    }
+
+    /// The entries of the shown folder as the flat views list them, made again only after the
+    /// folder, its entries or whether hidden entries show have changed.
+    pub(super) fn flat_entries(&self) -> Arc<FlatEntries> {
+        let mut kept = self.flat.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(flat) = kept.as_ref()
+            && flat.revision == self.revision
+            && flat.folder == self.shown
+            && flat.hidden == self.hidden
+            && flat.sort == self.sort
+            && flat.filter.as_deref() == self.filter()
+            && (!self.sort.needs_details() || flat.details_revision == self.details_revision)
+        {
+            return Arc::clone(flat);
+        }
+        let flat = Arc::new(FlatEntries::of(self, self.revision, self.details_revision));
+        *kept = Some(Arc::clone(&flat));
+        flat
     }
 
     /// Whether the details of `key` have been asked for, whether or not the answer has come.
@@ -770,6 +862,8 @@ impl FileManagerState {
     /// A folder that could not be read keeps its place and the root says what happened, so the
     /// person sees the reason rather than a gap.
     fn take_read(&mut self, key: &str, entries: Result<Vec<FolderEntry>, String>) {
+        // What the flat views list is worked out again from what changes here.
+        self.revision += 1;
         self.loading.remove(key);
         // A folder closed or gone while it was being read keeps nothing of the answer, so opening
         // it again, or a new folder of its name, reads afresh.
@@ -782,7 +876,8 @@ impl FileManagerState {
                 self.children.insert(key.to_owned(), entries);
                 // A folder read again may hold entries that changed since, so what was known about
                 // them is let go and asked for afresh rather than shown out of date.
-                self.details.retain(|entry, _| parent_key(entry) != key);
+                Arc::make_mut(&mut self.details).retain(|entry, _| parent_key(entry) != key);
+                self.details_revision += 1;
                 self.reading.retain(|entry| parent_key(entry) != key);
                 self.prune(key);
             }
@@ -829,6 +924,8 @@ impl FileManagerState {
     /// Gives every key at or below `from` the place `to` instead, after a rename or a move, so an
     /// open folder stays open and the selection stays on what moved.
     fn rekey(&mut self, from: &str, to: &str) {
+        // What the flat views list is worked out again from what changes here.
+        self.revision += 1;
         let moved = |key: &str| is_within(key, from).then(|| format!("{to}{}", &key[from.len()..]));
         self.open = self.open.iter().map(|key| moved(key).unwrap_or_else(|| key.clone())).collect();
         self.loading.retain(|key| !is_within(key, from));
@@ -836,10 +933,12 @@ impl FileManagerState {
             .into_iter()
             .map(|(key, entries)| (moved(&key).unwrap_or(key), entries))
             .collect();
-        self.details = std::mem::take(&mut self.details)
-            .into_iter()
-            .map(|(key, details)| (moved(&key).unwrap_or(key), details))
-            .collect();
+        self.details = Arc::new(
+            std::mem::take(Arc::make_mut(&mut self.details))
+                .into_iter()
+                .map(|(key, details)| (moved(&key).unwrap_or(key), details))
+                .collect(),
+        );
         self.errors = std::mem::take(&mut self.errors)
             .into_iter()
             .map(|(key, problem)| (moved(&key).unwrap_or(key), problem))
@@ -858,11 +957,13 @@ impl FileManagerState {
     /// Forgets everything at or below `key`, after it was deleted. The cursor goes to the folder it
     /// was in, the nearest thing still there.
     fn forget(&mut self, key: &str) {
+        // What the flat views list is worked out again from what changes here.
+        self.revision += 1;
         // A folder a flat view shows that is taken away leaves the view in the one above it.
         if is_within(&self.shown, key) {
             self.shown = parent_key(key).to_owned();
         }
-        self.details.retain(|entry, _| !is_within(entry, key));
+        Arc::make_mut(&mut self.details).retain(|entry, _| !is_within(entry, key));
         self.reading.retain(|entry| !is_within(entry, key));
         self.open.retain(|open| !is_within(open, key));
         self.loading.retain(|loading| !is_within(loading, key));
@@ -1015,6 +1116,19 @@ impl FileManagerState {
     /// known or already being read, so the view asks once and then stops asking.
     #[must_use]
     pub fn detail_gaps(&self, folder: &str) -> Vec<String> {
+        // The shown folder is asked about on every frame of a list, so its keys come from what the
+        // flat views keep rather than being made again.
+        if folder == self.shown {
+            let flat = self.flat_entries();
+            let at = self.selected.as_deref().and_then(|cursor| flat.position(cursor)).unwrap_or(0);
+            let start = at.saturating_sub(PAGE / 2);
+            return flat.rows[start.min(flat.rows.len())..]
+                .iter()
+                .take(PAGE)
+                .filter(|row| !self.has_details(&row.key))
+                .map(|row| row.key.clone())
+                .collect();
+        }
         let Some(entries) = self.shown_children(folder) else { return Vec::new() };
         let keys: Vec<String> = entries.iter().map(|entry| child_key(folder, &entry.name)).collect();
         let at = self.selected.as_deref().and_then(|cursor| keys.iter().position(|key| key == cursor)).unwrap_or(0);
@@ -1094,6 +1208,26 @@ impl FileManagerState {
             FileManagerMsg::Select(key) => {
                 self.selected = Some(key);
                 Command::none()
+            }
+            FileManagerMsg::Filter(text) => {
+                self.set_filter(text);
+                Command::none()
+            }
+            FileManagerMsg::FilterChosen => {
+                if let Some(first) = self.flat_entries().rows.first() {
+                    self.selected = Some(first.key.clone());
+                }
+                Command::none()
+            }
+            FileManagerMsg::Sort(sort) => {
+                self.sort = sort;
+                if !sort.needs_details() {
+                    return Command::none();
+                }
+                // An order by size or date is an order of the whole folder, so the whole folder is
+                // read for it, once: what is known already costs nothing.
+                let keys = self.flat_entries().rows.iter().map(|row| row.key.clone()).collect();
+                self.read_details(keys, wrap)
             }
             FileManagerMsg::Choose(keys) => {
                 self.chosen = keys;
@@ -1199,8 +1333,9 @@ impl FileManagerState {
             FileManagerMsg::Detailed(read) => {
                 for (key, details) in read {
                     self.reading.remove(&key);
-                    self.details.insert(key, details);
+                    Arc::make_mut(&mut self.details).insert(key, details);
                 }
+                self.details_revision += 1;
                 Command::none()
             }
         }

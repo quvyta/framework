@@ -5,6 +5,7 @@
 - `.max_length(n)` — en çok `n` karakter; satır sonu bir karakter sayılır.
 - `.counter(bool)` — metnin altındaki satırda karakter sayısı; sınır varsa `sayı / sınır`.
 - `.line_numbers(bool)` — her satırın ilk görünen satırının önünde soluk bir numara.
+- `.language(dil)` — `Language::Rust`, `Language::Toml`, `Language::Shell` ya da varsayılan `Language::Plain`. Metnin her parçası, belirtecinin `code-token.<tür>` rengini alır: `keyword`, `type`, `function`, `macro`, `string`, `number`, `comment`, `attribute`, `lifetime`, `punctuation`, `table`, `key`, `variable`, `plain`. `Language::from_file_name(ad)` düzenlenen dosyanın dilini seçer.
 - `.invalid(bool)` — metni doğrulamadan geçemedi diye işaretler.
 - `.variant("plain")` — kağıt: kendi alan yüzeyi yok, her durumda üstünde durduğu yüzeyin tonu; üstüne gelme ve odak dikey çubukla, geçersiz metin durağanken tehlike renginde çubukla görünür. İmleç ve seçim değişmez.
 - `.disabled(bool)` — salt okunur ve odak alamaz.
@@ -23,12 +24,14 @@
 - Her tuş ve yapıştırma imleci görünür alana kaydırır; tekerlek üç satır kaydırır; kaydırma çubuğuna basmak ya da sürüklemek kaydırır; metne basmak imleci yerleştirir, sürüklemek seçer.
 - Shift olmadan, seçim varken ← → onu kaldırır ve sol ya da sağ ucundan ilerler; ↑ ↓ ve Page Up / Page Down üst ya da alt ucundan ilerler.
 - Sağ tık, Shift+F10 ya da menü tuşu `TextInput` düzenleme menüsünü açar (Kes, Kopyala, Yapıştır, Tümünü seç); seçimin içindeki sağ tık seçimi korur, başka yerde önce imleci oraya koyar. Dil anahtarları `quvyta.edit.*`.
+- Dil yalnızca rengi değiştirir: seçim kendi renklerini korur, imleç bloğu eskisi gibi görünür, yer tutucu renksizdir, pasif alan soluk metnini bırakır. Belirteçler metin ya da dil değiştiğinde bir kez hesaplanır, her karede değil.
 
 ## Tema anahtarları
 
 - `text-area` — `bg`, `fg`, `padding`, `pillar` ve zemini boyamadan bırakan `see-through` bayrağı; durumlar `hover`, `focus`, `invalid`, `disabled`. `plain` varyantı `see-through`'u açar ve `invalid` için `$danger` çubuğu verir.
 - `text-area-line-number` — `fg`; imlecin satırı için `selected`.
 - `text-area-counter` — `fg`.
+- `code-token.<tür>` — bir dil verildiğinde metnin renkleri; `CodeView` ile aynı anahtarlar.
 - `text-input-placeholder`, `text-input-selection`, `text-input-cursor` — `TextInput` ile ortak.
 - `scrollbar` — `track`, `thumb`; `[icons]` `scroll-thumb`, `scroll-track`.
 - `[motion]` — `cursor-blink`.

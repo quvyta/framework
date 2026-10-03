@@ -18,7 +18,7 @@ use crate::style::{CellStyle, WidgetStyle, to_color};
 use crate::text;
 use crate::theme::State;
 use crate::widget::memory::Memory;
-use crate::widget::{Key, LayoutProps, Node, PointerShape, WidgetId};
+use crate::widget::{Key, LayoutProps, Node, PointerShape, WidgetId, WidgetKey};
 
 /// Painting context: draws into the frame, clipped to the widget's visible area.
 pub struct PaintCx<'a> {
@@ -37,6 +37,10 @@ pub struct PaintCx<'a> {
     /// Whether the widgets painted now hold the focus of the container painting them, which
     /// forwards its keys to them without their taking focus themselves.
     pub(crate) focus_lent: bool,
+    /// Whether the pointer over the container painting them is over them as well, which a
+    /// container that is the pressable surface for what it holds needs to say, such as a card
+    /// whose tile lights under the pointer.
+    pub(crate) hover_lent: bool,
 }
 
 impl PaintCx<'_> {
@@ -64,10 +68,11 @@ impl PaintCx<'_> {
         self.now
     }
 
-    /// Whether the pointer is over this widget.
+    /// Whether the pointer is over this widget, or over the container that holds it and lends it
+    /// the pointer, such as a card whose tile lights under it.
     #[must_use]
     pub fn is_hovered(&self) -> bool {
-        self.interaction.hovered == Some(self.id)
+        self.hover_lent || self.interaction.hovered == Some(self.id)
     }
 
     /// The widget that has keyboard focus, if any.
@@ -171,7 +176,7 @@ impl PaintCx<'_> {
     pub fn style(&mut self, widget: &str, variant: Option<&str>, states: &[State]) -> WidgetStyle {
         let props = self.env.theme().style(widget, variant, states);
         let style = WidgetStyle::new(props, self.pulse_phase());
-        if style.is_animated() && !self.env.reduced_motion() {
+        if style.is_animated() && !self.still() {
             let rest = self.pulse_rest();
             if self.now < rest {
                 self.request_frame_in(PULSE_FRAME.min(rest - self.now));
@@ -253,12 +258,13 @@ impl PaintCx<'_> {
         elapsed / interval_ms
     }
 
-    /// Where the theme pulse is, `0.0..1.0`; always 0 when motion is reduced, and 0 again once
-    /// the person has left the keyboard and mouse alone for a few seconds: the pulse breathes after
-    /// every input and then rests at the end of a breath, so an idle screen draws no frames.
+    /// Where the theme pulse is, `0.0..1.0`; always 0 when motion is reduced or the terminal is
+    /// remote, and 0 again once the person has left the keyboard and mouse alone for a few
+    /// seconds: the pulse breathes after every input and then rests at the end of a breath, so an
+    /// idle screen draws no frames.
     #[must_use]
     pub fn pulse_phase(&self) -> f32 {
-        if self.env.reduced_motion() || self.now >= self.pulse_rest() {
+        if self.still() || self.now >= self.pulse_rest() {
             return 0.0;
         }
         let period = self.env.theme().motion().pulse_period.as_secs_f64();
@@ -268,9 +274,19 @@ impl PaintCx<'_> {
     }
 
     /// When motion that repeats for as long as nothing happens, a cursor blinking or a focus
-    /// breathing, comes to rest: [`MOTION_RESTS_AFTER`] after the last input.
+    /// breathing, comes to rest: [`MOTION_RESTS_AFTER`] after the last input, or at once on a
+    /// remote terminal.
     pub(crate) fn motion_rests_at(&self) -> Duration {
-        self.now.saturating_sub(self.idle).saturating_add(MOTION_RESTS_AFTER)
+        let input = self.now.saturating_sub(self.idle);
+        if self.env.remote() { input } else { input.saturating_add(MOTION_RESTS_AFTER) }
+    }
+
+    /// Whether repeating motion stays still: with reduced motion, and on a remote terminal, where
+    /// every breath of a pulse is a stream of frames sent over the connection after each key — a
+    /// page of a list costs tens of times the bytes of its text — for a glow nobody needs to read
+    /// the screen.
+    fn still(&self) -> bool {
+        self.env.reduced_motion() || self.env.remote()
     }
 
     /// When the pulse rests: the end of the first whole breath at or after
@@ -374,6 +390,12 @@ impl PaintCx<'_> {
     /// Adds this widget to the keyboard focus order.
     pub fn register_focusable(&mut self) {
         self.frame.focusable.push(self.id);
+    }
+
+    /// The keys the widget the keyboard is with declared in this frame, for a help layer to list
+    /// them; see [`Widget::keys`](crate::widget::Widget::keys).
+    pub(crate) fn declared_keys(&self) -> &[WidgetKey] {
+        &self.frame.keys
     }
 
     /// Paints this widget's overlay after the rest of the view.
@@ -701,6 +723,10 @@ impl PaintCx<'_> {
         if node.widget.focusable() {
             self.register_focusable();
         }
+        // Only the widget the keyboard is with is asked, and only while it paints.
+        if self.interaction.keys_owner() == Some(node.id) {
+            self.frame.keys = node.widget.keys(self.env);
+        }
         node.widget.paint(self, rect.inset(node.layout.padding));
         (self.id, self.layout, self.clip, self.scope) = saved;
     }
@@ -719,10 +745,19 @@ impl PaintCx<'_> {
     /// child's widgets paints them focused, so they draw their focus and keep what focus keeps,
     /// such as the half-typed part of a time.
     pub(crate) fn paint_child_lending_focus<M: 'static>(&mut self, node: &Node<M>, rect: Rect, focused: bool) {
-        let lent = self.focus_lent;
-        self.focus_lent = lent || focused;
+        self.paint_child_lending(node, rect, self.hover_lent, focused);
+    }
+
+    /// Paints a child while `hovered` and `focused` lend it this container's pointer and focus: a
+    /// container that is itself the pressable surface for what it holds, such as a card that draws
+    /// the tile inside it, so the tile lights under the pointer and breathes while the keys are on
+    /// it, as it would on its own.
+    pub(crate) fn paint_child_lending<M: 'static>(&mut self, node: &Node<M>, rect: Rect, hovered: bool, focused: bool) {
+        let lent = (self.hover_lent, self.focus_lent);
+        self.hover_lent = lent.0 || hovered;
+        self.focus_lent = lent.1 || focused;
         self.paint_child_unfocusable(node, rect);
-        self.focus_lent = lent;
+        (self.hover_lent, self.focus_lent) = lent;
     }
 
     /// The pointer cell, when the pointer is over this widget or over a widget inside it, for

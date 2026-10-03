@@ -123,6 +123,12 @@ impl<Msg> Button<Msg> {
         self
     }
 
+    /// The words on the button, for a row that lists it in a menu of its own, see
+    /// [`ButtonRow`](super::ButtonRow).
+    pub(crate) fn label(&self) -> &str {
+        &self.label
+    }
+
     fn active(&self) -> bool {
         !self.disabled && !self.loading && self.on_press.is_some()
     }

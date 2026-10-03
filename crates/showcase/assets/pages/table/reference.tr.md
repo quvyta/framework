@@ -1,6 +1,7 @@
 ## Metotlar
 
 - `Table::new(sütunlar, satırlar)` — `satırlar` bir `Vec<TableRow>` ya da `Arc<[TableRow]>`.
+- `Table::lazy(sütunlar, sayı, |sıra| satır)` — yalnızca çizildikçe kurulan `sayı` satır; satır kaç olursa olsun bir kare ekrandaki satırlar kadar iş yapar. Satırların hepsi bilinmediği için `Fit` sütunu başlığına sığar; hücreleri daha geniş bir sütuna sabit bir genişlik ver.
 - `.selected(Option<usize>)`, `.on_select(|index| mesaj)`, `.on_activate(|index| mesaj)`.
 - `.checked(Vec<bool>)` ve `.on_toggle(|index| mesaj)` — çoklu seçim.
 - `.sort(sütun, SortDirection)` — sıralama okunu gösterir; satırlar zaten bu sırada olmalı.

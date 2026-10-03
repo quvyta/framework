@@ -5,7 +5,7 @@ Bir klasör uygulamanın konusunun parçasıysa dosya yöneticisi kullanılır: 
 - **Ekrandaki her yönetici için bir durum.** `FileManagerState` her ekran durumu gibi senin durumunun içinde yaşar ve her `FileManagerMsg`'i ona verirsin.
 - **Açmak senin işin.** Yönetici yalnızca "şu yol açılmak istendi" der. Sekme, pencere, önizleme ya da bir diyaloğun cevabı olması senin kararın.
 - **Klasörün ne olduğunu söyle.** Çıkılmaması gereken bir klasör için `confined()`; onsuz yönetici kendisine verilen kökü gösterir, bütün dosya sistemi de olabilir.
-- **Biçimi seç.** `view(FileView::Tree | List | Icons)`: klasör içinde klasör; tek klasör, boyut, tarih ve izinleriyle satır satır; ya da tek klasör, simge ızgarası olarak. Hiçbir şey söylemezsen ağaç gelir.
+- **Biçimi seç.** `view(FileView::Tree | List | Icons)`: klasör içinde klasör; tek klasör, boyut, tarih ve izinleriyle satır satır; ya da tek klasör, simge ızgarası olarak. Simgeler bir masaüstününkiler gibidir: her girdi bir `IconTile`, on sütun üç satırlık bir hücrede adının üstünde glifi; sığmayan ad `…` ile kısalır, seçilenler yanlarında vurgu çubuğuyla yükselir. Hiçbir şey söylemezsen ağaç gelir.
 - **Dosyanın ne olduğunu ikonu söylesin.** `kind_icons(true)` her satırın ikonunu girdinin türüne göre çizer; kişi bir Rust dosyasını, bir resmi ya da bir arşivi adını okumadan tanır. `kind_tones(true)` bunların üstüne aileye göre renk ekler.
 
 ## Adım adım

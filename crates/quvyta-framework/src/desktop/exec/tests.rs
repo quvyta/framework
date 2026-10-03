@@ -13,7 +13,7 @@ fn run_with(exec: &str, icon: Option<&str>) -> Option<Vec<OsString>> {
     expand(
         exec,
         &Fields {
-            file: Path::new(FILE),
+            file: Some(Path::new(FILE)),
             name: "Metin Düzenleyici",
             icon,
             entry: Path::new("/usr/share/applications/editor.desktop"),
@@ -115,6 +115,7 @@ fn a_file_name_that_is_not_utf8_passes_through_unchanged() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
     let file = Path::new(OsStr::from_bytes(b"/tmp/f\xffle"));
-    let got = expand("viewer %f", &Fields { file, name: "Viewer", icon: None, entry: Path::new("/x.desktop") });
+    let got =
+        expand("viewer %f", &Fields { file: Some(file), name: "Viewer", icon: None, entry: Path::new("/x.desktop") });
     assert_eq!(got, Some(vec![OsString::from("viewer"), file.as_os_str().to_owned()]));
 }

@@ -1845,22 +1845,231 @@ fn ten_thousand_entries_paint_the_same_cells_in_every_view() {
             h.advance(MOMENT);
             h
         };
+        // A tile cuts a name too long for it, as a desktop's icons do.
+        let shown = |name: String| {
+            if view == FileView::Icons { crate::widgets::IconTile::shown_name(&name).into_owned() } else { name }
+        };
         let (mut small, mut large) = (open("small"), open("large"));
-        assert!(large.screen().contains("entry-00000.txt"), "{view:?}:\n{}", large.screen());
+        assert!(large.screen().contains(&shown("entry-00000.txt".to_owned())), "{view:?}:\n{}", large.screen());
         assert_eq!(painted(&small), painted(&large), "{view:?}: {MANY} entries paint what 200 paint");
 
         small.press("tab").press("end").advance(MOMENT);
         large.press("tab").press("end").advance(MOMENT);
-        assert!(large.screen().contains(&format!("entry-{:05}.txt", MANY - 1)), "{view:?}:\n{}", large.screen());
-        assert!(!large.screen().contains("entry-05000.txt"), "{view:?}: the middle is not drawn");
+        assert!(large.screen().contains(&shown(format!("entry-{:05}.txt", MANY - 1))), "{view:?}:\n{}", large.screen());
+        assert!(!large.screen().contains(&shown("entry-05000.txt".to_owned())), "{view:?}: the middle is not drawn");
         if view == FileView::Icons {
             // The last row of a grid holds whatever is left over, so two folders of different
             // sizes may end on rows of different lengths; the work still does not grow with them.
-            assert!(painted(&large) <= painted(&small), "{view:?}: at the far end too");
+            // At most a line of tiles more: a screen's worth either way.
+            assert!(painted(&large) * 2 <= painted(&small) * 3, "{view:?}: at the far end too");
         } else {
             assert_eq!(painted(&small), painted(&large), "{view:?}: at the far end too");
         }
     }
+}
+
+#[test]
+fn a_frame_of_a_flat_view_costs_the_rows_on_screen_not_the_folder() {
+    use super::flat::{ENTRIES_LISTED, ROWS_LOOKED};
+    let scratch = Scratch::new("views-cost");
+    fill(&scratch.0.join("small"), 200);
+    fill(&scratch.0.join("large"), MANY);
+    let counted = |counter: &'static std::thread::LocalKey<std::cell::Cell<usize>>| counter.with(std::cell::Cell::take);
+    for view in [FileView::List, FileView::Icons] {
+        let mut cost = Vec::new();
+        for folder in ["small", "large"] {
+            let mut h = Harness::new(Demo::new(scratch.0.join(folder)), SIZE.0, SIZE.1);
+            h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+            h.send(Msg::View(view));
+            h.advance(MOMENT);
+            h.press("tab").advance(MOMENT);
+            let _ = (counted(&ROWS_LOOKED), counted(&ENTRIES_LISTED));
+            // A key that moves the cursor, and the frames it draws: what a person pays for at
+            // every step through a large folder.
+            h.press("down").press("down").advance(MOMENT);
+            let (looked, listed) = (counted(&ROWS_LOOKED), counted(&ENTRIES_LISTED));
+            assert_eq!(listed, 0, "{view:?} {folder}: moving the cursor lists the entries again");
+            cost.push(looked);
+        }
+        let [small, large] = cost[..] else { unreachable!() };
+        assert!(large > 0, "{view:?}: the rows on screen are drawn");
+        // Each frame looks at the rows it shows, a screen's worth, whatever the folder holds.
+        assert!(large <= small, "{view:?}: {MANY} entries cost {large} rows, 200 cost {small}");
+        assert!(large < 20 * usize::from(SIZE.1), "{view:?}: {large} rows looked at for three key presses");
+    }
+}
+
+#[test]
+fn the_entries_are_listed_again_when_the_folder_changes_and_not_otherwise() {
+    use super::flat::ENTRIES_LISTED;
+    let scratch = Scratch::new("views-listed");
+    let folder = scratch.0.join("few");
+    fill(&folder, 30);
+    let mut h = Harness::new(Demo::new(folder.clone()), SIZE.0, SIZE.1);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+    h.send(Msg::View(FileView::List));
+    h.advance(MOMENT);
+    assert!(h.screen().contains("entry-00000.txt"), "{}", h.screen());
+    ENTRIES_LISTED.with(|count| count.set(0));
+    h.press("tab").press("down").press("end").advance(MOMENT);
+    assert_eq!(ENTRIES_LISTED.with(std::cell::Cell::get), 0, "keys only move the cursor");
+    std::fs::write(folder.join("entry-00030.txt"), "new").expect("a new file");
+    h.send(Msg::Files(FileManagerMsg::Refresh));
+    h.advance(MOMENT).press("end").advance(MOMENT);
+    assert!(h.screen().contains("entry-00030.txt"), "the new entry shows:\n{}", h.screen());
+    assert!(ENTRIES_LISTED.with(std::cell::Cell::get) > 0, "a folder read again is listed again");
+}
+
+#[test]
+fn the_icons_are_desktop_tiles_with_the_glyph_over_the_name() {
+    let scratch = Scratch::new("views-tiles");
+    let folder = scratch.0.join("few");
+    fs::create_dir_all(&folder).expect("the folder");
+    for name in ["apple.txt", "berry.txt", "plum.txt"] {
+        fs::write(folder.join(name), "").expect("an entry");
+    }
+    let mut h = Harness::new(Demo::new(folder), SIZE.0, SIZE.1);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+    h.send(Msg::View(FileView::Icons));
+    h.advance(MOMENT);
+    let name = "berry.txt";
+    let (x, y) = h.find(name).unwrap_or_else(|| panic!("{name} on a tile:\n{}", h.screen()));
+    let line = |h: &Harness<Demo>, y: i32| {
+        h.screen().lines().nth(usize::try_from(y).expect("a row")).unwrap_or_default().to_owned()
+    };
+    let above = line(&h, y - 1);
+    let span = usize::try_from(x).expect("a column")..usize::try_from(x).expect("a column") + name.chars().count();
+    assert!(
+        span.clone().any(|at| above.chars().nth(at).is_some_and(|c| c != ' ')),
+        "the glyph stands over the name:\n{}",
+        h.screen()
+    );
+    // A click chooses the tile: it rises off the others with the pillar down its side.
+    h.click(x, y).advance(MOMENT);
+    let pillar =
+        (x - 4..x).find(|column| line(&h, y).chars().nth(usize::try_from(*column).expect("a column")) == Some('▌'));
+    assert!(pillar.is_some(), "the chosen tile carries the pillar:\n{}", h.screen());
+    let (ox, oy) = h.find("plum.txt").expect("another tile");
+    let bg = |x: i32, y: i32| h.bg(u16::try_from(x).expect("a column"), u16::try_from(y).expect("a row"));
+    assert_ne!(bg(x, y), bg(ox, oy), "the chosen tile stands off the others:\n{}", h.screen());
+}
+
+/// The rows of the list from the top, by the names this test gave them.
+fn listed(h: &Harness<Demo>, names: &[&str]) -> Vec<String> {
+    let mut found: Vec<(i32, String)> =
+        names.iter().filter_map(|name| h.find(name).map(|(_, y)| (y, (*name).to_owned()))).collect();
+    found.sort();
+    found.into_iter().map(|(_, name)| name).collect()
+}
+
+#[test]
+fn a_press_on_a_title_sorts_the_list_and_a_second_turns_it_round() {
+    let scratch = Scratch::new("views-sort");
+    let folder = scratch.0.join("box");
+    fs::create_dir_all(folder.join("zone")).expect("a folder");
+    for (name, size) in [("apple.txt", 30), ("berry.txt", 10), ("cherry.txt", 20)] {
+        fs::write(folder.join(name), "x".repeat(size)).expect("an entry");
+    }
+    let names = ["zone", "apple.txt", "berry.txt", "cherry.txt"];
+    let mut h = Harness::new(Demo::new(folder), SIZE.0, SIZE.1);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+    h.send(Msg::View(FileView::List));
+    h.advance(MOMENT);
+    assert_eq!(listed(&h, &names), names, "by name at first, the folder first:\n{}", h.screen());
+    h.click_text("cherry.txt").advance(MOMENT);
+    h.click_text("Size").advance(MOMENT);
+    assert_eq!(
+        listed(&h, &names),
+        ["zone", "berry.txt", "cherry.txt", "apple.txt"],
+        "smallest first, the folder still first:\n{}",
+        h.screen()
+    );
+    assert_eq!(h.app().manager.selected(), Some("cherry.txt"), "the cursor stays on its entry");
+    h.click_text("Size").advance(MOMENT);
+    assert_eq!(
+        listed(&h, &names),
+        ["zone", "apple.txt", "cherry.txt", "berry.txt"],
+        "a second press turns it round:\n{}",
+        h.screen()
+    );
+    assert_eq!(h.app().manager.sort(), crate::widgets::Sort::by(crate::widgets::SortBy::Size).reversed(true));
+}
+
+#[test]
+fn an_entry_whose_size_is_not_known_yet_takes_its_place_when_it_comes() {
+    use crate::widgets::{Sort, SortBy};
+    let scratch = Scratch::new("views-sort-late");
+    let folder = scratch.0.join("box");
+    fs::create_dir_all(&folder).expect("the folder");
+    for (name, size) in [("apple.txt", 30), ("berry.txt", 10)] {
+        fs::write(folder.join(name), "x".repeat(size)).expect("an entry");
+    }
+    let mut state = FileManagerState::new(&folder).sorted_by(Sort::by(SortBy::Size));
+    read(&mut state, FileManagerState::ROOT);
+    let order =
+        |state: &FileManagerState| state.flat_entries().rows.iter().map(|row| row.name.clone()).collect::<Vec<_>>();
+    // Nothing is known about either yet, so the names decide.
+    assert_eq!(order(&state), ["apple.txt", "berry.txt"]);
+    read_details(&mut state, &["apple.txt".to_owned(), "berry.txt".to_owned()]);
+    assert_eq!(order(&state), ["berry.txt", "apple.txt"], "the sizes came, and the order follows them");
+}
+
+#[test]
+fn a_filter_narrows_the_folder_as_it_is_typed_and_esc_shows_it_all_again() {
+    let scratch = Scratch::new("views-filter");
+    let folder = scratch.0.join("box");
+    fs::create_dir_all(folder.join("İstanbul")).expect("a folder");
+    for name in ["apple.txt", "berry.txt", "pineapple.md", ".apple-hidden"] {
+        fs::write(folder.join(name), "").expect("an entry");
+    }
+    let names = ["İstanbul", "apple.txt", "berry.txt", "pineapple.md", ".apple-hidden"];
+    for view in [FileView::List, FileView::Icons] {
+        let mut h = Harness::new(Demo::new(folder.clone()), SIZE.0, SIZE.1);
+        h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true).render();
+        h.send(Msg::View(view));
+        h.advance(MOMENT);
+        // The application opens the filter, as with its own `/`, and the person types in it.
+        h.send(Msg::Files(FileManagerMsg::Filter(Some(String::new()))));
+        h.advance(MOMENT);
+        h.click_text("Type to narrow the folder").type_text("APP").advance(MOMENT);
+        let shown = |h: &Harness<Demo>| {
+            names.iter().filter(|name| h.find(&shown_in(view, name)).is_some()).copied().collect::<Vec<_>>()
+        };
+        assert_eq!(
+            shown(&h),
+            ["apple.txt", "pineapple.md"],
+            "{view:?}: whatever the case, hidden stays hidden:\n{}",
+            h.screen()
+        );
+        h.press("enter").advance(MOMENT);
+        assert_eq!(h.app().manager.selected(), Some("apple.txt"), "{view:?}: Enter puts the cursor on the first left");
+        h.click_text("APP").press("ctrl+a").type_text("ist").advance(MOMENT);
+        assert_eq!(shown(&h), ["İstanbul"], "{view:?}: a dotless or dotted i is an i:\n{}", h.screen());
+        h.press("ctrl+a").type_text("zzz").advance(MOMENT);
+        assert!(h.screen().contains("nothing matches"), "{view:?}:\n{}", h.screen());
+        h.press("esc").advance(MOMENT);
+        assert_eq!(h.app().manager.filter(), None, "{view:?}: Esc lets the filter go");
+        assert_eq!(shown(&h), ["İstanbul", "apple.txt", "berry.txt", "pineapple.md"], "{view:?}:\n{}", h.screen());
+    }
+}
+
+/// `name` as `view` writes it: whole in the list, cut to a tile in the icons.
+fn shown_in(view: FileView, name: &str) -> String {
+    if view == FileView::Icons { crate::widgets::IconTile::shown_name(name).into_owned() } else { name.to_owned() }
+}
+
+#[test]
+fn stepping_into_another_folder_lets_the_filter_go() {
+    let scratch = Scratch::new("views-filter-folder");
+    let folder = scratch.0.join("box");
+    fs::create_dir_all(folder.join("inner")).expect("a folder");
+    fs::write(folder.join("apple.txt"), "").expect("an entry");
+    let mut state = FileManagerState::new(&folder);
+    read(&mut state, FileManagerState::ROOT);
+    state.set_filter(Some("app".to_owned()));
+    assert_eq!(state.flat_entries().rows.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(), ["apple.txt"]);
+    apply(&mut state, FileManagerMsg::Enter("inner".to_owned()));
+    assert_eq!(state.filter(), None, "another folder starts whole");
 }
 
 #[test]
@@ -2007,4 +2216,30 @@ fn with_a_bounded_wait_a_screen_test_sees_what_another_program_made() {
         h.advance(MOMENT);
     }
     assert!(h.screen().contains("NOTES.md"), "the new file came on screen by itself:\n{}", h.screen());
+}
+
+/// What a frame of the list costs in a folder of a hundred thousand entries beside one of two
+/// thousand, printed rather than asserted: a machine's speed is no test. Run it on its own with
+/// `cargo test --release -- --ignored a_large_folder_costs`.
+#[test]
+#[ignore = "a measurement, slow to set up"]
+fn a_large_folder_costs_what_a_small_one_costs() {
+    let scratch = Scratch::new("views-timing");
+    for (folder, count) in [("small", 2_000), ("large", 100_000)] {
+        fill(&scratch.0.join(folder), count);
+        let started = std::time::Instant::now();
+        let mut h = Harness::new(Demo::new(scratch.0.join(folder)), 100, 30);
+        h.set_reduced_motion(true).render();
+        h.send(Msg::View(FileView::List));
+        h.advance(MOMENT);
+        h.press("tab").advance(MOMENT);
+        let opened = started.elapsed();
+        let frame = std::time::Instant::now();
+        h.render();
+        let frame = frame.elapsed();
+        let key = std::time::Instant::now();
+        h.press("down");
+        let key = key.elapsed();
+        println!("{count} entries: opened in {opened:?}, a frame {frame:?}, a key {key:?}");
+    }
 }

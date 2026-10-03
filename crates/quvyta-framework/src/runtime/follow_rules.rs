@@ -187,6 +187,17 @@ fn an_application_runtime_opens_in_a_harness_the_way_run_starts_it() {
 }
 
 #[test]
+fn an_application_runtime_in_a_harness_draws_in_true_colour_like_any_harness() {
+    let dir = folder("runtime-depth");
+    let app = notes_runtime(false).harness_in(&dir, 40, 3).expect("the runtime starts");
+    let plain = Harness::new(Localized::default(), 40, 3);
+    assert_eq!(app.env().depth(), crate::color::ColorDepth::TrueColor);
+    // The ground of the screen is the theme's own colour, as in a harness made with `new`.
+    assert_eq!(app.bg(39, 2), plain.bg(39, 2), "the canvas is painted the same");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn a_runtime_that_lost_its_membership_does_not_follow_the_ecosystem() {
     let dir = folder("runtime-harness-alone");
     shared(&dir, "tr", "nordic");

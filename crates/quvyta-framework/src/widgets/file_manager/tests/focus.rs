@@ -87,9 +87,11 @@ fn selected(h: &Harness<Places>) -> Option<&str> {
 
 #[test]
 fn command_focus_by_the_managers_name_gives_the_rows_the_keyboard_in_every_view() {
-    // The row ↓ reaches from `docs`: the next entry in the tree and the list, and in the icons
-    // the card under it on the next line of the grid.
-    for (view, below) in [(FileView::Tree, "src"), (FileView::List, "src"), (FileView::Icons, "plan.txt")] {
+    // The entry a key reaches from `docs`: ↓ to the next one in the tree and the list, and → to
+    // the tile beside it in the icons, which stand on one line in a window this wide.
+    for (view, key, below) in
+        [(FileView::Tree, "down", "src"), (FileView::List, "down", "src"), (FileView::Icons, "right", "src")]
+    {
         let scratch = project(&format!("focus-name-{view:?}"));
         let mut h = places(&scratch, view);
         click_on(&mut h, "docs");
@@ -101,8 +103,8 @@ fn command_focus_by_the_managers_name_gives_the_rows_the_keyboard_in_every_view(
 
         click_on(&mut h, "Back to the files");
         assert!(h.is_focused("files"), "{view:?}: the rows have the keyboard\n{}", h.screen());
-        h.press("down").advance(MOMENT);
-        assert_eq!(selected(&h), Some(below), "{view:?}: ↓ moved the cursor one row\n{}", h.screen());
+        h.press(key).advance(MOMENT);
+        assert_eq!(selected(&h), Some(below), "{view:?}: {key} moved the cursor one entry\n{}", h.screen());
     }
 }
 
@@ -132,13 +134,15 @@ fn the_rows_keep_the_keyboard_when_the_view_changes() {
 fn a_name_put_on_what_show_returns_still_gives_the_rows_the_keyboard() {
     // Applications named the manager this way before it could name its rows; in the tree that
     // name was on the rows themselves, and it must keep working in every view.
-    for (view, below) in [(FileView::Tree, "src"), (FileView::List, "src"), (FileView::Icons, "plan.txt")] {
+    for (view, key, below) in
+        [(FileView::Tree, "down", "src"), (FileView::List, "down", "src"), (FileView::Icons, "right", "src")]
+    {
         let scratch = project(&format!("focus-outside-{view:?}"));
         let mut h = places_named(&scratch, view, true);
         click_on(&mut h, "docs");
         h.press("shift+tab").advance(MOMENT);
         click_on(&mut h, "Back to the files");
-        h.press("down").advance(MOMENT);
+        h.press(key).advance(MOMENT);
         assert_eq!(selected(&h), Some(below), "{view:?}: focus by the outer name reached the rows\n{}", h.screen());
     }
 }

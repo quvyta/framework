@@ -1,5 +1,10 @@
 //! Measuring text in terminal cells: width, truncation with an ellipsis at the end or in the
 //! middle, and word wrapping.
+//!
+//! The syntax colours of a language live here too: [`highlight`] splits code into the byte ranges
+//! of its tokens and [`Token::style_variant`] names the theme style that paints each one, so an
+//! application that draws code itself colours it the way
+//! [`CodeView`](crate::widgets::CodeView) does.
 
 use std::borrow::Cow;
 use std::ops::Range;
@@ -8,8 +13,10 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 mod fuzzy;
+mod highlight;
 
 pub use fuzzy::{FuzzyMatch, fuzzy};
+pub use highlight::{Language, Token, highlight};
 
 /// The ellipsis drawn where text is cut.
 ///

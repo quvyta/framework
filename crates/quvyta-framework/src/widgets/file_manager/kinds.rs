@@ -1,5 +1,7 @@
 //! A file manager's icons by the kind of each entry, and their colours by family.
 
+use std::rc::Rc;
+
 use crate::color::ColorDepth;
 use crate::env::Env;
 use crate::icons::{FileKind, GlyphMode, UserFolders, file_kind};
@@ -7,21 +9,23 @@ use crate::icons::{FileKind, GlyphMode, UserFolders, file_kind};
 use super::state::ROOT;
 use super::{FileManager, parent_key};
 
-/// How the kinds of entries are drawn on one screen, worked out when the manager is shown.
+/// How the kinds of entries are drawn on one screen, worked out when the manager is shown. It owns
+/// what it needs, so the rows of a flat view can take it along and draw themselves when they come
+/// on screen.
 #[derive(Debug, Clone, Default)]
-pub(super) struct KindLook<'a> {
+pub(super) struct KindLook {
     /// Whether icons follow the kinds at all.
     icons: bool,
     /// Whether they take their family's colour, which the terminal must be able to show.
     tones: bool,
     /// The key of the home, when the home is on screen, with its folders.
-    home: Option<(String, &'a UserFolders)>,
+    home: Option<(String, Rc<UserFolders>)>,
 }
 
-impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
+impl<Msg: Clone + 'static> FileManager<'_, Msg> {
     /// How kinds are drawn in `env`: coloured only where tones can be told apart, and the home's
     /// folders known only while the home is inside the root.
-    pub(super) fn kind_look(&self, env: &Env) -> KindLook<'a> {
+    pub(super) fn kind_look(&self, env: &Env) -> KindLook {
         if !self.kind_icons {
             return KindLook::default();
         }
@@ -36,28 +40,35 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         let home = folders.and_then(|folders| {
             let inside = folders.home().strip_prefix(root).ok()?;
             let parts: Option<Vec<&str>> = inside.components().map(|part| part.as_os_str().to_str()).collect();
-            Some((parts?.join("/"), folders))
+            Some((parts?.join("/"), Rc::new(folders.clone())))
         });
         KindLook { icons: true, tones, home }
     }
 
     /// The icon and the colour of the entry `key`, called `name`, when no sign of the application
+    /// says otherwise; see [`KindLook::own_icon`].
+    pub(super) fn own_icon(&self, key: &str, name: &str, folder: bool, executable: bool) -> (String, Option<String>) {
+        self.kinds.own_icon(key, name, folder, executable)
+    }
+}
+
+impl KindLook {
+    /// The icon and the colour of the entry `key`, called `name`, when no sign of the application
     /// says otherwise: the plain `folder` or `file`, or its kind's, in the family's colour when
     /// kinds are coloured and in the row's own colour when not.
     pub(super) fn own_icon(&self, key: &str, name: &str, folder: bool, executable: bool) -> (String, Option<String>) {
-        let look = &self.kinds;
-        if !look.icons {
+        if !self.icons {
             return ((if folder { "folder" } else { "file" }).to_owned(), None);
         }
         let kind = self.kind_of(key, name, folder, executable);
-        let tone = if look.tones { kind.family().tone().map(str::to_owned) } else { None };
+        let tone = if self.tones { kind.family().tone().map(str::to_owned) } else { None };
         (kind.icon().to_owned(), tone)
     }
 
     /// The kind of the entry `key`: the home and its folders by where they are, everything else by
     /// its name.
     fn kind_of(&self, key: &str, name: &str, folder: bool, executable: bool) -> FileKind {
-        if folder && let Some((home, folders)) = &self.kinds.home {
+        if folder && let Some((home, folders)) = &self.home {
             let own = if key == home {
                 folders.kind(folders.home())
             } else if key != ROOT && parent_key(key) == home {

@@ -1,8 +1,9 @@
 //! Text area: multi-line editing with wrapping and scrolling, a length limit with a counter,
-//! line numbers, validation and submitting.
+//! line numbers, validation, submitting, and the syntax colours of a language while code is
+//! edited.
 
 use qframe::prelude::*;
-use qframe::widgets::TextArea;
+use qframe::widgets::{Language, TextArea};
 
 use super::{PageMsg, setting, toggle};
 use crate::app::Msg as AppMsg;
@@ -16,16 +17,21 @@ const SUMMARY_LIMIT: usize = 280;
 /// The deploy script the playground starts with.
 const SCRIPT: &str = "podman pull ghcr.io/quvyta/api:2.4.1\npodman stop api\npodman run -d --name api -p 8080:8080 ghcr.io/quvyta/api:2.4.1\ncurl --fail http://localhost:8080/health";
 
+/// The Rust snippet the playground starts with, coloured as it is edited.
+const SNIPPET: &str = "fn main() {\n    let greeting = \"hello\";\n    println!(\"{greeting}\");\n}";
+
 /// Field values and playground settings.
 #[derive(Debug)]
 pub struct State {
     summary: String,
     script: String,
+    snippet: String,
     submitted: Option<String>,
     line_numbers: bool,
     counter: bool,
     plain: bool,
     disabled: bool,
+    coloured: bool,
 }
 
 impl Default for State {
@@ -33,11 +39,13 @@ impl Default for State {
         Self {
             summary: String::new(),
             script: SCRIPT.to_owned(),
+            snippet: SNIPPET.to_owned(),
             submitted: None,
             line_numbers: false,
             counter: false,
             plain: false,
             disabled: false,
+            coloured: true,
         }
     }
 }
@@ -48,10 +56,12 @@ pub enum Msg {
     Summary(String),
     Submit(String),
     Script(String),
+    Snippet(String),
     LineNumbers(bool),
     Counter(bool),
     Plain(bool),
     Disabled(bool),
+    Coloured(bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -83,6 +93,11 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.script = value;
             ("TextArea#script", text)
         }
+        Msg::Snippet(value) => {
+            let text = format!("changed, {} lines", value.lines().count());
+            state.snippet = value;
+            ("TextArea#snippet", text)
+        }
         Msg::LineNumbers(on) => {
             state.line_numbers = on;
             ("Playground", format!("line numbers = {on}"))
@@ -98,6 +113,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::Disabled(on) => {
             state.disabled = on;
             ("Playground", format!("disabled = {on}"))
+        }
+        Msg::Coloured(on) => {
+            state.coloured = on;
+            ("Playground", format!("coloured = {on}"))
         }
     };
     log.push(PAGE, source, text);
@@ -161,6 +180,20 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("button.disabled-label"), |ui| {
             ui.add(toggle(state.disabled, |on| send(Msg::Disabled(on)))).id("disabled");
         });
+        ui.spacer().height(Length::Cells(1));
+        ui.add(Text::new(t!("text-area.snippet")).role("secondary"));
+        // region: coloured
+        let mut snippet = TextArea::new(&state.snippet).on_change(|value| send(Msg::Snippet(value)));
+        if state.coloured {
+            // The colours a code view paints a file with, while the text is edited.
+            snippet = snippet.language(Language::Rust);
+        }
+        ui.add(snippet).width(Length::Cells(64)).height(Length::Cells(5)).id("snippet");
+        // endregion
+        ui.spacer().height(Length::Cells(1));
+        setting(ui, t!("text-area.language"), |ui| {
+            ui.add(toggle(state.coloured, |on| send(Msg::Coloured(on)))).id("coloured");
+        });
         ui.add(Text::new(t!("text-area.keys")).role("faint"));
     })
     .fill_width();
@@ -200,5 +233,71 @@ mod tests {
         h.click(sx + 25, sy);
         assert!(h.app().pages.text_area.plain, "the click turned the plain look on");
         assert_eq!(h.bg(cell.0, cell.1), surface);
+    }
+
+    /// The colour the theme paints a style's text with.
+    fn painted(
+        h: &qframe::runtime::Harness<crate::app::Showcase>,
+        widget: &str,
+        variant: Option<&str>,
+    ) -> qframe::color::Rgb {
+        h.env()
+            .theme()
+            .style(widget, variant, &[])
+            .paint("fg")
+            .map(|paint| paint.at(0.0))
+            .expect("a style the themes give")
+    }
+
+    #[test]
+    fn a_comment_colours_the_line_it_is_typed_on_and_the_switch_leaves_the_text_plain() {
+        // Tall enough to show the playground's second switch under the demo.
+        let mut h = crate::tests::showcase_tall(crate::app::Showcase::new(), PAGE, 90);
+        // Iris, whose accent is not its text colour as in the monochrome theme, so that a token's
+        // colour is told from the colour of the field's own text.
+        h.set_theme("iris").set_reduced_motion(true);
+        // The word `let` is found again after every edit, because typing at the start of the line
+        // moves it along the row.
+        let keyword = |h: &qframe::runtime::Harness<crate::app::Showcase>| {
+            let (x, y) = h.find("let greeting").unwrap_or_else(|| panic!("the word is drawn:\n{}", h.screen()));
+            (u16::try_from(x).unwrap(), u16::try_from(y).unwrap())
+        };
+        let at = keyword(&h);
+        assert_eq!(
+            h.fg(at.0, at.1),
+            Some(painted(&h, "code-token", Some("keyword"))),
+            "a keyword takes its own colour:\n{}",
+            h.screen()
+        );
+
+        // A comment typed at the start of the line takes the whole line with it, and the cursor
+        // block is moved off the word so that the token's own colour is what is read.
+        h.click(i32::from(at.0), i32::from(at.1)).press("home").type_text("// ").press("end");
+        let at = keyword(&h);
+        assert_eq!(
+            h.fg(at.0, at.1),
+            Some(painted(&h, "code-token", Some("comment"))),
+            "a comment recolours the line:\n{}",
+            h.screen()
+        );
+        // A word and the space that ends it are undone apart, so the comment takes two presses.
+        h.press("ctrl+z").press("ctrl+z").press("end");
+        let at = keyword(&h);
+        assert_eq!(
+            h.fg(at.0, at.1),
+            Some(painted(&h, "code-token", Some("keyword"))),
+            "undo brings the keyword colour back:\n{}",
+            h.screen()
+        );
+        let (sx, sy) = h.find("Syntax colours").unwrap_or_else(|| panic!("the switch is on screen:\n{}", h.screen()));
+        h.click(sx + 25, sy);
+        assert!(!h.app().pages.text_area.coloured, "the click took the colours away");
+        let at = keyword(&h);
+        assert_eq!(
+            h.fg(at.0, at.1),
+            Some(painted(&h, "text-area", None)),
+            "the text is the field's own:\n{}",
+            h.screen()
+        );
     }
 }

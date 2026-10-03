@@ -36,6 +36,10 @@ type CardBuilder<Msg> = Box<dyn Fn(&mut View<'_, Msg>, usize)>;
 /// the pointer moves over the grid it carries the highlight and the selected card rests; the
 /// next key goes on from the card the pointer is on.
 ///
+/// A grid of [`bare_cards`](Self::bare_cards) gives its cards none of that: they stand on the
+/// ground the grid is given and draw themselves, as a grid of [`IconTile`](super::IconTile)s
+/// does.
+///
 /// The column count follows the width: cards are at least [`card_width`](Self::card_width)'s
 /// least width and share the room left, up to the widest. An area narrower than one card shows
 /// one column as wide as the area, and the card's content is cut there (build it with
@@ -125,6 +129,7 @@ pub struct CardGrid<Msg> {
     checked: Option<Vec<bool>>,
     disabled: bool,
     scrollbar: Option<ScrollbarStyle>,
+    bare: bool,
     on_select: Option<IndexMessage<Msg>>,
     on_activate: Option<IndexMessage<Msg>>,
     on_toggle: Option<IndexMessage<Msg>>,
@@ -171,6 +176,7 @@ impl<Msg: 'static> CardGrid<Msg> {
             checked: None,
             disabled: false,
             scrollbar: None,
+            bare: false,
             on_select: None,
             on_activate: None,
             on_toggle: None,
@@ -233,6 +239,21 @@ impl<Msg: 'static> CardGrid<Msg> {
     #[must_use]
     pub fn scrollbar(mut self, style: ScrollbarStyle) -> Self {
         self.scrollbar = Some(style);
+        self
+    }
+
+    /// Stands the cards on the ground the grid is given instead of on a surface of their own: no
+    /// ground, no padding and no pillar are drawn for them, and each is given the whole of its
+    /// rectangle, for a grid whose cards draw themselves, such as a grid of
+    /// [`IconTile`](super::IconTile)s.
+    ///
+    /// The grid's own input does not change: a card is still the pressable surface, a drag still
+    /// starts on it, and the card under the pointer and the card the keys are on lend it what they
+    /// have, so a card that draws a lit ground or a breathing pillar does so while the grid has
+    /// the pointer or the focus.
+    #[must_use]
+    pub fn bare_cards(mut self, bare: bool) -> Self {
+        self.bare = bare;
         self
     }
 
@@ -388,6 +409,13 @@ impl<Msg: 'static> CardGrid<Msg> {
         self.checked.is_some() && self.on_toggle.is_some()
     }
 
+    /// The padding a card of this grid is laid out with and drawn in: the theme's own, or none of
+    /// it while the cards are bare, so a bare card stands on the ground it is given and takes the
+    /// whole of its cell.
+    fn card_padding(&self, padding: Padding) -> Padding {
+        if self.bare { Padding::default() } else { padding }
+    }
+
     fn sizing(&self, padding: Padding) -> Sizing {
         Sizing {
             min_width: self.min_width,
@@ -432,7 +460,9 @@ impl<Msg: 'static> CardGrid<Msg> {
         let (layout, offset) = (memory.layout, memory.offset);
         let index = layout.index_at(x, y, offset)?;
         let env = cx.env();
-        mark_zone(env, layout.card_rect(index, offset), card_padding(env)).contains(x, y).then_some(index)
+        // The mark is drawn with the card's own padding, so a click finds it where it is.
+        let padding = self.card_padding(card_padding(env));
+        mark_zone(env, layout.card_rect(index, offset), padding).contains(x, y).then_some(index)
     }
 
     /// The card the keys act on: the one the pointer carries the highlight to, else the
@@ -531,6 +561,15 @@ impl<Msg: 'static> CardGrid<Msg> {
     }
 }
 
+/// What a bare card borrows from the grid while it paints: the pointer when it is over the card and
+/// the keyboard focus when the keys are on it, so a card that draws its own tone lights and
+/// breathes as it would standing on its own.
+#[derive(Debug, Clone, Copy)]
+struct Lends {
+    hover: bool,
+    focus: bool,
+}
+
 /// The card surface's padding from the theme.
 fn card_padding(env: &Env) -> Padding {
     let style = env.theme().style("card", None, &[]);
@@ -570,15 +609,26 @@ impl<Msg: Clone + 'static> CardGrid<Msg> {
         self
     }
 
-    /// Paints card `index` in `rect` in `states`.
-    fn paint_card(&self, cx: &mut PaintCx<'_>, rect: Rect, index: usize, states: &[State], padding: Padding) {
+    /// Paints card `index` in `rect` in `states`, lending it what `lends` says, so a bare card
+    /// that draws its own pillar lights under the pointer and breathes with the grid's focus.
+    fn paint_card(
+        &self,
+        cx: &mut PaintCx<'_>,
+        rect: Rect,
+        index: usize,
+        states: &[State],
+        padding: Padding,
+        lends: Lends,
+    ) {
         let style = cx.style("card", None, states);
         let background = style.text().bg.unwrap_or_else(|| cx.color("raised"));
-        cx.clear(rect, background);
-        if let Some(pillar) = style.color("pillar") {
-            // A card is a whole surface, so its mark runs down its full left edge.
-            for row in 0..rect.height {
-                cx.pillar(rect.x, rect.y + i32::from(row), pillar);
+        if !self.bare {
+            cx.clear(rect, background);
+            if let Some(pillar) = style.color("pillar") {
+                // A card is a whole surface, so its mark runs down its full left edge.
+                for row in 0..rect.height {
+                    cx.pillar(rect.x, rect.y + i32::from(row), pillar);
+                }
             }
         }
         let env = cx.env;
@@ -597,7 +647,14 @@ impl<Msg: Clone + 'static> CardGrid<Msg> {
             let mut node = Node::new(Flex::new(Axis::Column, children), index);
             node.layout.width = Length::Fill(1);
             node.assign_ids(cx.id());
-            cx.paint_child(&node, inner);
+            if self.bare {
+                // A bare card draws itself, so it needs the pointer and the keys the grid has.
+                cx.paint_child_lending(&node, inner, lends.hover, lends.focus);
+            } else if lends.focus {
+                cx.paint_child_lending_focus(&node, inner, true);
+            } else {
+                cx.paint_child(&node, inner);
+            }
         }
         if let Some(checked) = self.is_checked(index) {
             let lit = states.iter().any(|state| matches!(state, State::Hover | State::Selected));
@@ -608,7 +665,8 @@ impl<Msg: Clone + 'static> CardGrid<Msg> {
                 cx.text(mark.x, mark.y, &env.icons().glyph("check"), CellStyle::fg(fg), mark.width);
             }
         }
-        if self.disabled {
+        if self.disabled && !self.bare {
+            // A bare card keeps the ground it stands on, so what it draws steps back instead.
             cx.tint(rect, background, 0.5);
         }
     }
@@ -619,7 +677,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for CardGrid<Msg> {
         if self.count == 0 {
             return self.empty.first().map_or(Size::default(), |empty| cx.measure_child(empty, available));
         }
-        let sizing = self.sizing(card_padding(cx.env()));
+        let sizing = self.sizing(self.card_padding(card_padding(cx.env())));
         let (columns, _) = layout::columns(available.width, sizing);
         let height = layout::height_of(self.count.div_ceil(columns), sizing);
         Size::new(available.width, height).min(available)
@@ -636,7 +694,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for CardGrid<Msg> {
             return;
         }
         cx.register_hit(area);
-        let padding = cx.style("card", None, &[]).padding();
+        let padding = self.card_padding(cx.style("card", None, &[]).padding());
         let layout = Layout::new(area, self.count, self.sizing(padding));
         let active = self.active();
         let focus_visible = active && cx.is_focus_visible();
@@ -706,7 +764,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for CardGrid<Msg> {
                 if pressed && flashed == Some(index) {
                     states.push(State::Pressed);
                 }
-                self.paint_card(cx, rect, index, &states, padding);
+                self.paint_card(
+                    cx,
+                    rect,
+                    index,
+                    &states,
+                    padding,
+                    Lends { hover: is_hovered, focus: focus_visible && cursor },
+                );
                 if target == Some(index) {
                     // The card keeps what it shows and takes the tone of a place that takes a drop.
                     let drop = cx.style("tree-drop", None, &[]).text();

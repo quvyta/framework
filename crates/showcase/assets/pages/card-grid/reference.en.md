@@ -18,6 +18,12 @@
 - `.context_menu(|index| Vec<ContextItem<Msg>>)` — gives every card a menu of its own, built for the card it opens on.
 - `.disabled(bool)` — no hover, focus or press; cards fade, the selection still shows.
 - `.scrollbar(ScrollbarStyle)` — pins a scrollbar style instead of the theme's.
+- `.bare_cards(bool)` — the cards stand on the ground the grid is given instead of on a surface of
+  their own: no ground, no padding and no pillar are drawn for them and each takes the whole of its
+  rectangle, for a grid whose cards draw themselves such as a grid of `IconTile`s. The card under
+  the pointer lends it the pointer and the card the keys are on lends it the focus, so a card that
+  draws its own tone lights and breathes as it would on its own. The grid's own input does not
+  change: a card is still the pressable surface.
 
 ## Keys
 

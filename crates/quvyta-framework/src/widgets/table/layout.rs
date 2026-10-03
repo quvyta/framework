@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::geometry::clamp_u16;
 
-use super::{COLUMN_GAP, ColumnWidth, Table, TableMemory};
+use super::{COLUMN_GAP, ColumnWidth, Rows, Table, TableMemory};
 /// Where a visible column was drawn in the last frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Placed {
@@ -15,19 +15,21 @@ pub(super) struct Placed {
 
 impl<Msg: 'static> Table<Msg> {
     pub(super) fn widest_cells(&self, memory: &mut TableMemory) -> Vec<u16> {
-        if let Some((rows, widths)) = &memory.fit
-            && Arc::ptr_eq(rows, &self.rows)
+        // A lazy table's rows are not all built, so its fitted columns fit their titles.
+        let Rows::Built(rows) = &self.rows else { return vec![0; self.columns.len()] };
+        if let Some((fitted, widths)) = &memory.fit
+            && Arc::ptr_eq(fitted, rows)
             && widths.len() == self.columns.len()
         {
             return widths.clone();
         }
         let mut widths = vec![0u16; self.columns.len()];
-        for row in self.rows.iter() {
+        for row in rows.iter() {
             for (width, cell) in widths.iter_mut().zip(&row.cells) {
                 *width = (*width).max(cell.width());
             }
         }
-        memory.fit = Some((Arc::clone(&self.rows), widths.clone()));
+        memory.fit = Some((Arc::clone(rows), widths.clone()));
         widths
     }
 

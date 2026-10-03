@@ -42,6 +42,8 @@ unreadable = "Bu klasör okunamadı"
 empty                    = "boş"
 unreadable               = "Bu klasör okunamadı."
 unreadable-short         = "okunamıyor"
+filter                   = "Klasörü daraltmak için yaz"
+no-match                 = "eşleşen yok"
 new-file                 = "Yeni dosya"
 new-folder               = "Yeni klasör"
 rename                   = "Yeniden adlandır"
@@ -220,6 +222,16 @@ move   = "gez"
 run    = "çalıştır"
 filter = "Süzmek için yaz"
 
+# What the keys a widget declares do, listed by the help layer for the widget with the focus.
+[quvyta.widget]
+move   = "gez"
+scroll = "kaydır"
+open   = "aç"
+check  = "işaretle"
+sort   = "sırala"
+fold   = "aç veya kapat"
+submit = "gönder"
+
 [quvyta.help]
 title  = "Klavye kısayolları"
 screen = "Bu ekran"
@@ -240,6 +252,10 @@ type-word = "Onaylamak için {word} yaz"
 
 [quvyta.tabs]
 add = "Yeni sekme"
+
+# The control at the end of a row of buttons that some of them do not fit in; it opens their menu.
+[quvyta.button-row]
+more = "Diğerleri"
 
 [quvyta.tab-rail]
 add = "Yeni sekme"

@@ -100,7 +100,15 @@ fn glyph(h: &Harness<Demo>, key: &str) -> char {
 /// The cell of the icon on the row of `name`: the glyph two cells before the name, and its colour.
 fn icon_on(h: &Harness<Demo>, name: &str) -> (char, Option<Rgb>) {
     let (x, y) = h.find(name).unwrap_or_else(|| panic!("`{name}` is on screen:\n{}", h.screen()));
-    let (x, y) = (u16::try_from(x - 2).expect("a column"), u16::try_from(y).expect("a row"));
+    let (x, y) = if h.app().view == FileView::Icons {
+        // A tile stands its glyph on the line above its name, over the name's middle.
+        let above = h.screen().lines().nth(usize::try_from(y - 1).expect("a row")).unwrap_or_default().to_owned();
+        let span = usize::try_from(x).expect("a column")..usize::try_from(x).expect("a column") + name.chars().count();
+        let at = span.clone().find(|at| above.chars().nth(*at).is_some_and(|c| c != ' ')).unwrap_or(span.start);
+        (u16::try_from(at).expect("a column"), u16::try_from(y - 1).expect("a row"))
+    } else {
+        (u16::try_from(x - 2).expect("a column"), u16::try_from(y).expect("a row"))
+    };
     let line = h.screen().lines().nth(usize::from(y)).expect("the line").to_owned();
     let glyph = line.chars().nth(usize::from(x)).expect("the icon's cell");
     (glyph, h.fg(x, y))

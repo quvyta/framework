@@ -8,12 +8,13 @@ Birkaç satıra yayılan metin için metin alanı kullan: sürüm notları, comm
 2. Çiz: `TextArea::new(&state.summary)`. Seçeneksiz alan satır kırar, kaydırır ve düzenler; metniyle büyüyerek üç ile sekiz satır arası yer kaplar.
 3. Değişiklikleri işle: `.on_change(|text| Msg::Summary(text))`, metni `update` içinde sakla.
 4. Genişliği yerleşimle ver; büyümemesi gerekiyorsa yüksekliği de: `.height(Length::Cells(5))`.
-5. Yetenekleri yalnızca gerektiğinde ekle: `.placeholder(..)`, `.max_length(280).counter(true)`, betikler ve kod için `.line_numbers(true)`, alan gibi değil kağıt gibi görünmesi gereken bir not sayfası için `.variant("plain")`.
+5. Yetenekleri yalnızca gerektiğinde ekle: `.placeholder(..)`, `.max_length(280).counter(true)`, betikler ve kod için `.line_numbers(true)`, düzenlenen metin kodsa `.language(Language::Rust)`, alan gibi değil kağıt gibi görünmesi gereken bir not sayfası için `.variant("plain")`.
 6. Metni bir yere göndermek için Ctrl+Enter'a `.on_submit(|text| Msg::Publish(text))` bağla, yanına bir de buton koy.
 
 ## Nasıl çalışır
 
 - **Aynı alan, daha uzun.** Yüzey, odak, geçersiz tonu, imleç, seçim renkleri ve geri alma `TextInput` ile aynıdır.
+- **Renklenir, ama yine bir alandır.** `.language(Language::Rust)` (ya da `Toml`, `Shell`, ya da düzenlenen dosya için `Language::from_file_name("main.rs")` neyi seçiyorsa) metnin her parçasını belirtecinin `code-token` renginde boyar, kod görünümünün bir dosyayı boyadığı gibi: anahtar kelime, metin, yorum ve sayı kendi rengini alır. Yalnızca renk değişir. İmleç, seçim, geri alma, kaydırma ve satır numaraları aynı alanındır, seçim altındaki renkleri örter ve pasif alan sessiz tek renkli görünümünü korur. Metin her karede değil, kendisi ya da dil değiştiğinde renklenir; böylece binlerce satırlık bir dosyada yazmak bir alanda yazmak kadar hızlıdır. Varsayılan `Language::Plain` metni alanın kendi renginde bırakır.
 - **Sade, kağıttır.** `.variant("plain")` yükseltilmiş alanı kaldırır: alan üstünde durduğu panelin ya da sayfanın tonunu alır ve üstüne gelince ya da odaklanınca da korur; not aracı bir form değil bir sayfa gibi okunur. Üstüne gelme ve odak yine dikey çubukla görünür, geçersiz metni tehlike renginde bir çubuk işaretler, imleç ve seçim aynı kalır.
 - **Sözcükler alt satıra geçer, hiçbir şey kaybolmaz.** Uzun satırlar sözcük aralarından kırılır, satırdan uzun bir sözcük karakter aralarından bölünür, satır başındaki girinti korunur. Kırılan satırlar yalnızca görünüştür: metnin kendi satır sonları değişmez.
 - **Enter yeni satır açar.** Göndermek sana kalmış: `on_submit` verilmişse Ctrl+Enter onu gönderir. Kitty klavye protokolünü desteklemeyen terminaller Ctrl+Enter'ı düz Enter olarak bildirebilir; bu yüzden yanına bir buton koymak gerekir.

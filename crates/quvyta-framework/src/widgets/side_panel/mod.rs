@@ -190,17 +190,20 @@ impl<'a, Msg: 'static> SidePanel<'a, Msg> {
 
     /// Adds the panel and its body to `ui`, filling the space they get.
     pub fn show<'v>(self, ui: &'v mut View<'_, Msg>) -> NodeMut<'v, Msg> {
-        let build = |part: Option<Part<'a, Msg>>| {
+        // Each part has its own key, as it has its own place in the dock: two parts under one key
+        // would be one widget to the runtime, and the unnamed first child of the body would share
+        // its focus, keys and memory with the panel's.
+        let build = |part: Option<Part<'a, Msg>>, place: usize| {
             let mut children = Vec::new();
             if let Some(part) = part {
                 part(&mut ui.nested(&mut children));
             }
-            let mut node = Node::new(Flex::new(FlexAxis::Column, children), 0);
+            let mut node = Node::new(Flex::new(FlexAxis::Column, children), place);
             node.layout.width = Length::Fill(1);
             node.layout.height = Length::Fill(1);
             node
         };
-        let mut parts = vec![build(self.panel), build(self.body)];
+        let mut parts = vec![build(self.panel, PANEL), build(self.body, BODY)];
         let has_strip = match self.on_strip {
             Some(on_select) if !self.strip.is_empty() => {
                 let strip = Strip {
@@ -211,7 +214,7 @@ impl<'a, Msg: 'static> SidePanel<'a, Msg> {
                     on_select,
                     on_toggle: self.on_toggle.clone(),
                 };
-                parts.push(Node::new(strip, 2));
+                parts.push(Node::new(strip, STRIP_PART));
                 true
             }
             _ => false,

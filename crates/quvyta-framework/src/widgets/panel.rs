@@ -307,6 +307,22 @@ mod tests {
     }
 
     #[test]
+    fn over_a_remote_connection_the_pillar_stands_still_after_every_key() {
+        let mut remote = harness(Demo::default());
+        remote.set_remote(true);
+        remote.press("tab").press("x");
+        let period = remote.env().theme().motion().pulse_period;
+        assert_eq!(remote.next_frame(), None, "a key over a remote connection asks for no breath of frames");
+        let still = remote.fg(0, 1);
+        remote.advance(period / 2);
+        assert_eq!(remote.fg(0, 1), still, "the pillar does not breathe");
+        // The same keys on a local terminal breathe, so it is the connection that stills it.
+        let mut local = harness(Demo::default());
+        local.press("tab").press("x");
+        assert!(local.next_frame().is_some(), "a local key wakes the pulse");
+    }
+
+    #[test]
     fn the_breathing_pillar_rests_on_a_screen_nobody_touches_and_breathes_again_at_the_next_key() {
         let mut h = harness(Demo::default());
         h.press("tab");

@@ -14,8 +14,9 @@ use crate::widgets::{
     ContextItem, ContextMenu, CopyValue, DatePicker, Divider, EmptyState, Field, Form, Gauge, HelpLayer, HoldToConfirm,
     KeyHints, Language, List, ListItem, LogBuffer, LogLevel, LogLine, LogView, Markdown, Menu, MenuGroup, MenuItem,
     Modal, NumberInput, Overflow, PaletteCommand, Panel, Popover, ProgressBar, RadioGroup, RailTab, Section, Segmented,
-    Select, SettingRow, SettingsList, ShimmerText, Slider, Spinner, Steps, Switch, TabRail, TabWidth, Table, TableCell,
-    TableRow, Tabs, Text, TextArea, TextInput, Tooltip, Tree, TreeNode, WidgetDock, Wizard,
+    Select, SettingRow, SettingsList, ShimmerText, Slider, Spinner, StatusLine, Steps, Switch, TabRail, TabWidth,
+    Table, TableCell, TableRow, Tabs, Text, TextArea, TextInput, ToastKind, Tooltip, Tree, TreeNode, WidgetDock,
+    Wizard,
 };
 
 /// Just wider than `u16::MAX` cells: 32 800 double-width characters.
@@ -90,6 +91,9 @@ const WIDGETS: &[(&str, Build)] = &[
     ("form", |t, ui| {
         Form::new().show(ui, |form| {
             form.field(Field::new(t).hint(t).required(true), |ui| {
+                ui.add(TextInput::new(t));
+            });
+            form.field(Field::new(t).warning(Some(t)), |ui| {
                 ui.add(TextInput::new(t));
             });
         });
@@ -175,6 +179,9 @@ const WIDGETS: &[(&str, Build)] = &[
     }),
     ("steps-vertical", |t, ui| {
         ui.add(Steps::new([t, t]).vertical(true).on_select(|_| ()));
+    }),
+    ("status-line", |t, ui| {
+        ui.add(StatusLine::new(t).tone(ToastKind::Danger).action(Button::new(t).on_press(())));
     }),
     ("switch", |t, ui| {
         ui.add(Switch::new(true).label(t).on_toggle(|_| ()));

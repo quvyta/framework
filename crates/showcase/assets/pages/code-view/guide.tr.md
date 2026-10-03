@@ -15,6 +15,7 @@
 ## Nasıl çalışır
 
 - **Renkler temadan.** Rust için anahtar kelimeler, türler, fonksiyonlar, makrolar, metinler, sayılar, yorumlar, öznitelikler ve lifetime'lar; TOML için tablolar, anahtarlar, metinler, sayılar ve boolean'lar; kabuk betikleri için yorumlar, metinler, değişkenler ve açılımlar, anahtar kelimeler, fonksiyon tanımları ve heredoc'lar. Her tür bir `code-token` varyantıdır; tema kodu diğer bileşenler gibi yeniden boyar.
+- **Tek renklendirici, iki bileşen.** Bu, bütün dosyaların görüntüleyicisidir; `TextArea::language(dil)` aynı renkleri düzenlenen koda da verir, `qframe::text::highlight(kod, dil)` ise aynı bayt aralıklarını ve belirteçleri kodu kendi çizen bir uygulamaya verir. Kodun kendisi hangisinin boyadığını bilmez.
 - **Dil dosya adından.** `Language::from_file_name("PKGBUILD")` kabuktur, `.sh`, `.bash`, `.zsh` ve `.install` de öyle; `.rs` Rust, `.toml` TOML, gerisi düz metin.
 - **Farklar ve bulgular işaretli bir tonla.** İşaretli ya da vurgulu satırın bütün sırası, sarılan sıraları da dahil, bir tonla boyanır ve soldaki tek hücrelik sütuna bir işaret gelir: eklenen satıra yeşil `+`, silinene kırmızı `−`, uyarıya uyarı ikonu, vurguya dikey çubuk. Aynı satırda vurgu fark işaretini geçer. Sütun ancak bir şey işaretlenince açılır; kopyalar işaretleri almaz.
 - **Satıra gitmek kayarak olur.** `.reveal(satır)` çevreleyen kaydırma alanını satırı iki satır bağlamla gösterecek kadar, bir sayfa geçişi süresinde kaydırır; hareket azaltılmışsa bir anda atlar. Satır değişince olur, sonra kullanıcı istediği yere kaydırabilir.

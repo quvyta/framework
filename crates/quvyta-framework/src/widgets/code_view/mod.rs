@@ -7,12 +7,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::cells;
-use super::highlight::{Language, Token, highlight};
 use crate::event::Event;
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::keymap::Key;
 use crate::style::CellStyle;
-use crate::text;
+use crate::text::{self, Language, Token, highlight};
 use crate::theme::State;
 use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
 
@@ -76,6 +75,12 @@ pub(crate) fn code_rows(code: &str, language: Language, width: u16) -> Vec<CodeR
     rows
 }
 
+/// The style a token's text is painted with: the theme's `code-token.<kind>`. Shared with the
+/// text area, so a keyword in an editor is the colour a keyword in a code view is.
+pub(crate) fn token_style(cx: &mut PaintCx<'_>, token: Token) -> CellStyle {
+    cx.style("code-token", Some(token.style_variant()), &[]).text()
+}
+
 /// Paints `rows` in `area` using the `code-token.<kind>` and `code-line-number` styles.
 pub(crate) fn paint_rows(cx: &mut PaintCx<'_>, area: Rect, rows: &[CodeRow], gutter: u16) {
     let visible = visible_rows(cx, area, rows.len());
@@ -98,7 +103,7 @@ pub(crate) fn paint_rows(cx: &mut PaintCx<'_>, area: Rect, rows: &[CodeRow], gut
         }
         let mut x = area.x + i32::from(gutter);
         for (piece, token) in &row.pieces {
-            let style = cx.style("code-token", Some(token.variant()), &[]).text();
+            let style = token_style(cx, *token);
             x += i32::from(cx.text(x, row_y, piece, style, area.right().saturating_sub(x).try_into().unwrap_or(0)));
         }
     }

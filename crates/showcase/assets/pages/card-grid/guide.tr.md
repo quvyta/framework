@@ -21,6 +21,7 @@ Her öğe kendine ait küçük bir yüzeyi hak ediyorsa ve öğeler yan yana oku
 - **İşaret köşede durur.** İşaretli kart sağ üst köşesinde vurgu renginde bir işaret taşır. Yanan kart orada soluk bir işaret gösterir: tıklarsan kart açılmadan işaretlenir. Boşluk seçili kartı işaretler.
 - **Fare, tuşların yaptığını yapar.** Tıklamak kartı seçer ve açar, tekerlek bir sıra kart kaydırır, kaydırma çubuğuna basılıp sürüklenebilir.
 - **Menü kartın kendisinin.** `.context_menu(|index| ..)` menünün açıldığı kart için öğeleri kurar ve o kart menü açıkken yükselmiş durur; öğelerin neye dokunduğu hiç şüpheli kalmaz.
+- **Kendini çizen kartlardan bir ızgara.** `.bare_cards(true)` kartları ızgaranın verdiği zeminde bırakır ve her birine hücresinin tamamını verir; yüzey olmayan kartlar için, `IconTile` ızgarası gibi. Izgaranın girdisi değişmez ve fare altındaki ya da tuşların üstündeki kart fareyi ve odağı borç alır, böylece kendi tonunu çizen bir kart tek başındaymış gibi yanar ve nefes alır.
 
 ## Temayla biçimlendirme
 

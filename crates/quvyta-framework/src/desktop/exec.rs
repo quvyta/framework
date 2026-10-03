@@ -11,8 +11,9 @@ mod tests;
 
 /// What the field codes of an `Exec` line stand for.
 pub(super) struct Fields<'a> {
-    /// The file being opened (`%f %F %u %U`).
-    pub(super) file: &'a Path,
+    /// The file being opened (`%f %F %u %U`), or `None` when the program is started with nothing
+    /// to open, as a launcher starts it: those codes then stand for nothing at all.
+    pub(super) file: Option<&'a Path>,
     /// The program's name in the person's language (`%c`).
     pub(super) name: &'a str,
     /// The program's icon (`%i`).
@@ -72,10 +73,15 @@ pub(super) fn expand(exec: &str, fields: &Fields<'_>) -> Option<Vec<OsString>> {
                 }
                 Piece::Code(code, quoted) => {
                     let value = match code {
-                        'f' | 'F' | 'u' | 'U' => {
-                            takes_file = true;
-                            fields.file.as_os_str().to_owned()
-                        }
+                        'f' | 'F' | 'u' | 'U' => match fields.file {
+                            Some(file) => {
+                                takes_file = true;
+                                file.as_os_str().to_owned()
+                            }
+                            // With no file to open the code is nothing, and an argument that was
+                            // only the code goes with it.
+                            None => continue,
+                        },
                         'c' => OsString::from(fields.name),
                         'k' => fields.entry.as_os_str().to_owned(),
                         'i' | 'd' | 'D' | 'n' | 'N' | 'v' | 'm' => continue,
@@ -95,8 +101,8 @@ pub(super) fn expand(exec: &str, fields: &Fields<'_>) -> Option<Vec<OsString>> {
     }
     // A program that names no file field code still opens a file given to it: the standard says
     // the file then goes last.
-    if !takes_file {
-        args.push(fields.file.as_os_str().to_owned());
+    if let Some(file) = fields.file.filter(|_| !takes_file) {
+        args.push(file.as_os_str().to_owned());
     }
     Some(args)
 }

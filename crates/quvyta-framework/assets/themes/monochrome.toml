@@ -150,6 +150,36 @@ fg = "$accent"
 [style."card-mark.off"]
 fg = "$muted"
 
+# ---- Icon tiles -------------------------------------------------------------------------------
+# An icon tile is a glyph with a name under it, standing on the ground it is given: a desktop's
+# bare floor, a file manager's grid, anything that lays cells of ten by three out. The pointer
+# lifts the ground a step, as a pressable panel does, and lifts the name with it. A selected tile
+# takes the selected surface and the accent pillar down its first column, and keyboard focus
+# breathes the pillar while the surface the tile stands in has it. The pillar column is reserved in
+# every state, so a tile's glyph and name sit in the same cells whether it is selected or not.
+
+[style.icon-tile]
+fg   = "$text"
+name = "$dim"
+
+[style."icon-tile:hover"]
+name = "$text"
+
+[style."icon-tile:selected"]
+bg     = "$active"
+name   = "$text"
+pillar = "$accent"
+
+# Focus is its own rule so a cursor tile that is not selected breathes too; both rules ask for one
+# state, and this one is written last, so it wins where a selected tile has both.
+[style."icon-tile:focus"]
+pillar = "pulse($accent, $accent-2)"
+
+# A faint tile is a cut entry or one the application has marked: the faint role's tone throughout.
+[style."icon-tile.faint"]
+fg   = "$muted"
+name = "$muted"
+
 [style.shell-header]
 bg = "$surface"
 
@@ -877,6 +907,12 @@ fg = "$muted"
 
 [style.field-error]
 fg = "$danger"
+
+# A field's warning says what the value is about to cost, not what is wrong with it, so it takes
+# the same place as the error and gives up to it. The sign stands in front of it, so the tone
+# never carries the meaning on its own.
+[style.field-warning]
+fg = "$warning"
 
 [style.form-summary]
 bg      = "mix($danger, $surface, 10%)"
@@ -1858,6 +1894,14 @@ fg = "$danger"
 [style."bar-chart-value.info"]
 fg = "$info"
 
+# Level bars: columns a step below the accent, as a sparkline's are, so the top of a gradient and
+# the cap a column carries stand out in the accent itself. The track is the ground the columns
+# stand on in ASCII mode, which has no partial blocks to draw them with.
+[style.level-bars]
+base  = "mix($accent, $surface, 60%)"
+peak  = "$accent"
+track = "$raised"
+
 # Big text: plain text colour by default, the accent when it is the one figure that matters.
 [style.big-text]
 fg = "$text"
@@ -1946,6 +1990,21 @@ bg = "mix($accent, $active, 12%)"
 
 [style."toast-action:active:hover"]
 bg = "mix($accent, $active, 22%)"
+
+# A status line says its own sentence in the status colour, beside the sign that gives that colour
+# its meaning. A theme that would rather the sentence read as text names one variant, or all four
+# as below; the sign keeps the tone either way, since a status colour alone says nothing.
+[style."status-line.success"]
+fg = "$success"
+
+[style."status-line.warning"]
+fg = "$warning"
+
+[style."status-line.danger"]
+fg = "$danger"
+
+[style."status-line.info"]
+fg = "$info"
 
 # ---- Modal layers ----------------------------------------------------------------------------
 # A layer is an overlay surface on a screen blended towards the canvas, never a frame. The

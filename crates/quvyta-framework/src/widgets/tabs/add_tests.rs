@@ -199,3 +199,14 @@ fn fill_width_tabs_leave_room_for_the_plus() {
     let widths = tabs.widths(40);
     assert_eq!(Tabs::<()>::total_width(&widths) + tabs.add_room(), 40, "the tabs and the plus share the strip");
 }
+
+#[test]
+fn a_capped_fill_leaves_the_plus_where_the_tabs_end() {
+    let tabs = Tabs::<()>::new(["a", "b"]).tab_width(TabWidth::Fill).max_tab_width(10).on_add(|| ());
+    let widths = tabs.widths(40);
+    assert_eq!(widths, [10, 10], "each tab is capped and the strip keeps the rest for itself");
+    // The button follows the last tab rather than the strip's end, so a capped strip does not
+    // leave it stranded in an empty line: ten cells, ten cells, the gap between and the gap before
+    // the three cells of the button.
+    assert_eq!(Tabs::<()>::total_width(&widths) + tabs.add_room(), 25, "it stands one gap after the last tab");
+}

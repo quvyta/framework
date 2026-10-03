@@ -1,19 +1,43 @@
 //! The row model shared by row-based widgets (list, table, tree, menu, log view): which row is
-//! first on screen, keyboard steps between rows, wheel and scrollbar handling, and painting a
-//! touched row's raised surface with its pillar.
+//! first on screen, keyboard steps between rows, the keys those widgets declare, wheel and
+//! scrollbar handling, and painting a touched row's raised surface with its pillar.
 
+use crate::env::Env;
 use crate::event::{KeyEvent, MouseButton, MouseEvent, MouseKind};
 use crate::geometry::{Rect, clamp_u16};
 use crate::keymap::Key;
 use crate::style::{CellStyle, WidgetStyle};
 use crate::text;
 use crate::theme::State;
-use crate::widget::{EventCx, PaintCx};
+use crate::widget::{EventCx, PaintCx, WidgetKey};
 
 use super::scrollbar::{self, ScrollMetrics, ScrollbarStyle};
 
 /// Rows (or lines) scrolled by one wheel step, in every scrolling widget.
 pub(crate) const WHEEL_ROWS: u16 = 3;
+
+/// The keys every row widget declares: the arrows that move between rows and the pages that
+/// scroll them, which the help layer lists for whichever of them has keyboard focus. A widget adds
+/// its own keys, such as Enter opening a row, to these.
+pub(crate) fn declared_keys(env: &Env) -> Vec<WidgetKey> {
+    let i18n = env.i18n();
+    vec![
+        WidgetKey::new(up_down(env), i18n.translate("quvyta.widget.move", &[])),
+        WidgetKey::new("pgup pgdn", i18n.translate("quvyta.widget.scroll", &[])),
+    ]
+}
+
+/// The arrows that move between rows, as the icon set in use draws them.
+pub(crate) fn up_down(env: &Env) -> String {
+    let icons = env.icons();
+    format!("{}{}", icons.glyph("arrow-up"), icons.glyph("arrow-down"))
+}
+
+/// The arrows that open and close a row's children, as the icon set in use draws them.
+pub(crate) fn left_right(env: &Env) -> String {
+    let icons = env.icons();
+    format!("{}{}", icons.glyph("arrow-left"), icons.glyph("arrow-right"))
+}
 
 /// Scroll state of a row widget, kept in runtime memory.
 #[derive(Debug, Default)]

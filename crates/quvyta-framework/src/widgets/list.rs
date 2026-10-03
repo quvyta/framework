@@ -8,7 +8,7 @@ use crate::event::{Event, MouseButton, MouseKind};
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::keymap::Key;
 use crate::text;
-use crate::widget::{EventCx, MeasureCx, PaintCx, Widget};
+use crate::widget::{EventCx, MeasureCx, PaintCx, Widget, WidgetKey};
 
 use super::IndexMessage;
 use super::cells;
@@ -99,8 +99,10 @@ impl ListItem {
 ///
 /// Keys while focused: ↑/↓ or k/j move, Home/End and PgUp/PgDn jump, Enter activates, Space
 /// toggles in multi-select lists and activates otherwise. With [`wrap`](Self::wrap) ↓ on the last
-/// row goes on to the first and ↑ on the first to the last. A click on a row selects and activates
-/// it, or with [`activate_on(Click::Double)`](Self::activate_on) only selects it and a double
+/// row goes on to the first and ↑ on the first to the last. These are the keys a
+/// [`HelpLayer`](super::HelpLayer) lists for a list with the focus, so a screen needs no hint for
+/// them. A click on a row selects and activates it, or with
+/// [`activate_on(Click::Double)`](Self::activate_on) only selects it and a double
 /// click activates; in a multi-select list a click on the check mark (or the cell after it) only
 /// toggles.
 /// Style keys: `list-item` with `hover`, `selected`, `focus`, `pressed`; `list-item.faint`,
@@ -493,6 +495,19 @@ impl<Msg: 'static> Widget<Msg> for List<Msg> {
 
     fn focusable(&self) -> bool {
         self.items.iter().any(ListItem::selectable)
+    }
+
+    fn keys(&self, env: &Env) -> Vec<WidgetKey> {
+        let i18n = env.i18n();
+        let mut keys = rows::declared_keys(env);
+        if self.on_activate.is_some() {
+            keys.push(WidgetKey::new("enter", i18n.translate("quvyta.widget.open", &[])));
+        }
+        // Space is Enter's twin unless the list shows check marks, which are toggled with it.
+        if self.checked.is_some() && self.on_toggle.is_some() {
+            keys.push(WidgetKey::new("space", i18n.translate("quvyta.widget.check", &[])));
+        }
+        keys
     }
 }
 

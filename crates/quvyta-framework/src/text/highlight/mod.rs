@@ -4,8 +4,9 @@ mod shell;
 
 use std::ops::Range;
 
-/// A language [`CodeView`](crate::widgets::CodeView) can colour.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A language [`CodeView`](crate::widgets::CodeView) and
+/// [`TextArea`](crate::widgets::TextArea) colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
     /// Rust source.
     Rust,
@@ -47,27 +48,53 @@ impl Language {
     }
 }
 
-/// What a highlighted piece of code is; also the theme variant of `code-token`.
+/// What a highlighted piece of code is: a word, a string, a comment, and the theme's
+/// `code-token` style it is painted with.
+///
+/// A token says nothing about how it is drawn. [`style_variant`](Self::style_variant) names the
+/// style, so a theme restyles code without anything in the code changing, and an application that
+/// paints text itself reaches the same colours the framework's own code views do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Token {
+#[non_exhaustive]
+pub enum Token {
+    /// A word the language reserves, such as `fn` or `let`.
     Keyword,
+    /// A name that begins with a capital, taken as a type or a trait.
     Type,
+    /// A name that is called, a function or a method.
     Function,
+    /// A macro invocation: the name and its `!`.
     Macro,
+    /// A string, a character or a raw string.
     String,
+    /// A number.
     Number,
+    /// A line comment or a block comment.
     Comment,
+    /// An attribute such as `#[derive(Debug)]`.
     Attribute,
+    /// A lifetime such as `'a`.
     Lifetime,
+    /// Anything that carries no meaning of its own: brackets, operators, separators.
     Punctuation,
+    /// A TOML table header such as `[colors]`.
     Table,
+    /// A TOML key on the left of an `=`.
     Key,
+    /// A shell variable, and every expansion that reaches one.
     Variable,
+    /// Code the language gives no colour of its own.
     Plain,
 }
 
 impl Token {
-    pub(crate) fn variant(self) -> &'static str {
+    /// The variant of the theme's `code-token` style that paints this token: `keyword`, `string`,
+    /// `comment` and the rest.
+    ///
+    /// This is the name a theme defines, such as `code-token.keyword`, and the same name
+    /// [`CodeView`](crate::widgets::CodeView) asks the theme for.
+    #[must_use]
+    pub fn style_variant(self) -> &'static str {
         match self {
             Self::Keyword => "keyword",
             Self::Type => "type",
@@ -93,8 +120,16 @@ const RUST_KEYWORDS: [&str; 41] = [
     "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where", "while", "yield", "gen", "try",
 ];
 
-/// Splits `code` into highlighted byte ranges covering the whole text.
-pub(crate) fn highlight(code: &str, language: Language) -> Vec<(Range<usize>, Token)> {
+/// Splits `code` into the byte ranges of its tokens, in order, covering the whole text: the first
+/// range starts at zero, each one starts where the last ended, and the last ends at the text's
+/// length. `Language::Plain` gives the whole text as one [`Token::Plain`].
+///
+/// This is what [`CodeView`](crate::widgets::CodeView) colours with, and an application that draws
+/// code in a widget of its own colours it the same way: for each byte range, look up
+/// `code-token.<variant>` for its [`Token::style_variant`] and paint that part of the text with
+/// it.
+#[must_use]
+pub fn highlight(code: &str, language: Language) -> Vec<(Range<usize>, Token)> {
     let tokens = match language {
         Language::Rust => rust(code),
         Language::Toml => toml(code),

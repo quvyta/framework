@@ -42,6 +42,8 @@ unreadable = "このフォルダーを読み込めませんでした"
 empty                    = "空"
 unreadable               = "このフォルダーを読み取れませんでした。"
 unreadable-short         = "読み取れません"
+filter                   = "入力してフォルダーを絞り込む"
+no-match                 = "一致する項目はありません"
 new-file                 = "新しいファイル"
 new-folder               = "新しいフォルダー"
 rename                   = "名前を変える"
@@ -220,6 +222,16 @@ move   = "移動"
 run    = "実行"
 filter = "入力して絞り込み"
 
+# What the keys a widget declares do, listed by the help layer for the widget with the focus.
+[quvyta.widget]
+move   = "移動"
+scroll = "スクロール"
+open   = "開く"
+check  = "選択"
+sort   = "並べ替え"
+fold   = "開く/閉じる"
+submit = "送信"
+
 [quvyta.help]
 title  = "キーボードショートカット"
 screen = "この画面"
@@ -240,6 +252,10 @@ type-word = "確認するには {word} と入力してください"
 
 [quvyta.tabs]
 add = "新しいタブ"
+
+# The control at the end of a row of buttons that some of them do not fit in; it opens their menu.
+[quvyta.button-row]
+more = "さらに"
 
 [quvyta.tab-rail]
 add = "新しいタブ"

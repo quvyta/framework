@@ -13,6 +13,10 @@ const PAGE: &str = "form";
 /// Restart policies a container can have.
 const POLICIES: [&str; 4] = ["no", "on-failure", "always", "unless-stopped"];
 
+/// The registry the company pulls its own images from; an image from anywhere else still works,
+/// only slower.
+const SHARED_REGISTRY: &str = "registry.internal/";
+
 /// Width of the label column when labels sit beside controls.
 const LABEL_COLUMN: u16 = 16;
 
@@ -31,6 +35,7 @@ pub struct State {
     beside: bool,
     summary: bool,
     hints: bool,
+    warnings: bool,
     disabled: bool,
 }
 
@@ -48,6 +53,7 @@ impl Default for State {
             beside: false,
             summary: false,
             hints: true,
+            warnings: true,
             disabled: false,
         }
     }
@@ -66,6 +72,7 @@ pub enum Msg {
     Beside(bool),
     Summary(bool),
     Hints(bool),
+    Warnings(bool),
     Disabled(bool),
 }
 
@@ -90,6 +97,15 @@ fn validate(state: &State) -> FormErrors {
     errors.check("port", port.is_ok_and(|port| (1024..=65535).contains(&port)), t!("form.port-invalid"));
     errors.check("policy", state.policy.is_some(), t!("form.policy-missing"));
     errors
+}
+// endregion
+
+// region: form-warning
+/// What the image is about to cost, which is not what is wrong with it. It stays out of
+/// `FormErrors`, so Create sends the container either way.
+fn image_warning(state: &State) -> Option<String> {
+    let image = state.image.trim();
+    (!image.is_empty() && !image.starts_with(SHARED_REGISTRY)).then(|| t!("form.image-warning"))
 }
 // endregion
 
@@ -136,7 +152,13 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         // endregion
         Msg::Reset => {
             log.push(PAGE, "Button#reset", "cleared the form");
-            *state = State { beside: state.beside, summary: state.summary, hints: state.hints, ..State::default() };
+            *state = State {
+                beside: state.beside,
+                summary: state.summary,
+                hints: state.hints,
+                warnings: state.warnings,
+                ..State::default()
+            };
             return Command::focus("name");
         }
         Msg::Beside(on) => {
@@ -150,6 +172,10 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
         Msg::Hints(on) => {
             log.push(PAGE, "Playground", format!("hints = {on}"));
             state.hints = on;
+        }
+        Msg::Warnings(on) => {
+            log.push(PAGE, "Playground", format!("warnings = {on}"));
+            state.warnings = on;
         }
         Msg::Disabled(on) => {
             log.push(PAGE, "Playground", format!("disabled = {on}"));
@@ -165,6 +191,7 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
 /// The live demo and the playground.
 pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     let hint = |key: &str| if state.hints { Some(t!(key)) } else { None };
+    let warning = if state.warnings { image_warning(state) } else { None };
     ui.add_with(Panel::new().title(t!("demo.live")).gap(0), |ui| {
         ui.add(Text::new(t!("form.intro")).role("secondary"));
         ui.spacer().height(Length::Cells(1));
@@ -190,7 +217,13 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
                 .width(Length::Cells(36))
                 .id("name");
             });
-            let image = Field::new(t!("form.image")).required(true).error(errors.get("image")).disabled(state.disabled);
+            // The warning is in the `form-warning` region above; the field it belongs to is here,
+            // inside the form's own layout.
+            let image = Field::new(t!("form.image"))
+                .required(true)
+                .error(errors.get("image"))
+                .warning(warning)
+                .disabled(state.disabled);
             form.field(with_hint(image, hint("form.image-hint")), |ui| {
                 ui.add(
                     TextInput::new(&state.image)
@@ -270,6 +303,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("form.hints"), |ui| {
             ui.add(toggle(state.hints, |on| send(Msg::Hints(on)))).id("hints");
         });
+        setting(ui, t!("form.warnings"), |ui| {
+            ui.add(toggle(state.warnings, |on| send(Msg::Warnings(on)))).id("warnings");
+        });
         setting(ui, t!("button.disabled-label"), |ui| {
             ui.add(toggle(state.disabled, |on| send(Msg::Disabled(on)))).id("disabled");
         });
@@ -288,8 +324,33 @@ fn with_hint(field: Field<AppMsg>, hint: Option<String>) -> Field<AppMsg> {
 
 #[cfg(test)]
 mod tests {
+    use qframe::runtime::Harness;
+
     use super::*;
+    use crate::app::Showcase;
     use crate::tests::showcase_on;
+
+    /// Clicks the switch of the playground row labelled `label`; the switch stands after the
+    /// label's column of 24 cells.
+    fn click_setting(h: &mut Harness<Showcase>, label: &str) {
+        let (x, y) = h.find(label).unwrap_or_else(|| panic!("the {label} row:\n{}", h.screen()));
+        h.click(x + 25, y);
+    }
+
+    /// Clicks the Create button. The demo's own sentence above spells the word out as well, so
+    /// the button is the last row carrying it, the one Reset shares.
+    fn click_create(h: &mut Harness<Showcase>) {
+        let screen = h.screen();
+        let row = screen
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.contains("Create"))
+            .map(|(row, _)| row)
+            .last()
+            .unwrap_or_else(|| panic!("the Create button:\n{screen}"));
+        let column = screen.lines().nth(row).unwrap_or_default().find("Create").unwrap_or(0);
+        h.click(i32::try_from(column).unwrap_or(0), i32::try_from(row).unwrap_or(0));
+    }
 
     #[test]
     fn create_reports_problems_focuses_the_first_and_follows_edits() {
@@ -315,5 +376,37 @@ mod tests {
         let screen = h.screen();
         assert!(screen.contains("4 fields need attention"), "{screen}");
         assert!(h.is_focused("name"));
+    }
+
+    #[test]
+    fn a_warning_is_signed_and_the_container_is_created_anyway() {
+        let mut h = showcase_on(PAGE);
+        h.click_text("web-api").type_text("web");
+        h.send(send(Msg::Image("nginx:1.27".into()))).send(send(Msg::Port("8080".into()))).send(send(Msg::Policy(2)));
+        let (x, y) = h.find("Not from the shared").expect("the image is from outside the shared registry");
+        let (x, y) = (u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0));
+        let row = h.screen().lines().nth(usize::from(y)).unwrap_or_default().to_owned();
+        let sign = h.env().icons().glyph("warning");
+        assert!(row.contains(&format!("{sign} Not from the shared")), "a sign and a space stand in front of it: {row}");
+        let warning = h.env().theme().color("warning").expect("every theme has a warning colour");
+        assert_eq!(h.fg(x, y), Some(warning), "the sentence in the warning tone: {row}");
+        assert_eq!(h.fg(x - 2, y), Some(warning), "and so does the sign: {row}");
+        click_create(&mut h);
+        assert_eq!(h.app().pages.form.created.as_deref(), Some("web"), "a warning is not a problem");
+    }
+
+    #[test]
+    fn an_error_takes_the_place_from_the_warning_and_stops_the_create() {
+        let mut h = showcase_on(PAGE);
+        h.send(send(Msg::Image("nginx".into())));
+        click_create(&mut h);
+        let screen = h.screen();
+        assert!(!screen.contains("pull may be slow"), "the error has the one place: {screen}");
+        assert!(screen.contains("Add a tag after a colon"), "{screen}");
+        assert!(h.app().pages.form.created.is_none(), "an error is a problem");
+        h.send(send(Msg::Image("nginx:1.27".into())));
+        assert!(h.screen().contains("pull may be slow"), "and the warning is back in its place: {}", h.screen());
+        click_setting(&mut h, "Warnings");
+        assert!(!h.screen().contains("pull may be slow"), "the playground can take the warning away: {}", h.screen());
     }
 }

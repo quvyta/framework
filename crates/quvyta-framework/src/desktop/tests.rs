@@ -101,14 +101,14 @@ fn a_rust_file_opens_with_its_own_program_and_the_plain_text_default() {
     fs::remove_file(&picture).expect("removed");
 }
 
-/// Where each diagnostic points, as `file:line`, with the file's name only.
+/// Where each diagnostic points, as `file:line:column`, with the file's name only.
 fn places(diagnostics: &[&crate::diagnostics::Diagnostic]) -> Vec<String> {
     diagnostics
         .iter()
         .filter_map(|diagnostic| diagnostic.location.as_ref())
         .map(|at| {
             let name = std::path::Path::new(&at.file).file_name().unwrap_or_default().to_string_lossy().into_owned();
-            format!("{name}:{}", at.line)
+            format!("{name}:{}:{}", at.line, at.column)
         })
         .collect()
 }
@@ -130,17 +130,17 @@ fn broken_lines_and_programs_are_reported_where_they_are() {
     assert_eq!(
         places(&openers.diagnostics()),
         [
-            "globs2:3",
-            "aliases:2",
-            "subclasses:2",
-            "a-no-name.desktop:1",
-            "b-no-exec.desktop:1",
-            "c-bad-exec.desktop:4",
-            "d-no-group.desktop:1",
-            "d-no-group.desktop:2",
-            "d-no-group.desktop:1",
-            "e-good.desktop:4",
-            "mimeapps.list:2",
+            "globs2:3:1",
+            "aliases:2:1",
+            "subclasses:2:1",
+            "a-no-name.desktop:1:1",
+            "b-no-exec.desktop:1:1",
+            "c-bad-exec.desktop:4:1",
+            "d-no-group.desktop:1:1",
+            "d-no-group.desktop:2:1",
+            "d-no-group.desktop:1:1",
+            "e-good.desktop:4:1",
+            "mimeapps.list:2:1",
         ]
     );
     let ids: Vec<&str> = openers.apps.all().iter().map(|app| app.id.as_str()).collect();

@@ -80,6 +80,17 @@ impl KeyHints {
         self.with_action(scope, action.into(), Place::Left, Some(label.into()))
     }
 
+    /// Adds a keymap action before every plain [`hint`](Self::hint) with the application's own
+    /// `label`: [`action_first`](Self::action_first)'s place and [`action_labelled`]'s words, for
+    /// the key that says what the screen's main action does right now, such as `enter` saying
+    /// "details", which should be read first and be the last to drop when the bar narrows.
+    ///
+    /// [`action_labelled`]: Self::action_labelled
+    #[must_use]
+    pub fn action_labelled_first(self, scope: Scope, action: impl Into<String>, label: impl Into<String>) -> Self {
+        self.with_action(scope, action.into(), Place::First, Some(label.into()))
+    }
+
     /// Adds a keymap action on the right.
     #[must_use]
     pub fn action_right(self, scope: Scope, action: impl Into<String>) -> Self {
@@ -240,6 +251,28 @@ mod tests {
         env.keymap_mut().bind(Scope::Global, "focus-next", &["f6".parse().expect("chord")]);
         let h = Harness::with_env(Ordered { faint: false }, env, 60, 1);
         assert_eq!(h.screen(), "   ctrl x  quit    ↑↓  move    f6  install\n");
+    }
+
+    /// A screen whose main key says what it does now, added before a plain hint.
+    struct Details;
+
+    impl App for Details {
+        type Msg = ();
+        fn update(&mut self, (): ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(KeyHints::new().hint("↑↓", "choose").action_labelled_first(Scope::Global, "focus-next", "details"))
+                .fill_width();
+        }
+    }
+
+    #[test]
+    fn a_labelled_first_action_is_read_first_and_kept_when_the_bar_narrows() {
+        let wide = Harness::new(Details, 40, 1);
+        assert_eq!(wide.screen(), "   tab  details    ↑↓  choose\n");
+        let narrow = Harness::new(Details, 20, 1);
+        assert_eq!(narrow.screen(), "   tab  details\n", "the plain hint drops first");
     }
 
     #[test]

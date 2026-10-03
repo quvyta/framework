@@ -333,7 +333,7 @@ mod aesthetics {
     use crate::pages::PAGES;
 
     /// Pages whose demos show code or documents, where brackets are content.
-    const CONTENT_PAGES: [&str; 5] = ["code-view", "markdown", "storage", "cell-animation", "document"];
+    const CONTENT_PAGES: [&str; 6] = ["code-view", "markdown", "storage", "cell-animation", "document", "text-area"];
 
     /// Labels that are content: the layout demo names the lengths it uses.
     const CONTENT_LABELS: [&str; 3] = ["Fill(1)", "Fill(2)", "Cells(14)"];

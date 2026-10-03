@@ -6,6 +6,7 @@ mod keys;
 mod kinds;
 mod mark;
 mod ops;
+mod sort;
 mod state;
 mod trash;
 mod watch;
@@ -29,6 +30,7 @@ pub use mark::RowMark;
 pub use ops::copy_into;
 use ops::stem;
 pub use ops::{FileChange, FileError, NameProblem, is_inside, is_within, name_of, parent_key};
+pub use sort::{Sort, SortBy};
 use state::ROOT;
 pub use state::{FileManagerMsg, FileManagerState, FileWork, FolderEntry, NameFor, Naming, child_key};
 
@@ -146,7 +148,7 @@ pub struct FileManager<'a, Msg> {
     user_folders: Option<&'a UserFolders>,
     rows_id: Option<String>,
     /// How kinds are drawn on this screen, worked out when it is shown.
-    kinds: kinds::KindLook<'a>,
+    kinds: kinds::KindLook,
 }
 
 impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
@@ -379,17 +381,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
                 let tree = self.tree();
                 ui.add(tree).fill().id(name);
             }
-            FileView::List | FileView::Icons => {
-                let rows = self.flat_rows();
-                if self.view == FileView::Icons {
-                    let grid = self.grid(&rows);
-                    ui.add(grid).fill().id(name);
-                } else {
-                    let table = self.table(&rows);
-                    ui.add(table).fill().id(name);
-                }
-                self.foot(ui, &rows);
-            }
+            FileView::List | FileView::Icons => self.flat_view(ui, name),
         });
         self.claim_clipboard(node)
     }

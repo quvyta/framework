@@ -42,6 +42,8 @@ unreadable = "Не удалось прочитать эту папку"
 empty                    = "пустая"
 unreadable               = "Не удалось прочитать эту папку."
 unreadable-short         = "не читается"
+filter                   = "Введите текст для фильтрации папки"
+no-match                 = "ничего не найдено"
 new-file                 = "Новый файл"
 new-folder               = "Новая папка"
 rename                   = "Переименовать"
@@ -233,6 +235,16 @@ move   = "перемещение"
 run    = "выполнить"
 filter = "Введите текст для фильтра"
 
+# What the keys a widget declares do, listed by the help layer for the widget with the focus.
+[quvyta.widget]
+move   = "перемещение"
+scroll = "прокрутка"
+open   = "открыть"
+check  = "отметить"
+sort   = "сортировка"
+fold   = "развернуть или свернуть"
+submit = "отправить"
+
 [quvyta.help]
 title  = "Сочетания клавиш"
 screen = "Этот экран"
@@ -253,6 +265,10 @@ type-word = "Введите {word} для подтверждения"
 
 [quvyta.tabs]
 add = "Новая вкладка"
+
+# The control at the end of a row of buttons that some of them do not fit in; it opens their menu.
+[quvyta.button-row]
+more = "Ещё"
 
 [quvyta.tab-rail]
 add = "Новая вкладка"

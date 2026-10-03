@@ -9,6 +9,8 @@ mod add;
 mod add_tests;
 #[cfg(test)]
 mod badge_tests;
+#[cfg(test)]
+mod busy_tests;
 mod paint;
 mod strip;
 #[cfg(test)]
@@ -83,7 +85,8 @@ const ADD: u16 = 3;
 /// - [`closable`](Self::closable): a faint `×` on every tab that brightens on hover; clicking
 ///   it, a middle click on the tab or ctrl+w closes the tab. [`pinned`](Self::pinned) tabs
 ///   cannot be closed.
-/// - [`tab_width`](Self::tab_width): fit, fixed or filling tabs.
+/// - [`tab_width`](Self::tab_width): fit, fixed or filling tabs. [`max_tab_width`](Self::max_tab_width)
+///   caps a filling tab, so a few tabs share the strip without one of them taking all of it.
 /// - [`overflow`](Self::overflow): scroll arrows or a menu of hidden tabs.
 /// - [`reorderable`](Self::reorderable): drag a tab to move it; a ghost follows the pointer and
 ///   the tabs make room where it will land. ctrl+shift+←/→ moves the open tab. Held on a scroll
@@ -96,13 +99,17 @@ const ADD: u16 = 3;
 ///   right click does nothing.
 /// - [`badge`](Self::badge): a count right after a tab's name, such as the updates waiting in an
 ///   Updates tab. A narrow tab shortens its name and keeps the count.
+/// - [`busy`](Self::busy) and [`status`](Self::status): a mark before a tab's name, a turning
+///   spinner while the tab's work runs or a dot in a theme colour, such as a tab waiting for the
+///   person. The mark takes no room of its own, so no tab moves when it comes or goes.
 /// - [`on_add`](Self::on_add): a `+` button right after the last tab, or at the strip's right end
 ///   while tabs hide, that asks for a new tab. Tab from the tabs reaches it; Enter and Space press
 ///   it; resting on it, or reaching it with the keyboard, shows what it does. A tab dragged onto it
 ///   moves to the end.
 ///
 /// Style keys: `tab` with `hover`, `selected`, `focus`; `tab-index` for numbers; `tab-badge` with
-/// the same states for counts; `close-mark`
+/// the same states for counts; the `accent` colour, or the one a status names, for the mark;
+/// `close-mark`
 /// (with `active` on a raised tab, `hover` under the pointer); `tab-arrow` (`bg`, `fg`, `pillar`)
 /// with `hover`, `pressed`, `disabled`; `tab-menu` (`bg`, `fg`, `pillar`) with `hover`, `active`
 /// while its menu is open; `tab-ghost` and `tab-drop` (`bg`) while dragging; `popup-menu`,
@@ -112,8 +119,11 @@ const ADD: u16 = 3;
 pub struct Tabs<Msg> {
     labels: Vec<String>,
     badges: Vec<u32>,
+    busy: Vec<bool>,
+    statuses: Vec<Option<String>>,
     numbered: bool,
     width: TabWidth,
+    max_width: Option<u16>,
     overflow: Overflow,
     on_add: Option<Box<dyn Fn() -> Msg>>,
     model: TabModel<Msg>,
@@ -147,7 +157,20 @@ impl<Msg: 'static> Tabs<Msg> {
         let labels: Vec<String> = labels.into_iter().map(Into::into).collect();
         let model = TabModel::new(labels.len());
         let badges = vec![0; labels.len()];
-        Self { labels, badges, numbered: false, width: TabWidth::Fit, overflow: Overflow::Arrows, on_add: None, model }
+        let busy = vec![false; labels.len()];
+        let statuses = vec![None; labels.len()];
+        Self {
+            labels,
+            badges,
+            busy,
+            statuses,
+            numbered: false,
+            width: TabWidth::Fit,
+            max_width: None,
+            overflow: Overflow::Arrows,
+            on_add: None,
+            model,
+        }
     }
 
     /// The open tab.
@@ -173,6 +196,34 @@ impl<Msg: 'static> Tabs<Msg> {
     pub fn badge(mut self, index: usize, count: u32) -> Self {
         if let Some(badge) = self.badges.get_mut(index) {
             *badge = count;
+        }
+        self
+    }
+
+    /// Marks tab `index` as working, such as a tab whose program is writing or whose build runs: a
+    /// thin spinner turns before its name in the accent colour, on the framework's own clock, so
+    /// the application only says when the work starts and stops. With reduced motion it is one dot
+    /// standing still. The mark sits in the tab's own padding and the cell its resting name slides
+    /// into, so it takes no room: no tab moves when it comes or goes, and a tab too narrow for its
+    /// name shortens the name and keeps the mark. `busy(index, false)` leaves the tab exactly as it
+    /// was before. An `index` past the last tab is ignored.
+    #[must_use]
+    pub fn busy(mut self, index: usize, busy: bool) -> Self {
+        if let Some(slot) = self.busy.get_mut(index) {
+            *slot = busy;
+        }
+        self
+    }
+
+    /// Puts a dot before the name of tab `index` in the theme colour `token`, such as `"success"`
+    /// for a tab whose work is done and waits for the person, or `"warning"` and `"danger"`. It
+    /// sits where the [`busy`](Self::busy) mark does and takes no room either; a busy tab with a
+    /// status turns its spinner in that colour instead of the accent. An `index` past the last
+    /// tab is ignored.
+    #[must_use]
+    pub fn status(mut self, index: usize, token: impl Into<String>) -> Self {
+        if let Some(slot) = self.statuses.get_mut(index) {
+            *slot = Some(token.into());
         }
         self
     }
@@ -203,6 +254,22 @@ impl<Msg: 'static> Tabs<Msg> {
     #[must_use]
     pub fn tab_width(mut self, width: TabWidth) -> Self {
         self.width = width;
+        self
+    }
+
+    /// The most cells a [`TabWidth::Fill`] tab takes. Every tab still takes an equal share of the
+    /// strip, but no more than this, so a strip of a few tabs does not spread them so far apart
+    /// that the names float in an empty line; the rest of the strip stays empty, except the room
+    /// the [`on_add`](Self::on_add) button keeps, which is taken out of the share as it is. A
+    /// strip of many tabs is unchanged: their share is already under the cap and they keep the
+    /// readable minimum.
+    ///
+    /// It has no say over [`TabWidth::Fit`] and [`TabWidth::Fixed`], whose tabs are as wide as
+    /// their labels say and are not stretched. Without it a `Fill` tab takes the whole share,
+    /// which for one tab is the whole strip.
+    #[must_use]
+    pub fn max_tab_width(mut self, cells: u16) -> Self {
+        self.max_width = Some(cells);
         self
     }
 

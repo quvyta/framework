@@ -10,6 +10,7 @@ mod big_text;
 mod boundary;
 mod breadcrumb;
 mod button;
+mod button_row;
 mod card_grid;
 mod cells;
 mod checkbox;
@@ -42,18 +43,21 @@ mod gauge;
 mod ghost;
 mod heatmap;
 mod help_layer;
-mod highlight;
 mod hold_to_confirm;
 #[cfg(test)]
 mod huge_text_tests;
 mod icon_button;
 #[cfg(test)]
 mod icon_button_tests;
+mod icon_tile;
+#[cfg(test)]
+mod icon_tile_tests;
 #[cfg(feature = "image")]
 pub(crate) mod image;
 mod key_hints;
 mod layer;
 mod legend;
+mod level_bars;
 mod list;
 mod log_buffer;
 mod log_view;
@@ -91,7 +95,9 @@ mod slider;
 mod sparkline;
 mod spinner;
 mod splitter;
+mod status_line;
 mod steps;
+mod suggestions;
 mod switch;
 mod tab_model;
 mod tab_rail;
@@ -140,6 +146,7 @@ pub use bar_chart::{Bar, BarChart, Series};
 pub use big_text::{BigText, Gradient};
 pub use breadcrumb::Breadcrumb;
 pub use button::Button;
+pub use button_row::ButtonRow;
 pub use card_grid::CardGrid;
 pub use checkbox::{Checkbox, CheckboxStyle};
 pub use click::Click;
@@ -156,8 +163,8 @@ pub use field::Field;
 pub use file_browser::{FileBrowser, FileEntry, FilePickerMsg, Listing, ListingError, PickMode, read_folder};
 pub use file_manager::{
     FileChange, FileDetails, FileError, FileManager, FileManagerMsg, FileManagerState, FileView, FileWork, FolderEntry,
-    MenuTarget, NameFor, NameProblem, Naming, RowMark, child_key, copy_into, is_inside, is_within, name_of, parent_key,
-    path_of,
+    MenuTarget, NameFor, NameProblem, Naming, RowMark, Sort, SortBy, child_key, copy_into, is_inside, is_within,
+    name_of, parent_key, path_of,
 };
 pub use file_picker::FilePicker;
 pub use form::{Form, FormFields};
@@ -166,13 +173,17 @@ pub use gauge::Gauge;
 pub use ghost::Ghost;
 pub use heatmap::Heatmap;
 pub use help_layer::HelpLayer;
-pub use highlight::Language;
 pub use hold_to_confirm::HoldToConfirm;
 pub use icon_button::IconButton;
+pub use icon_tile::IconTile;
 #[cfg(feature = "image")]
 pub use image::{Fit, Image, ImageData, ImageError};
 pub use key_hints::KeyHints;
+// `Language` lives in `text`, beside the highlighter that reads it; it is re-exported here
+// because the code view is where most applications meet it.
+pub use crate::text::Language;
 pub use legend::Legend;
+pub use level_bars::LevelBars;
 pub use list::{ItemKind, List, ListItem};
 pub use log_buffer::{LogBuffer, LogLevel, LogLine};
 pub use log_view::LogView;
@@ -201,7 +212,9 @@ pub use slider::Slider;
 pub use sparkline::Sparkline;
 pub use spinner::{Spinner, SpinnerStyle};
 pub use splitter::Splitter;
+pub use status_line::StatusLine;
 pub use steps::Steps;
+pub use suggestions::Suggestion;
 pub use switch::{Switch, SwitchStyle};
 pub use tab_model::TabEdit;
 pub use tab_rail::{CollapsedMarker, RailTab, TabRail};

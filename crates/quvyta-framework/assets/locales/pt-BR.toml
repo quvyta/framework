@@ -42,6 +42,8 @@ unreadable = "Não foi possível ler esta pasta"
 empty                    = "vazia"
 unreadable               = "Não foi possível ler esta pasta."
 unreadable-short         = "não pode ser lido"
+filter                   = "Digite para filtrar a pasta"
+no-match                 = "nada corresponde"
 new-file                 = "Novo arquivo"
 new-folder               = "Nova pasta"
 rename                   = "Renomear"
@@ -234,6 +236,16 @@ move   = "navegar"
 run    = "executar"
 filter = "Digite para filtrar"
 
+# What the keys a widget declares do, listed by the help layer for the widget with the focus.
+[quvyta.widget]
+move   = "mover"
+scroll = "rolar"
+open   = "abrir"
+check  = "marcar"
+sort   = "ordenar"
+fold   = "abrir ou fechar"
+submit = "enviar"
+
 [quvyta.help]
 title  = "Atalhos de teclado"
 screen = "Esta tela"
@@ -254,6 +266,10 @@ type-word = "Digite {word} para confirmar"
 
 [quvyta.tabs]
 add = "Nova aba"
+
+# The control at the end of a row of buttons that some of them do not fit in; it opens their menu.
+[quvyta.button-row]
+more = "Mais"
 
 [quvyta.tab-rail]
 add = "Nova aba"

@@ -21,6 +21,7 @@ Use a card grid when each item deserves a small surface of its own and the items
 - **Checks sit in the corner.** A checked card carries the accent mark in its top right corner. The lit card offers a faint mark there: click it to check without opening. Space checks the selected card.
 - **The mouse does what the keys do.** A click selects and opens a card, the wheel scrolls a row of cards, and the scrollbar can be pressed and dragged.
 - **A menu belongs to a card.** `.context_menu(|index| ..)` builds the entries for the card the menu opens on, and that card stays raised while it is open, so what the entries act on is never in doubt.
+- **A grid of cards that draw themselves.** `.bare_cards(true)` leaves the cards on the ground the grid is given, each taking the whole of its cell, for cards that are not surfaces at all such as a grid of `IconTile`s. The grid's input does not change, and the card under the pointer or the keys lends it the pointer and the focus, so a card that draws its own tone lights and breathes as it would on its own.
 
 ## Styling with a theme
 

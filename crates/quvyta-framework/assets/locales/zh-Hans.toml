@@ -42,6 +42,8 @@ unreadable = "无法读取此文件夹"
 empty                    = "空"
 unreadable               = "无法读取此文件夹。"
 unreadable-short         = "无法读取"
+filter                   = "输入以筛选文件夹"
+no-match                 = "没有匹配项"
 new-file                 = "新建文件"
 new-folder               = "新建文件夹"
 rename                   = "重命名"
@@ -220,6 +222,16 @@ move   = "移动"
 run    = "运行"
 filter = "输入以筛选"
 
+# What the keys a widget declares do, listed by the help layer for the widget with the focus.
+[quvyta.widget]
+move   = "移动"
+scroll = "滚动"
+open   = "打开"
+check  = "勾选"
+sort   = "排序"
+fold   = "展开或折叠"
+submit = "提交"
+
 [quvyta.help]
 title  = "键盘快捷键"
 screen = "当前界面"
@@ -240,6 +252,10 @@ type-word = "输入 {word} 以确认"
 
 [quvyta.tabs]
 add = "新建标签页"
+
+# The control at the end of a row of buttons that some of them do not fit in; it opens their menu.
+[quvyta.button-row]
+more = "更多"
 
 [quvyta.tab-rail]
 add = "新建标签页"

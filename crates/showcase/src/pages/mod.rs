@@ -12,6 +12,7 @@ pub mod bar_chart;
 pub mod big_text;
 pub mod breadcrumb;
 pub mod button;
+pub mod button_row;
 pub mod card_grid;
 pub mod cell_animation;
 pub mod checkbox;
@@ -41,10 +42,12 @@ pub mod heatmap;
 pub mod help_layer;
 pub mod hold_to_confirm;
 pub mod icon_button;
+pub mod icon_tile;
 pub mod image;
 pub mod install;
 pub mod key_hints;
 pub mod layout;
+pub mod level_bars;
 pub mod list;
 pub mod log_view;
 pub mod markdown;
@@ -74,6 +77,7 @@ pub mod slider;
 pub mod sparkline;
 pub mod spinner;
 pub mod splitter;
+pub mod status_line;
 pub mod steps;
 pub mod storage;
 pub mod switch;
@@ -157,6 +161,7 @@ pub const PAGES: &[PageContent] = &[
     page!("panel", "panel"),
     page!("button", "button"),
     page!("icon-button", "icon_button"),
+    page!("button-row", "button_row"),
     page!("text-input", "text_input"),
     page!("select", "select"),
     page!("list", "list"),
@@ -187,11 +192,13 @@ pub const PAGES: &[PageContent] = &[
     page!("badge", "badge"),
     page!("divider", "divider"),
     page!("empty-state", "empty_state"),
+    page!("status-line", "status_line"),
     page!("skeleton", "skeleton"),
     page!("sparkline", "sparkline"),
     page!("gauge", "gauge"),
     page!("bar-chart", "bar_chart"),
     page!("heatmap", "heatmap"),
+    page!("level-bars", "level_bars"),
     page!("timeline", "timeline"),
     page!("big-text", "big_text"),
     page!("example-dashboard", "example_dashboard"),
@@ -213,6 +220,7 @@ pub const PAGES: &[PageContent] = &[
     page!("table", "table"),
     page!("tree", "tree"),
     page!("card-grid", "card_grid"),
+    page!("icon-tile", "icon_tile"),
     page!("log-view", "log_view"),
     page!("file-picker", "file_picker"),
     page!("file-manager", "file_manager"),
@@ -257,6 +265,7 @@ pub struct Pages {
     pub panel: panel::State,
     pub button: button::State,
     pub icon_button: icon_button::State,
+    pub button_row: button_row::State,
     pub text_input: text_input::State,
     pub select: select::State,
     pub list: list::State,
@@ -285,11 +294,13 @@ pub struct Pages {
     pub badge: badge::State,
     pub divider: divider::State,
     pub empty_state: empty_state::State,
+    pub status_line: status_line::State,
     pub skeleton: skeleton::State,
     pub sparkline: sparkline::State,
     pub gauge: gauge::State,
     pub bar_chart: bar_chart::State,
     pub heatmap: heatmap::State,
+    pub level_bars: level_bars::State,
     pub timeline: timeline::State,
     pub big_text: big_text::State,
     pub example_dashboard: example_dashboard::State,
@@ -311,6 +322,7 @@ pub struct Pages {
     pub table: table::State,
     pub tree: tree::State,
     pub card_grid: card_grid::State,
+    pub icon_tile: icon_tile::State,
     pub log_view: log_view::State,
     pub file_picker: file_picker::State,
     pub file_manager: file_manager::State,
@@ -349,6 +361,7 @@ pub enum PageMsg {
     Panel(panel::Msg),
     Button(button::Msg),
     IconButton(icon_button::Msg),
+    ButtonRow(button_row::Msg),
     TextInput(text_input::Msg),
     Select(select::Msg),
     List(list::Msg),
@@ -377,11 +390,13 @@ pub enum PageMsg {
     Badge(badge::Msg),
     Divider(divider::Msg),
     EmptyState(empty_state::Msg),
+    StatusLine(status_line::Msg),
     Skeleton(skeleton::Msg),
     Sparkline(sparkline::Msg),
     Gauge(gauge::Msg),
     BarChart(bar_chart::Msg),
     Heatmap(heatmap::Msg),
+    LevelBars(level_bars::Msg),
     Timeline(timeline::Msg),
     BigText(big_text::Msg),
     ExampleDashboard(example_dashboard::Msg),
@@ -403,6 +418,7 @@ pub enum PageMsg {
     Table(table::Msg),
     Tree(tree::Msg),
     CardGrid(card_grid::Msg),
+    IconTile(icon_tile::Msg),
     LogView(log_view::Msg),
     FilePicker(file_picker::Msg),
     FileManager(file_manager::Msg),
@@ -443,6 +459,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::Panel(m) => panel::update(&mut pages.panel, m, log),
         PageMsg::Button(m) => button::update(&mut pages.button, m, log),
         PageMsg::IconButton(m) => icon_button::update(&mut pages.icon_button, m, log),
+        PageMsg::ButtonRow(m) => button_row::update(&mut pages.button_row, m, log),
         PageMsg::TextInput(m) => text_input::update(&mut pages.text_input, m, log),
         PageMsg::Select(m) => select::update(&mut pages.select, m, log),
         PageMsg::List(m) => list::update(&mut pages.list, m, log),
@@ -475,11 +492,14 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::Badge(m) => badge::update(&mut pages.badge, m, log),
         PageMsg::Divider(m) => divider::update(&mut pages.divider, m, log),
         PageMsg::EmptyState(m) => empty_state::update(&mut pages.empty_state, m, log),
+        PageMsg::StatusLine(m) => status_line::update(&mut pages.status_line, m, log),
         PageMsg::Skeleton(m) => skeleton::update(&mut pages.skeleton, m, log),
         PageMsg::Sparkline(m) => sparkline::update(&mut pages.sparkline, m, log),
         PageMsg::Gauge(m) => gauge::update(&mut pages.gauge, m, log),
         PageMsg::BarChart(m) => bar_chart::update(&mut pages.bar_chart, m, log),
         PageMsg::Heatmap(m) => heatmap::update(&mut pages.heatmap, m, log),
+        // The Level bars page's own clock rests while motion is reduced, like the Motion page's.
+        PageMsg::LevelBars(m) => level_bars::update(&mut pages.level_bars, &pages.storage.settings, m, log),
         PageMsg::Timeline(m) => timeline::update(&mut pages.timeline, m, log),
         PageMsg::BigText(m) => big_text::update(&mut pages.big_text, m, log),
         PageMsg::ExampleDashboard(m) => example_dashboard::update(&mut pages.example_dashboard, m, log),
@@ -501,6 +521,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::Table(m) => table::update(&mut pages.table, m, log),
         PageMsg::Tree(m) => tree::update(&mut pages.tree, m, log),
         PageMsg::CardGrid(m) => card_grid::update(&mut pages.card_grid, m, log),
+        PageMsg::IconTile(m) => icon_tile::update(&mut pages.icon_tile, m, log),
         PageMsg::LogView(m) => log_view::update(&mut pages.log_view, m, log),
         PageMsg::FilePicker(m) => file_picker::update(&mut pages.file_picker, m, log),
         PageMsg::FileManager(m) => file_manager::update(&mut pages.file_manager, m, log),
@@ -543,6 +564,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "panel" => panel::view(&pages.panel, ui),
         "button" => button::view(&pages.button, ui),
         "icon-button" => icon_button::view(&pages.icon_button, ui),
+        "button-row" => button_row::view(&pages.button_row, ui),
         "text-input" => text_input::view(&pages.text_input, ui),
         "select" => select::view(&pages.select, ui),
         "list" => list::view(&pages.list, ui),
@@ -573,11 +595,13 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "badge" => badge::view(&pages.badge, ui),
         "divider" => divider::view(&pages.divider, ui),
         "empty-state" => empty_state::view(&pages.empty_state, ui),
+        "status-line" => status_line::view(&pages.status_line, ui),
         "skeleton" => skeleton::view(&pages.skeleton, ui),
         "sparkline" => sparkline::view(&pages.sparkline, ui),
         "gauge" => gauge::view(&pages.gauge, ui),
         "bar-chart" => bar_chart::view(&pages.bar_chart, ui),
         "heatmap" => heatmap::view(&pages.heatmap, ui),
+        "level-bars" => level_bars::view(&pages.level_bars, ui),
         "timeline" => timeline::view(&pages.timeline, ui),
         "big-text" => big_text::view(&pages.big_text, ui),
         "example-dashboard" => example_dashboard::view(&pages.example_dashboard, ui),
@@ -599,6 +623,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "table" => table::view(&pages.table, ui),
         "tree" => tree::view(&pages.tree, ui),
         "card-grid" => card_grid::view(&pages.card_grid, ui),
+        "icon-tile" => icon_tile::view(&pages.icon_tile, ui),
         "log-view" => log_view::view(&pages.log_view, ui),
         "file-picker" => file_picker::view(&pages.file_picker, ui),
         "example-file-explorer" => example_file_explorer::view(&pages.example_file_explorer, ui),

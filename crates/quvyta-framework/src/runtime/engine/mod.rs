@@ -116,6 +116,9 @@ pub(crate) struct Engine<A: App> {
     scope_focus: HashMap<WidgetId, WidgetId>,
     /// A `Command::focus` name that was not on screen yet; tried once more after the next frame.
     pending_focus: Option<String>,
+    /// A `Command::focus` ran since the last frame: a layer closing in that frame does not hand
+    /// focus back over it.
+    focus_commanded: bool,
     pressed_button: Option<MouseButton>,
     pointer_repeat: Option<PointerRepeat>,
     /// Pending questions of `Command::confirm` with their serial numbers, oldest first.
@@ -210,6 +213,7 @@ impl<A: App> Engine<A> {
             toasts: ToastStack::default(),
             scope_focus: HashMap::new(),
             pending_focus: None,
+            focus_commanded: false,
             pressed_button: None,
             pointer_repeat: None,
             confirms: Vec::new(),
@@ -294,6 +298,7 @@ impl<A: App> Engine<A> {
                 scope: None,
                 idle: silent,
                 focus_lent: false,
+                hover_lent: false,
             };
             canvas = cx.color("canvas");
             cx.clear(screen, canvas);
@@ -608,12 +613,15 @@ impl<A: App> Engine<A> {
         for action in command.actions {
             match action {
                 Action::Quit => self.quit = true,
-                Action::Focus(name) => match self.named_focusable(&name) {
-                    Some(target) => self.interaction.focused = Some(target),
-                    // The widget may appear with this very update, e.g. the first field of the
-                    // next wizard step.
-                    None => self.pending_focus = Some(name),
-                },
+                Action::Focus(name) => {
+                    self.focus_commanded = true;
+                    match self.named_focusable(&name) {
+                        Some(target) => self.interaction.focused = Some(target),
+                        // The widget may appear with this very update, e.g. the first field of the
+                        // next wizard step.
+                        None => self.pending_focus = Some(name),
+                    }
+                }
                 Action::SetTheme(id) => self.env.set_theme(&id),
                 Action::SetLocale(code) => self.env.set_locale(&code),
                 Action::SetRegion(region) => self.env.set_region(region.as_deref()),

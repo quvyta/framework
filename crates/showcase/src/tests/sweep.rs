@@ -207,19 +207,18 @@ const EXCEPTIONS: &[Exception] = &[
         reason: "the code view shows Rust source, where brackets are the code",
     },
     Exception {
+        page: "text-area",
+        check: check::SHAPE,
+        detail: "fn main() {",
+        kind: Kind::Limit,
+        reason: "the playground's snippet is Rust being edited, where brackets are the code",
+    },
+    Exception {
         page: "document",
         check: check::SHAPE,
         detail: "[engine]",
         kind: Kind::Limit,
         reason: "the data file demo shows a settings file, whose sections are written in brackets",
-    },
-    // Limit: a glyph that is the control itself.
-    Exception {
-        page: "spinner",
-        check: check::SHAPE,
-        detail: "| arc",
-        kind: Kind::Limit,
-        reason: "the ASCII spinner turns through `|`, which is the spinner rather than a separator",
     },
 ];
 
@@ -386,7 +385,11 @@ fn forbidden_shape(line: &str) -> Option<String> {
 /// bracket or a dash is the content rather than a drawn shape.
 fn sweep_ascii(found: &mut Findings) {
     for width in [super::SIZE.0, NARROW[0]] {
+        // Still frames: the sweep reads shapes, and a glyph that is turning is a different glyph
+        // every step, so which one a page is read at must not be decided by how many pages came
+        // before it.
         let mut harness = showcase(width, super::SIZE.1, GlyphMode::Ascii);
+        harness.set_reduced_motion(true);
         for page in PAGES {
             open(&mut harness, page.id);
             let when = format!("demo at {width} columns");

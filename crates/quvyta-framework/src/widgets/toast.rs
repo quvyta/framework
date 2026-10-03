@@ -52,6 +52,8 @@ impl ToastKind {
         }
     }
 
+    /// The icon key that signs this kind; the one sign every status colour is shown with, so a
+    /// status is never carried by colour alone.
     pub(crate) fn icon(self) -> &'static str {
         match self {
             Self::Danger => "error",

@@ -6,6 +6,7 @@
 - `.action_right(kapsam, isim)` — sağda bir kısayol eylemi.
 - `.action_first(kapsam, isim)` — bütün `.hint` ipuçlarından önce gelen bir kısayol eylemi; soldakilerin en son düşeni.
 - `.action_labelled(kapsam, isim, etiket)` — solda, etiketi uygulamanın kendisinden gelen bir kısayol eylemi; tuş yine kısayol haritasını izler, bağlanmamış eylem hiçbir şey çizmez.
+- `.action_labelled_first(kapsam, isim, etiket)` — `.action_first`'in yerinde bir `.action_labelled`: ilk okunan ve en son düşen; ekranın asıl eyleminin o an ne yaptığını söyleyen tuş için.
 - `.faint(bool)` — bütün çubuk bir adım sessiz; durgunlaşmış bir ekran için.
 - `Keymap::label_for(kapsam, isim)` — bir eylemin ilk tuşunun cümlede yazılacak hali; tuşu yoksa `None`.
 

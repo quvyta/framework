@@ -106,7 +106,10 @@ const CONTAINERS: [Container; 8] = [
 const BUILDS: usize = 100_000;
 
 /// Contents the playground offers.
-const CONTENTS: [&str; 3] = ["containers", "builds", "nothing"];
+const CONTENTS: [&str; 4] = ["containers", "builds", "nothing", "lines"];
+
+/// Lines in the log the lazy table shows.
+const LINES: usize = 1_000_000;
 
 /// Rows, sort order, selection and playground settings.
 #[derive(Debug)]
@@ -310,6 +313,15 @@ fn row_menu(name: &str, index: usize) -> Vec<ContextItem<AppMsg>> {
 }
 // endregion
 
+// region: table-log
+/// Line `index` of a log made up as it is read.
+fn log_line(index: usize) -> TableRow {
+    let levels = ["info", "debug", "warning"];
+    let message = format!("{} request {} answered in {} ms", levels[index % 3], index * 7 % 9973, index % 250);
+    TableRow::new([TableCell::new((index + 1).to_string()), TableCell::new(message)]).faint(index % 3 == 1)
+}
+// endregion
+
 // region: table-rows
 fn container_rows(containers: &[Container], icons: Option<GlyphMode>) -> Vec<TableRow> {
     containers
@@ -367,6 +379,13 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
                 ],
                 Arc::clone(&state.builds),
             ),
+            3 => (
+                vec![
+                    Column::new(t!("table.line")).width(ColumnWidth::Fixed(9)).align(Align::End),
+                    Column::new(t!("table.message")),
+                ],
+                Arc::from(Vec::new()),
+            ),
             _ => (vec![Column::new(t!("table.name")), Column::new(t!("table.status"))], Arc::from(Vec::new())),
         };
         // region: table-options
@@ -375,7 +394,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
             1 => Arc::clone(&state.build_names),
             _ => Arc::from(Vec::new()),
         };
-        let mut table = Table::new(columns, rows)
+        // A million lines are never built: each frame asks for the few rows it draws.
+        let table = if state.contents == 3 { Table::lazy(columns, LINES, log_line) } else { Table::new(columns, rows) };
+        let mut table = table
             .selected(state.selected)
             .empty_text(t!("table.empty"))
             .on_select(|index| send(Msg::Select(index)))

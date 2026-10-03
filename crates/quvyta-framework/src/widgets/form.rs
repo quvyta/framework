@@ -187,7 +187,7 @@ impl<Msg: 'static> Widget<Msg> for Form<Msg> {
 mod tests {
     use super::*;
     use crate::runtime::{App, Command, Harness};
-    use crate::widgets::{Button, TextInput};
+    use crate::widgets::{Button, TextInput, ToastKind};
 
     #[derive(Default)]
     struct Signup {
@@ -197,6 +197,9 @@ mod tests {
         submitted: bool,
         label_width: Option<u16>,
         summary: bool,
+        /// A warning under the name control, which the application builds from the value and which
+        /// never becomes a problem.
+        warning: Option<&'static str>,
     }
 
     #[derive(Clone)]
@@ -236,11 +239,18 @@ mod tests {
                 form = form.summary(&self.errors);
             }
             form.show(ui, |form| {
-                form.field(Field::new("Name").required(true).hint("Lowercase").error(self.errors.get("name")), |ui| {
-                    ui.add(TextInput::new(&self.name).invalid(self.errors.has("name")).on_change(Msg::Name))
-                        .width(Length::Cells(20))
-                        .id("name");
-                });
+                form.field(
+                    Field::new("Name")
+                        .required(true)
+                        .hint("Lowercase")
+                        .error(self.errors.get("name"))
+                        .warning(self.warning),
+                    |ui| {
+                        ui.add(TextInput::new(&self.name).invalid(self.errors.has("name")).on_change(Msg::Name))
+                            .width(Length::Cells(20))
+                            .id("name");
+                    },
+                );
                 form.field(Field::new("Image").error(self.errors.get("image")), |ui| {
                     ui.add(TextInput::new(&self.image).on_change(Msg::Image)).width(Length::Cells(20)).id("image");
                 });
@@ -389,5 +399,53 @@ mod tests {
         let screen = h.screen();
         assert!(screen.contains("✕  2 fields need attention"), "{screen}");
         assert!(screen.contains("Use at least 3 characters\n"), "{screen}");
+    }
+
+    /// The sign that stands in front of a sentence, and the tone it is drawn in.
+    fn signed(h: &Harness<Signup>, sentence: &str, kind: ToastKind) {
+        let (x, y) = h.find(sentence).unwrap_or_else(|| panic!("`{sentence}` is not on screen:\n{}", h.screen()));
+        let (x, y) = (u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0));
+        assert_eq!(x, 2, "the sign and a space stand in front of the sentence: {}", h.screen());
+        let row = h.screen().lines().nth(usize::from(y)).unwrap_or_default().to_owned();
+        assert_eq!(
+            row.chars().next(),
+            h.env().icons().glyph(kind.icon()).chars().next(),
+            "and the sign is the one of its kind: {row}"
+        );
+        let tone =
+            h.env().theme().color(kind.name()).unwrap_or_else(|| panic!("every theme has the four status colours"));
+        assert_eq!(h.fg(0, y), Some(tone), "the sign carries the tone: {row}");
+        assert_eq!(h.fg(x, y), Some(tone), "and so does the sentence: {row}");
+    }
+
+    #[test]
+    fn a_warning_is_signed_and_the_form_it_belongs_to_still_submits() {
+        let app = Signup {
+            name: "web".into(),
+            image: "nginx:1.27".into(),
+            warning: Some("Not in the shared registry"),
+            ..Signup::default()
+        };
+        let mut h = Harness::new(app, 40, 10);
+        h.click_text("Create");
+        signed(&h, "Not in the shared registry", ToastKind::Warning);
+        assert!(!h.screen().contains("Lowercase"), "the warning stands where the hint was: {}", h.screen());
+        assert!(h.app().submitted, "a form whose only note is a warning is still a form one sends");
+    }
+
+    #[test]
+    fn an_error_takes_the_place_from_the_warning_and_the_form_does_not_submit() {
+        let app = Signup {
+            name: "w".into(),
+            image: "nginx:1.27".into(),
+            warning: Some("Not in the shared registry"),
+            ..Signup::default()
+        };
+        let mut h = Harness::new(app, 40, 10);
+        h.click_text("Create");
+        let screen = h.screen();
+        assert!(!screen.contains("Not in the shared registry"), "one place, and the error has it: {screen}");
+        signed(&h, "Use at least 3 characters", ToastKind::Danger);
+        assert!(!h.app().submitted, "an error is a problem, a warning is only a note");
     }
 }

@@ -436,3 +436,32 @@ mod card {
         assert!(!bare.to_svg().expect("draws").contains("<g fill="), "nothing but the screenshot is drawn");
     }
 }
+
+#[test]
+fn the_marks_of_coding_tools_in_a_terminal_tab_are_drawn() {
+    // What real coding tools put on every screen: replies, tool calls and results, spinners,
+    // permission lines and working dots. A recorded terminal tab running one draws every frame.
+    let marks = "⏺⎿✻✳✢✽✶✱⏵⏸↯⬝⎔✘↵⚙";
+    assert!(crate::missing_in(marks).is_empty(), "{:?}", crate::missing_in(marks));
+    let cells: Vec<_> = marks.chars().map(|c| cell(&c.to_string())).collect();
+    let shot = shot(screen(20, cells));
+    assert!(shot.missing().is_empty(), "{:?}", shot.missing());
+    // Each is one cell wide, as wide as a letter, so it sits in its cell and pushes nothing on.
+    let (_, letter) = crate::font::glyph('x', false).expect("a letter");
+    for mark in marks.chars() {
+        let (_, advance) = crate::font::glyph(mark, false).expect("a mark");
+        assert!((advance - letter).abs() < 0.01, "{mark} is {advance} wide, a cell is {letter}");
+    }
+}
+
+#[test]
+fn a_character_no_font_has_is_drawn_as_a_box_and_still_reported() {
+    // The box stands centred in the two cells the emoji takes, and what follows keeps its place.
+    let wide = |symbol: &str| {
+        vec![Cell { width: 2, ..cell(symbol) }, Cell { symbol: String::new(), width: 0, ..cell(" ") }, cell("x")]
+    };
+    let with = shot(screen(3, wide("😀")));
+    let boxed = shot(screen(3, wide("▯")));
+    assert_eq!(with.missing(), vec!['😀']);
+    assert_eq!(with.to_svg(), boxed.to_svg(), "the missing character is the box a terminal shows");
+}

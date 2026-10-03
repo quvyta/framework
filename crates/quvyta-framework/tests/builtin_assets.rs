@@ -58,10 +58,10 @@ const LAUNCHER_ICONS: [&str; 10] = [
     "window-restore",
 ];
 
-/// Marks every application in the ecosystem shows outside its main menu: the place the work is kept
-/// and the button that answers what the keys do. Both sit in strips of counted cells, like the
-/// menu's own rows, so both stay one cell wide.
-const SHARED_ICONS: [&str; 2] = ["workspace", "help"];
+/// Marks every application in the ecosystem shows outside its main menu: the place the work is kept,
+/// the button that answers what the keys do and the one that reads something again. All sit in
+/// strips of counted cells, like the menu's own rows, so all stay one cell wide.
+const SHARED_ICONS: [&str; 3] = ["workspace", "help", "refresh"];
 
 #[test]
 fn every_icon_set_answers_the_application_menu_in_every_mode_with_one_cell() {

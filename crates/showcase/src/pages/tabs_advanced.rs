@@ -27,6 +27,10 @@ const FILES: [(&str, u32); 9] = [
 /// Width choices of the playground.
 const WIDTHS: [TabWidth; 3] = [TabWidth::Fit, TabWidth::Fixed(16), TabWidth::Fill];
 
+/// The cells a `Fill` tab is held to in the playground; `None` is no cap. Both are under the
+/// share the few open files take of the strip, where a cap has something to hold back.
+const CAPS: [Option<u16>; 3] = [None, Some(16), Some(12)];
+
 /// Overflow choices of the playground.
 const OVERFLOWS: [Overflow; 2] = [Overflow::Arrows, Overflow::Menu];
 
@@ -37,6 +41,7 @@ pub struct State {
     active: usize,
     closable: bool,
     width: usize,
+    cap: usize,
     overflow: usize,
     reorderable: bool,
     menu: bool,
@@ -50,6 +55,7 @@ impl Default for State {
             active: 2,
             closable: false,
             width: 0,
+            cap: 0,
             overflow: 0,
             reorderable: false,
             menu: false,
@@ -68,6 +74,7 @@ pub enum Msg {
     Closable(bool),
     Pinned(bool),
     Width(usize),
+    Cap(usize),
     Overflow(usize),
     Reorderable(bool),
     ContextMenu(bool),
@@ -129,6 +136,14 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.width = index;
             log.push(PAGE, "Playground", format!("tab_width = {:?}", WIDTHS[index]));
         }
+        Msg::Cap(index) => {
+            state.cap = index;
+            let cap = match CAPS[index] {
+                Some(cells) => format!("max_tab_width = {cells}"),
+                None => "max_tab_width = none".to_owned(),
+            };
+            log.push(PAGE, "Playground", cap);
+        }
         Msg::Overflow(index) => {
             state.overflow = index;
             log.push(PAGE, "Playground", format!("overflow = {:?}", OVERFLOWS[index]));
@@ -184,6 +199,11 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
                     .on_drag_scroll(|first| send(Msg::DragScroll(first)));
             }
             // endregion
+            // region: tabs-advanced-cap
+            if let Some(cells) = CAPS[state.cap] {
+                tabs = tabs.max_tab_width(cells);
+            }
+            // endregion
             // region: tabs-advanced-menu
             if state.menu {
                 let files = state.files.clone();
@@ -219,6 +239,10 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("tabs-advanced.width"), |ui| {
             let names = [t!("tabs-advanced.fit"), t!("tabs-advanced.fixed"), t!("tabs-advanced.fill")];
             ui.add(Segmented::new(names).selected(state.width).on_select(|i| send(Msg::Width(i)))).id("width");
+        });
+        setting(ui, t!("tabs-advanced.cap"), |ui| {
+            let names = [t!("tabs-advanced.cap-none"), t!("tabs-advanced.cap-16"), t!("tabs-advanced.cap-12")];
+            ui.add(Segmented::new(names).selected(state.cap).on_select(|i| send(Msg::Cap(i)))).id("cap");
         });
         setting(ui, t!("tabs-advanced.overflow"), |ui| {
             let names = [t!("tabs-advanced.arrows"), t!("tabs-advanced.menu")];
@@ -353,6 +377,34 @@ mod tests {
         );
         h.click_text("main.rs").press("tab").press("enter");
         assert_eq!(h.app().pages.tabs_advanced.files.len(), 3, "Tab reaches it from the tabs, Enter presses it");
+    }
+
+    #[test]
+    fn a_capped_filling_tab_leaves_the_rest_of_the_strip_empty() {
+        let mut h = showcase_on(PAGE);
+        h.send(send(Msg::Closable(true)));
+        // A cap holds a filling tab back where a few files share the strip. With every file open
+        // each tab already stands at the readable minimum and there is nothing to hold back, so the
+        // close marks are used the way a person would, to leave three files in the seventy-two
+        // cells of the strip.
+        for _ in 0..FILES.len() - 3 {
+            h.send(send(Msg::Edit(TabEdit::Close(0))));
+        }
+        let (_, y) = h.find("theme.toml").expect("the strip");
+        h.send(send(Msg::Width(2)));
+        let full = line(&h, y);
+        // The last cell of the row is the last close mark: the tabs fill the strip to its right
+        // end without a cap, and with one the row ends where the last of them ends.
+        let end = |l: &str| i32::try_from(l.chars().count()).expect("on screen") - 1;
+        h.send(send(Msg::Cap(1)));
+        let capped = line(&h, y);
+        assert!(end(&full) - end(&capped) > 12, "the cap holds the tabs back:\n{full}\n{capped}");
+        assert_eq!(column(&capped, '▌'), column(&full, '▌'), "and they keep the left of the strip:\n{full}\n{capped}");
+        h.send(send(Msg::Cap(2)));
+        assert!(end(&line(&h, y)) < end(&capped), "a lower cap leaves more of the strip empty:\n{}", line(&h, y));
+        h.send(send(Msg::Cap(0)));
+        assert_eq!(line(&h, y), full, "and no cap is the strip as it was:\n{}", line(&h, y));
+        assert!(h.app().log.recent(PAGE, 20).iter().any(|entry| entry.message == "max_tab_width = 16"));
     }
 
     #[test]

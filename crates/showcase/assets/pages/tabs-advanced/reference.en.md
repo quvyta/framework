@@ -3,6 +3,7 @@
 - `.closable(|index| msg)` — close marks, middle click and ctrl+w; the message asks to close tab `index`.
 - `.pinned(indices)` — tabs that cannot be closed and show no mark.
 - `.tab_width(TabWidth)` — `Fit` (default), `Fixed(cells)` or `Fill`.
+- `.max_tab_width(cells)` — the most cells a `Fill` tab takes; the rest of the strip stays empty. Ignored for `Fit` and `Fixed`, and under what a tab needs to show at all. No cap by default.
 - `.overflow(Overflow)` — `Arrows` (default) or `Menu`.
 - `.reorderable(|from, to| msg)` — drag and keyboard reordering; `to` is the tab's index after the move.
 - `.on_drag_scroll(|first| msg)` — sent for each tab a dragged tab scrolls the strip; `first` is the position of the first tab now in view.
@@ -15,6 +16,7 @@
 
 - Closing the open tab with `apply` opens the tab that takes its place, or the new last tab.
 - `Fixed(n)` never goes below one cell of label, where a long label shows only `…`; `Fill` stops shrinking at 12 cells or the label's own width.
+- With `max_tab_width(n)` a `Fill` tab takes its share of the strip, or `n` cells, whichever is less. The room of the add button is out of the share as it is, and the button stands one gap after the last tab, not at the strip's end.
 - With `Arrows` the strip follows the open tab only when it changes, so the arrows can look around freely. An arrow with nothing more to show sinks to the surface and ignores presses. After tabs close, the strip scrolls back as soon as the remaining tabs fit.
 - A strip too narrow for its controls cuts the open tab short; a menu strip with no room for any tab lists every tab and checks the open one.
 - With `Menu` the menu lists hidden tabs only; ↑ ↓ Home End move, typing a letter jumps, Enter chooses, Esc or a click elsewhere closes.

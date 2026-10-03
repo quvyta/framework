@@ -10,8 +10,9 @@ the upright glyphs.
 
 The symbols JetBrains Mono has no glyph for come from **JuliaMono**, Regular, cut down to the ones
 the ecosystem uses: the search (`⌕`) and settings (`▤`) icons of the Unicode icon set, which the setup
-wizard shows as samples on its appearance step, the rest of that set's shapes, and the narrow
-no-break space of French typography. JuliaMono's advance is the same share of its em as JetBrains
+wizard shows as samples on its appearance step, the rest of that set's shapes, the marks a
+terminal program draws with (a coding tool's `⏺` reply and `⎿` result, its `✻` spinner, the `⬝`
+dots of a tool at work), and the narrow no-break space of French typography. JuliaMono's advance is the same share of its em as JetBrains
 Mono's (1200 of 2000, 600 of 1000), so a symbol is exactly one cell wide and needs no scaling of
 its own. It has no bold; a bold cell draws it regular, as the CJK face does.
 
@@ -20,11 +21,13 @@ its own. It has no bold; a bold cell draws it regular, as the CJK face does.
   `JuliaMono-Regular.ttf` (SHA-256 `40a07da0d1601215eb6b89312eb44128a3e2f36675d3e1f518264bd391fc7023`)
 - Release: JuliaMono v0.63.2
 - Licence: SIL Open Font License 1.1, in `OFL-JuliaMono.txt` (the archive's `LICENSE`, unchanged)
-- Kept: the whole Geometric Shapes block (U+25A0–25FF), which is where the Unicode icon set draws
-  its shapes from, and the single characters the icon sets and texts need: U+202F, U+2139, U+2315,
-  U+2610, U+2611, U+2714, U+2756 and the two sextants U+1FB03 and U+1FB07 of the small radio mark.
-  108 glyphs, 17,400 bytes — the whole font would be 671,568, and this file ships inside every
-  application of the ecosystem.
+- Kept: whole blocks of symbols, as far as JuliaMono has them — Arrows (U+2190–21FF),
+  Miscellaneous Technical (U+2300–23FF), Geometric Shapes (U+25A0–25FF), which is where the Unicode
+  icon set draws its shapes from, Miscellaneous Symbols (U+2600–26FF), Dingbats (U+2700–27BF) and Miscellaneous Symbols and Arrows
+  (U+2B00–2BFF) — and the single characters the icon sets and texts need besides: U+202F, U+2139,
+  U+2610, U+2611 and the two sextants U+1FB03 and U+1FB07 of the small radio mark. 1,170 glyphs,
+  166,280 bytes — the whole font would be 671,568, and this file ships inside every application of
+  the ecosystem. Where a character is in both fonts, JetBrains Mono draws it.
 
 This machine has FontForge but not fontTools, and nothing is installed for a build, so the cut was
 made with FontForge 20251009 (`symbols-subset.py`, which also holds the list of characters).
