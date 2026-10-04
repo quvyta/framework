@@ -81,6 +81,7 @@ mod rows;
 mod scroll_view;
 mod scrollbar;
 mod sections;
+mod seek_bar;
 mod segmented;
 mod select;
 mod select_box;
@@ -163,8 +164,8 @@ pub use field::Field;
 pub use file_browser::{FileBrowser, FileEntry, FilePickerMsg, Listing, ListingError, PickMode, read_folder};
 pub use file_manager::{
     FileChange, FileDetails, FileError, FileManager, FileManagerMsg, FileManagerState, FileView, FileWork, FolderEntry,
-    MenuTarget, NameFor, NameProblem, Naming, RowMark, Sort, SortBy, child_key, copy_into, is_inside, is_within,
-    name_of, parent_key, path_of,
+    MenuTarget, NameFor, NameProblem, Naming, RowMark, Sort, SortBy, Trashed, child_key, copy_into, is_inside,
+    is_within, name_of, parent_key, path_of,
 };
 pub use file_picker::FilePicker;
 pub use form::{Form, FormFields};
@@ -201,6 +202,7 @@ pub use row_pointer::RowDrop;
 pub use scroll_view::ScrollView;
 pub use scrollbar::{ScrollMetrics, ScrollbarStyle};
 pub use sections::Section;
+pub use seek_bar::SeekBar;
 pub use segmented::Segmented;
 pub use select::Select;
 pub use settings_list::{SettingRow, SettingsList, SettingsRows};

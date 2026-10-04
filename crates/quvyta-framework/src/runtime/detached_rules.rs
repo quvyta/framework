@@ -185,7 +185,7 @@ fn a_mapped_detached_handoff_delivers_both_of_its_messages_mapped() {
     let mut release = |_: Option<&str>| Ok(());
     let mut take = || Ok(());
     let mut wait_for_key = || Ok(());
-    let (deliveries, lines) = std::sync::mpsc::channel();
+    let (deliveries, lines) = crate::runtime::task::channel();
     let message = super::detached::run(
         handoff,
         &mut super::handoff::HandoffScreen { release: &mut release, take: &mut take, wait_for_key: &mut wait_for_key },

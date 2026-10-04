@@ -8,7 +8,8 @@
 - `fn clipboard(&self, &ClipboardEvent) -> Option<Msg>` — bileşenlerin ve fare seçiminin kopyalarını, hiçbir bileşenin almadığı yapıştırmaları duyar. İsteğe bağlı.
 - `fn init(&mut self) -> Command<Msg>` — ilk karenin başında, görünümü kurulmadan önce bir kez çalışır; döndürdüğü `Command::focus` ilk tuştan önce yerindedir. İsteğe bağlı.
 - `fn resized(&self, Size) -> Option<Msg>` — terminal ölçüsü, açılışta (`init`'ten önce) ve her yeniden boyutlanmada; `ui.size()`'ın bildirdiğiyle aynıdır, mesajı `update`'ten geçer. İsteğe bağlı.
-- `fn graphics(&self, Graphics) -> Option<Msg>` — terminalin resmi nasıl çizdiği, `env.graphics()`: açılışta (`resized`'dan sonra, `init`'ten önce) ve her değiştiğinde, örneğin glif kipi ASCII'ye geçince; mesajı `update`'ten geçer, resim orada gösterildiği boyutta çözülür. Herhangi bir resim çizilir mi, `Graphics::can_draw()` söyler. İsteğe bağlı.
+- `fn cell_pixels(&self, Option<(u16, u16)>) -> Option<Msg>` — bir hücrenin piksel boyu, `env.cell_pixels()`: açılışta (`resized`'dan sonra, `graphics`'ten önce) ve her değiştiğinde; yazı tipi boyu değişince sütun ve satırlar yerinde kalırken o değişir, `None` de bildirilir; hücre ile ekran ölçüsü aynı karede değişirse bu sırayla bildirilir. Mesajı `update`'ten geçer, resim orada yeni boyutta yeniden çözülür. İsteğe bağlı.
+- `fn graphics(&self, Graphics) -> Option<Msg>` — terminalin resmi nasıl çizdiği, `env.graphics()`: açılışta (`cell_pixels`'ten sonra, `init`'ten önce) ve her değiştiğinde, örneğin glif kipi ASCII'ye geçince; mesajı `update`'ten geçer, resim orada gösterildiği boyutta çözülür. Herhangi bir resim çizilir mi, `Graphics::can_draw()` söyler. İsteğe bağlı.
 - `fn preferences(&self, &Preferences) -> Option<Msg>` — `Runtime::member` ile başlatılan bir uygulamanın ekosistemle paylaştığı tercihler: açılışta (`graphics`'ten sonra, `init`'ten önce) ve uygulama çalışırken `quvyta.conf` ya da uygulamanın kendi dosyası onları her değiştirdiğinde; ekran zaten değişmiştir, ayar ekranı burada tazelenir. İsteğe bağlı.
 - `fn before_quit(&self) -> Option<Msg>` — çalışma motoru kullanıcı adına çıkmadan önce sorulur (çıkış bağı, komut paletinden çıkış eylemi); bir mesaj uygulamayı açık tutar ve onun yerine teslim edilir. `Command::quit()` hiç sorulmaz. İsteğe bağlı.
 - `fn terminating(&self, Termination) -> Option<Msg>` — uygulamayı sistemin kapattığını duyar: bir `SIGTERM` ya da dışarıdan gelen `SIGINT` için `Termination::Terminate`, bir `SIGHUP` için `Termination::Hangup`. `None` hemen çıkar; bir mesaj kaydedip çıkması için açık tutar. Varsayılan olarak terminate'e `before_quit` cevap verir, kopuş çıkar. İsteğe bağlı.
@@ -32,7 +33,7 @@
 ## Grafik
 
 - `env.graphics()` — burada bir resim nasıl çizilebilir: `Graphics::Kitty`, `Graphics::Sixel`, `Graphics::HalfBlock` ya da `Graphics::None`. Terminalin açılıştaki tek soruya cevabı (en çok 150 ms, aygıt özellikleri gelince biter, açılış ağı beklemez; hiçbir zaman tuş olarak gelmez; geç gelen bir kitty `OK`'i yine kitty'ye çevirir), ardından: 16 renk ya da ASCII glifler `None` verir; `TMUX` ya da `STY` kitty ve sixel'i yarım bloğa çevirir. `Env::builtin` yarım blok verir.
-- `env.cell_pixels()` — bir hücrenin piksel boyu, `Some((genişlik, yükseklik))`; terminal piksel bildirmiyorsa `None`. Açılışta ve her boyut değişiminde, yazı tipi boyunun değişmesi dahil, okunur; yeni bir değer yeni bir kare çizdirir. `Env::builtin` `None` verir.
+- `env.cell_pixels()` — bir hücrenin piksel boyu, `Some((genişlik, yükseklik))`; terminal piksel bildirmiyorsa `None`. Açılışta ve her boyut değişiminde, yazı tipi boyunun değişmesi dahil, okunur; yeni bir değer yeni bir kare çizdirir ve `App::cell_pixels` bunu duyar. `Env::builtin` `None` verir.
 - `QUVYTA_GRAPHICS=kitty|sixel|halfblock|none` — cevabın ve bütün kuralların üstünde karar verir; başka bir değer yok sayılır ve bir tanılama olur.
 - `Graphics::name()`, `Graphics::from_name(ad)` — değişkenin aldığı adlar.
 
@@ -79,7 +80,7 @@
 - `.send(msg)` — bir mesajı bileşen göndermiş gibi teslim eder.
 - `.advance(süre)` — sahte saati ilerletir; animasyonlar ve parlamalar onu takip eder, süresi dolan bir kapanış çıkar. `.render()` yeniden çizer.
 - `.terminate(Termination::Terminate)`, `.terminate(Termination::Hangup)` — bir `SIGTERM` ya da `SIGHUP`'ı taklit eder: `terminating` onu terminaldeki gibi duyar, ikinci terminate çıkar, tekrarlanan kopuş hiçbir şeyi değiştirmez.
-- `.set_theme(id)`, `.set_locale(kod)`, `.set_glyph_mode(mod)`, `.set_graphics(grafik)` (o, `.set_glyph_mode` ve `.set_depth(derinlik)` grafikteki değişikliği `App::graphics`'e bildirir), `.set_reduced_motion(bool)`, `.set_remote(bool)`, `.set_cell_pixels(Some((g, y)))`, `.set_system_clipboard(Some(metin))` — ortamı değiştirir.
+- `.set_theme(id)`, `.set_locale(kod)`, `.set_glyph_mode(mod)`, `.set_graphics(grafik)` (o, `.set_glyph_mode` ve `.set_depth(derinlik)` grafikteki değişikliği `App::graphics`'e bildirir), `.set_reduced_motion(bool)`, `.set_remote(bool)`, `.set_cell_pixels(Some((g, y)))` (değişiklik, terminal bir boyut değişiminde bildirdiği gibi `App::cell_pixels`'e ulaşır), `.set_system_clipboard(Some(metin))` — ortamı değiştirir.
 - `.screen()`, `.find(metin)`, `.fg(x, y)`, `.bg(x, y)`, `.is_bold(x, y)`, `.buffer()`, `.html(başlık)` — çizileni okur. Çift genişlikli karakter, kapladığı hücre olmadan bir kez okunur: `screen().contains("防火墙")` tutar, `find` çizildiği sütunu verir.
 - `.app()`, `.env()`, `.is_focused("isim")`, `.copied()`, `.clipboard()`, `.quit_requested()` — uygulamanın ve motorun durumuna bakar.
 

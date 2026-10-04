@@ -1727,6 +1727,31 @@ fill = "$danger"
 fg   = "$dim"
 bold = true
 
+# A seek bar is a progress bar a person can drag, so at rest it is the same pair of tones. Under
+# the pointer the whole bar steps one tone lighter, which leaves the cell the pointer is on, in the
+# full accent, the one that stands out: it is where a seek would land. Focus breathes the fill like
+# a slider's knob breathes.
+[style."seek-bar"]
+track = "$raised"
+fill  = "$accent"
+
+# A variant fills the bar the way it fills a progress bar, so the two stay one picture.
+[style."seek-bar.success"]
+fill = "$success"
+
+[style."seek-bar.warning"]
+fill = "$warning"
+
+[style."seek-bar.danger"]
+fill = "$danger"
+
+[style."seek-bar:hover"]
+track = "$active"
+fill  = "mix($accent, $active, 22%)"
+
+[style."seek-bar:focus"]
+fill = "pulse($accent, $accent-2)"
+
 # ---- Display: badges, dividers, empty states, skeletons and charts ---------------------------
 
 # Badges are tinted pills: about 16% of the status colour over the surface, text and marker in

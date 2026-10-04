@@ -13,7 +13,7 @@ mod pointer;
 mod preferences;
 
 use std::collections::HashMap;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -34,7 +34,7 @@ use super::handoff::{Handoff, HandoffOutcome, HandoffRequest};
 use super::present::Painted;
 use super::selection::{Press, Selection};
 use super::selection_menu::{self, SelectionMenu};
-use super::task::{self, Delivery, TaskClock};
+use super::task::{self, Delivery, Outlet, TaskClock};
 use super::termination::Ending;
 use crate::env::Env;
 use crate::event::{Event, MouseButton, MouseKind};
@@ -49,7 +49,7 @@ use crate::widget::{
 use crate::widgets::ToastStack;
 
 /// Both ends of the channel background work reports through.
-type Channel<Msg> = (Sender<Delivery<Msg>>, Receiver<Delivery<Msg>>);
+type Channel<Msg> = (Outlet<Msg>, Receiver<Delivery<Msg>>);
 
 /// The work of a `Command::perform`.
 type Work<Msg> = Box<dyn FnOnce() -> Msg + Send>;
@@ -181,6 +181,9 @@ pub(crate) struct Engine<A: App> {
     started: bool,
     /// The screen size last reported through [`App::resized`].
     screen: Option<Size>,
+    /// The size of a cell last reported through [`App::cell_pixels`], and whether it was
+    /// reported at all yet, since a terminal reporting no cell size is a value of its own.
+    told_cell: Option<Option<(u16, u16)>>,
     /// The graphics last reported through [`App::graphics`].
     told_graphics: Option<crate::graphics::Graphics>,
     /// The member's preferences the engine follows, when the application runs as one.
@@ -218,7 +221,7 @@ impl<A: App> Engine<A> {
             pointer_repeat: None,
             confirms: Vec::new(),
             asked: 0,
-            tasks: mpsc::channel(),
+            tasks: task::channel(),
             task_clock: TaskClock::new(task_mode == TaskMode::Inline),
             task_mode,
             pending_tasks: 0,
@@ -253,6 +256,7 @@ impl<A: App> Engine<A> {
             idle: Idle::default(),
             started: false,
             screen: None,
+            told_cell: None,
             told_graphics: None,
             follow: None,
             dirty: true,
@@ -351,8 +355,15 @@ impl<A: App> Engine<A> {
             // nothing on a local terminal, more than half blocks over a remote connection.
             let whole = graphics == crate::graphics::Graphics::Sixel && self.env.remote();
             let placing = if whole { Placing::Whole } else { Placing::Split };
-            frame.placements =
-                resolve(buf, &frame.pictures, &frame.dims, &mut self.picture_halves, graphics.can_draw(), placing);
+            frame.placements = resolve(
+                buf,
+                &frame.pictures,
+                &frame.dims,
+                &mut self.picture_halves,
+                self.env.cell_pixels(),
+                graphics.can_draw(),
+                placing,
+            );
         }
         style::reduce(buf, self.env.depth(), canvas);
         self.memory.end_frame();
@@ -390,17 +401,29 @@ impl<A: App> Engine<A> {
         }
     }
 
-    /// The lifecycle hooks due before a frame of `size` is built: the size when it is new, the
-    /// graphics when they are new, then, on the first frame only, the preferences of a member
-    /// ([`App::preferences`]) and [`App::init`]. All come before
-    /// the view, so the frame already shows what they changed, and before any input is read, so a
-    /// focus `init` asks for is in place for the first key.
+    /// The lifecycle hooks due before a frame of `size` is built: the size when it is new, then
+    /// the size of a cell when it is new, then the graphics when they are new, then, on the
+    /// first frame only, the preferences of a member ([`App::preferences`]) and [`App::init`].
+    /// All come before the view, so the frame already shows what they changed, and before any
+    /// input is read, so a focus `init` asks for is in place for the first key.
     fn begin_frame(&mut self, size: Size) {
         if self.screen != Some(size) {
             self.screen = Some(size);
             let message = {
                 let app = &self.app;
                 i18n::scope(self.env.i18n_arc(), || app.resized(size))
+            };
+            if let Some(message) = message {
+                self.update(message);
+            }
+        }
+        // A change of font size changes this alone: the columns and rows stay as they were.
+        let cell = self.env.cell_pixels();
+        if self.told_cell != Some(cell) {
+            self.told_cell = Some(cell);
+            let message = {
+                let app = &self.app;
+                i18n::scope(self.env.i18n_arc(), || app.cell_pixels(cell))
             };
             if let Some(message) = message {
                 self.update(message);
@@ -841,7 +864,7 @@ impl<A: App> Engine<A> {
     }
 
     /// Where background work hands the loop its messages, for a detached child's lines.
-    pub(crate) fn deliveries(&self) -> Sender<Delivery<A::Msg>> {
+    pub(crate) fn deliveries(&self) -> Outlet<A::Msg> {
         self.tasks.0.clone()
     }
 
@@ -881,6 +904,7 @@ impl<A: App> Engine<A> {
 
 #[cfg(test)]
 mod tests {
+    use crate::geometry::Size;
     use crate::runtime::{App, Command, Harness};
     use crate::widget::View;
     use crate::widgets::{Button, TextInput};
@@ -1142,5 +1166,66 @@ mod tests {
         h.press("tab");
         h.send(Msg::Typed);
         assert!(h.is_focused("reveal"), "a resolved focus request does not linger");
+    }
+
+    /// Writes down the size, the cell sizes and which hook each message came from, in the order
+    /// they arrived.
+    #[derive(Default)]
+    struct Order {
+        size: Option<Size>,
+        cells: Vec<Option<(u16, u16)>>,
+        heard: Vec<&'static str>,
+    }
+
+    #[derive(Clone)]
+    enum Heard {
+        Resized(Size),
+        Cell(Option<(u16, u16)>),
+    }
+
+    impl App for Order {
+        type Msg = Heard;
+        fn resized(&self, size: Size) -> Option<Heard> {
+            Some(Heard::Resized(size))
+        }
+        fn cell_pixels(&self, cell: Option<(u16, u16)>) -> Option<Heard> {
+            Some(Heard::Cell(cell))
+        }
+        fn update(&mut self, msg: Heard) -> Command<Heard> {
+            match msg {
+                Heard::Resized(size) => {
+                    self.size = Some(size);
+                    self.heard.push("resized");
+                }
+                Heard::Cell(cell) => {
+                    self.cells.push(cell);
+                    self.heard.push("cell");
+                }
+            }
+            Command::none()
+        }
+        fn view(&self, _ui: &mut View<'_, Heard>) {}
+    }
+
+    /// A frame drawn at `width` × `height`, as the terminal loop and a harness draw it.
+    fn frame(engine: &mut super::Engine<Order>, width: u16, height: u16) {
+        let mut buffer = ratatui_core::buffer::Buffer::empty(ratatui_core::layout::Rect::new(0, 0, width, height));
+        engine.render(&mut buffer, std::time::Duration::ZERO);
+    }
+
+    #[test]
+    fn a_frame_where_the_screen_and_the_cell_change_tells_the_size_first() {
+        let mut engine = super::Engine::new(Order::default(), crate::env::Env::builtin(), super::TaskMode::Inline);
+        frame(&mut engine, 40, 3);
+        assert_eq!(engine.app.size, Some(Size::new(40, 3)));
+        assert_eq!(engine.app.cells, [None], "the built-in environment reports no cell size");
+        assert_eq!(engine.app.heard, ["resized", "cell"], "the first frame reports both");
+        // A font size change grows the window with its cells, so the size and the cell are new
+        // together, and what is decoded for the new cell needs the new size to be placed in.
+        engine.env.set_cell_pixels(Some((12, 24)));
+        frame(&mut engine, 52, 4);
+        assert_eq!(engine.app.size, Some(Size::new(52, 4)));
+        assert_eq!(engine.app.cells, [None, Some((12, 24))]);
+        assert_eq!(engine.app.heard, ["resized", "cell", "resized", "cell"]);
     }
 }

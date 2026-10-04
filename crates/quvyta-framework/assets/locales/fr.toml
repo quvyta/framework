@@ -87,6 +87,23 @@ copy-many                = { one = "Copier {n} élément", other = "Copier {n} �
 drop-copy                = "Annuler la copie"
 trash                    = "Mettre à la corbeille"
 trash-many               = { one = "Mettre {n} élément à la corbeille", other = "Mettre {n} éléments à la corbeille" }
+trash-place              = "Corbeille"
+leave-trash             = "Retour au dossier"
+open-trash               = "Ouvrir la corbeille"
+restore                  = "Restaurer"
+restore-many             = { one = "Restaurer {n} élément", other = "Restaurer {n} éléments" }
+restore-as               = "Remettre sous le nom {name}"
+restore-clash-title      = "{name} est déjà pris"
+restore-clash-text       = "Un élément de ce nom existe déjà, il peut donc être remis sous le nom {free}. Rien de ce qui est là n’est écrasé."
+delete-permanently       = "Supprimer définitivement"
+delete-permanently-many  = { one = "Supprimer définitivement {n} élément", other = "Supprimer définitivement {n} éléments" }
+purge-title              = "Supprimer définitivement {name} ?"
+purge-text               = "{name} est supprimé de la corbeille, avec tout son contenu. Cela ne peut pas être annulé."
+purge-many-title         = { one = "Supprimer définitivement {n} élément de la corbeille ?", other = "Supprimer définitivement {n} éléments de la corbeille ?" }
+purge-many-text          = "Les {n} éléments sont supprimés de la corbeille, les dossiers avec tout leur contenu. Cela ne peut pas être annulé."
+empty-trash              = "Vider la corbeille"
+empty-title              = "Vider la corbeille ?"
+empty-text               = { one = "L’élément de la corbeille est supprimé définitivement. Cela ne peut pas être annulé.", other = "Les {n} éléments de la corbeille sont supprimés définitivement. Cela ne peut pas être annulé." }
 delete-forever           = "Supprimer définitivement"
 no-trash-title           = "Supprimer {name} définitivement ?"
 no-trash-text            = "Il n’y a pas de corbeille pour {name}, il ne peut donc pas être mis de côté. La suppression est définitive."
@@ -95,6 +112,8 @@ no-trash-many-text       = "Il n’y a pas de corbeille pour eux, ils ne peuvent
 not-readable             = "Tu n’as pas le droit de voir ce que contient ce dossier."
 missing                  = "Ce n’est plus là."
 no-trash                 = "Il n’y a pas de corbeille où cela puisse aller."
+no-origin                = "Rien n’indique d’où vient cet élément, il ne peut donc pas être remis."
+taken-as                 = "Un élément de ce nom est déjà là, il peut donc être remis sous le nom {free} ; rien de ce qui est là n’est écrasé."
 no-room                  = "Il n’y a plus de place sur le disque."
 stopped                  = "Tu as arrêté cela, et ce qui avait été écrit a été retiré."
 copying                  = { one = "Copie de {n} élément", other = "Copie de {n} éléments" }
@@ -106,6 +125,8 @@ column-name              = "Nom"
 column-size              = "Taille"
 column-modified          = "Modifié"
 column-permissions       = "Permissions"
+column-from              = "Origine"
+origin-unknown           = "inconnu"
 reading                  = "Lecture du dossier"
 entries                  = { one = "{n} élément", other = "{n} éléments" }
 up                       = "Dossier parent"

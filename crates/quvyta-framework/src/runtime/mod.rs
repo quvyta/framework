@@ -47,6 +47,8 @@ mod present;
 mod process;
 #[cfg(test)]
 mod release_rules;
+#[cfg(test)]
+mod reserved_key_rules;
 mod selection;
 mod selection_menu;
 #[cfg(test)]

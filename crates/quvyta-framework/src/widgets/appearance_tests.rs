@@ -266,6 +266,27 @@ fn the_box_decides_which_file_a_change_goes_to() {
 }
 
 #[test]
+fn an_application_with_no_home_folder_changes_its_theme_in_memory_and_writes_nothing() {
+    // The folder belongs to the test: a change that could be saved would land here, never in the
+    // person's own config folder.
+    let dir = folder("no-home");
+    let ecosystem = Ecosystem::QUVYTA;
+    let appearance =
+        Appearance::new(ecosystem, "code", Preferences::detected(&I18n::builtin())).in_folder(&dir).without_saving();
+    let state = Code { settings: Settings::in_memory(), appearance };
+    let mut app = Harness::with_env(state, Env::builtin(), 70, 24);
+    app.set_reduced_motion(true);
+    // The theme row, the way a person takes a theme from it: the row, then the list it unfolds,
+    // its last choice and Enter.
+    app.click_text("Theme").press("space").press("end").press("enter");
+    assert_eq!(app.app().appearance.preferences().theme().value, "nordic", "the preferences took it");
+    assert_eq!(app.env().theme().id(), "nordic", "and the screen shows it at once\n{}", app.screen());
+    assert!(fs::read_dir(&dir).expect("list").next().is_none(), "no file was written: there is none to write to");
+    assert!(!app.screen().contains("Applied, but not saved"), "and nothing failed\n{}", app.screen());
+    fs::remove_dir_all(&dir).expect("clean");
+}
+
+#[test]
 fn the_pillar_goes_to_the_applications_own_file() {
     let dir = folder("own");
     shared_file(&dir);

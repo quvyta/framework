@@ -1,7 +1,11 @@
 //! Focus and keys: focus order, the keymap and its labels, and the debug layer.
 
+use qframe::event::Event;
+use qframe::geometry::{Rect, Size};
 use qframe::keymap::Scope;
 use qframe::prelude::*;
+use qframe::style::CellStyle;
+use qframe::widget::{EventCx, MeasureCx, PaintCx, Widget};
 use qframe::widgets::TextInput;
 
 use super::PageMsg;
@@ -15,6 +19,8 @@ const PAGE: &str = "focus-keys";
 pub struct State {
     first: String,
     second: String,
+    /// What the key-taking screen was last given, and whether the application owns that key.
+    seen: Option<(String, bool)>,
 }
 
 /// Demo messages.
@@ -23,6 +29,8 @@ pub enum Msg {
     First(String),
     Second(String),
     Pressed,
+    /// A key the screen took, with the answer the keymap gave for it.
+    Seen(String, bool),
 }
 
 fn send(message: Msg) -> AppMsg {
@@ -40,9 +48,55 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             return Command::focus("first-field");
             // endregion
         }
+        Msg::Seen(key, reserved) => {
+            state.seen = Some((key.clone(), reserved));
+            let verdict = t!(if reserved { "focus-keys.reserved" } else { "focus-keys.own" });
+            log.push(PAGE, "Screen", format!("{key} {verdict}"));
+        }
     }
     Command::none()
 }
+
+// region: reserved-widget
+/// A widget that takes every key while it has focus and uses it, the shape an embedded page, an
+/// embedded terminal or a coding tool's own screen has: without asking, it would swallow the
+/// keys bound to the application's own actions and to the runtime's globals.
+struct Screen {
+    /// What was last taken, and whether the application owns it.
+    seen: Option<(String, bool)>,
+}
+
+impl Widget<AppMsg> for Screen {
+    fn measure(&self, _cx: &mut MeasureCx<'_>, available: Size) -> Size {
+        Size::new(available.width, 1)
+    }
+
+    fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
+        cx.register_hit(area);
+        let (line, colour) = match &self.seen {
+            Some((key, true)) => (format!("{key}  {}", t!("focus-keys.reserved")), "text"),
+            Some((key, false)) => (format!("{key}  {}", t!("focus-keys.own")), "muted"),
+            None => (t!("focus-keys.screen-idle").to_owned(), "muted"),
+        };
+        let style = CellStyle { fg: Some(cx.color(colour)), ..CellStyle::default() };
+        cx.text(area.x, area.y, &line, style, area.width);
+    }
+
+    fn event(&self, cx: &mut EventCx<'_, AppMsg>, event: &Event) -> bool {
+        let Event::Key(key) = event else { return false };
+        // is_reserved reads the keymap in force when the key arrives, so rebinding an action
+        // moves the answer without anything here changing.
+        let reserved = cx.is_reserved(&key.chord);
+        cx.emit(send(Msg::Seen(key.chord.label(), reserved)));
+        // A key the application owns is not this screen's to use, so it goes on as usual.
+        !reserved
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+}
+// endregion
 
 /// The live demo.
 pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
@@ -87,6 +141,12 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     })
     .fill_width();
 
+    ui.add_with(Panel::new().title(t!("focus-keys.screen")).gap(1), |ui| {
+        ui.add(Text::new(t!("focus-keys.screen-hint")).role("secondary"));
+        ui.add(Screen { seen: state.seen.clone() }).fill_width().id("screen");
+    })
+    .fill_width();
+
     ui.add_with(Panel::new().title(t!("focus-keys.debug")), |ui| {
         ui.add(Text::new(t!("focus-keys.debug-hint")).role("secondary"));
     })
@@ -106,5 +166,30 @@ mod tests {
         h.type_text("hi");
         assert_eq!(h.app().pages.focus_keys.first, "hi");
         assert!(h.screen().contains("ctrl q"));
+    }
+
+    #[test]
+    fn the_screen_lets_the_applications_own_keys_go_on_and_uses_the_rest() {
+        let mut h = showcase_on(PAGE);
+        h.click_text("Click here and press keys");
+        assert!(h.is_focused("screen"), "the screen took the click and the keys with it");
+        h.press("ctrl+l");
+        assert_eq!(
+            h.app().pages.focus_keys.seen,
+            Some(("ctrl l".to_owned(), false)),
+            "the showcase binds no action to ctrl+l, so the key is the screen's own"
+        );
+        h.press("ctrl+b");
+        assert_eq!(
+            h.app().pages.focus_keys.seen,
+            Some(("ctrl b".to_owned(), true)),
+            "the showcase binds ctrl+b to its own menu action"
+        );
+        h.press("ctrl+q");
+        assert_eq!(
+            h.app().pages.focus_keys.seen,
+            Some(("ctrl q".to_owned(), true)),
+            "quitting is one of the runtime's own actions"
+        );
     }
 }

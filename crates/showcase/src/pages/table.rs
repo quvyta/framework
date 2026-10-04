@@ -128,6 +128,10 @@ pub struct State {
     sortable: bool,
     narrow: bool,
     icons: bool,
+    /// Whether Space is the table's own or the application's play and pause.
+    space_activates: bool,
+    /// Whether the player is playing, which the application's own Space changes.
+    playing: bool,
     /// Whether every row carries a menu of its own.
     menu: bool,
     /// Whether Enter and a click open a row's menu instead of the row.
@@ -151,6 +155,8 @@ impl Default for State {
             sortable: true,
             narrow: false,
             icons: true,
+            space_activates: true,
+            playing: true,
             menu: true,
             menu_on_activate: false,
             asked: String::new(),
@@ -172,6 +178,9 @@ pub enum Msg {
     Icons(bool),
     Menu(bool),
     MenuOnActivate(bool),
+    SpaceActivates(bool),
+    /// Space reached the application itself, as it does in a music player.
+    PlayPause,
     /// A row's own menu was used on the row of this index and name, for this action.
     RowAction(usize, String, &'static str),
 }
@@ -278,6 +287,14 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             state.menu_on_activate = on;
             log.push(PAGE, "Playground", format!("menu on activate = {on}"));
         }
+        Msg::SpaceActivates(on) => {
+            state.space_activates = on;
+            log.push(PAGE, "Playground", format!("space activates a row = {on}"));
+        }
+        Msg::PlayPause => {
+            state.playing = !state.playing;
+            log.push(PAGE, "Playground", if state.playing { "playing" } else { "paused" });
+        }
         // region: table-menu-update
         Msg::RowAction(index, name, action) => {
             // The menu says which row it was opened on, so the action never lands on the row the
@@ -288,6 +305,15 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
     }
     Command::none()
 }
+
+// region: table-space
+/// The page's own answer to the `space` its keymap binds to play and pause, the way a music
+/// player does. It is only reached while the table gives the key up: a table that keeps it with
+/// `space_activates` sends `on_activate` instead and the key never arrives here.
+pub fn action(name: &str) -> Option<AppMsg> {
+    (name == "table-space").then(|| send(Msg::PlayPause))
+}
+// endregion
 
 // region: table-icons
 /// The glyph before a container's name: its program's own glyph where the terminal has a Nerd
@@ -399,6 +425,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         let mut table = table
             .selected(state.selected)
             .empty_text(t!("table.empty"))
+            .space_activates(state.space_activates)
             .on_select(|index| send(Msg::Select(index)))
             .on_activate(|index| send(Msg::Activate(index)));
         if state.sortable {
@@ -423,6 +450,11 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         // endregion
         let width = if state.narrow { Length::Cells(46) } else { Length::Fill(1) };
         ui.add(table).width(width).height(Length::Cells(10)).id("rows");
+        if !state.space_activates {
+            // What the application's own Space did, said under the rows that gave the key up.
+            let playing = if state.playing { "table.playing" } else { "table.paused" };
+            ui.add(Text::new(t!(playing)).role("faint").no_wrap());
+        }
         if !state.asked.is_empty() {
             ui.add(Text::new(state.asked.clone()).role("faint").no_wrap());
         }
@@ -454,6 +486,9 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         setting(ui, t!("table.menu-on-activate"), |ui| {
             ui.add(toggle(state.menu_on_activate, |on| send(Msg::MenuOnActivate(on)))).id("menu-on-activate");
         });
+        setting(ui, t!("table.space-activates"), |ui| {
+            ui.add(toggle(state.space_activates, |on| send(Msg::SpaceActivates(on)))).id("space-activates");
+        });
         slide_setting(ui, PAGE);
         ui.add(Text::new(t!("table.keys")).role("faint"));
     })
@@ -465,12 +500,17 @@ mod tests {
     use super::*;
     use crate::tests::showcase_on;
 
+    /// Clicks the playground switch that stands after the label `label`.
+    fn switch(h: &mut Harness<crate::app::Showcase>, label: &str) {
+        // The switches stand after their labels' column of 24 cells.
+        let (x, y) = h.find(label).unwrap_or_else(|| panic!("{label} is on screen:\n{}", h.screen()));
+        h.click(x + 25, y);
+    }
+
     #[test]
     fn with_the_menu_as_the_action_a_click_on_a_row_opens_its_menu() {
         let mut h = showcase_on(PAGE);
-        // The switch stands right after its label's column of 24 cells.
-        let (x, y) = h.find("Menu on Enter and click").expect("the playground row is on screen");
-        h.click(x + 25, y);
+        switch(&mut h, "Menu on Enter and click");
         assert!(h.app().pages.table.menu_on_activate, "the switch turned it on");
         h.set_reduced_motion(true).click_text("postgres").render();
         assert_eq!(h.app().pages.table.selected, Some(1));
@@ -508,11 +548,6 @@ mod tests {
         assert!(h.screen().contains("\u{e76e} postgres"), "the program's own glyph in Nerd mode:\n{}", h.screen());
         h.set_glyph_mode(GlyphMode::Ascii);
         let project = h.env().icons().glyph("project").into_owned();
-        // The playground's switches stand after their labels' column of 24 cells.
-        let switch = |h: &mut Harness<crate::app::Showcase>, label: &str| {
-            let (x, y) = h.find(label).unwrap_or_else(|| panic!("{label} is on screen:\n{}", h.screen()));
-            h.click(x + 25, y);
-        };
         switch(&mut h, "Narrow, scroll sideways");
         assert!(h.screen().contains(&format!("{project} worker-e~")), "cut with the ASCII mark: {}", h.screen());
         switch(&mut h, "Icons before names");
@@ -554,5 +589,33 @@ mod tests {
         }
         assert!(h.screen().contains("Port"), "the arrow scrolled to the last column:\n{}", h.screen());
         assert!(h.find("◀").is_some(), "{}", h.screen());
+    }
+
+    #[test]
+    fn space_is_the_applications_own_where_the_table_gives_it_up() {
+        let newest =
+            |h: &Harness<crate::app::Showcase>| h.app().log.recent(PAGE, 1).first().map(|entry| entry.message.clone());
+        let opened = |h: &Harness<crate::app::Showcase>| {
+            h.app().log.recent(PAGE, 20).iter().filter(|entry| entry.message == "activated 1").count()
+        };
+        let mut h = showcase_on(PAGE);
+        switch(&mut h, "A menu on every row");
+        assert!(!h.app().pages.table.menu, "the switch took the row menus away");
+        switch(&mut h, "Space opens the row");
+        assert!(!h.app().pages.table.space_activates, "the switch handed Space to the application");
+        h.click_text("postgres").press("space");
+        assert_eq!(opened(&h), 1, "the click opened the row and Space did not open it again");
+        assert_eq!(newest(&h).as_deref(), Some("paused"), "Space reached the application's own action");
+        assert!(h.screen().contains("Paused"), "and the demo says so under the rows:\n{}", h.screen());
+        h.press("space");
+        assert_eq!(newest(&h).as_deref(), Some("playing"), "and pressing it again plays it again");
+        assert_eq!(opened(&h), 1, "while no row was opened either time");
+
+        let mut h = showcase_on(PAGE);
+        switch(&mut h, "A menu on every row");
+        h.click_text("postgres").press("space");
+        assert_eq!(opened(&h), 2, "with the switch as it was, Space opens the row as well");
+        let entries: Vec<&str> = h.app().log.recent(PAGE, 20).iter().map(|entry| entry.message.as_str()).collect();
+        assert!(!entries.contains(&"paused"), "and the application's own action never ran: {entries:?}");
     }
 }

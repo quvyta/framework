@@ -29,6 +29,25 @@ Bir eylem, odak ekranın belli bir parçasındayken başka bir anlama da gelebil
 
 Uygulamanın kendi bağlamalarının diskte bir dosya olması şart değil. `Runtime::keymap_source(dosya, metin)` TOML metninin kendisini alır; bu metin genelde deponuzdaki kısayol dosyasının `include_str!`'ıdır, böylece kurulan ikili tuşlarını kendi taşır. `CARGO_MANIFEST_DIR`'den kurulan bir yol, ikili başka bir yere kurulunca kırılır. Ayrıca verilen bir `keymap_file` artık zorunlu değildir: okunamadığında metin onun yerine geçer ve sebep, programı durdurmak yerine bir tanılamaya dönüşür. Bozuk bir satır dosya, satır ve sütunuyla bildirilip atlanır; gömülü bağlamalar çalışmaya devam eder.
 
+## Her tuşu alan bir bileşen
+
+Odaktayken her tuşu kullanan bir bileşen — gömülü bir sayfa, gömülü bir terminal, bir kodlama aracının kendi ekranı — yoksa uygulamanın kendi eylemlerine bağlı tuşları ve çalışma motorunun hep kendi işlediği tuşları yutar. Gelen her tuşu sor ve bu bileşenin olmayanları geçir:
+
+```rust
+fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
+    let Event::Key(key) = event else { return false };
+    if cx.is_reserved(&key.chord) {
+        return false;   // uygulamaya gider
+    }
+    self.typed.push(key.chord.label());
+    true
+}
+```
+
+Cevap, tuş geldiği andaki kısayol haritasından gelir; böylece kullanıcı kısayol haritası dosyasından bir eylemi yeniden bağladığında cevap onunla birlikte taşınır ve bileşende hiçbir şey değişmez. `cx.reserved_action(&key.chord)` bunu adıyla da söyler: tuşun bağlı olduğu `Scope` ve eylemin adı, geçirdiği şeyi söyleyen bir ekran için.
+
+Uygulamaya ait olan iki şey vardır: `[app]` içindeki bir eylem ve çalışma motorunun hep kendi işlediği bir global eylem — `quit`, `focus-next`, `focus-prev`, `debug`, `copy`, `paste`, `toggle-panel`. Çalışma motorunun yalnızca `App::action`'a ilettiği global eylemler, `help` ve `palette` gibi, bunların arasında değildir: motor onların kendisi bir şey yapmaz, bu yüzden her tuşu alan bir ekranın `f1`'i kendine alıp almayacağı ekranın kendi kararıdır.
+
 ## İpucu etiketleri dilden gelir
 
 İpucu çubuğu etiketleri dil anahtarlarından okur: global eylemler için `quvyta.keys.<eylem>`, seninkiler için `keys.<eylem>`. Dili değiştirince her ipucu da değişir.

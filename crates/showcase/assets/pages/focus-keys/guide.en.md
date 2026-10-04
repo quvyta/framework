@@ -29,6 +29,25 @@ An action can also mean something else while focus is inside one part of the scr
 
 The application's own bindings do not have to be a file on disk. `Runtime::keymap_source(file, text)` takes the TOML text itself, usually an `include_str!` of the keymap in your repository, so the installed binary carries its keys; a path built from `CARGO_MANIFEST_DIR` breaks once the binary is installed somewhere else. A `keymap_file` named as well is then optional: when it cannot be read the text stands in for it and the reason becomes a diagnostic instead of stopping the program. A broken entry is skipped with its file, line and column, and the built-in bindings keep working.
 
+## A widget that takes every key
+
+A widget that uses every key while it has focus — an embedded page, an embedded terminal, a coding tool's own screen — would otherwise swallow the keys bound to the application's own actions and the ones the runtime always handles itself. Ask about each key that arrives and leave the ones that are not this widget's:
+
+```rust
+fn event(&self, cx: &mut EventCx<'_, Msg>, event: &Event) -> bool {
+    let Event::Key(key) = event else { return false };
+    if cx.is_reserved(&key.chord) {
+        return false;   // it goes on to the application
+    }
+    self.typed.push(key.chord.label());
+    true
+}
+```
+
+The answer comes from the keymap in force when the key arrived, so a person who rebinds an action in their keymap file moves the answer with it and nothing in the widget changes. `cx.reserved_action(&key.chord)` names it as well, giving the `Scope` the key is bound in and the action's name, for a screen that says which one it let through.
+
+Two things are the application's: an action of `[app]`, and a global action the runtime always handles itself — `quit`, `focus-next`, `focus-prev`, `debug`, `copy`, `paste`, `toggle-panel`. Global actions the runtime only hands to `App::action`, such as `help` and `palette`, are not among them: the runtime does not act on those itself, so whether a key-taking screen keeps `f1` for itself is the screen's own decision.
+
 ## Hint labels come from the language
 
 The hint bar reads labels from locale keys: `quvyta.keys.<action>` for global actions and `keys.<action>` for yours. Switch the language and every hint follows.

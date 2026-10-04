@@ -506,13 +506,16 @@ mod tests {
         open: bool,
         /// Whether a row can be opened, which is what puts `enter` in the help.
         activates: bool,
+        /// Check marks on the rows, and whether Space checks them (`Some(false)` leaves it to the
+        /// application); `None` shows no marks.
+        marks: Option<bool>,
         selected: Option<usize>,
         opened: Vec<usize>,
     }
 
     impl Default for Rows {
         fn default() -> Self {
-            Self { open: false, activates: false, selected: Some(0), opened: Vec::new() }
+            Self { open: false, activates: false, marks: None, selected: Some(0), opened: Vec::new() }
         }
     }
 
@@ -539,6 +542,10 @@ mod tests {
             let rows = ["web", "api"].map(|name| TableRow::new([name]));
             let table = Table::new([Column::new("Deploy")], rows).selected(self.selected).on_select(RowMsg::Select);
             let table = if self.activates { table.on_activate(RowMsg::Open) } else { table };
+            let table = match self.marks {
+                Some(space) => table.checked(vec![false; 2]).on_toggle(RowMsg::Select).space_activates(space),
+                None => table,
+            };
             ui.column(|ui| {
                 ui.add(table).id("rows");
                 ui.add(Button::new("Save").on_press(RowMsg::Close)).id("save");
@@ -594,6 +601,20 @@ mod tests {
         let group = screen_group(&h);
         assert!(group.contains("↑↓"), "{group}");
         assert!(!group.contains("enter"), "a table with nothing to open says nothing about Enter:\n{group}");
+    }
+
+    #[test]
+    fn a_table_that_leaves_space_to_the_application_lists_no_space_line() {
+        let help = |marks| {
+            let mut h = Harness::new(Rows { marks: Some(marks), ..Rows::default() }, 70, 26);
+            h.press("tab").press("?").advance(Duration::from_millis(200));
+            screen_group(&h)
+        };
+        let checking = help(true);
+        assert!(checking.contains("space") && checking.contains("check"), "Space checks a row:\n{checking}");
+        let leaving = help(false);
+        assert!(leaving.contains("↑↓"), "the table's other keys are listed:\n{leaving}");
+        assert!(!leaving.contains("space"), "Space is the application's, not the table's:\n{leaving}");
     }
 
     #[test]

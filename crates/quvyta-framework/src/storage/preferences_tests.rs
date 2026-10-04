@@ -94,6 +94,31 @@ fn a_missing_shared_file_is_created_with_the_detected_values() {
 }
 
 #[test]
+fn detected_gives_the_values_a_missing_file_gives() {
+    let dir = folder("detected-alone");
+    let i18n = I18n::builtin();
+    let detected = Preferences::detected(&i18n);
+    let resolved = Ecosystem::QUVYTA.preferences_in(&dir, "code", &i18n);
+    assert_eq!(detected, resolved, "no folder at all and an empty one resolve the same preferences");
+    // The shared file that resolution wrote holds them, so the values compared above are the ones a
+    // machine really produces rather than the constructor against itself.
+    assert_eq!(
+        read(&dir, "quvyta.conf"),
+        format!(
+            "language = \"{}\"\ntheme = \"{}\"\nicons = \"{}\"\n",
+            detected.language().value,
+            detected.theme().value,
+            detected.icons().value.name()
+        )
+    );
+    for key in Shared::ALL {
+        assert_eq!(detected.source(key), Source::Detected, "{key:?} was detected, not read");
+    }
+    assert!(detected.diagnostics().is_empty(), "{:?}", detected.diagnostics());
+    fs::remove_dir_all(&dir).expect("clean");
+}
+
+#[test]
 fn a_broken_line_falls_back_to_the_detected_value_with_a_located_diagnostic() {
     let dir = folder("broken");
     write(&dir, "quvyta.conf", "language = \"de\"\ntheme = \nicons = \"sparkly\"\n");

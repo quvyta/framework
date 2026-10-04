@@ -218,7 +218,7 @@ mod tests {
 
     use super::*;
     use crate::app::Showcase;
-    use crate::tests::showcase_tall;
+    use crate::tests::{click_segment, click_setting, showcase_tall};
 
     /// The page as a person reaches it, tall enough for the playground below the demo.
     fn page() -> Harness<Showcase> {
@@ -276,6 +276,8 @@ mod tests {
         let (x, y) = h.find("Play the demo").expect("the demo's switch is on screen");
         h.click(x + 25, y);
         assert!(h.app().pages.level_bars.playing);
+        // The application's own remembered setting, written by the switch on another page, and the
+        // frame of the demo's clock: neither is a control on this page.
         h.send(AppMsg::ReducedMotion(true));
         h.send(send(Msg::Tick(h.app().pages.level_bars.generation)));
         assert!(!h.app().pages.level_bars.playing, "reduced motion stops the demo at once");
@@ -291,18 +293,18 @@ mod tests {
         played(&mut h);
         let plain = columns(&h);
         assert!(plain.contains('█'), "the playground starts with a plain row:\n{plain}");
-        h.send(send(Msg::Bands(2)));
+        click_segment(&mut h, "Bands", "200");
         let merged = columns(&h);
         assert_ne!(merged, plain, "two hundred bands are merged into the same columns:\n{merged}");
-        h.send(send(Msg::Bands(0)));
-        h.send(send(Msg::Peaks(false)));
+        click_segment(&mut h, "Bands", "24");
+        click_setting(&mut h, "Peak caps");
         assert_ne!(columns(&h), plain, "a cap is a mark of its own, not more of the column");
-        h.send(send(Msg::Peaks(true)));
+        click_setting(&mut h, "Peak caps");
         assert_eq!(columns(&h), plain, "and the caps come back");
-        h.send(send(Msg::Mirror(true)));
+        click_setting(&mut h, "Mirror");
         let mirrored = columns(&h);
         assert_ne!(mirrored, plain, "a mirrored row grows from the middle:\n{mirrored}");
-        h.send(send(Msg::Height(3)));
+        click_segment(&mut h, "Height", "4");
         assert_ne!(columns(&h), mirrored, "and four rows stand for more of the spectrum");
     }
 
@@ -324,9 +326,9 @@ mod tests {
         let mut h = page();
         played(&mut h);
         // With the caps off, only the gradient speaks for the colour of a column.
-        h.send(send(Msg::Peaks(false)));
+        click_setting(&mut h, "Peak caps");
         assert!(tones_down_a_column(&h) > 1, "the column deepens from its base to its top");
-        h.send(send(Msg::Gradient(false)));
+        click_setting(&mut h, "Gradient");
         assert_eq!(tones_down_a_column(&h), 1, "and without the gradient it is one tone");
     }
 

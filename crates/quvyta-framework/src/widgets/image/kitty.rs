@@ -16,7 +16,7 @@
 use ratatui_core::buffer::Buffer;
 use ratatui_core::style::{Color, Modifier};
 
-use super::resample::{self, Half};
+use super::resample::{self, CellKey, Half};
 use super::{Fit, Image, ImageData, paint_half};
 use crate::color::Rgb;
 use crate::geometry::Rect;
@@ -273,20 +273,19 @@ pub(crate) struct Halves {
 /// Half-block cells of one picture.
 #[derive(Debug)]
 struct Worked {
-    /// The picture, the area's width and height, and the fit.
-    key: (u64, u16, u16, Fit),
+    key: CellKey,
     cells: Vec<Half>,
     /// Whether the frame being resolved used them.
     used: bool,
 }
 
 impl Halves {
-    fn cells(&mut self, picture: &Picture) -> &[Half] {
-        let key = (picture.data.id(), picture.area.width, picture.area.height, picture.fit);
+    fn cells(&mut self, picture: &Picture, cell: Option<(u16, u16)>) -> &[Half] {
+        let key = (picture.data.id(), picture.area.width, picture.area.height, picture.fit, cell);
         let index = match self.entries.iter().position(|entry| entry.key == key) {
             Some(index) => index,
             None => {
-                let cells = resample::cells(&picture.data, key.1, key.2, key.3);
+                let cells = resample::cells(&picture.data, key.1, key.2, key.3, cell);
                 self.entries.push(Worked { key, cells, used: false });
                 self.entries.len() - 1
             }
@@ -338,12 +337,14 @@ pub(crate) enum Placing {
 /// frame, blended as the blend blended them, while the rest stays pixels. When the free cells
 /// need more than [`MOST_PLACES`] rectangles, the whole picture is drawn with half blocks for
 /// that frame. `halves` is whether the terminal can show half blocks; where it cannot, those
-/// cells keep the ground.
+/// cells keep the ground. `cell` is the size of a cell in the terminal's pixels, `None` where it
+/// reports none; it decides the shape of those half blocks.
 pub(crate) fn resolve(
     buf: &mut Buffer,
     pictures: &[Picture],
     dims: &[Dim],
     cache: &mut Halves,
+    cell: Option<(u16, u16)>,
     halves: bool,
     placing: Placing,
 ) -> Vec<PicturePlacement> {
@@ -400,7 +401,7 @@ pub(crate) fn resolve(
             }
         };
         if halves && !halved.is_empty() {
-            let cells = cache.cells(picture);
+            let cells = cache.cells(picture, cell);
             let columns = usize::from(picture.area.width);
             for (x, y) in halved {
                 let (Ok(column), Ok(row)) = (usize::try_from(x - picture.area.x), usize::try_from(y - picture.area.y))

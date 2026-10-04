@@ -36,7 +36,14 @@ pub fn showcase_on(page: &str) -> Harness<Showcase> {
 /// A harness showing `page` of `showcase` in a terminal `height` rows tall, for pages whose lower
 /// panels sit below the rows of `SIZE`.
 pub fn showcase_tall(showcase: Showcase, page: &str, height: u16) -> Harness<Showcase> {
-    let mut harness = Harness::with_env(showcase, env(), SIZE.0, height);
+    showcase_wide(showcase, page, SIZE.0, height)
+}
+
+/// [`showcase_tall`] in a terminal `width` cells wide, for a page whose panel draws something the
+/// columns of [`SIZE`] break in two, such as a path longer than the home folder of the machine the
+/// tests run on.
+pub fn showcase_wide(showcase: Showcase, page: &str, width: u16, height: u16) -> Harness<Showcase> {
+    let mut harness = Harness::with_env(showcase, env(), width, height);
     harness.set_locale("en").set_glyph_mode(GlyphMode::Unicode);
     harness.send(Msg::Open(page.to_owned()));
     // Let the page transition finish so tests see the page itself.
@@ -44,16 +51,52 @@ pub fn showcase_tall(showcase: Showcase, page: &str, height: u16) -> Harness<Sho
     harness
 }
 
+/// The cell of the first occurrence of `text` at or below `row`.
+fn find_below(harness: &Harness<Showcase>, text: &str, row: i32) -> Option<(i32, i32)> {
+    let screen = harness.screen();
+    let skip = usize::try_from(row).unwrap_or(0);
+    screen.lines().enumerate().skip(skip).find_map(|(y, line)| {
+        let column = line[..line.find(text)?].chars().count();
+        Some((i32::try_from(column).ok()?, i32::try_from(y).ok()?))
+    })
+}
+
+/// The row the playground's own controls stand in. A hint above the demo names an option in its
+/// own sentence now and then, as `Reorderable` and `Add button` do, so a control is looked for
+/// under this title and not from the top of the screen.
+fn playground_row(harness: &Harness<Showcase>) -> i32 {
+    harness
+        .find("PLAYGROUND")
+        .map_or_else(|| panic!("the playground is on screen:\n{}", harness.screen()), |(_, row)| row + 1)
+}
+
+/// Clicks the switch of the playground row labelled `label`; every playground switch stands after
+/// the label's column of 24 cells.
+pub fn click_setting(harness: &mut Harness<Showcase>, label: &str) {
+    let first = playground_row(harness);
+    let (x, y) = find_below(harness, label, first)
+        .unwrap_or_else(|| panic!("the {label} row is on screen:\n{}", harness.screen()));
+    harness.click(x + 25, y);
+}
+
+/// Clicks the segment `text` of the playground row labelled `label`. A segment names itself on
+/// another row too sometimes, as `16` does in a tab width above a cap, so the click is taken where
+/// the label says the segment stands.
+pub fn click_segment(harness: &mut Harness<Showcase>, label: &str, text: &str) {
+    let first = playground_row(harness);
+    let (_, y) = find_below(harness, label, first)
+        .unwrap_or_else(|| panic!("the {label} row is on screen:\n{}", harness.screen()));
+    let screen = harness.screen();
+    let row = screen.lines().nth(usize::try_from(y).unwrap_or(0)).unwrap_or_default();
+    let at = row.find(text).unwrap_or_else(|| panic!("{text} on the {label} row:\n{screen}"));
+    harness.click(i32::try_from(row[..at].chars().count()).expect("on screen"), y);
+}
+
 /// Clicks the first occurrence of `text` at or below `row`. Menus open under the text they act
 /// on, while hints above may name the same entries.
 pub fn click_text_below(harness: &mut Harness<Showcase>, text: &str, row: i32) {
-    let screen = harness.screen();
-    let skip = usize::try_from(row).unwrap_or(0);
-    let found = screen.lines().enumerate().skip(skip).find_map(|(y, line)| {
-        let column = line[..line.find(text)?].chars().count();
-        Some((i32::try_from(column).ok()?, i32::try_from(y).ok()?))
-    });
-    let (x, y) = found.unwrap_or_else(|| panic!("`{text}` is not on screen below row {row}:\n{screen}"));
+    let (x, y) = find_below(harness, text, row)
+        .unwrap_or_else(|| panic!("`{text}` is not on screen below row {row}:\n{}", harness.screen()));
     harness.click(x, y);
 }
 

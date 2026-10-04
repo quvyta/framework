@@ -1,4 +1,4 @@
-//! Big text: a clock, a counter and a title drawn from block elements.
+//! Big text: a clock, a counter, a title in any Latin alphabet and one drawn as plain text.
 
 use qframe::prelude::*;
 use qframe::widgets::{BigText, Gradient, Segmented, Select};
@@ -9,8 +9,9 @@ use crate::log::EventLog;
 
 const PAGE: &str = "big-text";
 
-/// Words the playground can show.
-const WORDS: [&str; 4] = ["14:32", "99.9%", "DEPLOYED", "QUVYTA"];
+/// Words the playground can show: a Turkish word, and one in a script this font has no form for,
+/// which the text asks about with `BigText::fits`.
+const WORDS: [&str; 6] = ["14:32", "99.9%", "DEPLOYED", "QUVYTA", "ÇAĞRI", "Привет"];
 
 /// The deploy counter and the playground settings.
 #[derive(Debug, Default)]
@@ -90,6 +91,11 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
         })
         .gap(6);
         ui.spacer().height(Length::Cells(1));
+        ui.add(Text::new(t!("big-text.letters")).role("faint"));
+        // region: accented
+        ui.add(BigText::new("AŞK İÇİNDE CAFÉ").variant("accent"));
+        // endregion
+        ui.spacer().height(Length::Cells(1));
         ui.add(Text::new(t!("big-text.logo")).role("faint"));
         // region: logo
         ui.add(BigText::new("QUVYTA").variant("accent").gradient("info", Gradient::Columns));
@@ -134,9 +140,18 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
 #[cfg(test)]
 mod tests {
     use qframe::color::Rgb;
+    use qframe::runtime::Harness;
 
     use super::*;
+    use crate::app::Showcase;
     use crate::tests::showcase_on;
+
+    /// Opens the playground's word list, which shows the word chosen now, and picks `word` in it.
+    fn choose_word(h: &mut Harness<Showcase>, word: &str) {
+        let current = WORDS[h.app().pages.big_text.word];
+        h.click_text(current).advance(std::time::Duration::from_millis(200));
+        h.click_text(word).advance(std::time::Duration::from_millis(200));
+    }
 
     #[test]
     fn counter_grows_in_big_digits() {
@@ -145,8 +160,23 @@ mod tests {
         h.click_text("Record a deploy");
         h.click_text("Record a deploy");
         assert_eq!(h.app().pages.big_text.deploys, 2);
-        h.send(send(Msg::Word(2)));
+        choose_word(&mut h, "DEPLOYED");
         assert_eq!(h.app().pages.big_text.word, 2);
+    }
+
+    #[test]
+    fn a_turkish_title_is_drawn_big_where_a_word_without_a_form_stays_plain() {
+        let mut h = showcase_on(PAGE);
+        let screen = h.screen();
+        let (_, y) =
+            h.find("Turkish and accented letters").unwrap_or_else(|| panic!("the caption is on screen:\n{screen}"));
+        // The row under the caption is where the figure stands.
+        let below = screen.lines().nth(usize::try_from(y).unwrap_or(0) + 1).unwrap_or_default();
+        assert!(below.chars().any(|c| "▄▀█".contains(c)), "the Turkish title is drawn from block elements:\n{screen}");
+
+        choose_word(&mut h, "Привет");
+        let (x, y) = h.find("Привет").unwrap_or_else(|| panic!("the word is drawn as itself:\n{}", h.screen()));
+        assert!(h.is_bold(u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0)), "in bold, not glyphs");
     }
 
     #[test]

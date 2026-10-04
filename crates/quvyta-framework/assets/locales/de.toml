@@ -86,6 +86,23 @@ copy-many                = { one = "{n} Eintrag kopieren", other = "{n} Einträg
 drop-copy                = "Kopieren abbrechen"
 trash                    = "In den Papierkorb"
 trash-many               = { one = "{n} Eintrag in den Papierkorb", other = "{n} Einträge in den Papierkorb" }
+trash-place              = "Papierkorb"
+leave-trash             = "Zurück zum Ordner"
+open-trash               = "Papierkorb öffnen"
+restore                  = "Wiederherstellen"
+restore-many             = { one = "{n} Eintrag wiederherstellen", other = "{n} Einträge wiederherstellen" }
+restore-as               = "Als {name} wiederherstellen"
+restore-clash-title      = "{name} steht im Weg"
+restore-clash-text       = "Etwas mit diesem Namen ist bereits vorhanden, daher kann es stattdessen als {free} wiederhergestellt werden. Nichts Vorhandenes wird überschrieben."
+delete-permanently       = "Endgültig löschen"
+delete-permanently-many  = { one = "{n} Eintrag endgültig löschen", other = "{n} Einträge endgültig löschen" }
+purge-title              = "{name} endgültig löschen?"
+purge-text               = "{name} wird aus dem Papierkorb gelöscht, einschließlich aller Inhalte. Das kann nicht rückgängig gemacht werden."
+purge-many-title         = { one = "{n} Eintrag aus dem Papierkorb endgültig löschen?", other = "{n} Einträge aus dem Papierkorb endgültig löschen?" }
+purge-many-text          = "Die {n} Einträge werden aus dem Papierkorb gelöscht, Ordner einschließlich aller Inhalte. Das kann nicht rückgängig gemacht werden."
+empty-trash              = "Papierkorb leeren"
+empty-title              = "Papierkorb leeren?"
+empty-text               = { one = "Der Eintrag im Papierkorb wird endgültig gelöscht. Das kann nicht rückgängig gemacht werden.", other = "Die {n} Einträge im Papierkorb werden endgültig gelöscht. Das kann nicht rückgängig gemacht werden." }
 delete-forever           = "Endgültig löschen"
 no-trash-title           = "{name} endgültig löschen?"
 no-trash-text            = "Es gibt keinen Papierkorb für {name}, es kann also nicht beiseitegelegt werden. Löschen kann nicht zurückgenommen werden."
@@ -94,6 +111,8 @@ no-trash-many-text       = "Es gibt keinen Papierkorb dafür, sie können also n
 not-readable             = "Du darfst nicht sehen, was in diesem Ordner liegt."
 missing                  = "Das ist nicht mehr da."
 no-trash                 = "Es gibt keinen Papierkorb, in den das gehen kann."
+no-origin                = "Es gibt keine Angabe, woher das stammt, daher kann es nicht wiederhergestellt werden."
+taken-as                 = "Etwas mit diesem Namen steht im Weg, daher kann es stattdessen als {free} wiederhergestellt werden; nichts Vorhandenes wird überschrieben."
 no-room                  = "Auf der Festplatte ist kein Platz mehr."
 stopped                  = "Du hast das angehalten, und das Geschriebene wurde wieder entfernt."
 copying                  = { one = "{n} Eintrag wird kopiert", other = "{n} Einträge werden kopiert" }
@@ -105,6 +124,8 @@ column-name              = "Name"
 column-size              = "Größe"
 column-modified          = "Geändert"
 column-permissions       = "Rechte"
+column-from              = "Von"
+origin-unknown           = "unbekannt"
 reading                  = "Ordner wird gelesen"
 entries                  = { one = "{n} Eintrag", other = "{n} Einträge" }
 up                       = "Einen Ordner aufwärts"

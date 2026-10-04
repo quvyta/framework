@@ -19,3 +19,6 @@ terminal-focus = "ctrl+alt+space"
 # The help-layer page's own layer, opened from wherever the focus is, so the keys it lists are
 # those of the widget under it rather than of the button that opened it.
 screen-keys = "f5"
+# Space is the application's own on the table page, as it is in a music player; the table gives it
+# up there and only there.
+table-space = "space"

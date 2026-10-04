@@ -11,9 +11,11 @@ impl<Msg: Clone + 'static> FileManager<'_, Msg> {
     /// Claims the clipboard keys on `node`, the node holding the rows, for what can be done now.
     ///
     /// A key with nothing to act on is left unclaimed, so it does what it does without the
-    /// manager: Ctrl+C and Ctrl+X with no entry selected, Ctrl+V with nothing waiting.
+    /// manager: Ctrl+C and Ctrl+X with no entry selected, Ctrl+V with nothing waiting. The trash
+    /// claims none of them: an entry of it is not below the root, so cutting or copying one there
+    /// would hand a paste a key it must not act on.
     pub(super) fn claim_clipboard<'v>(&self, node: NodeMut<'v, Msg>) -> NodeMut<'v, Msg> {
-        if self.disabled {
+        if self.disabled || self.state.in_trash() {
             return node;
         }
         let mut node = node;

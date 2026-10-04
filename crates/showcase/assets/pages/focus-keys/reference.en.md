@@ -20,6 +20,8 @@
 - `Command::focus(name)` — focus a named widget.
 - `NodeMut::on_action(scope, action, msg)` — while focus is on the node or inside it, the action sends `msg` instead of reaching `App::action`. The innermost answering node wins; keys the focused widget uses and the runtime's own actions (`quit`, `focus-next`, `focus-prev`, `debug`, `copy`, `paste`, `toggle-panel`) are never answered. Call once per action.
 - `NodeMut::on_clipboard(ClipboardKey::Cut | Copy | Paste, msg)` — while focus is on the node or inside it, `ctrl+x`, the keys of `copy` or the keys of `paste` send `msg`, for a list of things other than text, such as a file manager's rows. Text selected with the mouse keeps all three while it is there, and the focused widget sees the key first, so a text field keeps copying and cutting its own text. The innermost claiming node wins. Call once per key.
+- `EventCx::is_reserved(&chord) -> bool` — whether the chord is bound in the keymap in force to an application action, or to a global action the runtime always handles itself (`quit`, `focus-next`, `focus-prev`, `debug`, `copy`, `paste`, `toggle-panel`). A widget that takes every key while it has focus returns `false` for these and lets them go on; a global action the runtime only hands to `App::action`, such as `help` and `palette`, is not reserved.
+- `EventCx::reserved_action(&chord) -> Option<(Scope, String)>` — the same answer, naming the action and the scope it is bound in; `None` for a key bound to nothing.
 - `Keymap::parse`, `.overlay`, `.bind`, `.action_for(chord)`, `.chords_for(scope, action)`, `.iter()`, `.conflicts()`.
 - `Scope::Global`, `Scope::App`, `scope.label_key(action)`.
 - `KeyChord` parses `"ctrl+shift+p"`; `.label()` gives `ctrl shift p`.

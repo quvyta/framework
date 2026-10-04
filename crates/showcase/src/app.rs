@@ -403,6 +403,10 @@ impl App for Showcase {
         pages::getting_started::resized(size)
     }
 
+    fn cell_pixels(&self, cell: Option<(u16, u16)>) -> Option<Msg> {
+        pages::getting_started::cell_pixels(cell)
+    }
+
     fn before_quit(&self) -> Option<Msg> {
         pages::getting_started::before_quit(&self.pages.getting_started)
     }
@@ -505,6 +509,7 @@ impl App for Showcase {
             "palette" => Some(Msg::Layers(crate::layers::Msg::Palette(true))),
             "window-cycle" if self.router.current() == "windows" => pages::windows::action(name),
             "screen-keys" if self.router.current() == "help-layer" => pages::help_layer::action(name),
+            "table-space" if self.router.current() == "table" => pages::table::action(name),
             "terminal-focus" if self.router.current() == "terminal" => {
                 pages::terminal::action(&self.pages.terminal, name)
             }

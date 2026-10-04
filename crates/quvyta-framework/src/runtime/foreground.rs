@@ -330,7 +330,7 @@ while :; do sleep 0.05; done
             Ok(())
         };
         let mut wait_for_key = || Ok(());
-        let (deliveries, lines) = std::sync::mpsc::channel();
+        let (deliveries, lines) = crate::runtime::task::channel();
         let message = crate::runtime::detached::run(
             DetachedHandoff::new("sh", Heard::Started)
                 .args(["-c", DETACHED_PROGRAM])

@@ -508,10 +508,19 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
 mod tests {
     use super::*;
     use crate::app::Showcase;
-    use crate::tests::{showcase_on, showcase_tall};
+    use crate::tests::{click_setting, click_text_below, showcase_on, showcase_tall};
+    use qframe::runtime::Harness;
 
-    /// The check's panel sits below the rows the harness paints by default.
+    /// The check's panel, and the playground under it, sit below the rows the harness paints by
+    /// default.
     const TALL: u16 = 76;
+
+    /// Presses the child's own button. A finished task's row carries the same label and stands
+    /// above the button, so the press is taken below the panel's own title.
+    fn start_stream(h: &mut Harness<Showcase>) {
+        let (_, panel) = h.find("CHILD PROCESS").expect("the child process panel");
+        click_text_below(h, "Install packages", panel);
+    }
 
     #[test]
     fn tasks_progress_fail_and_cancel_without_blocking() {
@@ -551,9 +560,9 @@ mod tests {
 
     #[test]
     fn on_a_pseudo_terminal_the_child_sees_a_terminal() {
-        let mut h = showcase_on(PAGE);
-        h.send(send(Msg::Terminal(true)));
-        h.click_text("Install packages");
+        let mut h = showcase_tall(Showcase::new(), PAGE, TALL);
+        click_setting(&mut h, "Give the child a termin…");
+        start_stream(&mut h);
         h.advance(Duration::from_millis(0));
         assert!(h.screen().contains("stdout is a terminal"), "{}", h.screen());
     }
@@ -592,14 +601,15 @@ mod tests {
     #[test]
     fn overwritten_frames_show_only_when_asked_for() {
         for terminal in [false, true] {
-            let mut h = showcase_on(PAGE);
-            h.send(send(Msg::Terminal(terminal)));
-            h.click_text("Install packages");
+            let mut h = showcase_tall(Showcase::new(), PAGE, TALL);
+            if terminal {
+                click_setting(&mut h, "Give the child a termin…");
+            }
+            start_stream(&mut h);
             h.advance(Duration::from_millis(0));
             assert!(!h.screen().contains("downloading 50%"), "dropped by default: {}", h.screen());
-            h.send(send(Msg::Frames(true)));
-            // The finished task's row carries the same label as the button, so the message is sent.
-            h.send(send(Msg::Stream));
+            click_setting(&mut h, "Show progress frames");
+            start_stream(&mut h);
             h.advance(Duration::from_millis(0));
             let screen = h.screen();
             for frame in ["downloading 25%", "downloading 50%", "downloading 75%", "downloading 100%"] {

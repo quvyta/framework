@@ -106,6 +106,11 @@ pub enum FileError {
     Missing,
     /// There is no trash this entry can go to: none on this file system, or none at all.
     NoTrash,
+    /// Nothing says where a trashed entry came from, so there is nowhere to put it back.
+    NoOrigin,
+    /// Something is already where a trashed entry would go back to. The name in it is one that is
+    /// free there, so a question can offer it; nothing that is there is overwritten.
+    TakenAs(String),
     /// The disk is full.
     NoRoom,
     /// The person said to stop, and what had been written was taken away again.
@@ -128,6 +133,8 @@ impl FileError {
             Self::NotReadable => crate::t!("quvyta.file-manager.not-readable"),
             Self::Missing => crate::t!("quvyta.file-manager.missing"),
             Self::NoTrash => crate::t!("quvyta.file-manager.no-trash"),
+            Self::NoOrigin => crate::t!("quvyta.file-manager.no-origin"),
+            Self::TakenAs(free) => crate::t!("quvyta.file-manager.taken-as", free = free.as_str()),
             Self::NoRoom => crate::t!("quvyta.file-manager.no-room"),
             Self::Stopped => crate::t!("quvyta.file-manager.stopped"),
             Self::System(said) => said.clone(),
@@ -172,6 +179,9 @@ pub enum FileChange {
     Copied(String),
     /// An entry went to the trash, from where the person can still get it back.
     Trashed(String),
+    /// An entry of the trash was put back where it came from; the key is the name it had there,
+    /// which is not a key under the root.
+    Restored(String),
 }
 
 /// The key of the folder an entry is in, the root for an entry directly in it.

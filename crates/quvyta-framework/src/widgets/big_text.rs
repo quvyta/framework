@@ -1,6 +1,8 @@
-//! Big text: digits and letters drawn several rows tall, for clocks, counters and titles.
+//! Big text: digits, Latin letters and the signs of a clock drawn several rows tall, for counters,
+//! titles and headings in any Latin alphabet.
 
 use crate::color::{ColorDepth, Rgb};
+use crate::env::Env;
 use crate::geometry::{Rect, Size, clamp_u16};
 use crate::icons::GlyphMode;
 use crate::style::CellStyle;
@@ -10,10 +12,40 @@ use crate::widget::{MeasureCx, PaintCx, Widget};
 /// Pixel rows of every glyph.
 const PIXEL_ROWS: usize = 5;
 
-/// The bitmap of `c`, one string per pixel row, `#` for a lit pixel. Lowercase letters use the
-/// uppercase forms; characters without a form are drawn as a space.
-fn glyph(c: char) -> [&'static str; PIXEL_ROWS] {
-    match c.to_ascii_uppercase() {
+/// A space between two words: as wide as a letter and lit nowhere.
+const SPACE: [&str; PIXEL_ROWS] = ["..", "..", "..", "..", ".."];
+
+/// The pixel rows of one glyph, one string per row, every row as long as the glyph is wide.
+type Form = [&'static str; PIXEL_ROWS];
+
+/// Whether `active`, the code [`I18n::active`](crate::i18n::I18n::active) gives, is a language that
+/// writes `i` with a dot: `tr` and `az`, whatever region follows them.
+fn dotted_i(active: &str) -> bool {
+    matches!(active.split('-').next(), Some("tr" | "az"))
+}
+
+/// `c` as the key its glyph is looked up under: its Unicode uppercase, first character, with the
+/// Turkish rule for the two i's, so `ı` is always `I` and `i` is `İ` in the languages that write it
+/// that way. `ß` keeps its own form, because uppercasing it would spell a different word.
+fn uppercase(c: char, dotted_i: bool) -> char {
+    match c {
+        'ı' => 'I',
+        'i' if dotted_i => 'İ',
+        'ß' => 'ß',
+        _ => c.to_uppercase().next().unwrap_or(c),
+    }
+}
+
+/// The bitmap of `c`, one string per pixel row, `#` for a lit pixel, or `None` for a character
+/// this font has no form for.
+///
+/// Lowercase letters use the uppercase forms. Five rows leave no room above a capital, so an
+/// accent is a mark of its own in the top row and the letter is drawn in the rows under it; a
+/// cedilla takes the bottom row instead. `Ü` and `Ÿ` use their top row for the two dots and stand a
+/// row lower. `Ä` and `Ö` are a pixel wider than the plain letters they come from, because squeezed
+/// into three columns they would read as `H` and `V`.
+fn glyph(c: char, dotted_i: bool) -> Option<Form> {
+    Some(match uppercase(c, dotted_i) {
         '0' => ["###", "#.#", "#.#", "#.#", "###"],
         '1' => [".#.", "##.", ".#.", ".#.", "###"],
         '2' => ["###", "..#", "###", "#..", "###"],
@@ -28,34 +60,84 @@ fn glyph(c: char) -> [&'static str; PIXEL_ROWS] {
         '.' => [".", ".", ".", ".", "#"],
         '%' => ["#.#", "..#", ".#.", "#..", "#.#"],
         '-' => ["...", "...", "###", "...", "..."],
+        '\'' => [".", "#", ".", ".", "."],
+        '!' => [".#.", ".#.", ".#.", "...", ".#."],
+        '?' => ["###", "..#", ".#.", "...", ".#."],
+        '&' => [".##..", "#..#.", "#.#..", "#..#.", ".##.#"],
+        '(' => [".#.", "##.", "#..", "##.", ".#."],
+        ')' => [".#.", ".##", "..#", ".##", ".#."],
+        ',' => ["..", "..", "..", ".#", "#."],
+        '/' => ["..#", "..#", ".#.", "#..", "#.."],
         'A' => [".#.", "#.#", "###", "#.#", "#.#"],
+        'À' => ["#..", "#.#", "###", "#.#", "#.#"],
+        'Á' => ["..#", "#.#", "###", "#.#", "#.#"],
+        'Â' => ["##.", "#.#", "###", "#.#", "#.#"],
+        'Ä' => ["#..#", ".##.", "####", "#..#", "#..#"],
+        'Å' => ["###", "#.#", "###", "#.#", "#.#"],
+        'Æ' => [".####", "#.#..", "#####", "#.#..", "#.###"],
         'B' => ["##.", "#.#", "##.", "#.#", "##."],
         'C' => [".##", "#..", "#..", "#..", ".##"],
+        'Ç' => [".##", "#..", "#..", ".##", ".#."],
         'D' => ["##.", "#.#", "#.#", "#.#", "##."],
         'E' => ["###", "#..", "##.", "#..", "###"],
+        'È' => ["#..", "#..", "##.", "#..", "###"],
+        'É' => ["..#", "#..", "##.", "#..", "###"],
+        'Ê' => ["##.", "#..", "##.", "#..", "###"],
+        'Ë' => ["#.#", "#..", "##.", "#..", "###"],
         'F' => ["###", "#..", "##.", "#..", "#.."],
         'G' => [".##", "#..", "#.#", "#.#", ".##"],
+        'Ğ' => ["#.#", "#..", "#.#", "#.#", ".##"],
         'H' => ["#.#", "#.#", "###", "#.#", "#.#"],
         'I' => ["###", ".#.", ".#.", ".#.", "###"],
+        'İ' => [".#.", ".#.", ".#.", ".#.", "###"],
+        'Ì' => ["#..", ".#.", ".#.", ".#.", "###"],
+        'Í' => ["..#", ".#.", ".#.", ".#.", "###"],
+        'Î' => ["##.", ".#.", ".#.", ".#.", "###"],
+        'Ï' => ["#.#", ".#.", ".#.", ".#.", "###"],
         'J' => ["..#", "..#", "..#", "#.#", ".#."],
         'K' => ["#.#", "#.#", "##.", "#.#", "#.#"],
         'L' => ["#..", "#..", "#..", "#..", "###"],
         'M' => ["#...#", "##.##", "#.#.#", "#...#", "#...#"],
         'N' => ["#..#", "##.#", "#.##", "#..#", "#..#"],
+        'Ñ' => ["#.#.", "##.#", "#.##", "#..#", "#..#"],
         'O' => [".#.", "#.#", "#.#", "#.#", ".#."],
+        'Ò' => ["#..", "#.#", "#.#", "#.#", ".#."],
+        'Ó' => ["..#", "#.#", "#.#", "#.#", ".#."],
+        'Ô' => ["##.", "#.#", "#.#", "#.#", ".#."],
+        'Ö' => ["#..#", ".##.", "#..#", "#..#", ".##."],
+        'Ø' => [".#.", "#.#", "###", "#.#", ".#."],
+        'Œ' => [".####", "#.#..", "#####", "#.#..", ".####"],
         'P' => ["##.", "#.#", "##.", "#..", "#.."],
         'Q' => [".#.", "#.#", "#.#", "##.", ".##"],
         'R' => ["##.", "#.#", "##.", "#.#", "#.#"],
         'S' => [".##", "#..", ".#.", "..#", "##."],
+        'Ş' => [".##", "#..", ".#.", "##.", "..#"],
         'T' => ["###", ".#.", ".#.", ".#.", ".#."],
         'U' => ["#.#", "#.#", "#.#", "#.#", "###"],
+        'Ù' => ["#..", "#.#", "#.#", "#.#", "###"],
+        'Ú' => ["..#", "#.#", "#.#", "#.#", "###"],
+        'Û' => ["##.", "#.#", "#.#", "#.#", "###"],
+        'Ü' => ["#.#", "...", "#.#", "#.#", "###"],
         'V' => ["#.#", "#.#", "#.#", "#.#", ".#."],
         'W' => ["#...#", "#...#", "#.#.#", "##.##", "#...#"],
         'X' => ["#.#", "#.#", ".#.", "#.#", "#.#"],
         'Y' => ["#.#", "#.#", ".#.", ".#.", ".#."],
+        'Ý' => ["..#", "#.#", ".#.", ".#.", ".#."],
+        'Ÿ' => ["#.#", "...", "#.#", ".#.", ".#."],
         'Z' => ["###", "..#", ".#.", "#..", "###"],
-        _ => ["..", "..", "..", "..", ".."],
-    }
+        'ß' => ["##.", "#.#", "##.", "#.#", ".##"],
+        ' ' => SPACE,
+        _ => return None,
+    })
+}
+
+/// The width of `forms`: every glyph as wide as its rows are long, with a column between them.
+fn big_width(forms: &[Form]) -> u16 {
+    // Saturating: a long text is wider than any screen and falls back to plain text anyway.
+    let glyphs =
+        forms.iter().map(|pixels| clamp_u16(i32::try_from(pixels[0].len()).unwrap_or(0))).fold(0, u16::saturating_add);
+    let gaps = clamp_u16(i32::try_from(forms.len()).unwrap_or(i32::MAX) - 1);
+    glyphs.saturating_add(gaps)
 }
 
 /// Which way a [`BigText`] gradient runs.
@@ -67,12 +149,20 @@ pub enum Gradient {
     Rows,
 }
 
-/// Text drawn large from block elements: digits, `:`, `.`, `%`, `-` and the letters A to Z.
+/// Text drawn large from block elements: the digits, the letters A to Z with their Turkish
+/// (`Ç Ğ İ Ö Ş Ü`) and Western European (`À Á Â Ä Å È É Ê Ë Ì Í Î Ï Ñ Ò Ó Ô Ö Ø Ù Ú Û Ü Ý Ÿ ß Æ Œ`)
+/// forms, the signs `: . % -`, the punctuation `' ! ? & ( ) , /` and a space.
 ///
 /// Each glyph is five pixels tall. With Unicode and Nerd Font glyphs two pixels share a cell
 /// through half blocks, so the text is three rows tall; ASCII mode draws one pixel per cell in
 /// the background colour, five rows tall. Glyphs are separated by one column. When the area is too
 /// small, the text is drawn at normal size in bold instead of being cut.
+///
+/// Lowercase letters are drawn with the uppercase form of their character, following the Turkish
+/// rule: `ı` is always `I`, `i` is `İ` while the active language is Turkish or Azerbaijani and
+/// `I` in every other. A text with a character this font has no form for, Cyrillic or an emoji
+/// among them, is drawn whole as plain text in bold rather than with a hole where the character
+/// is; [`BigText::fits`] says which of the two a text gets.
 ///
 /// The letters take one flat colour unless [`BigText::gradient`] blends them into a second theme
 /// colour; the blend is painted, not animated ([`ShimmerText`](super::ShimmerText) is the moving
@@ -88,10 +178,31 @@ pub struct BigText {
 }
 
 impl BigText {
-    /// Big `text`, e.g. `"14:32"` or `"98%"`.
+    /// Big `text`, e.g. `"14:32"`, `"98%"` or `"AŞK İÇİNDE"`.
     #[must_use]
     pub fn new(text: impl Into<String>) -> Self {
         Self { text: text.into(), variant: None, gradient: None }
+    }
+
+    /// Whether every character of `text` has a big form, so `BigText::new(text)` draws it as
+    /// glyphs; a space counts, it draws as a blank between two words. A text that does not fit,
+    /// Cyrillic or Japanese or an emoji, is drawn whole as plain text in bold instead, the same
+    /// way a narrow area is, so it never loses a character to a hole. Ask when the choice matters:
+    /// which of the two an application shows, or how much room it leaves.
+    ///
+    /// ```
+    /// use qframe::widgets::BigText;
+    ///
+    /// assert!(BigText::fits("Çağrı 12:30"));
+    /// assert!(!BigText::fits("Привет"));
+    /// ```
+    ///
+    /// The language in force while painting decides how `i` is drawn, as [`BigText`] describes; it
+    /// changes the form, not whether there is one.
+    #[must_use]
+    pub fn fits(text: &str) -> bool {
+        let dotted_i = dotted_i(&crate::i18n::active_code());
+        text.chars().all(|c| glyph(c, dotted_i).is_some())
     }
 
     /// Theme variant, e.g. `"accent"`.
@@ -113,15 +224,19 @@ impl BigText {
         self
     }
 
-    fn big_width(&self) -> u16 {
-        // Saturating: a long text is wider than any screen and falls back to plain text anyway.
-        let glyphs = self
-            .text
-            .chars()
-            .map(|c| clamp_u16(i32::try_from(glyph(c)[0].len()).unwrap_or(0)))
-            .fold(0, u16::saturating_add);
-        let gaps = clamp_u16(i32::try_from(self.text.chars().count()).unwrap_or(i32::MAX) - 1);
-        glyphs.saturating_add(gaps)
+    /// The glyph of every character of the text, uppercased for the language `env` is in, or
+    /// `None` when one of them has no form: such a text is plain text, whole, not glyphs with a
+    /// hole in them.
+    fn forms(&self, env: &Env) -> Option<Vec<Form>> {
+        let dotted_i = dotted_i(env.i18n().active());
+        self.text.chars().map(|c| glyph(c, dotted_i)).collect()
+    }
+
+    /// The whole text at normal size in bold, cut with `…` where the area ends: what a text with
+    /// no form, and an area too small for one, are drawn as.
+    fn plain(&self, cx: &mut PaintCx<'_>, area: Rect, color: Rgb) {
+        let shown = text::truncate(&self.text, area.width).into_owned();
+        cx.text(area.x, area.y, &shown, CellStyle::fg(color).with_bold(true), area.width);
     }
 
     /// The far end of the gradient and its direction, when one is asked for and both the terminal
@@ -148,12 +263,13 @@ fn big_rows(mode: GlyphMode) -> u16 {
 impl<Msg: 'static> Widget<Msg> for BigText {
     fn measure(&self, cx: &mut MeasureCx<'_>, available: Size) -> Size {
         let rows = big_rows(cx.env().glyph_mode());
-        let big = Size::new(self.big_width(), rows);
-        if big.width <= available.width && big.height <= available.height {
-            big
-        } else {
-            Size::new(text::width(&self.text), 1).min(available)
-        }
+        let plain = Size::new(text::width(&self.text), 1);
+        // Measured as it is painted: a text with no form takes one row, as the narrow area does.
+        let Some(forms) = self.forms(cx.env()) else {
+            return plain.min(available);
+        };
+        let big = Size::new(big_width(&forms), rows);
+        if big.width <= available.width && big.height <= available.height { big } else { plain.min(available) }
     }
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
@@ -164,24 +280,27 @@ impl<Msg: 'static> Widget<Msg> for BigText {
         style.bg = None;
         let color = style.fg.unwrap_or_else(|| cx.color("text"));
         let mode = cx.env().glyph_mode();
-        if self.big_width() > area.width || big_rows(mode) > area.height {
-            let shown = text::truncate(&self.text, area.width).into_owned();
-            cx.text(area.x, area.y, &shown, CellStyle::fg(color).with_bold(true), area.width);
+        let rows = big_rows(mode);
+        let Some(forms) = self.forms(cx.env()) else {
+            self.plain(cx, area, color);
+            return;
+        };
+        let width = big_width(&forms);
+        if width > area.width || rows > area.height {
+            self.plain(cx, area, color);
             return;
         }
-        let rows = big_rows(mode);
         let blend = self.blend(cx);
         // The blend runs over the whole text, so the gaps between glyphs count as steps too.
         let tone = |cell_x: i32, cell_row: u16| match blend {
             None => color,
-            Some((end, Gradient::Columns)) => color.mix(end, share(clamp_u16(cell_x - area.x), self.big_width())),
+            Some((end, Gradient::Columns)) => color.mix(end, share(clamp_u16(cell_x - area.x), width)),
             Some((end, Gradient::Rows)) => color.mix(end, share(cell_row, rows)),
         };
         let mut x = area.x;
-        for c in self.text.chars() {
-            let pixels = glyph(c);
-            let width = clamp_u16(i32::try_from(pixels[0].len()).unwrap_or(0));
-            for column in 0..usize::from(width) {
+        for pixels in &forms {
+            let columns = clamp_u16(i32::try_from(pixels[0].len()).unwrap_or(0));
+            for column in 0..usize::from(columns) {
                 let lit = |row: usize| pixels.get(row).is_some_and(|line| line.as_bytes()[column] == b'#');
                 let cell_x = x + i32::try_from(column).unwrap_or(0);
                 if mode == GlyphMode::Ascii {
@@ -205,7 +324,7 @@ impl<Msg: 'static> Widget<Msg> for BigText {
                     cx.text(cell_x, y, symbol, CellStyle::fg(tone(cell_x, row)), 1);
                 }
             }
-            x += i32::from(width) + 1;
+            x += i32::from(columns) + 1;
         }
     }
 }
@@ -258,6 +377,180 @@ mod tests {
 
     fn blended(text: &'static str, direction: Gradient) -> Harness<Blended> {
         Harness::new(Blended { text, to: "info", direction }, 20, 5)
+    }
+
+    /// Two big texts one under the other, so where the second one stands is where the first one
+    /// measured itself to end.
+    struct Stacked(&'static str);
+
+    impl App for Stacked {
+        type Msg = ();
+        fn update(&mut self, _: ()) -> Command<()> {
+            Command::none()
+        }
+        fn view(&self, ui: &mut View<'_, ()>) {
+            ui.add(BigText::new(self.0));
+            ui.add(BigText::new("7"));
+        }
+    }
+
+    /// What one character draws on screen, so two of them can be told apart.
+    fn drawn(c: char) -> String {
+        Harness::new(Demo(c.to_string().leak()), 8, 3).screen()
+    }
+
+    /// The columns each character of `text` covers in the big form, in the order the text names
+    /// them: its glyph, then the gap after it.
+    fn spans(text: &str) -> Vec<(usize, usize)> {
+        let mut x = 0;
+        text.chars()
+            .map(|c| {
+                let form = glyph(c, false).expect("a word drawn in big form");
+                let columns = form[0].len();
+                let span = (x, x + columns);
+                x += columns + 1;
+                span
+            })
+            .collect()
+    }
+
+    /// Every character the table grew a form for, with the plain letter it must not look like.
+    /// `None` where there is none to look like: `Æ` and `Œ` are ligatures of two letters and
+    /// stand on their own, and the signs are signs.
+    const NEW_FORMS: [(char, Option<char>); 40] = [
+        ('Ç', Some('C')),
+        ('Ğ', Some('G')),
+        ('İ', Some('I')),
+        ('Ö', Some('O')),
+        ('Ş', Some('S')),
+        ('Ü', Some('U')),
+        ('À', Some('A')),
+        ('Á', Some('A')),
+        ('Â', Some('A')),
+        ('Ä', Some('A')),
+        ('Å', Some('A')),
+        ('Æ', None),
+        ('È', Some('E')),
+        ('É', Some('E')),
+        ('Ê', Some('E')),
+        ('Ë', Some('E')),
+        ('Ì', Some('I')),
+        ('Í', Some('I')),
+        ('Î', Some('I')),
+        ('Ï', Some('I')),
+        ('Ñ', Some('N')),
+        ('Ò', Some('O')),
+        ('Ó', Some('O')),
+        ('Ô', Some('O')),
+        ('Ø', Some('O')),
+        ('Œ', None),
+        ('Ù', Some('U')),
+        ('Ú', Some('U')),
+        ('Û', Some('U')),
+        ('Ý', Some('Y')),
+        ('Ÿ', Some('Y')),
+        ('ß', Some('S')),
+        ('\'', None),
+        ('!', None),
+        ('?', None),
+        ('&', None),
+        ('(', None),
+        (')', None),
+        (',', None),
+        ('/', None),
+    ];
+
+    #[test]
+    fn every_new_character_draws_a_form_of_its_own() {
+        for (c, base) in NEW_FORMS {
+            let form = drawn(c);
+            assert!(form.contains(['█', '▀', '▄']), "{c:?} has no form of its own:\n{form}");
+            if let Some(base) = base {
+                assert_ne!(form, drawn(base), "{c:?} draws as the plain {base:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_turkish_title_leaves_no_hole_where_a_letter_is() {
+        let h = Harness::new(Demo("AŞK İÇİNDE"), 40, 3);
+        let screen = h.screen();
+        let rows: Vec<Vec<char>> = screen.lines().map(|line| line.chars().collect()).collect();
+        let lit = |column: usize| {
+            rows.iter().any(|row| row.get(column).copied().is_some_and(|cell| matches!(cell, '█' | '▀' | '▄')))
+        };
+        for (c, (from, to)) in "AŞK İÇİNDE".chars().zip(spans("AŞK İÇİNDE")) {
+            if c == ' ' {
+                continue;
+            }
+            for column in from..to {
+                assert!(lit(column), "{c:?} is a hole at column {column}:\n{screen}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_lowercase_word_is_drawn_with_the_forms_of_its_letters() {
+        // "çağrı" reads as Ç A Ğ R I: the accented forms of the table, each letter uppercased.
+        let h = Harness::new(Demo("çağrı"), 20, 3);
+        assert_eq!(h.screen(), "▄▀▀ ▄▀▄ █ ▀ █▀▄ ▀█▀\n▀▄▄ █▀█ █ █ █▀▄  █\n ▀  ▀ ▀  ▀▀ ▀ ▀ ▀▀▀\n");
+    }
+
+    #[test]
+    fn the_two_i_s_follow_the_language_of_the_screen() {
+        // The top row of "▀█▀" is the bar of an I over its stem, of " █" a dot over that stem.
+        let mut h = Harness::new(Demo("i"), 6, 3);
+        assert_eq!(h.screen(), "▀█▀\n █\n▀▀▀\n", "English i is the I\n{}", h.screen());
+        h.set_locale("tr");
+        assert_eq!(h.screen(), " █\n █\n▀▀▀\n", "Turkish i is the İ\n{}", h.screen());
+        let mut dotless = Harness::new(Demo("ı"), 6, 3);
+        dotless.set_locale("tr");
+        assert_eq!(dotless.screen(), "▀█▀\n █\n▀▀▀\n", "and ı is the I in every language\n{}", dotless.screen());
+    }
+
+    #[test]
+    fn a_text_without_a_form_is_drawn_whole_as_plain_text() {
+        assert!(!BigText::fits("Привет"), "Cyrillic has no form in this font");
+        assert!(BigText::fits("Çağrı 12:30"), "a Turkish title has every one of its own");
+        let h = Harness::new(Demo("Привет"), 20, 3);
+        assert_eq!(h.screen(), "Привет\n\n\n", "no hole where a letter is:\n{}", h.screen());
+        assert!(h.is_bold(0, 0));
+    }
+
+    #[test]
+    fn a_text_without_a_form_leaves_the_one_row_it_measured() {
+        let h = Harness::new(Stacked("Привет"), 20, 5);
+        assert_eq!(h.screen(), "Привет\n▀▀█\n  █\n  ▀\n\n", "the second text starts where the first one ended");
+    }
+
+    #[test]
+    fn ascii_cells_carry_the_new_forms_too() {
+        let mut h = Harness::new(Demo("Ç"), 6, 5);
+        h.set_glyph_mode(GlyphMode::Ascii);
+        let accent = h.env().theme().color("accent");
+        assert_eq!(h.bg(1, 0), accent, "the top bar of the C");
+        assert_eq!(h.bg(1, 3), accent, "the bowl closes a row higher to leave room for the cedilla");
+        assert_eq!(h.bg(1, 4), accent, "and the cedilla is a lit cell of its own under it");
+        assert_ne!(h.bg(2, 4), accent, "one cell wide, not the bar of the C");
+    }
+
+    #[test]
+    fn ascii_cells_tell_the_two_i_s_apart_too() {
+        let mut h = Harness::new(Demo("i"), 6, 5);
+        h.set_glyph_mode(GlyphMode::Ascii);
+        let accent = h.env().theme().color("accent");
+        assert_eq!(h.bg(0, 0), accent, "English: the bar of the I");
+        h.set_locale("tr");
+        assert_ne!(h.bg(0, 0), accent, "Turkish: only the dot over the stem");
+        assert_eq!(h.bg(1, 0), accent);
+    }
+
+    #[test]
+    fn ascii_cells_fall_back_to_plain_text_the_same_way() {
+        let mut h = Harness::new(Demo("Привет"), 20, 5);
+        h.set_glyph_mode(GlyphMode::Ascii);
+        assert_eq!(h.screen(), "Привет\n\n\n\n\n");
+        assert!(h.is_bold(0, 0));
     }
 
     #[test]

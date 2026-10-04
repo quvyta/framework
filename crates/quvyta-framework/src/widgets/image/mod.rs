@@ -9,8 +9,8 @@ mod tests;
 
 pub use data::{ImageData, ImageError};
 pub(crate) use kitty::{Dim, Halves, MOST_PLACES, Picture, PicturePlacement, Placing, rectangles, resolve};
-use resample::Half;
 pub(crate) use resample::crop_pixels;
+use resample::{CellKey, Half};
 
 use super::EmptyState;
 use crate::geometry::{Rect, Size};
@@ -22,11 +22,13 @@ use crate::widget::{MeasureCx, PaintCx, Widget};
 /// How a picture fills the area it is given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Fit {
-    /// The whole picture, as large as fits with its shape kept; the ground shows beside it.
+    /// The whole picture, as large as fits with its shape kept; the ground shows beside it. A
+    /// half block is a cell's width and half its height where the terminal reports its cells, so
+    /// a picture drawn at the pixels of its area fills it.
     #[default]
     Contain,
     /// The whole area, with the picture's shape kept: what spills over is cut evenly from both
-    /// sides. For wallpapers.
+    /// sides. For wallpapers. The shape is kept the same way [`Fit::Contain`] keeps it.
     Cover,
     /// The picture at its own size, one pixel per half cell, in the middle; what does not fit is
     /// cut evenly from both sides.
@@ -51,12 +53,14 @@ pub enum Fit {
 /// uncovered. A frame that changes nothing under it writes nothing for it.
 ///
 /// Everywhere else every cell shows two pixels, one above the other: `▀` in the upper pixel's
-/// colour on the lower pixel's. A cell is about twice as tall as it is wide, so these pixels are close to square and
-/// a picture keeps its shape. Shrinking averages every pixel it covers (a box filter), so a photo
-/// does not flicker into noise. The cells are worked out once and kept in the widget's memory;
-/// they are worked out again only when the area's size, the fit or the picture changes, so a
-/// frame that repaints the same picture only copies them. Cells the picture does not reach keep
-/// what is under it, so a picture can be the ground other widgets are drawn on.
+/// colour on the lower pixel's. A half block is as wide as a cell and half as tall, so where the
+/// terminal reports the pixels of its cells a picture keeps the shape the terminal really shows it
+/// in, and where it reports none a half block is one square pixel. Shrinking averages every pixel
+/// it covers (a box filter), so a photo does not flicker into noise. The cells are worked out once
+/// and kept in the widget's memory; they are worked out again only when the area's size, the fit,
+/// the picture or the cell's own size changes, so a frame that repaints the same picture only copies
+/// them. Cells the picture does not reach keep what is under it, so a picture can be the ground
+/// other widgets are drawn on.
 ///
 /// At [`ColorDepth::Ansi256`](crate::color::ColorDepth::Ansi256) every half takes its nearest palette entry. Where
 /// [`Graphics::can_draw`] is false (the sixteen standard colours, ASCII glyph mode, or
@@ -113,8 +117,7 @@ impl Image {
 /// The cells last worked out, and what they were worked out for.
 #[derive(Default)]
 struct Cells {
-    /// The picture, the area's width and height, and the fit.
-    key: Option<(u64, u16, u16, Fit)>,
+    key: Option<CellKey>,
     cells: Vec<Half>,
 }
 
@@ -134,7 +137,8 @@ impl<Msg: 'static> Widget<Msg> for Image {
         if !cx.env().graphics().can_draw() {
             return Widget::<()>::measure(&self.cannot_show(), cx, available);
         }
-        let (width, height) = resample::measure(&self.data, (available.width, available.height), self.fit);
+        let cell = cx.env().cell_pixels();
+        let (width, height) = resample::measure(&self.data, (available.width, available.height), self.fit, cell);
         Size::new(width, height)
     }
 
@@ -153,10 +157,11 @@ impl<Msg: 'static> Widget<Msg> for Image {
             }
             Graphics::HalfBlock => {}
         }
-        let key = (self.data.id(), area.width, area.height, self.fit);
+        let cell = cx.env().cell_pixels();
+        let key = (self.data.id(), area.width, area.height, self.fit, cell);
         let memory = cx.memory::<Cells>();
         if memory.key != Some(key) {
-            memory.cells = resample::cells(&self.data, area.width, area.height, self.fit);
+            memory.cells = resample::cells(&self.data, area.width, area.height, self.fit, cell);
             memory.key = Some(key);
             #[cfg(test)]
             RESAMPLES.with(|count| count.set(count.get() + 1));

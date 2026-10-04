@@ -343,9 +343,9 @@ impl Env {
     ///
     /// The runtime reads it before the first frame and again at every resize, a change of font
     /// size included, which gives the same columns and rows but a different cell. A new value
-    /// draws a new frame, so the view sees it; [`App::resized`](crate::runtime::App::resized)
-    /// hears only columns and rows and is not told when only the cell changed. Sixel pictures
-    /// are shrunk to the same number.
+    /// draws a new frame, so the view sees it; [`App::cell_pixels`](crate::runtime::App::cell_pixels)
+    /// hears it in `update` as well, as [`App::resized`](crate::runtime::App::resized) hears the
+    /// columns and rows. Sixel pictures are shrunk to the same number.
     ///
     /// [`Env::builtin`], the environment of tests, answers `None`; see
     /// [`Harness::set_cell_pixels`](crate::runtime::Harness::set_cell_pixels).

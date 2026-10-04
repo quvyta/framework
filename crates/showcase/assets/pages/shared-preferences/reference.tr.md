@@ -2,6 +2,7 @@
 
 - `Ecosystem::preferences(uygulama, &i18n)` — uygulamanın dilini, temasını, ikonlarını ve hareketi azaltmasını çözer; ortak dosya yoksa algılanan değerlerle oluşturur.
 - `Ecosystem::preferences_in(klasör, uygulama, &i18n)` — aynısı, platformun ekosistem klasörü yerine `klasör`de.
+- `Preferences::detected(&i18n)` — dosyası olmayan bu makinenin başlangıç tercihleri: bir klasörden çözdüğünde verilen değerlerin aynısı, her anahtar `Source::Detected`, hiçbir şey okunmuyor ve suçlanacak bir şey de yok. Ev klasörü olmayan bir uygulama için; `Appearance::without_saving()` ile satırları bir değişikliği hemen uygular ve hiçbir yere yazmaz.
 - `Ecosystem::set(uygulama, Shared::Theme, "nordic", Scope::Ecosystem)` — tek bir ortak anahtarı yazar; `Scope::App` yalnızca uygulamanın dosyasına yazar. `set_in(klasör, …)` başka bir klasörde.
 - `Ecosystem::follow(uygulama, Shared::Theme)` — uygulamayı ekosistemin değerine döndürür: yalnızca `<uygulama>.conf` `theme = "quvyta"` alır, ortak dosyaya dokunulmaz. `follow_in(klasör, …)` başka bir klasörde.
 - `Preferences::language()`, `theme()`, `icons()` — her biri bir `Resolved { value, source }`; tek anahtar için `source(anahtar)`.

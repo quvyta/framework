@@ -947,9 +947,6 @@ mod tests {
 
     #[test]
     fn the_ecosystem_folders_are_shown_as_they_are_on_this_machine() {
-        let h = tall(Showcase::new());
-        let screen = h.screen();
-        assert!(screen.contains("THE ECOSYSTEM'S FOLDERS"), "{screen}");
         let ecosystem = Ecosystem::QUVYTA;
         let places = [
             qframe::storage::documents_dir(),
@@ -961,11 +958,22 @@ mod tests {
             ecosystem.state_dir("code"),
             ecosystem.cache_dir("code"),
         ];
+        // A path longer than the column it is drawn in is broken at the column edge and goes on in
+        // the next row, half a file name down, so the terminal is as wide as the longest path this
+        // machine names: what this test claims is that each folder is shown as it is, which needs
+        // all of it on one row. The navigation, the panel's padding and the label column take the
+        // first 60 cells of it, the rest is spare, so a home folder longer than the one this machine
+        // names still fits.
+        let longest = places.iter().flatten().map(|place| place.display().to_string().chars().count()).max();
+        let width = u16::try_from(longest.unwrap_or(0) + 80).expect("a terminal is never that narrow");
+        let h = crate::tests::showcase_wide(Showcase::new(), PAGE, width, 150);
+        let screen = h.screen();
+        assert!(screen.contains("THE ECOSYSTEM'S FOLDERS"), "{screen}");
         for label in ["State of code", "Cache of code"] {
             assert!(screen.contains(label), "{label} row in {screen}");
         }
         for place in places {
-            // The panel is narrower than a long path, so the last segment is what is checked.
+            // The last segment is the name of the place, which is what the row is about.
             let shown = match place {
                 Some(place) => place.file_name().expect("a named place").display().to_string(),
                 None => "this platform gives no folder here".to_owned(),

@@ -6,7 +6,7 @@ use super::frame::Interaction;
 use crate::env::Env;
 use crate::event::Event;
 use crate::geometry::Rect;
-use crate::keymap::Scope;
+use crate::keymap::{KeyChord, Scope, is_runtime_action};
 use crate::runtime::CopyKind;
 use crate::widget::memory::Memory;
 use crate::widget::{Node, WidgetId};
@@ -193,6 +193,39 @@ impl<Msg> EventCx<'_, Msg> {
     /// Copies `text` to the system clipboard.
     pub fn copy(&mut self, text: impl Into<String>) {
         self.effects.copy.push(text.into());
+    }
+
+    /// The application's own action `chord` triggers, when it has one: an action of `[app]`, or a
+    /// global action the runtime always handles itself — `quit`, `copy`, `paste`, `toggle-panel`
+    /// and the rest. `None` for a key bound to nothing, and for a global action the runtime only
+    /// hands to [`App::action`](crate::runtime::App::action), such as `help`: the runtime acts on
+    /// those nowhere itself, so answering them is the application's own business.
+    ///
+    /// A widget that takes every key while it has focus — an embedded page, a terminal, a coding
+    /// tool's own screen — asks this about each key and returns the reserved ones unused, so the
+    /// bindings a person expects to keep working still work while it is there. The binding in
+    /// force when the key arrived is the one that answers, so rebinding an action moves it and
+    /// nothing has to be copied into the widget to keep up.
+    ///
+    /// What the widget does with the keys that are its own stays its own; the query is about the
+    /// ones that are not.
+    #[must_use]
+    pub fn reserved_action(&self, chord: &KeyChord) -> Option<(Scope, String)> {
+        self.reserved_binding(*chord).map(|(scope, action)| (scope, action.to_owned()))
+    }
+
+    /// Whether `chord` belongs to the application rather than to a widget taking every key, with
+    /// [`EventCx::reserved_action`] naming it.
+    #[must_use]
+    pub fn is_reserved(&self, chord: &KeyChord) -> bool {
+        self.reserved_binding(*chord).is_some()
+    }
+
+    /// The binding of `chord` the application owns, the one rule the two queries above share.
+    fn reserved_binding(&self, chord: KeyChord) -> Option<(Scope, &str)> {
+        let (scope, action) = self.env.keymap().action_for(chord)?;
+        let reserved = scope == Scope::App || (scope == Scope::Global && is_runtime_action(action));
+        reserved.then_some((scope, action))
     }
 
     /// Runs keymap action `action` of `scope` as if its key had been pressed, after this event.

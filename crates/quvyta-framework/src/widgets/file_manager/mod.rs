@@ -33,6 +33,7 @@ pub use ops::{FileChange, FileError, NameProblem, is_inside, is_within, name_of,
 pub use sort::{Sort, SortBy};
 use state::ROOT;
 pub use state::{FileManagerMsg, FileManagerState, FileWork, FolderEntry, NameFor, Naming, child_key};
+pub use trash::Trashed;
 
 /// Turns a manager's messages into the application's own, on the drawing side.
 type Wrap<Msg> = Rc<dyn Fn(FileManagerMsg) -> Msg>;
@@ -86,6 +87,11 @@ const NAMING_WIDTH: u16 = 48;
 /// through the rows, dragging entries onto a folder to move them, cut and paste, a new file or
 /// folder, renaming with the name checked as it is typed, and deleting behind a question. Each
 /// operation says what it changed or why it was refused, entry by entry when there were several.
+///
+/// A manager with a trash can be sent to it, as a desktop's trash icon does: the trash is then
+/// a place of its own, with every entry under the name it has where it came from, the folder it
+/// came from and when it went, and its rows put an entry back, delete it for good or empty the
+/// whole trash. See [`FileManagerState::open_trash`].
 ///
 /// The mouse works as it does in a desktop file explorer, in all three views. A click only
 /// selects; a double click or Enter opens: a file through [`on_open`](Self::on_open), a folder by
@@ -357,7 +363,11 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
     pub fn show<'v>(mut self, ui: &'v mut View<'_, Msg>) -> NodeMut<'v, Msg> {
         let state = self.state;
         self.kinds = self.kind_look(ui.env());
-        if let Some(problem) = state.error() {
+        // An unreadable folder is said where it stands, but the trash is a place beside the root: while it
+        // is shown, what the root could not be read has nothing to say about the rows on screen.
+        if let Some(problem) = state.error()
+            && !state.in_trash()
+        {
             ui.add(Text::new(crate::t!("quvyta.file-manager.unreadable")).role("secondary"));
             return ui.add(Text::new(problem.to_owned()).role("faint")).selectable(true);
         }
@@ -365,8 +375,10 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         self.work_row(ui);
         // The list shows details, so it asks for the page around the cursor it has none of yet;
         // the tree and the icons show names alone and ask for nothing, which is what keeps a
-        // folder of ten thousand entries from becoming ten thousand calls to the system.
-        if self.view == FileView::List {
+        // folder of ten thousand entries from becoming ten thousand calls to the system. The trash
+        // asks for nothing either way: a note says where an entry came from and when it went, and
+        // nothing about it is read from the entry.
+        if self.view == FileView::List && !state.in_trash() {
             let gaps = state.detail_gaps(state.folder());
             if !gaps.is_empty() {
                 let wrap = Rc::clone(&self.wrap);
@@ -411,7 +423,8 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
     /// The tree of the whole manager, with the root as its one top row.
     fn tree(&self) -> Tree<Msg> {
         let state = self.state;
-        let tree = Tree::new([self.root_node()]);
+        let trashed = state.in_trash();
+        let tree = Tree::new([if trashed { self.trash_node() } else { self.root_node() }]);
         if self.disabled {
             return tree;
         }
@@ -429,9 +442,11 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
             .multi_select(state.chosen(), move |keys| {
                 choose(FileManagerMsg::Choose(keys.into_iter().filter(|key| key != ROOT).collect()))
             })
+            // The trash takes no drop: an entry in it is put back or deleted by name, and a drop
+            // would move whatever the root holds under that name.
             .droppable(
                 move |dropped| drop(FileManagerMsg::Drop(dropped)),
-                move |key| key == ROOT || accepts.contains(key),
+                move |key| !trashed && (key == ROOT || accepts.contains(key)),
             )
             .on_copy_drop(move |dropped| copy(FileManagerMsg::DropCopy(dropped)))
             .activate_on(self.open_on)
@@ -466,6 +481,48 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
             root = root.detail(crate::t!("quvyta.file-manager.empty"));
         }
         root.expandable(true).expanded(state.is_open(ROOT)).loading(state.is_loading(ROOT)).children(self.nodes(ROOT))
+    }
+
+    /// The trash itself as the one row at the top, where it is the place the manager shows: its own
+    /// shape, its own emptiness, and the entries it holds below it.
+    ///
+    /// It takes the place of the root's row rather than standing beside it, the way a flat view
+    /// shows one folder with that folder's own row at the top: one place at a time, and the row of
+    /// the place carries its menu and is the way back out of it.
+    fn trash_node(&self) -> TreeNode {
+        let state = self.state;
+        let mark = self.mark_of(ROOT);
+        let label = crate::t!("quvyta.file-manager.trash-place");
+        let (icon, tone) = self.sign_of(&mark, ROOT, "trash", true, false);
+        let children = self.trash_nodes();
+        let mut node = TreeNode::new(ROOT, label).icon(icon, tone.as_deref()).faint(self.disabled || mark.is_faint());
+        // A trash nobody has put anything into is empty rather than broken, and says so only once
+        // it is neither being read nor saying why it could not be.
+        if children.is_empty() && !state.is_reading_trash() && state.trash_error().is_none() {
+            node = node.detail(crate::t!("quvyta.file-manager.empty"));
+        }
+        node.expandable(true).expanded(true).loading(state.is_reading_trash()).children(children)
+    }
+
+    /// The rows of the entries of the trash, as far as it has been read.
+    ///
+    /// A row says nothing about the entry beyond its name, as a row of a folder's does, and where an
+    /// entry came from is not said here for the same reason it is not said about a file's size: a
+    /// path is longer than a tree row is wide, and the detail that carried it would cover the very
+    /// name it belongs to. The list is where the place's own columns have room for it.
+    fn trash_nodes(&self) -> Vec<TreeNode> {
+        let state = self.state;
+        state
+            .trashed()
+            .into_iter()
+            .map(|entry| {
+                let mark = self.mark_of(&entry.name);
+                let (icon, tone) = self.sign_of(&mark, &entry.name, &entry.label, entry.folder, entry.executable);
+                TreeNode::new(entry.name.clone(), entry.label.clone())
+                    .icon(icon, tone.as_deref())
+                    .faint(self.disabled || mark.is_faint())
+            })
+            .collect()
     }
 
     /// The rows below the folder `key`, as far as it has been read.
@@ -531,30 +588,50 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         let chosen = state.chosen().to_vec();
         let pending = Pending { keys: state.pending().to_vec(), copying: state.is_copying() };
         let trashing = state.is_trashing();
+        let trash = state.trash_folder();
+        let trashable = trash.is_some();
         let folders = state.folder_keys();
         let extra = self.menu.clone();
         let terminal = self.on_open_terminal.clone();
         let root = state.root().to_path_buf();
+        let place = state.in_trash();
+        let filled = !state.trashed().is_empty();
         move |key: &str| {
             // The tree keeps the selection when the click is on one of its rows and makes the row
             // the selection otherwise, so the menu acts on what the click was on.
             let targets = state::targets_of(&chosen, key);
             let folder = key == ROOT || folders.contains(key);
-            let path = path_of(&root, key);
+            // A row of the trash is where the entry is now, not where it came from: it can be
+            // looked at and taken out of there, while its note beside it is what says where it goes
+            // back to. The row of the place itself is the trash folder.
+            let path = match (place, key == ROOT) {
+                (true, true) => trash.clone().unwrap_or_default(),
+                (true, false) => trash.clone().unwrap_or_default().join("files").join(key),
+                (false, _) => path_of(&root, key),
+            };
             let target = MenuTarget { key, path: &path, folder, selection: &targets };
             let mut own = extra.as_ref().map(|items| items(&target)).unwrap_or_default();
             if let Some(message) = &terminal
                 && folder
+                && !place
             {
                 let label = crate::t!("quvyta.file-manager.open-terminal");
                 own.push(ContextItem::new(label, message(&path)));
             }
             let send = |message: FileManagerMsg| wrap(message);
+            if place {
+                let place_row = key == ROOT;
+                return if place_row {
+                    trash_place_menu(filled, own, &send)
+                } else {
+                    trash_entry_menu(&targets, own, &send)
+                };
+            }
             if targets.len() > 1 {
                 return many_menu(key, targets.len(), &pending, trashing, own, &send);
             }
             if folder {
-                return folder_menu(key, &pending, trashing, own, &send);
+                return folder_menu(key, &pending, trashing, trashable, own, &send);
             }
             file_menu(key, &pending, trashing, own, &send)
         }
@@ -705,6 +782,7 @@ fn folder_menu<Msg: Clone + 'static>(
     key: &str,
     pending: &Pending,
     trashing: bool,
+    trashable: bool,
     own: Vec<ContextItem<Msg>>,
     send: &impl Fn(FileManagerMsg) -> Msg,
 ) -> Vec<ContextItem<Msg>> {
@@ -727,9 +805,68 @@ fn folder_menu<Msg: Clone + 'static>(
     items.push(ContextItem::gap());
     if root {
         items.push(ContextItem::new(crate::t!("quvyta.file-manager.refresh"), send(FileManagerMsg::Refresh)));
+        // The trash is a place of its own rather than a folder here, so it is opened rather than
+        // stepped into, and it is offered only where there is one to open.
+        if trashable {
+            items.push(ContextItem::new(crate::t!("quvyta.file-manager.open-trash"), send(FileManagerMsg::OpenTrash)));
+        }
     } else {
         items.push(away_item(key, 1, trashing, send));
     }
+    items
+}
+
+/// The menu of the trash's own row: the way out of the place, reading it again, and emptying it,
+/// which asks first because there is no trash behind this one to put anything back into.
+fn trash_place_menu<Msg: Clone + 'static>(
+    filled: bool,
+    own: Vec<ContextItem<Msg>>,
+    send: &impl Fn(FileManagerMsg) -> Msg,
+) -> Vec<ContextItem<Msg>> {
+    // The way out of a place is on its own row, in every view, as it is for the folder a flat view
+    // shows; here the place is not a folder, so it says where it goes back to.
+    let mut items = vec![
+        ContextItem::new(crate::t!("quvyta.file-manager.leave-trash"), send(FileManagerMsg::Leave)),
+        ContextItem::gap(),
+        ContextItem::new(crate::t!("quvyta.file-manager.refresh"), send(FileManagerMsg::Refresh)),
+    ];
+    add_own(&mut items, own);
+    if filled {
+        items.push(ContextItem::gap());
+        items.push(
+            ContextItem::new(crate::t!("quvyta.file-manager.empty-trash"), send(FileManagerMsg::EmptyTrash))
+                .danger(true),
+        );
+    }
+    items
+}
+
+/// The menu of an entry of the trash, or of every entry selected when `targets` holds more than
+/// one: putting it back where it came from, and taking it away for good.
+///
+/// Nothing else is offered, and nothing is offered about where it is: an entry in the trash cannot
+/// be made, moved or renamed there, since the trash is a folder of the specification rather than a
+/// folder of the person's.
+fn trash_entry_menu<Msg: Clone + 'static>(
+    targets: &[String],
+    own: Vec<ContextItem<Msg>>,
+    send: &impl Fn(FileManagerMsg) -> Msg,
+) -> Vec<ContextItem<Msg>> {
+    let many = targets.len() > 1;
+    let restore = if many {
+        crate::t!("quvyta.file-manager.restore-many", n = targets.len())
+    } else {
+        crate::t!("quvyta.file-manager.restore")
+    };
+    let away = if many {
+        crate::t!("quvyta.file-manager.delete-permanently-many", n = targets.len())
+    } else {
+        crate::t!("quvyta.file-manager.delete-permanently")
+    };
+    let mut items = vec![ContextItem::new(restore, send(FileManagerMsg::Restore(targets.to_vec())))];
+    add_own(&mut items, own);
+    items.push(ContextItem::gap());
+    items.push(ContextItem::new(away, send(FileManagerMsg::Purge(targets.to_vec()))).danger(true));
     items
 }
 

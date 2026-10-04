@@ -11,6 +11,7 @@ Use a table when every row has the same few facts that people compare: container
 5. Show and receive the selection with `.selected(..)`, `.on_select(..)` and `.on_activate(..)`.
 6. For sorting, mark columns `.sortable(true)`, handle `.on_sort(|column, direction| ..)` by reordering your data, and show the result with `.sort(column, direction)`.
 7. For multiple selection add `.checked(bools)` and `.on_toggle(..)`; say what an empty table means with `.empty_text(..)`.
+8. Where Space means something else in your application, such as play and pause in a music player, add `.space_activates(false)`: the table then does nothing with the key and does not use it, so it travels on to your keymap actions.
 
 ## How it works
 
@@ -22,6 +23,7 @@ Use a table when every row has the same few facts that people compare: container
 - **A glyph before a name is quiet.** Without a colour it is `muted`, a step below the name, and takes the name's colour on the selected row, so the eye reads the name first and meaning never rides on the glyph's colour. It is drawn as the glyph, one space, then the text, in every glyph mode. A narrow column cuts only the text with `…`; the glyph and its space always stay. The demo's names carry their program's Nerd Font glyph in Nerd mode and the set's project icon otherwise; the playground turns them off.
 - **A menu belongs to a row, not to the table.** `.context_menu(|index| ..)` builds the entries for the row the menu opens on, and the row stays raised while it is open. A single menu wrapped around the table would act on whatever the cursor rests on, which in a file list means deleting the wrong file.
 - **When the menu is the action.** Some tables are acted on only through a few choices per row. `.menu_on_activate(true)` makes Enter open the selected row's menu below it and a click open the clicked row's menu where it was clicked, instead of sending `on_activate`: a right click is not what most people try in a terminal, and many keyboards have no menu key. A row whose menu is empty opens nothing.
+- **A key that is not the table's.** In a music player Space is play and pause everywhere else, and the song table holds the focus almost all the time, so one table must not take the key away. `.space_activates(false)` leaves it to the application: the table does nothing with Space and does not use it, so the key reaches your own action as an unhandled key does. A table with check marks loses the key with it — the marks stay and a click still checks a row. Enter and the mouse are the same either way, and the playground's switch turns the key back on.
 - **Your data, your order.** The table never reorders rows. It asks for a sort and shows the arrow you give it back.
 
 ## Common mistakes

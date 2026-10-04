@@ -147,6 +147,14 @@ fn shown(data: ImageData, fit: Fit, width: u16, height: u16) -> Harness<Shown> {
     h
 }
 
+/// One picture filling the screen, drawn with `fit` with half blocks on a terminal whose cell is
+/// `cell` pixels wide and high; `None` for a terminal that reports no cell size.
+fn shown_in_cell(data: ImageData, fit: Fit, width: u16, height: u16, cell: Option<(u16, u16)>) -> Harness<Shown> {
+    let mut h = Harness::new(Shown { data, fit }, width, height);
+    h.set_graphics(Graphics::HalfBlock).set_cell_pixels(cell);
+    h
+}
+
 /// The colours a cell shows: the top pixel as the text of `▀`, the bottom one behind it.
 fn halves(h: &Harness<Shown>, x: u16, y: u16) -> (Option<Rgb>, Option<Rgb>) {
     assert_eq!(h.buffer()[(x, y)].symbol(), "▀", "cell {x},{y} is a half block:\n{}", h.screen());
@@ -359,6 +367,69 @@ fn cover_fills_a_large_screen_exactly() {
         }
     }
     assert_ne!(h.fg(0, 0), h.fg(119, 39), "the gradient runs across");
+}
+
+/// The area the cell's shape is measured over: a hundred columns and thirty rows.
+const AREA: (u16, u16) = (100, 30);
+
+/// A cell of nine by nineteen pixels, the shape most terminals report: never exactly twice as
+/// tall as it is wide. A hundred columns of it are 900 pixels, thirty rows of it 570.
+const CELL: (u16, u16) = (9, 19);
+
+/// A picture of `width` × `height` pixels in one colour, so every cell it reaches is picture.
+fn solid(width: u32, height: u32) -> ImageData {
+    ImageData::from_rgb(width, height, &vec![255; (width * height * 3) as usize]).expect("a solid picture")
+}
+
+/// The first and last column and row of `area` the picture reaches, from the cells that show a
+/// half block: `(first column, last column, first row, last row)`.
+fn drawn(h: &Harness<Shown>, area: (u16, u16)) -> (u16, u16, u16, u16) {
+    let shown: Vec<(u16, u16)> = (0..area.1)
+        .flat_map(|row| (0..area.0).map(move |column| (column, row)))
+        .filter(|&(column, row)| matches!(h.buffer()[(column, row)].symbol(), "▀" | "▄"))
+        .collect();
+    let first = shown.first().copied().expect("the picture is drawn somewhere");
+    let last = shown.last().copied().expect("the picture is drawn somewhere");
+    (first.0, last.0, first.1, last.1)
+}
+
+#[test]
+fn contain_fills_the_area_with_a_picture_of_the_area_s_own_pixels() {
+    // Nine hundred by five hundred and seventy pixels is exactly what a hundred columns of nine
+    // pixels and thirty rows of nineteen hold, so the picture covers the whole area: no ground
+    // beside it and no click a few columns off.
+    let h = shown_in_cell(solid(900, 570), Fit::Contain, AREA.0, AREA.1, Some(CELL));
+    assert_eq!(drawn(&h, AREA), (0, AREA.0 - 1, 0, AREA.1 - 1), "the picture covers the area");
+
+    // Twice the pixels of the same shape: the whole area again, every output pixel averaging two.
+    let h = shown_in_cell(solid(1800, 1140), Fit::Contain, AREA.0, AREA.1, Some(CELL));
+    assert_eq!(drawn(&h, AREA), (0, AREA.0 - 1, 0, AREA.1 - 1), "the picture covers the area");
+}
+
+#[test]
+fn a_terminal_with_no_cell_size_draws_a_picture_as_before() {
+    // The same picture in the same area where a half cell is one square pixel: the shape is kept
+    // and the picture is ninety-five of the hundred columns, with the ground at both sides.
+    let h = shown_in_cell(solid(900, 570), Fit::Contain, AREA.0, AREA.1, None);
+    assert_eq!(drawn(&h, AREA), (2, 96, 0, AREA.1 - 1), "as narrow as a square half cell makes it");
+}
+
+#[test]
+fn a_square_picture_stands_as_a_square_on_a_cell_that_is_not_twice_as_tall() {
+    let h = shown_in_cell(solid(300, 300), Fit::Contain, AREA.0, AREA.1, Some(CELL));
+    let (left, right, top, bottom) = drawn(&h, AREA);
+    let (columns, rows) = (right - left + 1, bottom - top + 1);
+    // Sixty-three columns of nine pixels are 567, thirty rows of nineteen are 570: a square
+    // picture stands as a square on screen, within one cell.
+    let (wide, tall) = (u32::from(columns) * u32::from(CELL.0), u32::from(rows) * u32::from(CELL.1));
+    assert!(wide.abs_diff(tall) <= u32::from(CELL.0), "{columns} by {rows} cells is {wide} by {tall} pixels");
+    // And it stands in the middle: eighteen columns of ground at its left, nineteen at its right.
+    assert!(
+        left.abs_diff(AREA.0 - 1 - right) <= 1,
+        "the ground is {left} columns at the left and {} at the right",
+        AREA.0 - 1 - right
+    );
+    assert_eq!((top, bottom), (0, AREA.1 - 1), "the rows it can fill are full");
 }
 
 /// A picture that measures itself in a row, beside a word.

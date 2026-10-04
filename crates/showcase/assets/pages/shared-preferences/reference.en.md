@@ -2,6 +2,7 @@
 
 - `Ecosystem::preferences(app, &i18n)` — resolves language, theme, icons and reduced motion of `app`; creates the shared file with the detected values when it is missing.
 - `Ecosystem::preferences_in(folder, app, &i18n)` — the same in `folder` instead of the platform's ecosystem folder.
+- `Preferences::detected(&i18n)` — the preferences this machine starts with, with no file behind them: the same values resolving from an empty folder gives, every key `Source::Detected`, nothing read and nothing to blame. For an application with no home folder; with `Appearance::without_saving()` its rows apply a change at once and write it nowhere.
 - `Ecosystem::set(app, Shared::Theme, "nordic", Scope::Ecosystem)` — writes one shared key; `Scope::App` writes the application's file only. `set_in(folder, …)` in another folder.
 - `Ecosystem::follow(app, Shared::Theme)` — puts `app` back on the ecosystem's value: `<app>.conf` alone takes `theme = "quvyta"`, the shared file is untouched. `follow_in(folder, …)` in another folder.
 - `Preferences::language()`, `theme()`, `icons()` — a `Resolved { value, source }` each; `source(key)` for one key.

@@ -1,8 +1,10 @@
 use super::*;
 use crate::color::Rgb;
+use crate::env::Env;
 use crate::event::{MouseButton, MouseKind};
 use crate::icons::Glyph;
 use crate::icons::GlyphMode;
+use crate::keymap::Scope;
 use crate::runtime::{App, Command, Harness};
 use crate::text;
 use crate::widget::{Align, Length, View};
@@ -707,4 +709,111 @@ fn a_lazy_tables_fitted_column_fits_its_title() {
     // The rows are not all known, so the column is as wide as its title and its cells are cut.
     assert!(header.contains("Bytes"), "{header}");
     assert!(!h.screen().contains("1234567890"), "{}", h.screen());
+}
+
+/// A music player's songs: the table holds the focus almost all the time, so its keymap binds
+/// `space` to the application's own play and pause, which the table can either keep or let through.
+struct Player {
+    /// What the table is told about Space; `None` leaves the option at its default.
+    space_activates: Option<bool>,
+    /// Whether the table shows a check mark on every row.
+    marks: bool,
+    checked: Vec<bool>,
+    selected: Option<usize>,
+    opened: Vec<usize>,
+    played: usize,
+}
+
+#[derive(Clone)]
+enum PlayerMsg {
+    Select(usize),
+    Open(usize),
+    Toggle(usize),
+    Play,
+}
+
+impl App for Player {
+    type Msg = PlayerMsg;
+    fn update(&mut self, msg: PlayerMsg) -> Command<PlayerMsg> {
+        match msg {
+            PlayerMsg::Select(index) => self.selected = Some(index),
+            PlayerMsg::Open(index) => self.opened.push(index),
+            PlayerMsg::Toggle(index) => {
+                if let Some(checked) = self.checked.get_mut(index) {
+                    *checked = !*checked;
+                }
+            }
+            PlayerMsg::Play => self.played += 1,
+        }
+        Command::none()
+    }
+    fn action(&self, name: &str) -> Option<PlayerMsg> {
+        matches!(name, "play").then_some(PlayerMsg::Play)
+    }
+    fn view(&self, ui: &mut View<'_, PlayerMsg>) {
+        let mut table = Table::new([Column::new("Song")], songs()).selected(self.selected);
+        if let Some(on) = self.space_activates {
+            table = table.space_activates(on);
+        }
+        table = table.on_select(PlayerMsg::Select).on_activate(PlayerMsg::Open);
+        if self.marks {
+            table = table.checked(self.checked.clone()).on_toggle(PlayerMsg::Toggle);
+        }
+        ui.add(table).fill();
+    }
+}
+
+fn songs() -> Arc<[TableRow]> {
+    ["blue monday", "just like heaven", "painted in blue"].map(|name| TableRow::new([name])).to_vec().into()
+}
+
+/// A player whose songs table is asked to leave Space to the application, or not, with or without
+/// check marks on the rows.
+fn player(space_activates: Option<bool>, marks: bool) -> Harness<Player> {
+    let mut env = Env::builtin();
+    env.keymap_mut().bind(Scope::App, "play", &["space".parse().expect("a chord")]);
+    Harness::with_env(
+        Player { space_activates, marks, checked: vec![false; 3], selected: None, opened: Vec::new(), played: 0 },
+        env,
+        24,
+        6,
+    )
+}
+
+#[test]
+fn space_leaves_the_table_for_the_application_when_the_table_asks_for_it() {
+    let mut h = player(Some(false), false);
+    h.press("tab").press("down");
+    assert_eq!(h.app().selected, Some(0), "the table holds the focus and the cursor is on a row");
+    h.press("space");
+    assert_eq!(h.app().played, 1, "Space reached the application's own action");
+    assert!(h.app().opened.is_empty(), "and no row was opened instead");
+    h.press("enter");
+    assert_eq!(h.app().opened, vec![0], "Enter still opens the row");
+    h.click_text("painted in blue");
+    assert_eq!(h.app().opened, vec![0, 2], "and a click is the same as it always was");
+}
+
+#[test]
+fn by_default_space_opens_the_row_and_the_application_never_hears_of_it() {
+    let mut h = player(None, false);
+    h.press("tab").press("down").press("space");
+    assert_eq!(h.app().opened, vec![0], "Space opens the cursor's row");
+    assert_eq!(h.app().played, 0, "so the application's own action is not reached");
+}
+
+#[test]
+fn a_table_that_checks_rows_leaves_space_alone_as_well() {
+    let mut h = player(Some(false), true);
+    h.press("tab").press("down").press("space");
+    assert_eq!(h.app().checked, [false, false, false], "the key checked no row");
+    assert_eq!(h.app().played, 1, "and went to the application as before");
+    let (_, y) = h.find("painted in blue").expect("the third song's row is on screen");
+    h.click(2, y);
+    assert_eq!(h.app().checked, [false, false, true], "a click on the mark still checks the row:\n{}", h.screen());
+
+    let mut h = player(Some(true), true);
+    h.press("tab").press("down").press("space");
+    assert_eq!(h.app().checked, [true, false, false], "while the option is on, Space checks the row");
+    assert_eq!(h.app().played, 0, "and does not reach the application");
 }

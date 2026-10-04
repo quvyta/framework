@@ -213,7 +213,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
 mod tests {
     use super::*;
     use crate::app::Showcase;
-    use crate::tests::showcase_on;
+    use crate::tests::{click_setting, showcase_on};
     use qframe::runtime::Harness;
 
     /// The cells a text spans.
@@ -323,9 +323,10 @@ mod tests {
         let beside = u16::try_from(tile_of(name, cells("Wallpaper")) + i32::from(IconTile::PILLAR)).unwrap_or(0);
         let row = u16::try_from(row).unwrap_or(0);
         assert_eq!(h.bg(beside, row), surface, "a backed tile stands on the surface tone: {}", h.screen());
-        h.send(send(Msg::Backed(false)));
+        click_setting(&mut h, "Over a picture");
         assert_ne!(h.bg(beside, row), surface, "and a bare tile keeps the ground it is given");
-        h.send(send(Msg::Backed(true))).send(send(Msg::Long(true)));
+        click_setting(&mut h, "Over a picture");
+        click_setting(&mut h, "Long names");
         assert!(h.screen().contains("Photos 2…"), "a name too wide for a tile is cut: {}", h.screen());
         h.set_locale("tr");
         assert!(h.screen().contains("Notlar"), "and the tiles follow the language: {}", h.screen());

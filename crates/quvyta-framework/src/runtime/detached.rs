@@ -15,7 +15,7 @@ use std::process::Stdio;
 #[cfg(not(unix))]
 use std::process::{Child, Command as ChildCommand, ExitStatus};
 use std::sync::Arc;
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
 use super::command::MapFn;
@@ -23,7 +23,7 @@ use super::command::MapFn;
 use super::foreground::Foreground;
 use super::handoff::{HandoffRequest, HandoffScreen, Program};
 use super::live_child::{self, ChildLine, LiveChild, Sink};
-use super::task::Delivery;
+use super::task::{Delivery, Outlet};
 
 /// How often the wait for the first line looks at the program itself: whether it ended, or
 /// stopped and must go on.
@@ -157,14 +157,13 @@ impl<Msg: Send + 'static> DetachedHandoff<Msg> {
 
     /// The message of `outcome`. A detached child's later lines go, as messages of
     /// [`DetachedHandoff::on_line`], to `deliveries`, and each one wakes the loop.
-    pub(crate) fn finish(self, outcome: DetachedOutcome, deliveries: Sender<Delivery<Msg>>) -> Msg {
+    pub(crate) fn finish(self, outcome: DetachedOutcome, deliveries: Outlet<Msg>) -> Msg {
         if let DetachedOutcome::Detached { child, .. } = &outcome {
             let sink: Sink = match self.on_line {
                 Some(message) => Box::new(move |line| {
                     // A line arriving after the loop has gone has nowhere to be shown; the child
                     // is detached and outlives the application on purpose.
                     let _ = deliveries.send(Delivery::Message(message(line)));
-                    super::signals::wake();
                 }),
                 None => Box::new(|_| {}),
             };
@@ -209,7 +208,7 @@ pub enum DetachedOutcome {
 pub(crate) fn run<Msg: Send + 'static>(
     handoff: DetachedHandoff<Msg>,
     screen: &mut HandoffScreen<'_>,
-    deliveries: &Sender<Delivery<Msg>>,
+    deliveries: &Outlet<Msg>,
 ) -> Msg {
     let outcome = match (screen.release)(handoff.program.notice.as_deref()) {
         Ok(()) => {
@@ -331,7 +330,7 @@ impl Foreground {
 mod tests {
     use std::cell::RefCell;
     use std::io;
-    use std::sync::mpsc::{self, Receiver};
+    use std::sync::mpsc::Receiver;
     use std::time::Duration;
 
     use super::{DetachedHandoff, DetachedOutcome, run};
@@ -368,7 +367,7 @@ mod tests {
             steps.borrow_mut().push("key".to_owned());
             Ok(())
         };
-        let (deliveries, lines) = mpsc::channel();
+        let (deliveries, lines) = super::super::task::channel();
         let message = run(
             handoff,
             &mut HandoffScreen { release: &mut release, take: &mut take, wait_for_key: &mut wait_for_key },

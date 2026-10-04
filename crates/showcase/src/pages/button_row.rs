@@ -97,7 +97,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::showcase_on;
+    use crate::tests::{click_segment, showcase_on};
     use std::time::Duration;
 
     /// The row the demo's own buttons stand in.
@@ -147,7 +147,7 @@ mod tests {
         assert!(h.screen().contains("pressed Settings"), "{}", h.screen());
 
         // Sixty columns: the last two actions wait in the menu of the control at the end.
-        h.send(send(Msg::Width(1)));
+        click_segment(&mut h, "Row width", "60 columns");
         let row = bar(&h);
         assert!(row.contains("Compare") && !row.contains("Publish"), "the row's end moves into the menu:\n{row}");
         open_menu(&mut h);
@@ -156,7 +156,7 @@ mod tests {
         assert!(h.screen().contains("pressed Publish"), "the menu sends the button's own message:\n{}", h.screen());
 
         // Thirty columns: two buttons and the control, and the rest are all still there.
-        h.send(send(Msg::Width(2)));
+        click_segment(&mut h, "Row width", "30 columns");
         let row = bar(&h);
         assert!(row.contains("Open") && row.contains("Save"), "two buttons at the left:\n{row}");
         assert!(!row.contains("Rename"), "the row's end is the control:\n{row}");

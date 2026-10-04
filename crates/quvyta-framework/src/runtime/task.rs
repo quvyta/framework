@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SendError, Sender, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -186,6 +186,36 @@ pub(crate) enum Delivery<Msg> {
     Message(Msg),
     /// A piece of background work ended.
     Ended,
+}
+
+/// Where background work hands the loop what it has: a channel whose every send also wakes the
+/// loop, so a result is applied the moment it arrives. The loop then never has to look for one,
+/// and an application with long work running sleeps as soundly as an idle one.
+pub(crate) struct Outlet<Msg>(Sender<Delivery<Msg>>);
+
+impl<Msg> Clone for Outlet<Msg> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<Msg> Outlet<Msg> {
+    /// Hands `delivery` to the loop and wakes it.
+    ///
+    /// # Errors
+    ///
+    /// The delivery back, once the loop has gone.
+    pub(crate) fn send(&self, delivery: Delivery<Msg>) -> Result<(), SendError<Delivery<Msg>>> {
+        let sent = self.0.send(delivery);
+        super::signals::wake();
+        sent
+    }
+}
+
+/// A channel for background work: the outlet the work sends on, and the end the loop reads.
+pub(crate) fn channel<Msg>() -> (Outlet<Msg>, Receiver<Delivery<Msg>>) {
+    let (sender, receiver) = mpsc::channel();
+    (Outlet(sender), receiver)
 }
 
 /// Time as tasks see it: the real clock, or the test harness's fake clock that only moves when
@@ -497,7 +527,7 @@ const NO_THREAD: &str = "could not start a thread";
 pub(crate) fn spawn<Msg: Send + 'static>(
     task: Task<Msg>,
     clock: &Arc<TaskClock>,
-    sender: &Sender<Delivery<Msg>>,
+    sender: &Outlet<Msg>,
     spawner: Spawner,
 ) -> Option<Msg> {
     let Task { id, label, work, on_event } = task;

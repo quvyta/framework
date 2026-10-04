@@ -11,6 +11,7 @@ Her satırın insanların karşılaştırdığı aynı birkaç bilgiyi taşıdı
 5. Seçimi `.selected(..)` ile göster, `.on_select(..)` ve `.on_activate(..)` ile al.
 6. Sıralama için sütunları `.sortable(true)` yap, `.on_sort(|sütun, yön| ..)` mesajında verini yeniden sırala ve sonucu `.sort(sütun, yön)` ile göster.
 7. Çoklu seçim için `.checked(bool_listesi)` ve `.on_toggle(..)` ekle; boş tablonun ne demek olduğunu `.empty_text(..)` ile söyle.
+8. Space uygulamanda başka bir şey demekse — bir müzik çalıcıda çal ve durdur gibi — `.space_activates(false)` ekle: tablo tuşla hiçbir şey yapmaz ve onu kullanmaz, böylece tuş kendi eylemine gider.
 
 ## Nasıl çalışır
 
@@ -22,6 +23,7 @@ Her satırın insanların karşılaştırdığı aynı birkaç bilgiyi taşıdı
 - **Adın önündeki glif sessizdir.** Renk verilmezse `muted` çizilir, adın bir basamak altında; seçili satırda adın rengini alır. Böylece göz önce adı okur ve anlam hiçbir zaman glifin rengine yüklenmez. Glif, bir boşluk, sonra metin: her glif kipinde aynı düzen. Dar bir sütun yalnızca metni `…` ile keser; glif ve boşluğu hep kalır. Demodaki adlar Nerd kipinde programlarının Nerd Font glifini, öteki kiplerde setin proje ikonunu taşır; deneme alanından kapatılabilir.
 - **Menü tablonun değil satırın.** `.context_menu(|index| ..)` menünün açıldığı satır için öğeleri kurar ve o satır menü açık kaldığı sürece yükselmiş durur. Tablonun tamamını saran tek bir menü imlecin durduğu satıra göre iş yapardı; bir dosya listesinde bu, yanlış dosyayı silmek demektir.
 - **Menü satırın eylemi olduğunda.** Bazı tablolarda bir satırla yapılacak şey birkaç seçenekten ibarettir. `.menu_on_activate(true)` ile Enter seçili satırın menüsünü altında, tık da tıklanan satırın menüsünü tıklandığı yerde açar; `on_activate` gönderilmez. Terminalde çoğu kişinin aklına sağ tık gelmez ve birçok klavyede menü tuşu yoktur. Menüsü boş olan satırda hiçbir şey açılmaz.
+- **Tablonun olmayan bir tuş.** Bir müzik çalıcıda Space her yerde çal ve durdur demektir ve şarkı tablosu neredeyse hep odaktadır; tek bir tablo bu tuşu elinden almamalı. `.space_activates(false)` onu uygulamaya bırakır: tablo Space ile hiçbir şey yapmaz ve onu kullanmaz, böylece tuş kendi eylemine, kullanılmayan bir tuş gibi ulaşır. İşaretli bir tablo da tuşu bırakır: işaretler kalır, bir tıklama yine bir satırı işaretler. Enter ve fare her iki durumda da aynıdır; deneme alanındaki düğme tuşu geri açar.
 - **Veri senin, sıra senin.** Tablo satırları asla kendisi sıralamaz; sıralama ister ve senin geri verdiğin oku gösterir.
 
 ## Sık yapılan hatalar

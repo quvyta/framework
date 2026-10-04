@@ -72,6 +72,19 @@ fn make_demo(demo: &Path) {
     let _ = std::fs::write(files.join("harbour.png"), "not a picture, only its name\n");
     let _ = std::fs::write(files.join("tides.csv"), "time,height\n06:00,4.2\n");
     let _ = std::fs::write(files.join("logbook.tar.gz"), "not an archive, only its name\n");
+    // A trash of this run's own, with an entry that has its note and one that has none, so the
+    // place it is opened from has rows to show before anything has been deleted in the demo. The
+    // note of the first is written the way the specification says, and the second is the case a
+    // real trash holds as well: an entry nothing knows the way back for.
+    let trash = demo.join("Trash");
+    let _ = std::fs::create_dir_all(trash.join("files"));
+    let _ = std::fs::create_dir_all(trash.join("info"));
+    let _ = std::fs::write(trash.join("files").join("draft.md"), "an entry that went to the trash\n");
+    let _ = std::fs::write(
+        trash.join("info").join("draft.md.trashinfo"),
+        format!("[Trash Info]\nPath={}\nDeletionDate=2026-09-20T14:32:11\n", files.join("draft.md").display()),
+    );
+    let _ = std::fs::write(trash.join("files").join("orphan.txt"), "no note says where this came from\n");
     // A file big enough that copying it takes a moment, so the progress of a long operation can be
     // seen. It is made of one repeated byte, so it costs nothing to write.
     let _ = std::fs::write(files.join("big.bin"), vec![b'q'; BIG]);
@@ -358,6 +371,20 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     ui.add_with(Panel::new().title(t!("demo.live")).gap(0), |ui| {
         ui.add(Text::new(t!("file-manager.hint")).role("secondary"));
         ui.spacer().height(Length::Cells(1));
+        // region: file-manager-trash
+        // A desktop's trash icon does one thing: it shows the trash, where everything that was
+        // deleted can be put back or taken out for good. The manager is sent there and back with
+        // one message each, and the folder it looks in is the one `trashing_in` was given, so this
+        // is the page's own trash and never the person's.
+        if state.trashing {
+            let leaving = state.manager.in_trash();
+            let label =
+                if leaving { t!("quvyta.file-manager.leave-trash") } else { t!("quvyta.file-manager.open-trash") };
+            let message = if leaving { FileManagerMsg::Leave } else { FileManagerMsg::OpenTrash };
+            ui.add(Button::new(label).on_press(send(message))).id("trash");
+        }
+        // endregion
+        ui.spacer().height(Length::Cells(1));
         // region: file-manager-view
         let mut manager = FileManager::new(&state.manager, send)
             .view(VIEWS[state.view])
@@ -469,6 +496,14 @@ mod tests {
     /// A moment for a menu or a dialog to settle.
     const MOMENT: Duration = Duration::from_millis(400);
 
+    /// Right-clicks the row showing `text`, the way a person opens a row's menu.
+    fn right_click(h: &mut qframe::runtime::Harness<crate::app::Showcase>, text: &str) {
+        let (x, y) = h.find(text).unwrap_or_else(|| panic!("`{text}` is on screen:\n{}", h.screen()));
+        h.mouse(qframe::event::MouseKind::Down(qframe::event::MouseButton::Right), x, y);
+        h.mouse(qframe::event::MouseKind::Up(qframe::event::MouseButton::Right), x, y);
+        h.advance(MOMENT);
+    }
+
     #[test]
     fn the_page_shows_the_folder_and_makes_a_file_in_it() {
         let mut h = showcase_on(PAGE);
@@ -541,6 +576,45 @@ mod tests {
         h.send(send(FileManagerMsg::Trash("README.md".to_owned()))).advance(MOMENT);
         assert!(demo.join("Trash/files/README.md").is_file(), "{}", h.screen());
         assert!(!demo.join("files/README.md").exists(), "{}", h.screen());
+    }
+
+    #[test]
+    fn the_trash_is_a_place_of_its_own_where_what_was_deleted_can_be_put_back() {
+        let mut h = showcase_on(PAGE);
+        crate::tests::click_setting(&mut h, "Deleting puts entries");
+        h.advance(MOMENT);
+        assert!(h.app().pages.file_manager.trashing, "the switch turns the trash on:\n{}", h.screen());
+        let demo = h.app().pages.file_manager.demo.clone();
+        // What the demo folder's own trash was made with: an entry with a note, and one without.
+        assert!(demo.join("Trash/files/orphan.txt").is_file(), "the demo trash of this run");
+
+        right_click(&mut h, "Cargo.toml");
+        h.click_text("Move to the trash").advance(MOMENT);
+        assert!(demo.join("Trash/files/Cargo.toml").is_file(), "{}", h.screen());
+
+        h.click_text("Open the trash").advance(MOMENT);
+        assert!(h.app().pages.file_manager.manager.in_trash(), "{}", h.screen());
+        let screen = h.screen();
+        assert!(screen.contains("Cargo.toml") && screen.contains("orphan.txt"), "both are listed:\n{screen}");
+
+        // The columns of the place are the place's own, where a folder's would stand, and the
+        // changed column says when the entry went.
+        h.click_text("A tree of folders").advance(MOMENT);
+        h.click_text("A list with size").advance(MOMENT);
+        let screen = h.screen();
+        assert!(screen.contains("From") && screen.contains("Changed"), "the columns of the place:\n{screen}");
+        assert!(!screen.contains("Permissions"), "not the ones of a folder:\n{screen}");
+        assert!(screen.contains("2026-09-20 14:32"), "with the date the note wrote:\n{screen}");
+        assert!(screen.contains("unknown"), "and the origin of the entry without a note:\n{screen}");
+
+        right_click(&mut h, "Cargo.toml");
+        h.click_text("Restore").advance(MOMENT);
+        assert!(demo.join("files/Cargo.toml").is_file(), "put back where it came from:\n{}", h.screen());
+        assert!(!demo.join("Trash/info/Cargo.toml.trashinfo").exists(), "and its note is gone with it");
+
+        h.click_text("Back to the folder").advance(MOMENT);
+        assert!(!h.app().pages.file_manager.manager.in_trash(), "the folder is shown again:\n{}", h.screen());
+        assert!(h.screen().contains("Cargo.toml"), "with what was put back in it:\n{}", h.screen());
     }
 
     #[test]

@@ -400,7 +400,8 @@ impl<A: App> Harness<A> {
     /// [`Env::cell_pixels`](crate::env::Env::cell_pixels) answers it in every view that follows,
     /// and sixel pictures are shrunk to it. A harness asks no terminal, so until this is called
     /// the answer is `None`. Calling it again is a font size changing under the same columns
-    /// and rows.
+    /// and rows, which reaches [`App::cell_pixels`](super::App::cell_pixels) before the frame
+    /// that shows the new size is built, as a terminal resize reaches it.
     pub fn set_cell_pixels(&mut self, cell: Option<(u16, u16)>) -> &mut Self {
         self.engine.env.set_cell_pixels(cell);
         self.render()
@@ -912,6 +913,8 @@ mod wide_text_tests {
 mod graphics_tests {
     use super::Harness;
     use crate::color::ColorDepth;
+    use crate::env::Env;
+    use crate::geometry::Size;
     use crate::graphics::Graphics;
     use crate::icons::GlyphMode;
     use crate::runtime::{App, Command};
@@ -1018,5 +1021,76 @@ mod graphics_tests {
             "none
 "
         );
+    }
+
+    /// Keeps the screen size, the cell sizes and which hook each message came from, in the order
+    /// they arrived.
+    #[derive(Default)]
+    struct Measure {
+        size: Option<Size>,
+        cells: Vec<Option<(u16, u16)>>,
+        heard: Vec<&'static str>,
+    }
+
+    #[derive(Clone)]
+    enum MeasureMsg {
+        Resized(Size),
+        Cell(Option<(u16, u16)>),
+    }
+
+    impl App for Measure {
+        type Msg = MeasureMsg;
+        fn resized(&self, size: Size) -> Option<MeasureMsg> {
+            Some(MeasureMsg::Resized(size))
+        }
+        fn cell_pixels(&self, cell: Option<(u16, u16)>) -> Option<MeasureMsg> {
+            Some(MeasureMsg::Cell(cell))
+        }
+        fn update(&mut self, msg: MeasureMsg) -> Command<MeasureMsg> {
+            match msg {
+                MeasureMsg::Resized(size) => {
+                    self.size = Some(size);
+                    self.heard.push("resized");
+                }
+                MeasureMsg::Cell(cell) => {
+                    self.cells.push(cell);
+                    self.heard.push("cell");
+                }
+            }
+            Command::none()
+        }
+        fn view(&self, _ui: &mut View<'_, MeasureMsg>) {}
+    }
+
+    /// An environment that reports the size of a cell, as the runtime records what the terminal
+    /// answered before its first frame.
+    fn reporting(cell: Option<(u16, u16)>) -> Env {
+        let mut env = Env::builtin();
+        env.set_cell_pixels(cell);
+        env
+    }
+
+    #[test]
+    fn a_cell_size_change_is_heard_once_and_a_terminal_stops_reporting_one_is_heard_too() {
+        let mut harness = Harness::with_env(Measure::default(), reporting(Some((9, 19))), 40, 3);
+        assert_eq!(harness.app().cells, [Some((9, 19))], "the first frame reports what the terminal reports");
+        harness.set_cell_pixels(Some((12, 24)));
+        assert_eq!(harness.app().cells, [Some((9, 19)), Some((12, 24))], "a larger font, the same columns and rows");
+        harness.set_cell_pixels(Some((12, 24)));
+        assert_eq!(harness.app().cells.len(), 2, "a cell size already reported is not reported again");
+        harness.set_cell_pixels(None);
+        assert_eq!(harness.app().cells, [Some((9, 19)), Some((12, 24)), None], "no report is a change too");
+    }
+
+    #[test]
+    fn the_first_frame_tells_the_size_before_the_cell() {
+        let mut harness = Harness::with_env(Measure::default(), reporting(Some((9, 19))), 60, 5);
+        assert_eq!(harness.app().size, Some(Size::new(60, 5)));
+        assert_eq!(harness.app().heard, ["resized", "cell"], "a frame with both new reaches the size first");
+        // A font size change on its own leaves the columns and rows as they were.
+        harness.set_cell_pixels(Some((12, 24)));
+        assert_eq!(harness.app().heard, ["resized", "cell", "cell"], "only the cell is new now");
+        harness.resize(80, 6);
+        assert_eq!(harness.app().heard, ["resized", "cell", "cell", "resized"], "the cell is not told again");
     }
 }

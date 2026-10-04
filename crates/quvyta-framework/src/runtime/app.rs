@@ -52,24 +52,27 @@ use crate::widget::View;
 ///
 /// # Lifecycle
 ///
-/// Besides `update` and `view`, six optional hooks follow the application through its life.
+/// Besides `update` and `view`, seven optional hooks follow the application through its life.
 /// Each has a default, so an application implements only the ones it needs:
 ///
 /// 1. [`App::resized`] hears the size of the screen: first when the application starts, then
 ///    whenever it changes.
-/// 2. [`App::graphics`] hears the way the terminal draws pictures, right after that first size
-///    and whenever it changes, so a picture is decoded at the size it will be shown.
-/// 3. [`App::preferences`] hears the ecosystem's shared preferences of an application started
+/// 2. [`App::cell_pixels`] hears the size of one cell in pixels, right after that first size and
+///    whenever it changes, which a change of font size does with the columns and rows left as
+///    they were.
+/// 3. [`App::graphics`] hears the way the terminal draws pictures, right after that first cell
+///    size and whenever it changes, so a picture is decoded at the size it will be shown.
+/// 4. [`App::preferences`] hears the ecosystem's shared preferences of an application started
 ///    with [`Runtime::member`](super::Runtime::member): right after the graphics, and whenever
 ///    another application changes them while this one runs.
-/// 4. [`App::init`] runs once, right after the first size, graphics and preferences, before the
+/// 5. [`App::init`] runs once, right after the first size, cell and graphics, before the
 ///    first frame is built.
-/// 5. [`App::before_quit`] is asked whenever the runtime is about to quit on the user's behalf.
-/// 6. [`App::terminating`] hears that the system is ending the application: a `SIGTERM` or a
+/// 6. [`App::before_quit`] is asked whenever the runtime is about to quit on the user's behalf.
+/// 7. [`App::terminating`] hears that the system is ending the application: a `SIGTERM` or a
 ///    `SIGHUP`, when the SSH connection or the terminal went away. It is the one chance to save.
 ///
-/// The hooks that only report something ([`App::resized`], [`App::graphics`],
-/// [`App::preferences`], [`App::before_quit`], [`App::terminating`], like
+/// The hooks that only report something ([`App::resized`], [`App::cell_pixels`],
+/// [`App::graphics`], [`App::preferences`], [`App::before_quit`], [`App::terminating`], like
 /// [`App::action`] and [`App::clipboard`]) read the state and answer with a message, which then
 /// goes through `update` like every other; the one that starts work ([`App::init`]) returns a
 /// [`Command`] like `update` does. The [`Harness`](super::Harness) runs every hook exactly
@@ -180,8 +183,70 @@ pub trait App: 'static {
         None
     }
 
+    /// Hears the size of one cell in pixels, [`Env::cell_pixels`](crate::env::Env::cell_pixels)
+    /// as width and height: when the application starts, right after [`App::resized`] and before
+    /// [`App::init`], and afterwards whenever it changes. The message it returns goes through
+    /// [`App::update`], which is where work that needs the pixels starts: a picture decoded again
+    /// at the size the terminal now shows, a browser's viewport measured afresh.
+    ///
+    /// [`App::resized`] hears columns and rows, and a change of font size leaves those as they
+    /// were — the window grows with the cells, by a keystroke or in a tiling window manager — so
+    /// nothing else tells the application that its cells are bigger. Here it is a change like any
+    /// other, heard before the frame whose view first sees the new size is built. A cell and a
+    /// screen size that change in the same frame are told in that order, and a value already
+    /// reported is not reported again: `None` is a value too, so a terminal that stops reporting
+    /// one is heard as well. [`Harness::set_cell_pixels`](super::Harness::set_cell_pixels) reports
+    /// a change the way the runtime does.
+    ///
+    /// ```
+    /// use qframe::prelude::*;
+    ///
+    /// #[derive(Default)]
+    /// struct Wallpaper {
+    ///     cell: Option<(u16, u16)>,
+    /// }
+    ///
+    /// #[derive(Clone)]
+    /// enum Msg {
+    ///     Cell(Option<(u16, u16)>),
+    /// }
+    ///
+    /// impl App for Wallpaper {
+    ///     type Msg = Msg;
+    ///
+    ///     fn cell_pixels(&self, cell: Option<(u16, u16)>) -> Option<Msg> {
+    ///         Some(Msg::Cell(cell))
+    ///     }
+    ///
+    ///     fn update(&mut self, msg: Msg) -> Command<Msg> {
+    ///         match msg {
+    ///             Msg::Cell(cell) => self.cell = cell,
+    ///         }
+    ///         Command::none()
+    ///     }
+    ///
+    ///     fn view(&self, ui: &mut View<'_, Msg>) {
+    ///         ui.add(Text::new(match self.cell {
+    ///             Some((width, height)) => format!("{width} × {height}"),
+    ///             None => "-".to_owned(),
+    ///         }));
+    ///     }
+    /// }
+    ///
+    /// // A font size change leaves the columns and rows as they were, so nothing else reports it.
+    /// let mut app = Harness::new(Wallpaper::default(), 40, 6);
+    /// app.set_cell_pixels(Some((12, 24)));
+    /// assert_eq!(app.app().cell, Some((12, 24)));
+    /// assert!(app.screen().contains("12 × 24"), "{}", app.screen());
+    /// ```
+    ///
+    /// The default ignores the cell size.
+    fn cell_pixels(&self, _cell: Option<(u16, u16)>) -> Option<Self::Msg> {
+        None
+    }
+
     /// Hears the way this terminal draws pictures, [`Env::graphics`](crate::env::Env::graphics):
-    /// when the application starts, after [`App::resized`] and before [`App::init`], and
+    /// when the application starts, after [`App::cell_pixels`] and before [`App::init`], and
     /// afterwards whenever it changes, such as when the glyph mode is switched to ASCII or back
     /// while the application runs, or when the terminal's kitty answer arrives late over a slow
     /// link. The message it returns goes through [`App::update`], which is where a picture is

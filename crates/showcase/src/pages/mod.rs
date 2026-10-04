@@ -65,6 +65,7 @@ pub mod radio_group;
 pub mod samples;
 pub mod scroll_view;
 pub mod scrollbar_styles;
+pub mod seek_bar;
 pub mod segmented;
 pub mod select;
 pub mod settings_list;
@@ -213,6 +214,7 @@ pub const PAGES: &[PageContent] = &[
     page!("menu", "menu"),
     page!("breadcrumb", "breadcrumb"),
     page!("slider", "slider"),
+    page!("seek-bar", "seek_bar"),
     page!("number-input", "number_input"),
     page!("time-input", "time_input"),
     page!("duration-input", "duration_input"),
@@ -315,6 +317,7 @@ pub struct Pages {
     pub menu: menu::State,
     pub breadcrumb: breadcrumb::State,
     pub slider: slider::State,
+    pub seek_bar: seek_bar::State,
     pub number_input: number_input::State,
     pub time_input: time_input::State,
     pub duration_input: duration_input::State,
@@ -411,6 +414,7 @@ pub enum PageMsg {
     Menu(menu::Msg),
     Breadcrumb(breadcrumb::Msg),
     Slider(slider::Msg),
+    SeekBar(seek_bar::Msg),
     NumberInput(number_input::Msg),
     TimeInput(time_input::Msg),
     DurationInput(duration_input::Msg),
@@ -514,6 +518,7 @@ pub fn update(pages: &mut Pages, message: PageMsg, log: &mut EventLog) -> Comman
         PageMsg::Menu(m) => menu::update(&mut pages.menu, m, log),
         PageMsg::Breadcrumb(m) => breadcrumb::update(&mut pages.breadcrumb, m, log),
         PageMsg::Slider(m) => slider::update(&mut pages.slider, m, log),
+        PageMsg::SeekBar(m) => seek_bar::update(&mut pages.seek_bar, m, log),
         PageMsg::NumberInput(m) => number_input::update(&mut pages.number_input, m, log),
         PageMsg::TimeInput(m) => time_input::update(&mut pages.time_input, m, log),
         PageMsg::DurationInput(m) => duration_input::update(&mut pages.duration_input, m, log),
@@ -616,6 +621,7 @@ pub fn demo(pages: &Pages, id: &str, ui: &mut View<'_, Msg>) {
         "menu" => menu::view(&pages.menu, ui),
         "breadcrumb" => breadcrumb::view(&pages.breadcrumb, ui),
         "slider" => slider::view(&pages.slider, ui),
+        "seek-bar" => seek_bar::view(&pages.seek_bar, ui),
         "number-input" => number_input::view(&pages.number_input, ui),
         "time-input" => time_input::view(&pages.time_input, ui),
         "duration-input" => duration_input::view(&pages.duration_input, ui),

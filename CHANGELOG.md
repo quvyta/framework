@@ -4,6 +4,107 @@ Notable changes to `quvyta-framework` and `quvyta-framework-showcase`. Both pack
 version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 is at 0.1, so a minor release may still change the API.
 
+## 0.1.33 - 2026-10-04
+
+### Added
+
+- `Preferences::detected(&i18n)`: the shared preferences this machine starts with, with no file
+  behind them. Every key takes the value `Ecosystem::preferences` detects when no file holds one,
+  the language the system names, the theme `monochrome`, the icon mode the terminal and the
+  installed fonts allow, reduced motion off, and every one of them is `Source::Detected`. An
+  application on a machine with no home folder, a desktop session with nowhere to put its settings,
+  starts from these instead of resolving from a path that cannot exist. Nothing is read, so there is
+  no diagnostic; paired with `Appearance::without_saving`, a change made on the appearance rows is
+  applied at once and written nowhere, which cannot fail. The counterpart of `Settings::in_memory`
+  for the keys the ecosystem shares.
+- `Table::space_activates(false)`: Space is left to the application, for the table that holds the
+  focus almost all the time — a music player's songs, where Space is play and pause everywhere
+  else. The table does nothing with the key and does not use it, so it travels on to the
+  application's keymap actions exactly as an unhandled key does, while Enter and the mouse keep
+  selecting, checking and opening rows. A table that checks rows loses the key with it and leaves
+  the marks and their click as they are. On by default, so a table behaves as it always has.
+- `EventCx::is_reserved(&chord) -> bool` and `EventCx::reserved_action(&chord) ->
+  Option<(Scope, String)>`: a widget that takes every key while it has focus asks whether a key
+  belongs to the application and returns the ones that do unused, so quitting with `ctrl+q` and the
+  application's own shortcuts keep working inside an embedded page, an embedded terminal or a coding
+  tool's own screen. The answer comes from the keymap in force when the key arrived, so a rebinding
+  in a keymap file moves it and the widget holds no list of its own to keep in step; the runtime
+  answers from the same list of the global actions it always handles, which an application no longer
+  has to read out of the keymap and copy. `reserved_action` also names the action and the scope it
+  is bound in. A global action the runtime only hands to `App::action`, such as `help` and
+  `palette`, is not reserved: the runtime does not act on those itself, so a screen that wants
+  them keeps them itself.
+- `App::cell_pixels(&self, Option<(u16, u16)>) -> Option<Msg>`: a lifecycle hook that hears the
+  size of one cell in pixels, before the first frame and again whenever it changes. `Env::cell_pixels`
+  answers that only while painting, and `App::resized` is told only when the columns or the rows
+  change, so a font size change — the window growing with its cells, by a keystroke or in a tiling
+  window manager — reached `update` with nothing to show for it, and a picture decoded for the old
+  cell stayed that size on screen. The message it returns goes through `update` like every other,
+  so a picture can be decoded again at the size the terminal now shows, before the frame that draws
+  it. A cell and a screen size that change in one frame are told in that order, and a terminal that
+  stops reporting a cell is heard too. `Harness::set_cell_pixels` reports a change the way the
+  runtime does.
+- The trash of a `FileManager` that has one is a place of its own, as a desktop's trash icon opens it:
+  `FileManagerState::open_trash(wrap)` (or `FileManagerMsg::OpenTrash`) shows what was deleted — every
+  entry under the name it has where it came from, the folder it came from and when it went, in the
+  columns of the list, where the changed column carries the deletion date — and its rows put an
+  entry back where its `.trashinfo` note says, delete one for good, or empty the whole trash. The
+  place sorts and narrows the way any folder does, since a note already knows when an entry went.
+  `FileManagerMsg::Leave` comes back to the folder. Nothing is ever overwritten: a name that is
+  taken again is asked about, with a name that is free there offered, and both destructive
+  operations ask first, in the danger colour. An entry whose note is missing or says nothing usable
+  is still listed, under the name it has in the trash with its origin unknown, and never stops the
+  rest of the list. An entry of the trash is named by what it is called there, so nothing that acts
+  on a key below the root can reach one, and a key the trash does not list, `..` or `../x` among
+  them, reaches nothing at all. See `Trashed` and `FileManagerMsg::Restore`, `RestoreAs`,
+  `Purge`, `PurgeConfirmed`, `EmptyTrash`, `EmptyTrashConfirmed`, `Trashed`.
+- `SeekBar`: a progress bar a person can click and drag to a position, the way every music and
+  video player offers one. It draws exactly the cells and tones a `ProgressBar` draws, so a player
+  can put one where the other stood without the picture changing. `SeekBar::new(fraction).on_seek(
+  |fraction| msg)` seeks to the centre of the cell a press landed on and, while the button is held,
+  to every cell the pointer moves to — past either end of the track it holds at 0 or 1, and the
+  release ends it. Focused, ← and → move a twentieth of the track and Home and End go to its ends.
+  Under the pointer the bar steps a tone lighter and the cell under the pointer takes the accent, so
+  where a seek would land is the one cell that stands out; `.hover_label(|fraction| text)` writes
+  the time there in the library's own tooltip, anchored over the pointer's cell, and `.percent(false)`
+  gives the percentage's cells to the bar, and `.variant("success")` colours it as it colours a
+  progress bar. Without `on_seek` the bar is a picture, as a progress bar is: no focus, no hover, no
+  pointer.
+- `BigText` draws every Latin letter, not only A to Z: the Turkish `Ç Ğ İ Ö Ş Ü`, the Western
+  European `À Á Â Ä Å È É Ê Ë Ì Í Î Ï Ñ Ò Ó Ô Ö Ø Ù Ú Û Ü Ý Ÿ ß Æ Œ` and the punctuation `'`,
+  `!`, `?`, `&`, `(`, `)`, `,`, `/`, beside the digits and `:`, `.`, `%`, `-` it already had. A
+  title in Turkish reads whole now, which is what a music player naming the song that is playing
+  or a desktop heading the day needs; before, `Ş`, `Ç` and `İ` came out as blanks.
+- A lowercase letter in `BigText` is drawn with the Unicode uppercase of its character, with the
+  Turkish rule for the two i's: `ı` is always `I`, and `i` is `İ` while the active language is
+  Turkish or Azerbaijani and `I` in every other. The language in force while painting decides, so
+  the same text follows the language the person is reading.
+- `BigText::fits(text)`: whether every character of `text` has a big form, so an application can
+  ask which of the two it is about to show, or how much room to leave for it.
+
+### Changed
+
+- An application with background work running no longer wakes fifty times a second to look for its
+  result: every message a `Task` or `Command::perform` hands over wakes the loop itself, so the
+  result is applied the moment it arrives and an application whose work only waits (a reader of a
+  terminal tab, a timer, a watch) sleeps between frames as soundly as an idle one.
+
+### Fixed
+
+- A `BigText` with a character this font has no form for, Cyrillic or Japanese or an emoji among
+  them, drew that character as a space and read as a row of holes. It is drawn whole as plain bold
+  text now, the way a too narrow area already was, and measures as the one row it paints.
+- `Image` with half blocks keeps a picture's shape the way the terminal really shows it. A cell is
+  rarely exactly twice as tall as it is wide — 9 × 19 pixels is usual — and `Fit::Contain` and
+  `Fit::Cover` counted every half cell as one square pixel, so a picture prepared at an area's
+  columns times the cell width by rows times the cell height came out a few columns narrow with a
+  strip of ground beside it, and a click aimed at the picture landed a few cells off near its
+  edges. Where the terminal reports the pixels of its cells (`Env::cell_pixels()`), a half block is
+  now as wide as a cell and half as tall, so such a picture fills its area edge to edge and a
+  square picture stands as a square on screen. A terminal that reports no cell size draws exactly as
+  before, one square pixel to a half cell, and `Fit::Center` keeps one pixel to a half cell either
+  way.
+
 ## 0.1.32 - 2026-10-03
 
 ### Added

@@ -8,7 +8,8 @@
 - `fn clipboard(&self, &ClipboardEvent) -> Option<Msg>` — hears copies made by widgets and the mouse selection, and pastes no widget took. Optional.
 - `fn init(&mut self) -> Command<Msg>` — runs once at the start of the first frame, before its view is built; a `Command::focus` it returns is in place before the first key. Optional.
 - `fn resized(&self, Size) -> Option<Msg>` — the terminal size at start (before `init`) and after every resize, the same size `ui.size()` reports; its message goes through `update`. Optional.
-- `fn graphics(&self, Graphics) -> Option<Msg>` — how the terminal draws pictures, `env.graphics()`: at start (after `resized`, before `init`) and whenever it changes, e.g. the glyph mode switched to ASCII; its message goes through `update`, where a picture is decoded at the size shown. `Graphics::can_draw()` tells whether any picture is drawn. Optional.
+- `fn cell_pixels(&self, Option<(u16, u16)>) -> Option<Msg>` — the size of one cell in pixels, `env.cell_pixels()`: at start (after `resized`, before `graphics`) and whenever it changes, which a change of font size does with the columns and rows left as they were, `None` included; a cell and a screen size that change in one frame are told in that order. Its message goes through `update`, where a picture is decoded again at the new size. Optional.
+- `fn graphics(&self, Graphics) -> Option<Msg>` — how the terminal draws pictures, `env.graphics()`: at start (after `cell_pixels`, before `init`) and whenever it changes, e.g. the glyph mode switched to ASCII; its message goes through `update`, where a picture is decoded at the size shown. `Graphics::can_draw()` tells whether any picture is drawn. Optional.
 - `fn preferences(&self, &Preferences) -> Option<Msg>` — the ecosystem's shared preferences of an application started with `Runtime::member`: at start (after `graphics`, before `init`) and whenever `quvyta.conf` or the application's own file changes them while it runs; the screen is already switched, so a settings screen refreshes here. Optional.
 - `fn before_quit(&self) -> Option<Msg>` — asked before the runtime quits for the user (the quit binding, the quit action from the command palette); a message keeps the application running and is delivered instead. `Command::quit()` is never asked about. Optional.
 - `fn terminating(&self, Termination) -> Option<Msg>` — hears that the system is ending the application: `Termination::Terminate` for a `SIGTERM` or an outside `SIGINT`, `Termination::Hangup` for a `SIGHUP`. `None` quits at once; a message keeps it running to save and quit. By default a terminate is answered by `before_quit` and a hangup quits. Optional.
@@ -32,7 +33,7 @@
 ## Graphics
 
 - `env.graphics()` — how a picture can be drawn here: `Graphics::Kitty`, `Graphics::Sixel`, `Graphics::HalfBlock` or `Graphics::None`. The terminal's answer to one question at start (150 ms at most, ended by the device attributes, so starting never waits on the network; never delivered as keys; a late kitty `OK` still switches to kitty), then: 16 colours or ASCII glyphs give `None`; `TMUX` or `STY` turn kitty and sixel into half blocks. `Env::builtin` gives half blocks.
-- `env.cell_pixels()` — the size of one cell in pixels, `Some((width, height))`, or `None` where the terminal reports no pixels. Read at start and at every resize, a font size change included; a new value draws a new frame. `Env::builtin` gives `None`.
+- `env.cell_pixels()` — the size of one cell in pixels, `Some((width, height))`, or `None` where the terminal reports no pixels. Read at start and at every resize, a font size change included; a new value draws a new frame and `App::cell_pixels` hears it. `Env::builtin` gives `None`.
 - `QUVYTA_GRAPHICS=kitty|sixel|halfblock|none` — decides over the answer and every rule; another value is ignored and becomes a diagnostic.
 - `Graphics::name()`, `Graphics::from_name(name)` — the names the variable takes.
 
@@ -79,7 +80,7 @@
 - `.send(msg)` — delivers a message as if a widget sent it.
 - `.advance(duration)` — moves the fake clock; animations and flashes follow it, and a termination whose grace is over quits. `.render()` paints again.
 - `.terminate(Termination::Terminate)`, `.terminate(Termination::Hangup)` — simulates a `SIGTERM` or a `SIGHUP`: `terminating` hears it as in a terminal, a second terminate quits, a repeated hangup changes nothing.
-- `.set_theme(id)`, `.set_locale(code)`, `.set_glyph_mode(mode)`, `.set_graphics(graphics)` (it, `.set_glyph_mode` and `.set_depth(depth)` report a change of graphics to `App::graphics`), `.set_reduced_motion(bool)`, `.set_remote(bool)`, `.set_cell_pixels(Some((w, h)))`, `.set_system_clipboard(Some(text))` — change the environment.
+- `.set_theme(id)`, `.set_locale(code)`, `.set_glyph_mode(mode)`, `.set_graphics(graphics)` (it, `.set_glyph_mode` and `.set_depth(depth)` report a change of graphics to `App::graphics`), `.set_reduced_motion(bool)`, `.set_remote(bool)`, `.set_cell_pixels(Some((w, h)))` (a change reaches `App::cell_pixels`, as a terminal resize reaches it), `.set_system_clipboard(Some(text))` — change the environment.
 - `.screen()`, `.find(text)`, `.fg(x, y)`, `.bg(x, y)`, `.is_bold(x, y)`, `.buffer()`, `.html(caption)` — read what was drawn. A double-width character reads once, without the cell it covers: `screen().contains("防火墙")` holds and `find` gives the column it is drawn in.
 - `.app()`, `.env()`, `.is_focused("name")`, `.copied()`, `.clipboard()`, `.quit_requested()` — inspect the application and the runtime.
 

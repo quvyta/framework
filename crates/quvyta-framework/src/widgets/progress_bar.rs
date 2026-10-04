@@ -2,9 +2,9 @@
 
 use super::eighths;
 use super::shimmer_text::sweep_light;
-use crate::color::Rgb;
 use crate::geometry::{Rect, Size};
 use crate::text;
+use crate::theme::State;
 use crate::widget::{MeasureCx, PaintCx, Widget};
 
 /// Width of the light band of an indeterminate bar, in cells.
@@ -14,7 +14,9 @@ const BAND: f32 = 6.0;
 ///
 /// Determinate bars fill with eighth-cell precision; in ASCII mode they fill whole cells with
 /// colour, rounded to the nearest cell like the charts. Indeterminate bars send a band of light
-/// along the track over `motion.shimmer`.
+/// along the track over `motion.shimmer`. A progress bar is a readout: it takes no focus and
+/// answers no pointer. To show the same bar and let a person click and drag it, use a
+/// [`SeekBar`](super::SeekBar), which draws exactly this picture.
 /// Style keys: `progress` (`track`, `fill`) with variants such as `progress.success`,
 /// `progress-label`.
 #[derive(Debug, Clone, PartialEq)]
@@ -58,34 +60,66 @@ impl<Msg: 'static> Widget<Msg> for ProgressBar {
     }
 
     fn paint(&self, cx: &mut PaintCx<'_>, area: Rect) {
-        let style = cx.style("progress", self.variant.as_deref(), &[]);
-        let track = style.color("track").unwrap_or_else(|| cx.color("raised"));
-        let fill = style.color("fill").unwrap_or_else(|| cx.color("accent"));
         let Some(value) = self.value else {
-            self.paint_sweep(cx, area, track, fill);
+            paint_sweep(cx, area, self.variant.as_deref());
             return;
         };
-        let label = if self.percent { format!(" {:>3.0}%", value * 100.0) } else { String::new() };
-        let bar_width = area.width.saturating_sub(text::width(&label));
-        let bar = Rect::new(area.x, area.y, bar_width, 1);
-        cx.clear(bar, track);
-        eighths::horizontal(cx, bar, eighths::eighths(value, bar_width), fill);
-        if !label.is_empty() {
-            let label_style = cx.style("progress-label", self.variant.as_deref(), &[]).text();
-            cx.text(area.x + i32::from(bar_width), area.y, &label, label_style, text::width(&label));
-        }
+        paint_bar(cx, area, value, self.percent, "progress", self.variant.as_deref(), &[]);
     }
 }
 
-impl ProgressBar {
-    fn paint_sweep(&self, cx: &mut PaintCx<'_>, area: Rect, track: Rgb, fill: Rgb) {
-        let reduced = cx.reduced_motion();
-        let t = cx.cycle(cx.env().theme().motion().shimmer);
-        for column in 0..area.width {
-            // With reduced motion the whole track rests at a quarter of the light.
-            let intensity = if reduced { 0.25 } else { sweep_light(t, f32::from(area.width), BAND, f32::from(column)) };
-            cx.clear(Rect::new(area.x + i32::from(column), area.y, 1, 1), track.mix(fill, intensity));
-        }
+/// The bar a [`ProgressBar`] and a [`SeekBar`](super::SeekBar) draw: the fill on a quiet track, in
+/// eighths of a cell, with the percentage written after it when `percent` says so. `key` is the
+/// style the theme reads, so a bar a person can drag can step lighter under the pointer while a
+/// plain progress bar stays as it is; the percentage is the same label in both, so it takes the
+/// same style. Written once so that putting one bar where the other stood cannot change the
+/// picture.
+pub(crate) fn paint_bar(
+    cx: &mut PaintCx<'_>,
+    area: Rect,
+    value: f32,
+    percent: bool,
+    key: &str,
+    variant: Option<&str>,
+    states: &[State],
+) {
+    let style = cx.style(key, variant, states);
+    let track = style.color("track").unwrap_or_else(|| cx.color("raised"));
+    let fill = style.color("fill").unwrap_or_else(|| cx.color("accent"));
+    let label = label(value, percent);
+    let bar = bar_area(area, value, percent);
+    cx.clear(bar, track);
+    eighths::horizontal(cx, bar, eighths::eighths(value, bar.width), fill);
+    if !label.is_empty() {
+        let label_style = cx.style("progress-label", variant, &[]).text();
+        cx.text(bar.right(), bar.y, &label, label_style, text::width(&label));
+    }
+}
+
+/// The cells a determinate bar's fill lives in: the whole area less the percentage written after
+/// it. A [`SeekBar`](super::SeekBar) presses and hovers over exactly these cells, so what a press
+/// means never drifts from what is drawn.
+pub(crate) fn bar_area(area: Rect, value: f32, percent: bool) -> Rect {
+    let width = area.width.saturating_sub(text::width(&label(value, percent)));
+    Rect::new(area.x, area.y, width, 1)
+}
+
+/// The percentage written after a determinate bar, empty when it is not shown.
+fn label(value: f32, percent: bool) -> String {
+    if percent { format!(" {:>3.0}%", value * 100.0) } else { String::new() }
+}
+
+/// Sweeps a band of light along `area`, for a bar whose size is not known.
+fn paint_sweep(cx: &mut PaintCx<'_>, area: Rect, variant: Option<&str>) {
+    let style = cx.style("progress", variant, &[]);
+    let track = style.color("track").unwrap_or_else(|| cx.color("raised"));
+    let fill = style.color("fill").unwrap_or_else(|| cx.color("accent"));
+    let reduced = cx.reduced_motion();
+    let t = cx.cycle(cx.env().theme().motion().shimmer);
+    for column in 0..area.width {
+        // With reduced motion the whole track rests at a quarter of the light.
+        let intensity = if reduced { 0.25 } else { sweep_light(t, f32::from(area.width), BAND, f32::from(column)) };
+        cx.clear(Rect::new(area.x + i32::from(column), area.y, 1, 1), track.mix(fill, intensity));
     }
 }
 

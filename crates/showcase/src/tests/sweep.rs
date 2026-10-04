@@ -141,13 +141,6 @@ const EXCEPTIONS: &[Exception] = &[
         reason: "a card's body is cut although the card has room for a second line",
     },
     Exception {
-        page: "file-manager",
-        check: check::CUT,
-        detail: "Keep operations inside …",
-        kind: Kind::Defect,
-        reason: "the sentence under the file manager does not wrap",
-    },
-    Exception {
         page: "clipboard",
         check: check::CUT,
         detail: "Paste into the note…",
@@ -224,7 +217,7 @@ const EXCEPTIONS: &[Exception] = &[
 
 /// How many exceptions the list is allowed to hold. Adding one means changing this number, which
 /// makes it a decision rather than an accident.
-const EXCEPTION_COUNT: usize = 19;
+const EXCEPTION_COUNT: usize = 18;
 
 /// One missed promise.
 struct Finding {

@@ -30,7 +30,7 @@ use super::super::{
 use super::details::FileDetails;
 use super::kinds::KindLook;
 use super::sort::{Ranked, Sort, SortBy};
-use super::state::ROOT;
+use super::state::{Place, ROOT};
 use super::{FileManager, FileManagerMsg, FileManagerState, Marks, OnPath, child_key, is_within, root_name};
 
 /// Cells the date column takes: `2026-09-20 14:32` and no more.
@@ -45,6 +45,10 @@ const PERMISSIONS_WIDTH: u16 = 11;
 
 /// The fewest cells the name column shrinks to before the columns scroll sideways.
 const NAME_WIDTH: u16 = 12;
+
+/// The fewest cells the column of where a trashed entry came from shrinks to: a path is long, and
+/// one worth reading in full is worth more than the cells beside it.
+const FROM_WIDTH: u16 = 24;
 
 /// The shape a file manager draws its folder in.
 ///
@@ -62,7 +66,7 @@ pub enum FileView {
     Icons,
 }
 
-/// One entry of the shown folder, as the flat views list it.
+/// One entry of the shown place, as the flat views list it.
 #[derive(Debug)]
 pub(super) struct FlatRow {
     /// The key it acts on.
@@ -73,6 +77,14 @@ pub(super) struct FlatRow {
     pub(super) folder: bool,
     /// Whether it is a file that may be run.
     pub(super) executable: bool,
+    /// When the entry changed in the place that shows it, where the place says so itself: the
+    /// trash knows when an entry went and not when it last changed on disk.
+    pub(super) changed: Option<i64>,
+    /// Where the entry came from, as a note of the trash says; empty in a folder, where the
+    /// columns beside the name are read from the entry itself.
+    pub(super) from: String,
+    /// When the entry went, as a note of the trash writes it; empty in a folder.
+    pub(super) deleted: String,
 }
 
 impl FlatRow {
@@ -83,18 +95,21 @@ impl FlatRow {
             folder: self.folder,
             executable: self.executable,
             details: details.get(&self.key).and_then(Option::as_ref),
+            changed: self.changed,
         }
     }
 }
 
-/// The entries of the shown folder in the order the flat views list them, with where each key
-/// stands. The state keeps it while the folder, its entries and whether hidden entries show stay
+/// The entries of the shown place in the order the flat views list them, with where each key
+/// stands. The state keeps it while the place, its entries and whether hidden entries show stay
 /// the same, so a frame of a large folder reads it rather than makes it.
 #[derive(Debug)]
 pub(super) struct FlatEntries {
     /// The state's revision it was made at.
     pub(super) revision: u64,
-    /// The folder it lists.
+    /// Which of the two places it lists.
+    pub(super) place: Place,
+    /// The folder it lists, which is the root's own row in the trash.
     pub(super) folder: String,
     /// Whether hidden entries were shown.
     pub(super) hidden: bool,
@@ -105,7 +120,7 @@ pub(super) struct FlatEntries {
     pub(super) sort: Sort,
     /// The text the entries were narrowed to.
     pub(super) filter: Option<String>,
-    /// Whether the folder has been read at all; an unread one lists nothing but is not empty.
+    /// Whether the place has been read at all; an unread one lists nothing but is not empty.
     pub(super) known: bool,
     pub(super) rows: Vec<FlatRow>,
     /// The place of every key in `rows`.
@@ -113,24 +128,53 @@ pub(super) struct FlatEntries {
 }
 
 impl FlatEntries {
-    /// The entries of `state`'s shown folder.
+    /// The entries of the place `state` shows.
     pub(super) fn of(state: &FileManagerState, revision: u64, details_revision: u64) -> Self {
         #[cfg(test)]
         ENTRIES_LISTED.with(|count| count.set(count.get() + 1));
-        let folder = state.folder().to_owned();
-        let known = state.shown_children(&folder);
+        let place = state.place();
         let sort = state.sort();
-        let mut rows: Vec<FlatRow> = known
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .map(|entry| FlatRow {
-                key: child_key(&folder, &entry.name),
-                name: entry.name.clone(),
-                folder: entry.folder,
-                executable: entry.executable,
-            })
-            .collect();
+        // The trash is a place beside the root rather than a folder in it, so its own row is the
+        // root's and its entries are named by what they are called there.
+        let folder = if place == Place::Trash { ROOT.to_owned() } else { state.folder().to_owned() };
+        let (mut rows, known) = match place {
+            Place::Files => {
+                let entries = state.shown_children(&folder);
+                let rows: Vec<FlatRow> = entries
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|entry| FlatRow {
+                        key: child_key(&folder, &entry.name),
+                        name: entry.name.clone(),
+                        folder: entry.folder,
+                        executable: entry.executable,
+                        changed: None,
+                        from: String::new(),
+                        deleted: String::new(),
+                    })
+                    .collect();
+                (rows, entries.is_some())
+            }
+            Place::Trash => {
+                let rows = state
+                    .trashed()
+                    .into_iter()
+                    .map(|entry| FlatRow {
+                        key: entry.name.clone(),
+                        name: entry.label.clone(),
+                        folder: entry.folder,
+                        executable: entry.executable,
+                        changed: entry.deleted_at(),
+                        from: entry.origin_text(),
+                        deleted: entry.deleted_text(),
+                    })
+                    .collect();
+                // A trash that could not be read is not an empty one, so it says why rather than
+                // what it holds, and one nobody has put anything into is empty without a fault.
+                (rows, !state.is_reading_trash() && state.trash_error().is_none())
+            }
+        };
         let filter = state.filter().map(str::to_owned);
         if let Some(text) = filter.as_deref().map(folded).filter(|text| !text.is_empty()) {
             rows.retain(|row| folded(&row.name).contains(&text));
@@ -141,7 +185,7 @@ impl FlatEntries {
         }
         let index = rows.iter().enumerate().map(|(at, row)| (row.key.clone(), at)).collect();
         let hidden = state.shows_hidden();
-        Self { revision, details_revision, sort, filter, folder, hidden, known: known.is_some(), rows, index }
+        Self { revision, details_revision, sort, filter, place, folder, hidden, known, rows, index }
     }
 
     /// Where the entry `key` stands among the entries.
@@ -173,7 +217,7 @@ impl<Msg> Flat<Msg> {
         self.entries.rows.len() + 1
     }
 
-    /// The entry row `index` stands for, or `None` for the folder's own row.
+    /// The entry row `index` stands for, or `None` for the place's own row.
     fn entry(&self, index: usize) -> Option<&FlatRow> {
         index.checked_sub(1).and_then(|at| self.entries.rows.get(at))
     }
@@ -188,10 +232,15 @@ impl<Msg> Flat<Msg> {
         (self.wrap)(FileManagerMsg::Select(self.key(index).unwrap_or_default().to_owned()))
     }
 
-    /// What row `index` does when it is opened: the folder's own row steps out of the folder,
-    /// another folder is stepped into, and a file is the application's to open.
+    /// What row `index` does when it is opened: the place's own row steps out of it, another
+    /// folder is stepped into, and a file is the application's to open.
     fn activate(&self, index: usize) -> Msg {
         let Some(row) = self.entry(index) else { return (self.wrap)(FileManagerMsg::Leave) };
+        // An entry of the trash is neither stepped into nor opened: what can be done to it is asked
+        // of it by name, and only its row's menu knows that.
+        if self.entries.place == Place::Trash {
+            return (self.wrap)(FileManagerMsg::Select(row.key.clone()));
+        }
         if row.folder {
             return (self.wrap)(FileManagerMsg::Enter(row.key.clone()));
         }
@@ -209,7 +258,7 @@ impl<Msg> Flat<Msg> {
         }
     }
 
-    /// The keys of the rows `indexes`, the selection a widget reports. The folder's own row is not
+    /// The keys of the rows `indexes`, the selection a widget reports. The place's own row is not
     /// an entry, so it is never part of the selection, even when a box covers it.
     fn keys_of(&self, indexes: &[usize]) -> Vec<String> {
         indexes.iter().filter_map(|index| self.entry(*index)).map(|row| row.key.clone()).collect()
@@ -217,8 +266,13 @@ impl<Msg> Flat<Msg> {
 
     /// Whether row `index` takes a drop: a folder of the shown one, or the shown folder's own
     /// row, which is the way up and takes a drop for the folder above, as a desktop explorer's
-    /// path takes one for a parent. At the root that row has nothing above it and takes nothing.
+    /// path takes one for a parent. At the root that row has nothing above it and takes nothing,
+    /// and in the trash no row takes one at all: an entry in it is put back or deleted by name,
+    /// and a drop would move whatever the root holds under that name.
     fn takes_drop(&self, index: usize) -> bool {
+        if self.entries.place == Place::Trash {
+            return false;
+        }
         if index == 0 {
             return self.up.is_some();
         }
@@ -252,12 +306,15 @@ struct Look {
     disabled: bool,
     /// The name of the root by itself, for the kind of its own row.
     root_name: String,
+    /// Whether the trash is the place shown, whose own row is drawn as the trash, which is what it
+    /// is, the way the tree draws it.
+    trash: bool,
     details: Arc<BTreeMap<String, Option<FileDetails>>>,
 }
 
 impl Look {
     /// The icon and the colour the row of `key`, called `name`, is drawn with, and whether it is
-    /// drawn faint. `itself` is the shown folder's own row, which is never faint for being cut:
+    /// drawn faint. `itself` is the shown place's own row, which is never faint for being cut:
     /// it is where the person is.
     fn of(
         &self,
@@ -269,7 +326,7 @@ impl Look {
     ) -> (String, Option<String>, bool) {
         let mark = self.marks.as_ref().map(|mark| mark(key)).unwrap_or_default();
         // The kind goes by the entry's own name, not by a label the application gave the root.
-        let name = if key == ROOT { self.root_name.as_str() } else { name };
+        let name = if key == ROOT { if self.trash { "trash" } else { self.root_name.as_str() } } else { name };
         let (icon, tone) = match mark.icon() {
             Some(icon) => (icon.to_owned(), mark.tone().map(str::to_owned)),
             None => self.kinds.own_icon(key, name, folder, executable),
@@ -286,26 +343,37 @@ impl Look {
             Some(row) => (row.key.as_str(), row.name.as_str(), row.folder, row.executable),
             None => (flat.entries.folder.as_str(), flat.label.as_str(), true, false),
         };
-        let (icon, tone, faint) = self.of(key, super::name_of(key), folder, executable, index == 0);
+        // The kind goes by the name the row says: an entry of the trash is drawn by the name it
+        // has where it came from, which is the one a person knows it by, and the number the trash
+        // gave it says nothing of its kind.
+        let (icon, tone, faint) = self.of(key, name, folder, executable, index == 0);
         (name.to_owned(), icon, tone, faint)
     }
 }
 
 impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
-    /// The rows a flat view shows this frame: the folder itself, then the entries it has been
+    /// The rows a flat view shows this frame: the place itself, then the entries it has been
     /// read to hold.
     fn flat(&self) -> Rc<Flat<Msg>> {
         let state = self.state;
-        let shown = state.folder();
-        let label = if shown == ROOT {
-            self.root_label.clone().unwrap_or_else(|| root_name(state.root()))
-        } else {
-            super::name_of(shown).to_owned()
+        let entries = state.flat_entries();
+        // The trash's own row stands where the root's is and says what the trash is called, rather
+        // than the name the person gave the root.
+        let label = match entries.place {
+            Place::Trash => crate::t!("quvyta.file-manager.trash-place"),
+            Place::Files if entries.folder == ROOT => {
+                self.root_label.clone().unwrap_or_else(|| root_name(state.root()))
+            }
+            Place::Files => super::name_of(&entries.folder).to_owned(),
         };
+        // The place the trash goes back to is the root rather than the folder above it, and the
+        // trash takes no drop, so it has no row above it.
+        let up = (entries.place == Place::Files && entries.folder != ROOT)
+            .then(|| super::parent_key(&entries.folder).to_owned());
         Rc::new(Flat {
-            entries: state.flat_entries(),
+            entries,
             label,
-            up: (shown != ROOT).then(|| super::parent_key(shown).to_owned()),
+            up,
             wrap: Rc::clone(&self.wrap),
             on_open: self.on_open.clone(),
             root: state.root().to_path_buf(),
@@ -322,6 +390,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
             cut,
             disabled: self.disabled,
             root_name: root_name(state.root()),
+            trash: state.in_trash(),
             details: state.details_shared(),
         })
     }
@@ -339,37 +408,55 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         (selected, chosen)
     }
 
-    /// The list view: a row per entry with its size, when it changed last and its permissions.
+    /// The list view: a row per entry with its size, when it changed last and its permissions, or
+    /// in the trash with where it came from and when it went.
     fn table(&self, flat: &Rc<Flat<Msg>>) -> Table<Msg> {
         let sortable = !self.disabled;
-        let columns = vec![
-            Column::new(crate::t!("quvyta.file-manager.column-name")).min(NAME_WIDTH).sortable(sortable),
-            Column::new(crate::t!("quvyta.file-manager.column-size"))
-                .width(ColumnWidth::Fixed(SIZE_WIDTH))
-                .align(Align::End)
-                .sortable(sortable),
-            Column::new(crate::t!("quvyta.file-manager.column-modified"))
-                .width(ColumnWidth::Fixed(DATE_WIDTH))
-                .sortable(sortable),
-            Column::new(crate::t!("quvyta.file-manager.column-permissions"))
-                .width(ColumnWidth::Fixed(PERMISSIONS_WIDTH)),
-        ];
+        let trash = flat.entries.place == Place::Trash;
+        let name = Column::new(crate::t!("quvyta.file-manager.column-name")).min(NAME_WIDTH).sortable(sortable);
+        let changed = Column::new(crate::t!("quvyta.file-manager.column-modified"))
+            .width(ColumnWidth::Fixed(DATE_WIDTH))
+            .sortable(sortable);
+        // A note says two things about an entry of the trash: where it came from and when it went.
+        // The changed column carries the second of them, and there is no size or permission to read
+        // there, since the trash is the specification's folder and not one of the person's.
+        let columns = if trash {
+            vec![name, Column::new(crate::t!("quvyta.file-manager.column-from")).min(FROM_WIDTH), changed]
+        } else {
+            vec![
+                name,
+                Column::new(crate::t!("quvyta.file-manager.column-size"))
+                    .width(ColumnWidth::Fixed(SIZE_WIDTH))
+                    .align(Align::End)
+                    .sortable(sortable),
+                changed,
+                Column::new(crate::t!("quvyta.file-manager.column-permissions"))
+                    .width(ColumnWidth::Fixed(PERMISSIONS_WIDTH)),
+            ]
+        };
         let (rows, look) = (Rc::clone(flat), self.look());
+        let cells = columns.len() - 1;
         let table = Table::lazy(columns, flat.len(), move |index| {
             let (name, icon, tone, faint) = look.row(&rows, index);
             let name = TableCell::new(name).icon(icon, tone.as_deref());
-            // The folder's own row says nothing about itself: its size is the folder's own, which
-            // says nothing about what is in it, and the row is a way out rather than an entry of
-            // the list.
-            let details = rows.entry(index).and_then(|row| Some((row, look.details.get(&row.key)?.as_ref()?)));
-            let (size, modified, permissions) = match details {
-                Some((row, details)) => {
-                    (details.size_text(row.folder), details.modified_text(), details.permissions_text(row.folder))
+            // The place's own row says nothing about itself: it is the way in and out of the place
+            // rather than an entry of the list.
+            let cells = match rows.entry(index) {
+                None => vec![TableCell::new(""); cells],
+                Some(row) if trash => vec![TableCell::new(row.from.clone()), TableCell::new(row.deleted.clone())],
+                Some(row) => {
+                    let details = look.details.get(&row.key).and_then(Option::as_ref);
+                    match details {
+                        Some(details) => vec![
+                            TableCell::new(details.size_text(row.folder)),
+                            TableCell::new(details.modified_text()),
+                            TableCell::new(details.permissions_text(row.folder)),
+                        ],
+                        None => vec![TableCell::new(""); 3],
+                    }
                 }
-                None => (String::new(), String::new(), String::new()),
             };
-            TableRow::new([name, TableCell::new(size), TableCell::new(modified), TableCell::new(permissions)])
-                .faint(faint)
+            TableRow::new([name].into_iter().chain(cells)).faint(faint)
         });
         if self.disabled {
             return table;
@@ -377,16 +464,16 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         let (selected, chosen) = self.flat_selection(flat);
         let [select, activate, choose, drop, copy, accepts] = std::array::from_fn(|_| Rc::clone(flat));
         let [choosing, dropping, copying, sorting] = std::array::from_fn(|_| Rc::clone(&self.wrap));
-        let table = match sort_column(flat.entries.sort) {
-            Some(column) => table.sort(
-                column,
-                if flat.entries.sort.reverse { SortDirection::Descending } else { SortDirection::Ascending },
-            ),
+        let sort = flat.entries.sort;
+        let table = match sort_column(sort, trash) {
+            Some(column) => {
+                table.sort(column, if sort.reverse { SortDirection::Descending } else { SortDirection::Ascending })
+            }
             None => table,
         };
         table
             .on_sort(move |column, direction| {
-                let by = [SortBy::Name, SortBy::Size, SortBy::Changed].get(column).copied().unwrap_or_default();
+                let by = sorted_by(column, trash);
                 sorting(FileManagerMsg::Sort(Sort::by(by).reversed(direction == SortDirection::Descending)))
             })
             .selected(selected)
@@ -450,8 +537,10 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
     fn flat_menu(&self, flat: &Rc<Flat<Msg>>) -> impl Fn(usize) -> Vec<ContextItem<Msg>> + 'static {
         let rows = Rc::clone(flat);
         let items = self.row_menu();
-        // The way out of the folder is on the folder's own row, where the way in was.
-        let leave = (self.state.folder() != ROOT).then(|| (self.wrap)(FileManagerMsg::Leave));
+        // The way out is on the row of the place itself, where the way in was: up a folder out of
+        // the one shown. The trash's own menu carries its own way out, since the place it goes back
+        // to is the root and not the folder above.
+        let leave = (!self.state.in_trash() && self.state.folder() != ROOT).then(|| (self.wrap)(FileManagerMsg::Leave));
         move |index| {
             let mut own = rows.key(index).map(&items).unwrap_or_default();
             if index == 0
@@ -470,7 +559,7 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         if let Some(text) = self.state.filter()
             && !self.disabled
         {
-            // The field the folder is narrowed with stands over the rows while a filter is set:
+            // The field the place is narrowed with stands over the rows while a filter is set:
             // typing narrows, Enter puts the cursor on the first entry left, Esc shows all again.
             let wrap = Rc::clone(&self.wrap);
             let field = TextInput::new(text)
@@ -493,19 +582,21 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         self.foot(ui, &flat);
     }
 
-    /// The foot of a flat view: the spinner of a slow read, and what the folder holds otherwise.
+    /// The foot of a flat view: the spinner of a slow read, and what the place holds otherwise.
     ///
     /// It keeps its row whether it shows the spinner or the count, so the rows above it never jump
     /// when a read takes long enough to be worth saying something about.
     fn foot(&self, ui: &mut View<'_, Msg>, flat: &Flat<Msg>) {
         let state = self.state;
-        let shown = state.folder();
+        let trash = flat.entries.place == Place::Trash;
+        let shown = flat.entries.folder.as_str();
         let entries = flat.entries.rows.len();
+        // A place that could not be read is not an empty one, and the foot is the only place a
+        // flat view has to say which of the two it is showing.
+        let unreadable = state.folder_error(shown).is_some() || (trash && state.trash_error().is_some());
         let label = if !flat.entries.known {
             String::new()
-        } else if state.folder_error(shown).is_some() {
-            // A folder that could not be read is not an empty one, and the foot is the only place
-            // a flat view has to say which of the two it is showing.
+        } else if unreadable {
             crate::t!("quvyta.file-manager.unreadable-short")
         } else if entries == 0 && flat.entries.filter.is_some() {
             crate::t!("quvyta.file-manager.no-match")
@@ -514,7 +605,8 @@ impl<'a, Msg: Clone + 'static> FileManager<'a, Msg> {
         } else {
             crate::t!("quvyta.file-manager.entries", n = entries)
         };
-        ui.add(Reading { busy: state.is_loading(shown), label }).fill_width().height(Length::Cells(1));
+        let busy = if trash { state.is_reading_trash() } else { state.is_loading(shown) };
+        ui.add(Reading { busy, label }).fill_width().height(Length::Cells(1));
     }
 }
 
@@ -529,13 +621,25 @@ fn folded(text: &str) -> String {
 }
 
 /// The list's column that shows the order `sort` goes by, which carries the order's arrow; an
-/// order by kind has no column of its own.
-fn sort_column(sort: Sort) -> Option<usize> {
+/// order by kind has no column of its own, and the trash has no column to carry an order by size,
+/// since it reads no size of its own.
+fn sort_column(sort: Sort, trash: bool) -> Option<usize> {
     match sort.by {
         SortBy::Name => Some(0),
-        SortBy::Size => Some(1),
+        SortBy::Size if !trash => Some(1),
         SortBy::Changed => Some(2),
         _ => None,
+    }
+}
+
+/// What a press on the list's column `column` asks for, as the place shown has columns of its own:
+/// where the size of a folder's entry stands the trash says where it came from, and nothing there
+/// is put in order.
+fn sorted_by(column: usize, trash: bool) -> SortBy {
+    match (column, trash) {
+        (2, _) => SortBy::Changed,
+        (1, false) => SortBy::Size,
+        _ => SortBy::Name,
     }
 }
 

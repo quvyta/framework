@@ -357,14 +357,17 @@ mod tests {
         let mut h = showcase_on(PAGE);
         h.click_text("web-api");
         h.type_text("Web");
-        h.send(send(Msg::Image("nginx:1.27".into())));
-        h.send(send(Msg::Create));
+        h.click_text("docker.io/library/nginx:1.27").type_text("nginx:1.27");
+        click_create(&mut h);
         let screen = h.screen();
         assert!(screen.contains("Use lowercase letters"), "{screen}");
         assert!(h.is_focused("name"));
         h.press("backspace").press("backspace").press("backspace").type_text("web");
         assert!(!h.screen().contains("Use lowercase letters"), "errors follow edits after the first try");
-        h.send(send(Msg::Port("8080".into()))).send(send(Msg::Policy(2))).send(send(Msg::Create));
+        h.click_text("8080").type_text("8080");
+        h.click_text("Choose a policy").advance(std::time::Duration::from_millis(200));
+        h.click_text("Always");
+        click_create(&mut h);
         assert_eq!(h.app().pages.form.created.as_deref(), Some("web"));
         assert!(h.app().log.recent(PAGE, 1).iter().any(|entry| entry.message == "created web"));
     }
@@ -372,7 +375,9 @@ mod tests {
     #[test]
     fn playground_moves_labels_beside_and_shows_the_summary() {
         let mut h = showcase_on(PAGE);
-        h.send(send(Msg::Beside(true))).send(send(Msg::Summary(true))).send(send(Msg::Create));
+        click_setting(&mut h, "Labels beside controls");
+        click_setting(&mut h, "Error summary");
+        click_create(&mut h);
         let screen = h.screen();
         assert!(screen.contains("4 fields need attention"), "{screen}");
         assert!(h.is_focused("name"));

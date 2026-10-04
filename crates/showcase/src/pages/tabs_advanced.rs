@@ -265,25 +265,27 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::showcase_on;
+    use crate::tests::{click_segment, click_setting, showcase_on};
     use qframe::event::{MouseButton, MouseKind};
 
     #[test]
     fn options_turn_on_one_at_a_time() {
         let mut h = showcase_on(PAGE);
         assert!(!h.screen().contains('×'), "plain tabs show no close marks");
-        h.send(send(Msg::Closable(true)));
+        click_setting(&mut h, "Closable");
         assert!(h.screen().contains("app.rs") && h.screen().contains('×'), "{}", h.screen());
-        h.send(send(Msg::Edit(TabEdit::Close(0))));
+        // A tab edit is the strip's own edit, not a playground control: the close mark stands on the
+        // tab, and a move is what a drag does.
+        h.click_text("×");
         assert_eq!(h.app().pages.tabs_advanced.files.len(), FILES.len() - 1);
-        h.send(send(Msg::Overflow(1)));
-        h.send(send(Msg::Reorderable(true)));
+        click_segment(&mut h, "Overflow", "Menu");
+        click_setting(&mut h, "Reorderable");
         h.send(send(Msg::Edit(TabEdit::Move { from: 0, to: 2 })));
         assert_eq!(h.app().pages.tabs_advanced.files[2].item, 1);
         h.click_text("Reopen every file");
         assert_eq!(h.app().pages.tabs_advanced.files.len(), FILES.len());
         for index in 0..FILES.len() {
-            h.send(send(Msg::Edit(TabEdit::Close(0))));
+            h.click_text("×");
             assert_eq!(h.app().pages.tabs_advanced.files.len(), FILES.len() - index - 1);
         }
         assert!(h.screen().contains("Every file is closed"), "{}", h.screen());
@@ -316,7 +318,7 @@ mod tests {
             h.screen()
         );
 
-        h.send(send(Msg::Closable(true)));
+        click_setting(&mut h, "Closable");
         let strip = line(&h, y);
         let open = strip.find("docker-compose.yml").map(|byte| strip[..byte].chars().count()).expect("the open file");
         let mark = strip.chars().skip(open).position(|c| c == '×').map(|x| x + open).expect("its close mark");
@@ -328,7 +330,7 @@ mod tests {
     #[test]
     fn a_dragged_file_held_on_an_arrow_scrolls_the_strip_and_logs_each_step() {
         let mut h = showcase_on(PAGE);
-        h.send(send(Msg::Reorderable(true)));
+        click_setting(&mut h, "Reorderable");
         let (_, y) = h.find("README.md").expect("the strip");
         let (x, _) = h.find("app.rs").expect("the open file");
         let forward = column(&line(&h, y), '▶');
@@ -354,9 +356,11 @@ mod tests {
         let mut h = showcase_on(PAGE);
         let (_, y) = h.find("README.md").expect("the strip");
         assert!(!line(&h, y).contains('+'), "no add button until it is turned on");
-        h.send(send(Msg::Add(true)));
+        click_setting(&mut h, "Add button");
+        // The close marks are how a person closes a file, so they are turned on to close with.
+        click_setting(&mut h, "Closable");
         for index in 0..FILES.len() {
-            h.send(send(Msg::Edit(TabEdit::Close(0))));
+            h.click_text("×");
             assert_eq!(h.app().pages.tabs_advanced.files.len(), FILES.len() - index - 1);
         }
         assert!(h.screen().contains("Every file is closed"), "{}", h.screen());
@@ -382,27 +386,27 @@ mod tests {
     #[test]
     fn a_capped_filling_tab_leaves_the_rest_of_the_strip_empty() {
         let mut h = showcase_on(PAGE);
-        h.send(send(Msg::Closable(true)));
+        click_setting(&mut h, "Closable");
         // A cap holds a filling tab back where a few files share the strip. With every file open
         // each tab already stands at the readable minimum and there is nothing to hold back, so the
         // close marks are used the way a person would, to leave three files in the seventy-two
         // cells of the strip.
         for _ in 0..FILES.len() - 3 {
-            h.send(send(Msg::Edit(TabEdit::Close(0))));
+            h.click_text("×");
         }
         let (_, y) = h.find("theme.toml").expect("the strip");
-        h.send(send(Msg::Width(2)));
+        click_segment(&mut h, "Tab width", "Fill");
         let full = line(&h, y);
         // The last cell of the row is the last close mark: the tabs fill the strip to its right
         // end without a cap, and with one the row ends where the last of them ends.
         let end = |l: &str| i32::try_from(l.chars().count()).expect("on screen") - 1;
-        h.send(send(Msg::Cap(1)));
+        click_segment(&mut h, "Cap on a filling tab", "16");
         let capped = line(&h, y);
         assert!(end(&full) - end(&capped) > 12, "the cap holds the tabs back:\n{full}\n{capped}");
         assert_eq!(column(&capped, '▌'), column(&full, '▌'), "and they keep the left of the strip:\n{full}\n{capped}");
-        h.send(send(Msg::Cap(2)));
+        click_segment(&mut h, "Cap on a filling tab", "12");
         assert!(end(&line(&h, y)) < end(&capped), "a lower cap leaves more of the strip empty:\n{}", line(&h, y));
-        h.send(send(Msg::Cap(0)));
+        click_segment(&mut h, "Cap on a filling tab", "None");
         assert_eq!(line(&h, y), full, "and no cap is the strip as it was:\n{}", line(&h, y));
         assert!(h.app().log.recent(PAGE, 20).iter().any(|entry| entry.message == "max_tab_width = 16"));
     }
@@ -415,7 +419,7 @@ mod tests {
         h.mouse(MouseKind::Down(MouseButton::Right), x, y);
         assert!(!h.screen().contains("Close others"), "no menu until it is turned on:\n{}", h.screen());
 
-        h.send(send(Msg::ContextMenu(true)));
+        click_setting(&mut h, "Right-click menu");
         let right_click = |h: &mut qframe::runtime::Harness<crate::app::Showcase>, x: i32| {
             h.mouse(MouseKind::Down(MouseButton::Right), x, y).mouse(MouseKind::Up(MouseButton::Right), x, y);
         };

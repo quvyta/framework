@@ -101,7 +101,15 @@ match ui.env().graphics() {
 
 `Env::cell_pixels` says how many pixels one cell covers, width and height: the pixel size the terminal reports for its window divided by its columns and rows, and `None` where it reports none, as some terminals and serial lines do. A picture prepared for an area of the screen is sharpest at the area's columns and rows times that size: the terminal shows it pixel for pixel, neither blurred by enlarging nor larger than it can show. The runtime reads it at start and at every resize, a change of font size included, which leaves the columns and rows as they were but not the cell; a new value draws a new frame, so `view` always sees the current one. `App::resized` hears columns and rows only. Sixel pictures are shrunk to the same number.
 
-Tests ask no terminal: `Env::builtin` gives half blocks, and `Harness::set_graphics` answers as another terminal would, with the same rules applied. A harness is local; `Harness::set_remote(true)` draws the screen a remote connection gets. It knows no cell size until `Harness::set_cell_pixels(Some((10, 20)))`.
+`App::cell_pixels` hears that size as a message: at start, right after the screen size, and again whenever it changes, `None` included. It is the hook for the work `Env::cell_pixels` cannot do, since that is read only while painting: a picture for a place on screen has to be decoded again at the new size, and an embedded browser's viewport measured afresh. A cell and a screen size that change in the same frame are told in that order, both before the frame's view is built, so `update` and `view` never disagree about them.
+
+```rust
+fn cell_pixels(cell: Option<(u16, u16)>) -> Option<Msg> {
+    Some(Msg::Cell(cell))
+}
+```
+
+Tests ask no terminal: `Env::builtin` gives half blocks, and `Harness::set_graphics` answers as another terminal would, with the same rules applied. A harness is local; `Harness::set_remote(true)` draws the screen a remote connection gets. It knows no cell size until `Harness::set_cell_pixels(Some((10, 20)))`, which reports the change to `App::cell_pixels` as a terminal resize does.
 
 ## Testing without a terminal
 

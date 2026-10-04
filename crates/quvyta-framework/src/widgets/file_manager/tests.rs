@@ -20,6 +20,7 @@ mod focus;
 mod keys;
 mod mouse;
 mod selection;
+mod trash;
 
 use super::ops::{
     FileChange, FileError, NameProblem, check_name, copy_into, create_file, create_folder, delete, move_into, rename,
@@ -1006,6 +1007,23 @@ fn every_text_is_there_in_all_nine_languages() {
         "drop-copy",
         "trash",
         "trash-many",
+        "trash-place",
+        "leave-trash",
+        "open-trash",
+        "restore",
+        "restore-many",
+        "restore-as",
+        "restore-clash-title",
+        "restore-clash-text",
+        "delete-permanently",
+        "delete-permanently-many",
+        "purge-title",
+        "purge-text",
+        "purge-many-title",
+        "purge-many-text",
+        "empty-trash",
+        "empty-title",
+        "empty-text",
         "delete-forever",
         "no-trash-title",
         "no-trash-text",
@@ -1014,6 +1032,8 @@ fn every_text_is_there_in_all_nine_languages() {
         "not-readable",
         "missing",
         "no-trash",
+        "no-origin",
+        "taken-as",
         "no-room",
         "stopped",
         "copying",
@@ -1025,6 +1045,8 @@ fn every_text_is_there_in_all_nine_languages() {
         "column-size",
         "column-modified",
         "column-permissions",
+        "column-from",
+        "origin-unknown",
         "reading",
         "entries",
         "up",

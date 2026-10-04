@@ -26,11 +26,15 @@ use crate::widgets::Text;
 
 /// Where the run inside the pseudo-terminal leaves its files.
 const DIR_VAR: &str = "QUVYTA_SIGNAL_TEST_DIR";
-/// How the application inside answers: `save`, `stubborn`, `stuck`, `handoff` or `wake`.
+/// How the application inside answers: `save`, `stubborn`, `stuck`, `handoff`, `wake`, `outlet` or
+/// `sleeping-work`.
 const MODE_VAR: &str = "QUVYTA_SIGNAL_TEST_MODE";
 
 /// How long the machine may take for anything here; generous, because it may be loaded.
 const PATIENCE: Duration = Duration::from_secs(60);
+
+/// How long the background work of `sleeping-work` sleeps.
+const SLEEP: Duration = Duration::from_millis(3000);
 
 /// The handed-off program: it waits until its group owns the terminal, says it is ready and
 /// runs until a `SIGTERM` ends it with 43.
@@ -57,6 +61,8 @@ enum Msg {
     /// Never returns: an application stuck in `update`.
     Hang,
     HandedOff(HandoffOutcome),
+    /// Background work that slept is done.
+    Slept,
 }
 
 impl Saver {
@@ -72,6 +78,14 @@ impl App for Saver {
     fn init(&mut self) -> Command<Msg> {
         if self.mode == "handoff" {
             return Command::handoff(Handoff::new("sh", Msg::HandedOff).args(["-c", PROGRAM]).env("D", &self.dir));
+        }
+        if self.mode == "sleeping-work" {
+            // Work that only sleeps, the way a terminal tab's reader or a timer waits: nothing
+            // happens on screen until it is done, so the loop has nothing to wake for before then.
+            return Command::perform(|| {
+                std::thread::sleep(SLEEP);
+                Msg::Slept
+            });
         }
         self.note("ready", "");
         Command::none()
@@ -105,6 +119,11 @@ impl App for Saver {
                 self.note("handoff", &format!("{outcome:?}"));
                 Command::none()
             }
+            Msg::Slept => {
+                let waits = super::terminal::WAITS.with(std::cell::Cell::get);
+                self.note("waits", &waits.to_string());
+                Command::quit()
+            }
         }
     }
 
@@ -131,6 +150,23 @@ fn inside_a_terminal() {
         // reads it half written.
         std::fs::write(dir.join("woken.part"), text).expect("woken");
         std::fs::rename(dir.join("woken.part"), dir.join("woken")).expect("woken");
+        return;
+    }
+    if mode == "outlet" {
+        // The loop's wait alone again: what background work hands over must end it as a signal does.
+        let signals = Signals::catch().expect("signals");
+        let (outlet, _deliveries) = super::task::channel::<()>();
+        std::fs::write(dir.join("ready"), "").expect("ready");
+        let started = Instant::now();
+        let worker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            let _ = outlet.send(super::task::Delivery::Ended);
+        });
+        let woken = signals.wait(Duration::from_secs(600), true).expect("wait");
+        let text = format!("{:?} {}", woken.keyboard, started.elapsed().as_millis());
+        std::fs::write(dir.join("woken.part"), text).expect("woken");
+        std::fs::rename(dir.join("woken.part"), dir.join("woken")).expect("woken");
+        worker.join().expect("the worker");
         return;
     }
     let result = Runtime::new(Saver { dir: dir.clone(), mode }).run();
@@ -312,6 +348,30 @@ fn a_signal_wakes_the_wait_at_once() {
     assert_eq!(keyboard, "false", "a signal, not a key");
     let millis: u64 = millis.parse().expect("milliseconds");
     assert!(millis < 60_000, "woken by the signal, not by the ten minute timeout: {millis} ms");
+}
+
+#[test]
+fn what_background_work_hands_over_wakes_the_wait_at_once() {
+    let session = Session::start("outlet", "outlet");
+    session.wait_for("ready");
+    let woken = session.wait_for("woken");
+    let [keyboard, millis] = woken.split(' ').collect::<Vec<_>>()[..] else {
+        panic!("two fields: {woken}");
+    };
+    assert_eq!(keyboard, "false", "a delivery, not a key");
+    let millis: u64 = millis.parse().expect("milliseconds");
+    assert!(millis < 60_000, "woken by the delivery, not by the ten minute timeout: {millis} ms");
+}
+
+#[test]
+fn an_application_whose_work_sleeps_does_not_wake_to_look_for_it() {
+    let mut session = Session::start("sleeping", "sleeping-work");
+    let waits: u64 = session.wait_for("waits").parse().expect("a count");
+    let (status, _) = session.ended();
+    assert!(status.success(), "{}", session.shown());
+    // Three seconds of work: looking for it every 20 ms would be 150 waits. Resting between the
+    // idle deadlines, the loop waits a handful of times for the first frames and twice a second.
+    assert!(waits < 40, "the loop woke {waits} times while the work slept");
 }
 
 #[test]

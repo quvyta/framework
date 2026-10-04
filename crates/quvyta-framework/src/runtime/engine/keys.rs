@@ -5,7 +5,7 @@ use std::time::Duration;
 use super::Engine;
 use super::clipboard::ClipboardRead;
 use crate::event::{Event, KeyEvent, KeyKind};
-use crate::keymap::{Key, KeyChord, Modifiers, Scope};
+use crate::keymap::{Key, KeyChord, Modifiers, Scope, is_runtime_action};
 use crate::runtime::App;
 use crate::runtime::selection::CopyKind;
 use crate::widget::{ClipboardKey, WidgetId};
@@ -32,10 +32,6 @@ const HELD_KEY_WINDOW: Duration = Duration::from_millis(100);
 /// The key that cuts, the same fixed chord a text field cuts its text with. It has no keymap
 /// action: without a claim it means nothing outside a field.
 const CUT: KeyChord = KeyChord { key: Key::Char('x'), mods: Modifiers { ctrl: true, alt: false, shift: false } };
-
-/// Global keymap actions the runtime or its widgets own. Other global actions, such as `help`
-/// and `palette`, are passed to [`App::action`].
-const RUNTIME_ACTIONS: [&str; 7] = ["quit", "focus-next", "focus-prev", "debug", "copy", "paste", "toggle-panel"];
 
 impl<A: App> Engine<A> {
     pub(super) fn keyboard_targets(&self) -> Vec<WidgetId> {
@@ -147,7 +143,7 @@ impl<A: App> Engine<A> {
     /// with, innermost first; see [`NodeMut::on_action`](crate::widget::NodeMut::on_action).
     /// The runtime's own actions are never answered, so they behave the same everywhere.
     fn focus_answer(&self, scope: Scope, action: &str) -> Option<A::Msg> {
-        if scope == Scope::Global && RUNTIME_ACTIONS.contains(&action) {
+        if scope == Scope::Global && is_runtime_action(action) {
             return None;
         }
         let tree = self.tree.as_ref()?;
@@ -189,7 +185,7 @@ impl<A: App> Engine<A> {
             (Scope::Global, "debug") => self.debug = !self.debug,
             (Scope::Global, "paste") => self.read_clipboard(ClipboardRead::Paste, now),
             // Owned by the mouse selection and by side panels, which handle their keys first.
-            (Scope::Global, name) if RUNTIME_ACTIONS.contains(&name) => {}
+            (Scope::Global, name) if is_runtime_action(name) => {}
             (_, name) => {
                 if to_app && let Some(message) = self.app.action(name) {
                     self.update(message);

@@ -51,9 +51,10 @@ type SortMessage<Msg> = Box<dyn Fn(usize, SortDirection) -> Msg>;
 /// first cell slides one cell right. The check mark of a multi-select table never moves.
 ///
 /// Keys while focused: ↑/↓ or k/j, PgUp/PgDn, Home/End move (↑/↓ round the ends with
-/// [`wrap`](Self::wrap)); Enter activates; Space toggles in
-/// multi-select tables and activates otherwise; ←/→ scroll columns that overflow; with
-/// [`Table::on_sort`], `s` sorts by the next sortable column and `shift+s` reverses the order.
+/// [`wrap`](Self::wrap)); Enter activates; Space toggles in multi-select tables and activates
+/// otherwise, or with [`space_activates(false)`](Self::space_activates) goes on to the
+/// application; ←/→ scroll columns that overflow; with [`Table::on_sort`], `s` sorts by the next
+/// sortable column and `shift+s` reverses the order.
 /// These are the keys a [`HelpLayer`](super::HelpLayer) lists for a table with the focus, so a
 /// screen needs no hint for them.
 ///
@@ -94,6 +95,7 @@ pub struct Table<Msg> {
     menu_on_activate: bool,
     picking: Picking<Msg>,
     wrap: bool,
+    space_activates: bool,
 }
 
 /// The rows a table shows: built in full, or asked for one at a time as they come on screen.
@@ -159,6 +161,7 @@ impl<Msg: 'static> Table<Msg> {
             menu_on_activate: false,
             picking: Picking::default(),
             wrap: false,
+            space_activates: true,
         }
     }
 
@@ -188,6 +191,21 @@ impl<Msg: 'static> Table<Msg> {
     #[must_use]
     pub fn wrap(mut self, wrap: bool) -> Self {
         self.wrap = wrap;
+        self
+    }
+
+    /// Says whether Space acts on the cursor's row: `true`, the default, opens it, or checks it in
+    /// a table that checks rows. With `false` Space does nothing here and is not used at all, so it
+    /// travels on to the application's keymap actions exactly as an unhandled key does.
+    ///
+    /// For the table that holds the focus almost all the time, such as a music player's songs: in a
+    /// music player Space is play and pause everywhere else, and one table must not take it away.
+    /// A table that checks rows loses the key with it — the marks stay, a click still checks a row,
+    /// and a person who wants Space to check rows leaves the option on. Enter and the mouse are the
+    /// same either way.
+    #[must_use]
+    pub fn space_activates(mut self, on: bool) -> Self {
+        self.space_activates = on;
         self
     }
 
@@ -234,7 +252,8 @@ impl<Msg: 'static> Table<Msg> {
         self
     }
 
-    /// Message for checking or unchecking a row of a multi-select table (Space, click on the mark).
+    /// Message for checking or unchecking a row of a multi-select table (Space while
+    /// [`space_activates`](Self::space_activates) is on, click on the mark).
     #[must_use]
     pub fn on_toggle(mut self, message: impl Fn(usize) -> Msg + 'static) -> Self {
         self.on_toggle = Some(Box::new(message));
@@ -293,9 +312,10 @@ impl<Msg: 'static> Table<Msg> {
     /// and the only one with the pillar, while every selected row takes the selection tone.
     /// Ctrl+click adds a row or takes it out, Shift+click selects the rows from the last plain or
     /// Ctrl click to this one; Shift with ↑/↓, PgUp/PgDn or Home/End extends that range, Ctrl+A
-    /// selects every row, Space adds or takes out the cursor's row, Esc reduces several selected
-    /// rows to the cursor's, and a plain click or arrow selects that one row. A right click on a selected row keeps the selection for its menu; on another
-    /// row it makes that row the selection first.
+    /// selects every row, Space adds or takes out the cursor's row while
+    /// [`space_activates`](Self::space_activates) is on, Esc reduces several selected rows to the
+    /// cursor's, and a plain click or arrow selects that one row. A right click on a selected row
+    /// keeps the selection for its menu; on another row it makes that row the selection first.
     #[must_use]
     pub fn multi_select(mut self, selected: &[usize], message: impl Fn(Vec<usize>) -> Msg + 'static) -> Self {
         self.picking.chosen = selected.to_vec();
@@ -617,7 +637,9 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
                     }
                     return self.selected.is_some_and(|index| self.activate(cx, index));
                 }
-                if key.is_plain(Key::Space) {
+                // A table that leaves Space to the application falls through here, so the key goes
+                // on to the keymap actions as an unhandled key does.
+                if self.space_activates && key.is_plain(Key::Space) {
                     let Some(index) = self.selected else { return false };
                     return self.picking.toggle(cx, self, index) || self.toggle(cx, index) || self.activate(cx, index);
                 }
@@ -678,8 +700,9 @@ impl<Msg: 'static> Widget<Msg> for Table<Msg> {
             keys.push(WidgetKey::new("enter", i18n.translate("quvyta.widget.open", &[])));
         }
         // Space is Enter's twin unless it checks a row, which only a table that shows check marks
-        // or takes a whole selection does.
-        if self.checks() {
+        // or takes a whole selection does; a table that leaves Space to the application lists
+        // nothing for it, since the key is not the table's.
+        if self.space_activates && self.checks() {
             keys.push(WidgetKey::new("space", i18n.translate("quvyta.widget.check", &[])));
         }
         if self.on_sort.is_some() {

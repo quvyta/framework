@@ -57,6 +57,10 @@ pub(super) struct Ranked<'a> {
     pub(super) folder: bool,
     pub(super) executable: bool,
     pub(super) details: Option<&'a FileDetails>,
+    /// When the entry changed where the place that shows it says so itself: the trash knows when
+    /// an entry went and not when it last changed on disk. It wins over the date read from the
+    /// entry, which is nothing in a place that is not below the root.
+    pub(super) changed: Option<i64>,
 }
 
 /// How `a` and `b` stand in `sort`: folders first, then the order asked for, then the name, so two
@@ -71,6 +75,7 @@ pub(super) fn compare(sort: Sort, a: &Ranked<'_>, b: &Ranked<'_>) -> Ordering {
         (false, true) => Ordering::Greater,
         (false, false) => Ordering::Equal,
     };
+    let changed = |entry: &Ranked<'_>| entry.changed.or_else(|| entry.details.and_then(|details| details.modified));
     let order = match sort.by {
         SortBy::Name => turned(by_name()),
         SortBy::Size => {
@@ -78,7 +83,7 @@ pub(super) fn compare(sort: Sort, a: &Ranked<'_>, b: &Ranked<'_>) -> Ordering {
             known(x.zip(y).map(|(x, y)| x.cmp(&y)), x.is_some(), y.is_some())
         }
         SortBy::Changed => {
-            let (x, y) = (a.details.and_then(|d| d.modified), b.details.and_then(|d| d.modified));
+            let (x, y) = (changed(a), changed(b));
             known(x.zip(y).map(|(x, y)| x.cmp(&y)), x.is_some(), y.is_some())
         }
         SortBy::Kind => {

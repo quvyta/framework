@@ -15,6 +15,7 @@ use super::details::{FileDetails, PAGE};
 use super::flat::FlatEntries;
 use super::ops::{self, FileChange, FileError, NameProblem, is_within, name_of, parent_key};
 use super::sort::Sort;
+use super::trash::Trashed;
 use super::watch::Live;
 
 /// The key of the folder the manager is rooted at. Keys below it are paths relative to the root,
@@ -103,7 +104,7 @@ impl FolderEntry {
 /// Whether the file `entry`, called `name`, is a program: one whose name says nothing of its kind
 /// and that may be run. A link answers for what it points to, since its own permissions are
 /// always all of them.
-fn runs(entry: &std::fs::DirEntry, name: &str) -> bool {
+pub(super) fn runs(entry: &std::fs::DirEntry, name: &str) -> bool {
     if crate::icons::file_kind(name, false, false).family() != crate::icons::KindFamily::File {
         return false;
     }
@@ -202,6 +203,31 @@ pub enum FileManagerMsg {
     /// The entry of this key was asked to go to the trash, with the rest of the selection when it
     /// is part of it. Nothing is asked: the trash can be looked in again.
     Trash(String),
+    /// The trash was asked to be shown in place of the manager's own folder.
+    OpenTrash,
+    /// The trash was read, or could not be, and holds these entries. It is read on a background
+    /// thread, so why a read failed is kept as a [`FileError`] rather than as words, as in
+    /// [`FileManagerMsg::Listed`].
+    Trashed(Result<Vec<Trashed>, FileError>),
+    /// The entries of the trash with these keys were asked to be put back where they came from,
+    /// the rest of the selection included when one of them is part of it. Nothing is overwritten:
+    /// an entry whose name is taken again is said so with a name that is free there.
+    Restore(Vec<String>),
+    /// The entry of the trash with this key was asked to be put back under the name `name`, after
+    /// the question about a name that was taken again was answered yes. A key the trash does not
+    /// list, and a name that is not one name in that folder, put nothing anywhere.
+    RestoreAs(String, String),
+    /// The entries of the trash with these keys were asked to be deleted for good, the rest of the
+    /// selection included when one of them is part of it; the person is asked first.
+    Purge(Vec<String>),
+    /// The person said yes to deleting the entries of the trash with these keys for good. Only
+    /// the keys the trash lists are deleted: one written by hand, `..` or `../x` among them, is
+    /// never taken as a path out of the trash.
+    PurgeConfirmed(Vec<String>),
+    /// Everything in the trash was asked to be deleted for good; the person is asked first.
+    EmptyTrash,
+    /// The person said yes to emptying the trash.
+    EmptyTrashConfirmed,
     /// Hidden entries are shown from now on, or hidden again when `false`.
     ShowHidden(bool),
     /// The long operation running now started, came further along or ended.
@@ -307,6 +333,22 @@ impl Trash {
     }
 }
 
+/// What the manager is showing: its own root, or the trash beside it.
+///
+/// The trash is not under the root, which is the whole of what separates the two: a row of the root
+/// is keyed by its path below the root and every operation on it works there, while a row of the
+/// trash is named by what it is called in the trash and is put back or deleted by that name. So the
+/// two places keep their entries in maps of their own and neither can be acted on with the other's
+/// keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum Place {
+    /// The manager's root and the folders inside it, the place a manager is for.
+    #[default]
+    Files,
+    /// The trash that deleting puts entries in.
+    Trash,
+}
+
 /// Turns a manager's messages into the application's own.
 pub(super) type Wrap<Msg> = Arc<dyn Fn(FileManagerMsg) -> Msg + Send + Sync>;
 
@@ -380,6 +422,17 @@ pub struct FileManagerState {
     /// Whether what waits to be pasted is to be copied rather than moved.
     copying: bool,
     trash: Trash,
+    /// Which of the two places is shown.
+    place: Place,
+    /// What the trash holds, by the name each entry has there. Its own map, never the map of the
+    /// root's children: an entry of the trash is not below the root and must never be reached as
+    /// if it were.
+    trashed: BTreeMap<String, Trashed>,
+    /// Whether the trash is being read right now, which the row of the place shows.
+    trash_reading: bool,
+    /// Why the trash could not be read, when its last read failed. A trash nobody has put anything
+    /// into has no `files` folder at all, which is empty rather than broken and never a reason.
+    trash_problem: Option<String>,
     hidden: bool,
     work: Option<FileWork>,
     naming: Option<Naming>,
@@ -433,6 +486,10 @@ impl FileManagerState {
             cut: Vec::new(),
             copying: false,
             trash: Trash::Off,
+            place: Place::Files,
+            trashed: BTreeMap::new(),
+            trash_reading: false,
+            trash_problem: None,
             hidden: false,
             work: None,
             naming: None,
@@ -499,6 +556,63 @@ impl FileManagerState {
     #[must_use]
     pub fn is_trashing(&self) -> bool {
         !matches!(self.trash, Trash::Off)
+    }
+
+    /// The folder entries go to when one is trashed, and the folder [`open_trash`](Self::open_trash)
+    /// looks in: the one [`trashing`](Self::trashing) and [`trashing_in`](Self::trashing_in) say,
+    /// so a test's trash is the one the test uses.
+    ///
+    /// `None` where there is no trash to speak of: none was asked for, or the person's own cannot
+    /// be found on this machine.
+    #[must_use]
+    pub fn trash_folder(&self) -> Option<PathBuf> {
+        self.trash.folder()
+    }
+
+    /// Whether the trash is shown rather than the manager's own root. See
+    /// [`open_trash`](Self::open_trash).
+    #[must_use]
+    pub fn in_trash(&self) -> bool {
+        self.place == Place::Trash
+    }
+
+    /// Which of the two places is shown, for the views that draw whichever it is.
+    pub(super) fn place(&self) -> Place {
+        self.place
+    }
+
+    /// What the trash holds, as far as it has been read, each entry with the name it has there.
+    ///
+    /// Folders first and then files, each group in name order, as a folder's own entries are
+    /// shown; the name here is the one in the trash, which is what an operation on an entry is
+    /// given.
+    #[must_use]
+    pub fn trashed(&self) -> Vec<&Trashed> {
+        let mut entries: Vec<&Trashed> = self.trashed.values().collect();
+        entries.sort_by(|a, b| b.folder.cmp(&a.folder).then_with(|| a.name.cmp(&b.name)));
+        entries
+    }
+
+    /// The entry of the trash with the name `name` there, when it has been read. A row of the trash
+    /// is keyed by that name, so it is what an operation on the row is given.
+    #[must_use]
+    pub fn trashed_entry(&self, name: &str) -> Option<&Trashed> {
+        self.trashed.get(name)
+    }
+
+    /// Whether the trash is being read right now.
+    #[must_use]
+    pub fn is_reading_trash(&self) -> bool {
+        self.trash_reading
+    }
+
+    /// Why the trash could not be read, when its last read failed.
+    ///
+    /// A trash nobody has put anything into has no `files` folder at all, which is empty rather than
+    /// broken and is never a reason.
+    #[must_use]
+    pub fn trash_error(&self) -> Option<&str> {
+        self.trash_problem.as_deref()
     }
 
     /// Shows the entries the platform hides: the ones whose name starts with a dot.
@@ -617,6 +731,10 @@ impl FileManagerState {
     ///
     /// The tree shows the whole root and takes no notice of this; the list and the icons show this
     /// one folder, and [`FileManagerMsg::Enter`] and [`FileManagerMsg::Leave`] move through it.
+    ///
+    /// While the trash is shown this is still the root: the trash is a place beside the root rather
+    /// than a folder in it, so nothing here names it and
+    /// [`FileManagerMsg::Leave`](FileManagerMsg::Leave) is the way back out of it.
     #[must_use]
     pub fn folder(&self) -> &str {
         &self.shown
@@ -645,6 +763,7 @@ impl FileManagerState {
         let mut kept = self.flat.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(flat) = kept.as_ref()
             && flat.revision == self.revision
+            && flat.place == self.place
             && flat.folder == self.shown
             && flat.hidden == self.hidden
             && flat.sort == self.sort
@@ -1109,6 +1228,140 @@ impl FileManagerState {
         if read { self.read_folder(key, wrap) } else { Command::none() }
     }
 
+    /// Shows the trash in place of the manager's own folder, and reads it.
+    ///
+    /// The trash is the folder [`trashing`](Self::trashing) and [`trashing_in`](Self::trashing_in)
+    /// put entries in, read back the way the freedesktop specification writes it: what is in
+    /// `files`, and what each entry's note in `info` says about where it came from and when it
+    /// went. An entry whose note is missing or says nothing usable is listed all the same, under
+    /// the name it has there.
+    ///
+    /// It is a place beside the root rather than a folder in it, so a row of it is named by what it
+    /// is called in the trash and is put back or deleted by that name;
+    /// [`FileManagerMsg::Leave`] comes back to the root, and
+    /// [`FileManagerMsg::Restore`], [`FileManagerMsg::Purge`] and [`FileManagerMsg::EmptyTrash`] do
+    /// what they say.
+    ///
+    /// Nothing is shown where there is no trash to show, and nothing is asked: a manager that
+    /// deletes for good has none, and neither has a run with no home folder.
+    /// [`in_trash`](Self::in_trash) says which place is shown.
+    ///
+    /// Reading is I/O, so it runs on a background thread, as every read of a folder does.
+    pub fn open_trash<Msg: Clone + Send + 'static>(
+        &mut self,
+        wrap: impl Fn(FileManagerMsg) -> Msg + Send + Sync + 'static,
+    ) -> Command<Msg> {
+        let wrap: Wrap<Msg> = Arc::new(wrap);
+        self.with_wrap(&wrap, FileManagerState::enter_trash)
+    }
+
+    /// Shows the trash and reads it, as [`open_trash`](Self::open_trash) does.
+    fn enter_trash<Msg: Clone + Send + 'static>(&mut self, wrap: &Wrap<Msg>) -> Command<Msg> {
+        let Some(trash) = self.trash.folder() else { return Command::none() };
+        self.place = Place::Trash;
+        // The cursor and the selection belong to the place that is left, so nothing carries into
+        // the trash that would act on a name of the root. The filter belongs to the folder it was
+        // typed in, so it goes with it.
+        self.selected = None;
+        self.chosen.clear();
+        self.filter = None;
+        self.read_trash(&trash, wrap)
+    }
+
+    /// Reads the trash folder `trash` on a background thread.
+    ///
+    /// It is read every time it is shown rather than once and kept: a trash holds what was deleted
+    /// since, and what it holds changes while the manager looks at its own folder.
+    fn read_trash<Msg: Clone + Send + 'static>(&mut self, trash: &Path, wrap: &Wrap<Msg>) -> Command<Msg> {
+        let (trash, wrap) = (trash.to_path_buf(), Arc::clone(wrap));
+        self.trash_reading = true;
+        Command::perform(move || wrap(FileManagerMsg::Trashed(super::trash::entries(&trash))))
+    }
+
+    /// Takes the answer for the trash.
+    ///
+    /// What is known of an entry the trash no longer holds is let go, so a cursor or a selection
+    /// cannot act on a name nothing is there for.
+    fn take_trash(&mut self, entries: Result<Vec<Trashed>, FileError>) {
+        // What the flat views list is worked out again from what changes here.
+        self.revision += 1;
+        self.trash_reading = false;
+        match entries {
+            Ok(entries) => {
+                self.trash_problem = None;
+                let held: BTreeSet<String> = entries.iter().map(|entry| entry.name.clone()).collect();
+                self.trashed.retain(|name, _| held.contains(name));
+                self.chosen.retain(|chosen| held.contains(chosen));
+                if self.selected.as_deref().is_some_and(|selected| !held.contains(selected)) {
+                    self.selected = None;
+                }
+                self.trashed = entries.into_iter().map(|entry| (entry.name.clone(), entry)).collect();
+            }
+            Err(problem) => {
+                // The trash is emptied, not gone: what it held before is still on disk and still
+                // put back, so the rows go rather than a reason being drawn over them.
+                self.trashed.clear();
+                self.selected = None;
+                self.chosen.clear();
+                self.trash_problem = Some(problem.message());
+            }
+        }
+    }
+
+    /// Comes back from the trash to the manager's own folder, and reads what is on screen again:
+    /// what was deleted from another program while the trash was shown is not known yet.
+    fn leave_trash<Msg: Clone + Send + 'static>(&mut self, wrap: &Wrap<Msg>) -> Command<Msg> {
+        self.place = Place::Files;
+        self.selected = None;
+        self.chosen.clear();
+        self.filter = None;
+        self.refresh(wrap)
+    }
+
+    /// Puts the entries of the trash with the keys `keys` back where their notes say they came from,
+    /// each on its own, so one that cannot go does not keep the others from going.
+    fn restore<Msg: Clone + Send + 'static>(&self, keys: Vec<String>, wrap: &Wrap<Msg>) -> Command<Msg> {
+        let keys: Vec<String> = keys.into_iter().filter(|key| self.trashed.contains_key(key)).collect();
+        self.run_in_trash(keys, wrap, |trash, key| (key.to_owned(), super::trash::restore(trash, key, None)))
+    }
+
+    /// Puts the entry of the trash with the key `key` back under the name `name`, which the person
+    /// was offered after its own name was found to be taken again.
+    fn restore_as<Msg: Clone + Send + 'static>(&self, key: String, name: String, wrap: &Wrap<Msg>) -> Command<Msg> {
+        if !self.trashed.contains_key(&key) {
+            return Command::none();
+        }
+        self.run_in_trash(vec![key], wrap, move |trash, key| {
+            (key.to_owned(), super::trash::restore(trash, key, Some(&name)))
+        })
+    }
+
+    /// Deletes the entries of the trash with the keys `keys` for good, each on its own.
+    fn purge<Msg: Clone + Send + 'static>(&self, keys: Vec<String>, wrap: &Wrap<Msg>) -> Command<Msg> {
+        let keys: Vec<String> = keys.into_iter().filter(|key| self.trashed.contains_key(key)).collect();
+        self.run_in_trash(keys, wrap, |trash, key| (key.to_owned(), super::trash::purge(trash, key)))
+    }
+
+    /// Deletes everything in the trash for good.
+    ///
+    /// What went and what was refused are answered together, so the trash is read again either way:
+    /// an entry that did go must not be left in the list as though it were still there.
+    fn empty_trash<Msg: Clone + Send + 'static>(&mut self, wrap: &Wrap<Msg>) -> Command<Msg> {
+        let Some(trash) = self.trash.folder() else { return Command::none() };
+        let wrap = Arc::clone(wrap);
+        Command::perform(move || {
+            let (gone, refused) = super::trash::empty(&trash);
+            let items = gone
+                .into_iter()
+                .map(|name| (name.clone(), Ok(FileChange::Deleted(name))))
+                // An entry that could not be deleted is named by nothing, which is what the refusal
+                // says: there is no entry left to name.
+                .chain(refused.into_iter().map(|problem| (String::new(), Err(problem))))
+                .collect();
+            wrap(FileManagerMsg::Done(items))
+        })
+    }
+
     /// The entries of a page around the cursor in the folder `folder` that nothing is known about
     /// yet and that nothing is on its way for.
     ///
@@ -1204,6 +1457,30 @@ impl FileManagerState {
     }
 
     fn apply<Msg: Clone + Send + 'static>(&mut self, message: FileManagerMsg, wrap: &Wrap<Msg>) -> Command<Msg> {
+        // The trash is beside the root, so every message that acts on a key below the root is
+        // refused while it is shown: a name of the trash is no key, and handing one to an operation
+        // that works below the root would act on whatever the root holds under that name. What can
+        // be done to an entry of the trash is asked of it by name instead.
+        if self.place == Place::Trash
+            && matches!(
+                message,
+                FileManagerMsg::Expand(_, _)
+                    | FileManagerMsg::NewFile(_)
+                    | FileManagerMsg::NewFolder(_)
+                    | FileManagerMsg::Rename(_)
+                    | FileManagerMsg::Cut(_)
+                    | FileManagerMsg::Copy(_)
+                    | FileManagerMsg::Paste(_)
+                    | FileManagerMsg::Drop(_)
+                    | FileManagerMsg::DropCopy(_)
+                    | FileManagerMsg::Delete(_)
+                    | FileManagerMsg::DeleteConfirmed(_)
+                    | FileManagerMsg::Trash(_)
+                    | FileManagerMsg::Enter(_)
+            )
+        {
+            return Command::none();
+        }
         match message {
             FileManagerMsg::Select(key) => {
                 self.selected = Some(key);
@@ -1221,7 +1498,10 @@ impl FileManagerState {
             }
             FileManagerMsg::Sort(sort) => {
                 self.sort = sort;
-                if !sort.needs_details() {
+                // The trash is a place beside the root and not below it, so a key there is not a
+                // path to read: there is no size to ask the system about and the deletion date a
+                // note carries is already known.
+                if !sort.needs_details() || self.place == Place::Trash {
                     return Command::none();
                 }
                 // An order by size or date is an order of the whole folder, so the whole folder is
@@ -1290,6 +1570,17 @@ impl FileManagerState {
                 let keys = self.targets(&key);
                 self.trash_all(keys, wrap)
             }
+            FileManagerMsg::OpenTrash => self.enter_trash(wrap),
+            FileManagerMsg::Trashed(entries) => {
+                self.take_trash(entries);
+                Command::none()
+            }
+            FileManagerMsg::Restore(keys) => self.restore(keys, wrap),
+            FileManagerMsg::RestoreAs(key, name) => self.restore_as(key, name, wrap),
+            FileManagerMsg::Purge(keys) => self.ask_purge(keys, wrap),
+            FileManagerMsg::PurgeConfirmed(keys) => self.purge(keys, wrap),
+            FileManagerMsg::EmptyTrash => self.ask_empty(wrap),
+            FileManagerMsg::EmptyTrashConfirmed => self.empty_trash(wrap),
             FileManagerMsg::ShowHidden(showing) => {
                 self.hidden = showing;
                 Command::none()
@@ -1297,6 +1588,10 @@ impl FileManagerState {
             FileManagerMsg::Work(event) => self.took_event(event, wrap),
             FileManagerMsg::Stop => match &self.work {
                 Some(work) => Command::cancel_task(work.id),
+                None => Command::none(),
+            },
+            FileManagerMsg::Refresh if self.place == Place::Trash => match self.trash.folder() {
+                Some(trash) => self.read_trash(&trash, wrap),
                 None => Command::none(),
             },
             FileManagerMsg::Refresh => self.refresh(wrap),
@@ -1316,6 +1611,9 @@ impl FileManagerState {
             FileManagerMsg::Quiet(run) => super::watch::quiet(self, run, wrap),
             FileManagerMsg::Enter(key) => self.enter(&key, wrap),
             FileManagerMsg::Leave => {
+                if self.place == Place::Trash {
+                    return self.leave_trash(wrap);
+                }
                 if self.shown == ROOT {
                     return Command::none();
                 }
@@ -1554,6 +1852,60 @@ impl FileManagerState {
         Command::confirm(Confirm::new(title, confirmed).message(message).confirm_label(label).danger())
     }
 
+    /// Asks whether to put an entry of the trash back under another name, because its own name is
+    /// taken again where it came from.
+    ///
+    /// Nothing there is overwritten either way, which is why this is not a question of danger: the
+    /// entry goes back either not at all or under the name offered here.
+    fn ask_restore<Msg: Clone + Send + 'static>(&self, key: &str, free: &str, wrap: &Wrap<Msg>) -> Command<Msg> {
+        let Some(entry) = self.trashed.get(key) else { return Command::none() };
+        let (title, message) = (
+            crate::t!("quvyta.file-manager.restore-clash-title", name = entry.label.as_str()),
+            crate::t!("quvyta.file-manager.restore-clash-text", free = free),
+        );
+        let label = crate::t!("quvyta.file-manager.restore-as", name = free);
+        let confirmed = wrap(FileManagerMsg::RestoreAs(key.to_owned(), free.to_owned()));
+        Command::confirm(Confirm::new(title, confirmed).message(message).confirm_label(label))
+    }
+
+    /// Asks before deleting entries of the trash for good: there is no trash behind this one.
+    ///
+    /// A folder says it takes everything in it along, as a delete of a folder of the root does.
+    fn ask_purge<Msg: Clone + Send + 'static>(&self, keys: Vec<String>, wrap: &Wrap<Msg>) -> Command<Msg> {
+        let held: Vec<&Trashed> = keys.iter().filter_map(|key| self.trashed.get(key)).collect();
+        let (title, message) = match held.as_slice() {
+            [] => return Command::none(),
+            [entry] => (
+                crate::t!("quvyta.file-manager.purge-title", name = entry.label.as_str()),
+                crate::t!("quvyta.file-manager.purge-text", name = entry.label.as_str()),
+            ),
+            many => (
+                crate::t!("quvyta.file-manager.purge-many-title", n = many.len()),
+                crate::t!("quvyta.file-manager.purge-many-text", n = many.len()),
+            ),
+        };
+        let label = if held.len() > 1 {
+            crate::t!("quvyta.file-manager.delete-permanently-many", n = held.len())
+        } else {
+            crate::t!("quvyta.file-manager.delete-permanently")
+        };
+        let confirmed = wrap(FileManagerMsg::PurgeConfirmed(keys));
+        Command::confirm(Confirm::new(title, confirmed).message(message).confirm_label(label).danger())
+    }
+
+    /// Asks before emptying the trash: every entry in it goes for good, and there is nothing behind
+    /// this one to put them back.
+    fn ask_empty<Msg: Clone + Send + 'static>(&self, wrap: &Wrap<Msg>) -> Command<Msg> {
+        if self.trashed.is_empty() {
+            return Command::none();
+        }
+        let title = crate::t!("quvyta.file-manager.empty-title");
+        let message = crate::t!("quvyta.file-manager.empty-text", n = self.trashed.len());
+        let label = crate::t!("quvyta.file-manager.empty-trash");
+        let confirmed = wrap(FileManagerMsg::EmptyTrashConfirmed);
+        Command::confirm(Confirm::new(title, confirmed).message(message).confirm_label(label).danger())
+    }
+
     /// Runs a file operation for each of `items` on a background thread, one after the other: a
     /// move of several entries is done in the order they were given, so a clash between two of
     /// them is decided the same way every time.
@@ -1565,6 +1917,25 @@ impl FileManagerState {
     ) -> Command<Msg> {
         let (root, wrap) = (self.root.clone(), Arc::clone(wrap));
         Command::perform(move || wrap(FileManagerMsg::Done(items.iter().map(|item| work(&root, item)).collect())))
+    }
+
+    /// Runs a trash operation for each of `items` on a background thread, one after the other.
+    ///
+    /// The folder every operation works in is the trash's own rather than the root's, and the items
+    /// are the names the entries have there. Where there is no trash, nothing is done: there is
+    /// nothing to restore and nothing to empty.
+    fn run_in_trash<Msg: Clone + Send + 'static>(
+        &self,
+        items: Vec<String>,
+        wrap: &Wrap<Msg>,
+        work: impl Fn(&Path, &str) -> (String, Result<FileChange, FileError>) + Send + 'static,
+    ) -> Command<Msg> {
+        let Some(trash) = self.trash.folder() else { return Command::none() };
+        if items.is_empty() {
+            return Command::none();
+        }
+        let wrap = Arc::clone(wrap);
+        Command::perform(move || wrap(FileManagerMsg::Done(items.iter().map(|item| work(&trash, item)).collect())))
     }
 
     /// Takes what the operations changed: the manager follows it, the folders they touched are
@@ -1580,11 +1951,20 @@ impl FileManagerState {
         let mut arrived = Vec::new();
         let mut refused = Vec::new();
         let mut without_trash = Vec::new();
+        let mut clashes = Vec::new();
+        let mut emptied = false;
         for (key, result) in results {
             match result {
                 // The trash could not take it, so the person is asked about that one entry instead
                 // of being told off: it is a limit of the trash, not a mistake of theirs.
                 Err(FileError::NoTrash) => without_trash.push(key),
+                // A name that is taken again is not a refusal but a question with a name that is
+                // free there: nothing of the person's is overwritten either way. One entry on its own
+                // is asked about; several are refused with the reason, because a question is one
+                // dialog and a name is given to one entry at a time.
+                Err(FileError::TakenAs(free)) if total == 1 && self.trashed.contains_key(&key) => {
+                    clashes.push((key, free));
+                }
                 Err(error) => refused.push((key, error)),
                 Ok(FileChange::Copied(key)) => {
                     // The copy is selected, so the folder it went into opens to show it, as a
@@ -1620,8 +2000,31 @@ impl FileManagerState {
                     arrived.push(to);
                 }
                 Ok(FileChange::Deleted(key)) => {
+                    let purged = self.trashed.remove(&key).is_some();
                     self.forget(&key);
-                    touched.push(parent_key(&key).to_owned());
+                    // A purge takes the entry out of the trash rather than out of a folder of the
+                    // root, so it is the trash that is read again and not the root behind it.
+                    if purged {
+                        emptied = true;
+                    } else {
+                        touched.push(parent_key(&key).to_owned());
+                    }
+                }
+                Ok(FileChange::Restored(key)) => {
+                    // The entry went back to where its note said, which is often outside the root
+                    // and sometimes inside it, so the folder it came back to is read again only when
+                    // that is where it landed.
+                    let back_inside = self
+                        .trashed
+                        .get(&key)
+                        .and_then(|entry| entry.origin.as_deref())
+                        .is_some_and(|origin| origin.starts_with(&self.root));
+                    self.trashed.remove(&key);
+                    self.forget(&key);
+                    emptied = true;
+                    if back_inside {
+                        touched.push(ROOT.to_owned());
+                    }
                 }
             }
         }
@@ -1631,10 +2034,16 @@ impl FileManagerState {
         }
         touched.sort();
         touched.dedup();
-        // An entry the trash could not take is asked about, not counted among the refusals.
-        let total = total - without_trash.len();
+        // An entry the trash could not take, and one whose name is taken again, are asked about rather
+        // than counted among the refusals.
+        let total = total - without_trash.len() - clashes.len();
         let asked = self.ask_delete_forever(without_trash, wrap);
-        Command::batch([refusal(total, &refused), asked, self.reread(touched, wrap)])
+        let about_name = Command::batch(clashes.iter().map(|(key, free)| self.ask_restore(key, free, wrap)));
+        let read = match self.trash.folder() {
+            Some(trash) if emptied => self.read_trash(&trash, wrap),
+            _ => Command::none(),
+        };
+        Command::batch([refusal(total, &refused), asked, about_name, self.reread(touched, wrap), read])
     }
 }
 

@@ -42,6 +42,9 @@ impl Demo {
         let ecosystem = Ecosystem::QUVYTA;
         // An application passes `ecosystem.preferences(APP, &i18n)`; the demo keeps to a folder of its own.
         let preferences = ecosystem.preferences_in(&folder, APP, &I18n::builtin());
+        // An application with no folder of its own asks for the same values with no file behind
+        // them, `Preferences::detected(&i18n)`, and keeps them in memory: the rows below are told
+        // so with `without_saving()`, and its own keys with `Settings::in_memory()`.
         // `updates_in_background` is what an application whose settings folder is slow asks for: the
         // update notice's file is written off the drawing thread and the outcome comes back as a
         // message of the application's own.

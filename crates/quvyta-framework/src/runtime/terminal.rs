@@ -36,8 +36,16 @@ use crate::storage::{Ecosystem, Preferences, Settings};
 
 /// How long the loop sleeps when nothing is animating and no background work is running.
 const IDLE_WAIT: Duration = Duration::from_millis(500);
-/// How often finished background work is picked up.
-const TASK_WAIT: Duration = Duration::from_millis(20);
+/// How often a clipboard read in progress is looked at. Background work needs no such pace: its
+/// every delivery wakes the loop itself.
+const CLIPBOARD_WAIT: Duration = Duration::from_millis(20);
+
+#[cfg(test)]
+thread_local! {
+    /// How many times the loop of this thread went to wait, for the tests that count how often an
+    /// idle application wakes.
+    pub(crate) static WAITS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 
 /// Configures and runs an application in the terminal.
 pub struct Runtime<A: App> {
@@ -450,8 +458,8 @@ fn event_loop<A: App>(
         if let Some(deadline) = engine.ending_deadline() {
             wait = wait.min(deadline.saturating_sub(now));
         }
-        if engine.pending_tasks > 0 || (!gone && engine.clipboard_reader.is_reading()) {
-            wait = wait.min(TASK_WAIT);
+        if !gone && engine.clipboard_reader.is_reading() {
+            wait = wait.min(CLIPBOARD_WAIT);
         }
         if let Some(deadline) = clipboard.deadline().filter(|_| !gone) {
             wait = wait.min(deadline.saturating_sub(now));
@@ -465,6 +473,8 @@ fn event_loop<A: App>(
         if (engine.dirty && held.is_none() && !gone) || engine.has_queued_work() {
             wait = Duration::ZERO;
         }
+        #[cfg(test)]
+        WAITS.with(|waits| waits.set(waits.get() + 1));
         if gone {
             signals.wait(wait, false)?;
             continue;

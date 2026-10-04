@@ -26,6 +26,10 @@
 //!
 //! [`Ecosystem::set`] changes one key for the whole ecosystem or for one application, and
 //! [`Ecosystem::follow`] puts one application back on the ecosystem's value without touching it.
+//!
+//! An application with no folder of its own — a desktop session on a machine that has no home
+//! folder — takes the same detected values from [`Preferences::detected`] and keeps them in memory
+//! only, as [`Settings::in_memory`] does for the keys of its own.
 
 use std::fs;
 use std::io;
@@ -144,7 +148,8 @@ pub struct Resolved<T> {
     pub source: Source,
 }
 
-/// The shared preferences as one application sees them, from [`Ecosystem::preferences`].
+/// The shared preferences as one application sees them, from [`Ecosystem::preferences`] or, for an
+/// application with no folder behind them, from [`detected`](Self::detected).
 ///
 /// ```
 /// use qframe::i18n::I18n;
@@ -170,6 +175,30 @@ pub struct Preferences {
 }
 
 impl Preferences {
+    /// The preferences this machine starts with, with no file behind them: language, theme, icons
+    /// and reduced motion each take the value [`Ecosystem::preferences`] detects when no file holds
+    /// one, and every key is [`Source::Detected`]. Nothing is read, so nothing can be blamed and
+    /// [`diagnostics`](Self::diagnostics) is empty.
+    ///
+    /// For an application that has no folder to keep its settings in — a desktop session on a
+    /// machine without a home folder — the counterpart of [`Settings::in_memory`]: it builds its
+    /// [appearance rows](crate::widgets::Appearance::section) on this and pairs them with
+    /// [`Appearance::without_saving`](crate::widgets::Appearance::without_saving), so a change is
+    /// applied at once and written nowhere, which cannot fail.
+    ///
+    /// ```
+    /// use qframe::i18n::I18n;
+    /// use qframe::storage::{Preferences, Shared, Source};
+    ///
+    /// let prefs = Preferences::detected(&I18n::builtin());
+    /// assert_eq!(prefs.source(Shared::Theme), Source::Detected, "no file was read");
+    /// assert!(!prefs.language().value.is_empty(), "the language the machine names, or English");
+    /// ```
+    #[must_use]
+    pub fn detected(i18n: &I18n) -> Self {
+        resolved_from(&Detected::from_environment(i18n), |_| None, |_| None)
+    }
+
     /// Whether the ecosystem's applications say when a newer version of themselves is out; see
     /// [`Ecosystem::update_notice`]. One switch for the whole ecosystem, on unless it was turned off.
     #[must_use]
@@ -287,6 +316,13 @@ struct Detected {
 }
 
 impl Detected {
+    /// What this machine would choose for each shared preference, read from the process
+    /// environment: the way every resolving path reads it, with or without a folder.
+    fn from_environment(i18n: &I18n) -> Self {
+        let lookup = |name: &str| std::env::var(name).ok();
+        Self::on_this_machine(i18n, lookup, &default_font_dirs(lookup))
+    }
+
     fn on_this_machine(i18n: &I18n, lookup: impl Fn(&str) -> Option<String>, font_dirs: &[PathBuf]) -> Self {
         let language = i18n.detect(&lookup).unwrap_or_else(|| FALLBACK_LANGUAGE.to_owned());
         let icons = match detect_glyph_mode(IconMode::Auto, &lookup, font_dirs) {
@@ -341,9 +377,7 @@ impl Ecosystem {
     /// [`Settings::load_member`]; this only resolves the keys [`Shared`] names.
     #[must_use]
     pub fn preferences(&self, app: &str, i18n: &I18n) -> Preferences {
-        let lookup = |name: &str| std::env::var(name).ok();
-        let font_dirs = default_font_dirs(lookup);
-        let detected = Detected::on_this_machine(i18n, lookup, &font_dirs);
+        let detected = Detected::from_environment(i18n);
         match self.config_dir() {
             Some(dir) => self.resolve(&dir, app, &detected, Missing::Create),
             None => {
@@ -360,9 +394,7 @@ impl Ecosystem {
     /// this platform's, for a test or a demo that must leave the user's own files alone.
     #[must_use]
     pub fn preferences_in(&self, config_dir: &Path, app: &str, i18n: &I18n) -> Preferences {
-        let lookup = |name: &str| std::env::var(name).ok();
-        let detected = Detected::on_this_machine(i18n, lookup, &default_font_dirs(lookup));
-        self.resolve(config_dir, app, &detected, Missing::Create)
+        self.resolve(config_dir, app, &Detected::from_environment(i18n), Missing::Create)
     }
 
     /// [`preferences`](Self::preferences) without writing anything: a missing shared file is left
@@ -375,9 +407,7 @@ impl Ecosystem {
     /// file for the next one.
     #[must_use]
     pub fn preferences_without_saving(&self, app: &str, i18n: &I18n) -> Preferences {
-        let lookup = |name: &str| std::env::var(name).ok();
-        let font_dirs = default_font_dirs(lookup);
-        let detected = Detected::on_this_machine(i18n, lookup, &font_dirs);
+        let detected = Detected::from_environment(i18n);
         match self.config_dir() {
             Some(dir) => self.resolve(&dir, app, &detected, Missing::Leave),
             None => resolved_from(&detected, |_| None, |_| None),
@@ -388,9 +418,7 @@ impl Ecosystem {
     /// ecosystem's folder instead of this platform's, for a test or a demo.
     #[must_use]
     pub fn preferences_without_saving_in(&self, config_dir: &Path, app: &str, i18n: &I18n) -> Preferences {
-        let lookup = |name: &str| std::env::var(name).ok();
-        let detected = Detected::on_this_machine(i18n, lookup, &default_font_dirs(lookup));
-        self.resolve(config_dir, app, &detected, Missing::Leave)
+        self.resolve(config_dir, app, &Detected::from_environment(i18n), Missing::Leave)
     }
 
     /// [`preferences_in`](Self::preferences_in) with the machine's detection read through

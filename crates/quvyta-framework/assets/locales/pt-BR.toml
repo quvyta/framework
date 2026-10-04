@@ -86,6 +86,23 @@ copy-many                = { one = "Copiar {n} item", other = "Copiar {n} itens"
 drop-copy                = "Cancelar a cópia"
 trash                    = "Mover para a lixeira"
 trash-many               = { one = "Mover {n} item para a lixeira", other = "Mover {n} itens para a lixeira" }
+trash-place              = "Lixeira"
+leave-trash             = "Voltar para a pasta"
+open-trash               = "Abrir a lixeira"
+restore                  = "Restaurar"
+restore-many             = { one = "Restaurar {n} item", other = "Restaurar {n} itens" }
+restore-as               = "Restaurar como {name}"
+restore-clash-title      = "{name} está no caminho"
+restore-clash-text       = "Já existe algo com esse nome, então ele pode voltar como {free}. Nada que está lá será sobrescrito."
+delete-permanently       = "Excluir permanentemente"
+delete-permanently-many  = { one = "Excluir {n} item definitivamente", other = "Excluir {n} itens definitivamente" }
+purge-title              = "Excluir {name} definitivamente?"
+purge-text               = "{name} será excluído da lixeira, junto com todo o seu conteúdo. Isso não pode ser desfeito."
+purge-many-title         = { one = "Excluir {n} item da lixeira definitivamente?", other = "Excluir {n} itens da lixeira definitivamente?" }
+purge-many-text          = "Os {n} itens serão excluídos da lixeira, junto com todo o conteúdo das pastas. Isso não pode ser desfeito."
+empty-trash              = "Esvaziar lixeira"
+empty-title              = "Esvaziar a lixeira?"
+empty-text               = { one = "O item da lixeira será excluído definitivamente. Isso não pode ser desfeito.", other = "Os {n} itens da lixeira serão excluídos definitivamente. Isso não pode ser desfeito." }
 delete-forever           = "Excluir de vez"
 no-trash-title           = "Excluir {name} de vez?"
 no-trash-text            = "Não há lixeira para {name}, então ele não pode ser guardado de lado. Excluir não pode ser desfeito."
@@ -94,6 +111,8 @@ no-trash-many-text       = "Não há lixeira para eles, então não podem ser gu
 not-readable             = "Você não pode ver o que há nesta pasta."
 missing                  = "Isso não está mais aí."
 no-trash                 = "Não há lixeira para onde isso possa ir."
+no-origin                = "Nada indica de onde isto veio, por isso não é possível colocá-lo de volta."
+taken-as                 = "Já existe algo com esse nome, então ele pode voltar como {free}; nada que está lá será sobrescrito."
 no-room                  = "Não há mais espaço no disco."
 stopped                  = "Você parou isso, e o que já havia sido escrito foi removido."
 copying                  = { one = "Copiando {n} item", other = "Copiando {n} itens" }
@@ -105,6 +124,8 @@ column-name              = "Nome"
 column-size              = "Tamanho"
 column-modified          = "Alterado"
 column-permissions       = "Permissões"
+column-from              = "De"
+origin-unknown           = "desconhecido"
 reading                  = "Lendo a pasta"
 entries                  = { one = "{n} item", other = "{n} itens" }
 up                       = "Subir uma pasta"

@@ -54,6 +54,23 @@ impl Scope {
     }
 }
 
+/// Global actions the runtime answers itself wherever the keys are given: quitting, the focus
+/// moves, the debug layer, the clipboard keys and the side panels. Other global actions, such as
+/// `help` and `palette`, are passed to [`App::action`](crate::runtime::App::action) and are the
+/// application's own, which is what makes them different here.
+///
+/// One list, read by the router and by a widget asking
+/// [`EventCx::is_reserved`](crate::widget::EventCx::is_reserved), so the two cannot disagree
+/// about which keys are the runtime's.
+const RUNTIME_ACTIONS: [&str; 7] = ["quit", "focus-next", "focus-prev", "debug", "copy", "paste", "toggle-panel"];
+
+/// Whether `action` is a global action the runtime handles itself, rather than one it hands to
+/// the application.
+#[must_use]
+pub(crate) fn is_runtime_action(action: &str) -> bool {
+    RUNTIME_ACTIONS.contains(&action)
+}
+
 /// Actions and the chords that trigger them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Keymap {

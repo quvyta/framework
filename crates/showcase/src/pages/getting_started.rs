@@ -20,6 +20,8 @@ pub struct State {
     folder: folder::Screen,
     /// The terminal size, as `App::resized` reported it.
     size: Size,
+    /// The size of one cell in pixels, as `App::cell_pixels` reported it.
+    cell: Option<(u16, u16)>,
     /// Whether quitting asks first.
     ask_before_quit: bool,
     /// The pace the showcase draws at, as the playground set it.
@@ -34,6 +36,7 @@ pub enum Msg {
     Reset,
     Folder(folder::Msg),
     Resized(Size),
+    Cell(Option<(u16, u16)>),
     AskBeforeQuit(bool),
     QuitAsked,
     Terminating(Termination),
@@ -117,10 +120,10 @@ fn pace(state: &State, ui: &mut View<'_, AppMsg>) {
 
 // region: graphics
 /// The way this terminal can show a picture, as the runtime asked it at start and the rules of
-/// `Env::graphics` weighed the answer, and the pixels of one of its cells.
-fn graphics(ui: &mut View<'_, AppMsg>) {
+/// `Env::graphics` weighed the answer, and the pixels of one of its cells as `App::cell_pixels`
+/// reported it.
+fn graphics(cell: Option<(u16, u16)>, ui: &mut View<'_, AppMsg>) {
     let graphics = ui.env().graphics();
-    let cell = ui.env().cell_pixels();
     ui.add_with(Panel::new().title(t!("getting-started.terminal")).gap(0), |ui| {
         setting(ui, t!("getting-started.graphics"), |ui| {
             let name = t!(&format!("getting-started.graphics-{}", graphics.name()));
@@ -129,15 +132,28 @@ fn graphics(ui: &mut View<'_, AppMsg>) {
         ui.add(Text::new(t!("getting-started.graphics-hint")).role("faint"));
         ui.add(Text::new(t!("getting-started.graphics-override-hint")).role("faint"));
         setting(ui, t!("getting-started.cell"), |ui| {
-            let size = match cell {
-                Some((width, height)) => t!("getting-started.cell-value", width = width, height = height),
-                None => t!("getting-started.cell-none"),
-            };
-            ui.add(Text::new(size).role("title").no_wrap()).id("cell");
+            ui.add(Text::new(cell_text(cell)).role("title").no_wrap()).id("cell");
         });
         ui.add(Text::new(t!("getting-started.cell-hint")).role("faint"));
     })
     .fill_width();
+}
+// endregion
+
+// region: cell
+/// Hears the size of one cell in pixels whenever it changes: at start, and again after every
+/// change of font size, which leaves the columns and rows as they were. `update` keeps it, where a
+/// picture would be decoded again at the size the terminal now shows.
+pub fn cell_pixels(cell: Option<(u16, u16)>) -> Option<AppMsg> {
+    Some(send(Msg::Cell(cell)))
+}
+
+/// The size of a cell as the terminal panel shows it and the event log writes it.
+fn cell_text(cell: Option<(u16, u16)>) -> String {
+    match cell {
+        Some((width, height)) => t!("getting-started.cell-value", width = width, height = height),
+        None => t!("getting-started.cell-none"),
+    }
 }
 // endregion
 
@@ -239,6 +255,11 @@ pub fn update(state: &mut State, message: Msg, log: &mut EventLog) -> Command<Ap
             log.push(PAGE, "App::resized", format!("{} × {}", size.width, size.height));
             return Command::none();
         }
+        Msg::Cell(cell) => {
+            state.cell = cell;
+            log.push(PAGE, "App::cell_pixels", cell_text(cell));
+            return Command::none();
+        }
         Msg::Pace(pace) => {
             state.pace = pace;
             log.push(PAGE, "App::frame_limit", format!("{pace:?}"));
@@ -321,7 +342,7 @@ pub fn view(state: &State, ui: &mut View<'_, AppMsg>) {
     .fill_width();
 
     pace(state, ui);
-    graphics(ui);
+    graphics(state.cell, ui);
 }
 // endregion
 
@@ -431,17 +452,24 @@ mod tests {
     }
 
     #[test]
-    fn the_terminal_panel_shows_the_cell_size_and_follows_it() {
+    fn the_terminal_panel_shows_the_cell_size_the_hook_heard_and_follows_it() {
         let mut h = crate::tests::showcase_tall(crate::app::Showcase::new(), PAGE, 80);
         let on_the_row = |h: &Harness<crate::app::Showcase>, value: &str| {
             let row = |text: &str| h.find(text).map(|(_, y)| y);
             row("Cell size").is_some() && row(value) == row("Cell size")
         };
         assert!(on_the_row(&h, "Not reported"), "a test asks no terminal: {}", h.screen());
+        // The panel shows what `App::cell_pixels` reported, not what the environment holds.
         h.set_cell_pixels(Some((9, 19)));
+        assert_eq!(h.app().pages.getting_started.cell, Some((9, 19)));
         assert!(on_the_row(&h, "9 × 19 pixels"), "{}", h.screen());
+        assert!(h.screen().contains("App::cell_pixels"), "the event log shows the hook: {}", h.screen());
         h.set_cell_pixels(Some((13, 27)));
+        assert_eq!(h.app().pages.getting_started.cell, Some((13, 27)), "a larger font");
         assert!(on_the_row(&h, "13 × 27 pixels"), "a larger font: {}", h.screen());
+        h.set_cell_pixels(None);
+        assert_eq!(h.app().pages.getting_started.cell, None, "a terminal that stops reporting one is heard too");
+        assert!(on_the_row(&h, "Not reported"), "{}", h.screen());
     }
 
     #[test]
